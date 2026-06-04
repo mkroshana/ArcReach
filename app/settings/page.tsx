@@ -99,8 +99,8 @@ export default function SettingsPage() {
 
   // API Keys state
   const [apiKeys, setApiKeys] = useState<ApiKeyItem[]>([
-    { id: 'key-1', name: 'Production API Main Relay', key: 'arc_pk_live_d817f2g9h3k8l9m0n1p2q3r4s5t6', role: 'Admin (Full Access)', created: '2026-05-10', lastUsed: '3 hours ago' },
-    { id: 'key-2', name: 'Webhook Event Dispatch Sandbox', key: 'arc_sk_test_9fa8b7c6d5e4f3a2b1c2d3e4f5a6', role: 'Read-Only Access', created: '2026-06-01', lastUsed: 'Just now' }
+    { id: 'key-1', name: 'Production API Main Relay', key: process.env.NEXT_PUBLIC_RELAY_API_KEY || 'arc_pk_live_placeholder_key_value_12345', role: 'Admin (Full Access)', created: '2026-05-10', lastUsed: '3 hours ago' },
+    { id: 'key-2', name: 'Webhook Event Dispatch Sandbox', key: process.env.NEXT_PUBLIC_SANDBOX_API_KEY || 'arc_sk_test_placeholder_key_value_12345', role: 'Read-Only Access', created: '2026-06-01', lastUsed: 'Just now' }
   ]);
   const [newKeyName, setNewKeyName] = useState('');
   const [newKeyRole, setNewKeyRole] = useState('Admin (Full Access)');
@@ -212,7 +212,7 @@ export default function SettingsPage() {
 
   // Webhooks state
   const [webhooks, setWebhooks] = useState<WebhookItem[]>([
-    { id: 'wh-1', url: 'https://api.crm-client.com/webhooks/arcreach', events: ['lead.replied', 'email.bounced'], secret: 'whsec_e9a182c38d4f7281', created: '2026-05-20' }
+    { id: 'wh-1', url: 'https://api.crm-client.com/webhooks/arcreach', events: ['lead.replied', 'email.bounced'], secret: process.env.NEXT_PUBLIC_CRM_WEBHOOK_SECRET || 'whsec_placeholder_secret_key_12345', created: '2026-05-20' }
   ]);
   const [newWebhookUrl, setNewWebhookUrl] = useState('');
   const [newWhEvents, setNewWhEvents] = useState<string[]>(['lead.replied']);

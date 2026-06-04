@@ -1,0 +1,320 @@
+'use client';
+
+import { Search, MoreVertical, CornerUpLeft, Send, Trash2, MailOpen, Pause, FileText, ChevronDown, X } from 'lucide-react';
+import { useState } from 'react';
+
+const mockInbox = [
+  { id: 1, sender: 'Emily Rogers', email: 'emily.r@starkind.com', subject: 'Re: Interested in the new platform', preview: 'Yes, we would love to schedule a demo for next week. Does Tuesday work for...', time: '10:42 AM', unread: true, status: 'Interested' },
+  { id: 2, sender: 'Bruce Wayne', email: 'contact@wayne-ent.com', subject: 'Re: Your Q3 update', preview: 'Could you share more details about the security features you mentioned?', time: 'Yesterday', unread: false, status: 'Neutral' },
+  { id: 3, sender: 'Sarah Jenkins', email: 'sarah.j@globex.io', subject: 'Following up on our call', preview: 'Thanks for the chat. I have forwarded the proposal to our procurement team.', time: 'Mon', unread: false, status: 'Meeting Booked' },
+  { id: 4, sender: 'John Doe', email: 'john.doe@acpecorp.com', subject: 'Re: Early Acccess', preview: 'I am getting an error when I try to login. Can you help me reset my password?', time: 'May 12', unread: false, status: 'Bounced' },
+];
+
+const statusColors: Record<string, string> = {
+  'Interested': 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900/30',
+  'Not Interested': 'bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-900/30',
+  'Meeting Booked': 'bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-900/30',
+  'Out of Office': 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-500 border-amber-200 dark:border-amber-900/30',
+  'Bounced': 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700',
+  'Neutral': 'bg-sky-50 dark:bg-sky-950/30 text-sky-700 dark:text-sky-300 border-sky-205 dark:border-sky-900/30'
+};
+
+export default function UniboxPage() {
+  const [selectedId, setSelectedId] = useState(1);
+  const [showStatusDropdown, setShowStatusDropdown] = useState(false);
+  const [showTemplateMenu, setShowTemplateMenu] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [toastMessage, setToastMessage] = useState('');
+
+  const showToast = (message: string) => {
+    setToastMessage(message);
+    setTimeout(() => setToastMessage(''), 3000);
+  };
+  
+  // Stateful inbox list to support full interactive CRM functionality
+  const [inboxList, setInboxList] = useState(mockInbox.map(item => ({
+    ...item,
+    paused: false,
+  })));
+
+  // Maintain text inputs individually for each conversation thread
+  const [drafts, setDrafts] = useState<Record<number, string>>({});
+
+  const selectedEmail = inboxList.find(e => e.id === selectedId);
+
+  const currentReplyText = selectedEmail ? (drafts[selectedEmail.id] || '') : '';
+
+  const setReplyText = (newText: string) => {
+    if (!selectedEmail) return;
+    setDrafts(prev => ({ ...prev, [selectedEmail.id]: newText }));
+  };
+
+  const templatesList = [
+    { name: 'Arrange Quick Call', text: "Hi {{firstName}},\n\nI'd love to chat. Would Tuesday at 2 PM EST work for a brief 10-minute introduction call?\n\nBest,\nJohn" },
+    { name: 'SaaS Demo Setup', text: "Hi {{firstName}},\n\nAwesome to hear. Here is our direct booking calendar link to choose any open slot that works for you: [Calendar Link]\n\nI look forward to our presentation!\n\nBest,\nJohn" },
+    { name: 'Case Study Sharing', text: "Hey {{firstName}},\n\nNo problem! I've attached our Q2 case study deck below. Let me know if those metrics sync up with what you're trying to build at company.\n\nTake care,\nJohn" }
+  ];
+
+  const handleInsertTemplate = (templateText: string) => {
+    if (!selectedEmail) return;
+    const resolvedName = selectedEmail.sender.split(' ')[0] || 'there';
+    const resolved = templateText.replace(/\{\{firstName\}\}/g, resolvedName);
+    setReplyText(resolved);
+    setShowTemplateMenu(false);
+  };
+
+  const handleUpdateStatus = (status: string) => {
+    setInboxList(prev => prev.map(item => {
+      if (item.id === selectedId) {
+        return { ...item, status };
+      }
+      return item;
+    }));
+    setShowStatusDropdown(false);
+  };
+
+  const handleTogglePause = () => {
+    setInboxList(prev => prev.map(item => {
+      if (item.id === selectedId) {
+        return { ...item, paused: !item.paused };
+      }
+      return item;
+    }));
+  };
+
+  const filteredInbox = inboxList.filter(item => 
+    item.sender.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    item.subject.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    item.preview.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  return (
+    <div className="h-[calc(100vh-6rem)] flex gap-4 animate-in fade-in duration-500">
+      {/* Left Pane: Inbox List */}
+      <div className="w-80 shrink-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl flex flex-col overflow-hidden shadow-xs">
+        <div className="p-4 border-b border-slate-200 dark:border-slate-800/80 bg-slate-50/20 dark:bg-slate-950/20">
+          <h2 className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-widest mb-3 flex items-center justify-between">
+            Unibox Inbox
+            <span className="bg-blue-600 text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full font-mono">
+              {inboxList.filter(e => e.unread).length} NEW
+            </span>
+          </h2>
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
+            <input 
+              type="text" 
+              placeholder="Search contacts..." 
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-805 text-xs rounded-lg pl-9 pr-4 py-2 outline-none focus:ring-2 focus:ring-blue-500/30 placeholder:text-slate-400 dark:placeholder:text-slate-500 text-slate-800 dark:text-white"
+            />
+          </div>
+        </div>
+        
+        <div className="flex-1 overflow-y-auto p-2 space-y-1 bg-white dark:bg-slate-900/40">
+          {filteredInbox.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => setSelectedId(item.id)}
+              className={`w-full text-left p-3.5 rounded-lg transition-all border block relative ${
+                selectedId === item.id 
+                  ? 'bg-blue-50/65 dark:bg-blue-950/20 border-blue-200 dark:border-blue-500/25 shadow-xs' 
+                  : 'bg-transparent border-transparent hover:bg-slate-50/80 dark:hover:bg-slate-800/40'
+              }`}
+            >
+              <div className="flex justify-between items-start mb-1">
+                <span className={`text-xs font-bold ${item.unread ? 'text-slate-900 dark:text-white' : 'text-slate-700 dark:text-slate-350'}`}>{item.sender}</span>
+                <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 font-medium">{item.time}</span>
+              </div>
+              <div className="flex justify-between items-center mb-1.5">
+                 <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate mr-2 w-40">{item.subject}</div>
+                 <div className="flex items-center gap-1 shrink-0">
+                   {item.paused && (
+                     <span className="text-[8px] bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 font-bold px-1.5 py-0.5 rounded border border-rose-200 dark:border-rose-900/30">PAUSED</span>
+                   )}
+                   <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded border uppercase tracking-wider ${statusColors[item.status]}`}>
+                      {item.status}
+                   </span>
+                 </div>
+              </div>
+              <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate w-[94%] leading-snug font-medium">{item.preview}</div>
+              {item.unread && (
+                <div className="absolute left-1.5 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-blue-500" />
+              )}
+            </button>
+          ))}
+          {filteredInbox.length === 0 && (
+            <div className="text-center py-10 text-slate-400 dark:text-slate-500 text-xs font-medium">
+              No matching records.
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Right Pane: Conversation Thread */}
+      <div className="flex-1 bg-white dark:bg-slate-900 border border-slate-201 dark:border-slate-800 rounded-xl flex flex-col overflow-hidden relative shadow-xs">
+        {selectedEmail ? (
+          <>
+            {/* Thread Header */}
+            <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex justify-between items-start bg-slate-50/20 dark:bg-slate-950/10">
+              <div>
+                <h2 className="text-base font-bold text-slate-900 dark:text-white mb-2 leading-tight">{selectedEmail.subject}</h2>
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex items-center justify-center text-blue-650 dark:text-blue-400 font-bold text-xs shadow-xs">
+                    {selectedEmail.sender.charAt(0)}
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                       {selectedEmail.sender}
+                       {selectedEmail.paused && (
+                         <span className="text-[9px] bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/30 px-2 py-0.5 rounded font-bold uppercase tracking-wider">PAUSED SEQUENCE</span>
+                       )}
+                    </div>
+                    <div className="text-[10px] text-slate-400 dark:text-slate-500 font-mono mt-0.5">{selectedEmail.email}</div>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="flex flex-col items-end gap-2 shrink-0">
+                <div className="flex gap-1.5 relative">
+                    <button 
+                        onClick={handleTogglePause}
+                        className={`p-1.5 rounded-lg transition-colors border shadow-xs ${
+                          selectedEmail.paused 
+                            ? 'bg-rose-50 dark:bg-rose-950/20 hover:bg-rose-100 dark:hover:bg-rose-950/30 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-900/30' 
+                            : 'bg-white dark:bg-slate-950 hover:bg-slate-50 dark:hover:bg-slate-850 border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400'
+                        }`} 
+                        title={selectedEmail.paused ? "Resume Lead Sequence" : "Pause Lead Sequence"}
+                    >
+                        <Pause className="w-3.5 h-3.5" />
+                    </button>
+                    <div className="relative">
+                        <button 
+                            onClick={() => setShowStatusDropdown(!showStatusDropdown)}
+                            className={`flex items-center gap-1 px-2.5 py-1.2 rounded-lg border text-[10px] font-bold shadow-xs ${statusColors[selectedEmail.status]}`}
+                        >
+                            <span className="uppercase tracking-wider">{selectedEmail.status}</span>
+                            <ChevronDown className="w-3 h-3" />
+                        </button>
+                        {showStatusDropdown && (
+                            <div className="absolute right-0 top-full mt-1.5 w-44 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl overflow-hidden z-20 animate-in fade-in slide-in-from-top-2 duration-150">
+                                {Object.keys(statusColors).map(status => (
+                                    <button 
+                                        key={status}
+                                        onClick={() => handleUpdateStatus(status)}
+                                        className="w-full text-left px-3.5 py-2 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850/60 transition-colors font-medium"
+                                    >
+                                        {status}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+                <div className="flex gap-1">
+                    <button className="p-1.5 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>
+                    <button className="p-1.5 text-slate-400 hover:text-slate-900 dark:hover:text-white rounded transition-colors"><MoreVertical className="w-3.5 h-3.5" /></button>
+                </div>
+              </div>
+            </div>
+
+            {/* Thread Content */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-slate-50/30 dark:bg-slate-950/10">
+              {/* Previous Email in Thread */}
+              <div className="flex gap-3 opacity-65">
+                <div className="w-7 h-7 rounded-md bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center text-slate-400 dark:text-slate-400 text-[10px] font-bold shrink-0 shadow-xs">Y</div>
+                <div className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800/80 p-3.5 rounded-lg rounded-tl-sm text-xs text-slate-650 dark:text-slate-300 leading-relaxed font-sans shadow-2xs">
+                  Hi {selectedEmail.sender.split(' ')[0]},<br/><br/>
+                  We are excited to share our Q3 product update with you. We&apos;ve added several new features that we think you&apos;ll love.<br/><br/>
+                  Best,<br/>The ArcReach Team
+                </div>
+              </div>
+
+              {/* Current Email */}
+              <div className="flex gap-3">
+                <div className="w-7 h-7 rounded-md bg-white dark:bg-slate-950 border border-slate-220 dark:border-slate-800 flex items-center justify-center text-blue-650 dark:text-blue-400 text-[10px] font-bold shrink-0 shadow-xs">
+                  {selectedEmail.sender.charAt(0)}
+                </div>
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-750 p-4 rounded-lg rounded-tl-sm text-xs text-slate-800 dark:text-white leading-relaxed font-sans shadow-xs">
+                  {selectedEmail.preview}<br/><br/>
+                  Looking forward to hearing from you.
+                </div>
+              </div>
+            </div>
+
+            {/* Reply Editor */}
+            <div className="p-4 bg-slate-50/50 dark:bg-slate-950/20 border-t border-slate-200 dark:border-slate-800 bg-white">
+              <div className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800/80 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-blue-500/20 transition-all shadow-xs">
+                <div className="px-3.5 py-2 bg-slate-100 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800/80 flex items-center gap-1.5 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest font-mono">
+                  <CornerUpLeft className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
+                  Reply to {selectedEmail.sender.split(' ')[0]}
+                </div>
+                <textarea 
+                  value={currentReplyText}
+                  onChange={(e) => setReplyText(e.target.value)}
+                  className="w-full p-4 h-24 resize-none outline-none text-slate-800 dark:text-white text-xs placeholder:text-slate-400 dark:placeholder:text-slate-500 bg-transparent leading-relaxed font-mono"
+                  placeholder="Type your reply here, or insert matching template..."
+                ></textarea>
+                
+                <div className="p-2.5 border-t border-slate-200 dark:border-slate-800/80 bg-white dark:bg-slate-900 flex justify-between items-center relative z-10">
+                  <div className="relative">
+                    <button 
+                      onClick={() => setShowTemplateMenu(!showTemplateMenu)}
+                      className="hover:text-blue-700 dark:hover:text-white text-blue-650 dark:text-blue-400 font-bold flex items-center gap-1.5 bg-blue-50 dark:bg-blue-500/10 px-3 py-1.5 rounded-lg text-[10px] uppercase border border-blue-150 dark:border-blue-500/20 transition-all shadow-2xs font-sans"
+                    >
+                        <FileText className="w-3.5 h-3.5" />
+                        Templates
+                    </button>
+                    
+                    {showTemplateMenu && (
+                      <div className="absolute left-0 bottom-full mb-1.5 w-64 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-2 shadow-2xl z-30 animate-in slide-in-from-bottom-2 duration-150">
+                        <p className="text-[9px] uppercase font-bold text-slate-400 dark:text-slate-500 px-2 py-1.5 tracking-widest border-b border-slate-100 dark:border-slate-800 mb-1">CRM template select</p>
+                        <div className="space-y-0.5">
+                          {templatesList.map(template => (
+                            <button 
+                              key={template.name}
+                              onClick={() => handleInsertTemplate(template.text)}
+                              className="w-full text-left p-2 rounded-md hover:bg-slate-50 dark:hover:bg-slate-850 text-slate-700 dark:text-slate-350 transition-colors block border border-transparent hover:border-slate-200 dark:hover:border-slate-800"
+                            >
+                              <div className="font-bold text-xs text-slate-905 dark:text-white">{template.name}</div>
+                              <div className="text-[10px] text-slate-400 dark:text-slate-500 truncate mt-0.5 font-mono">{template.text}</div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  
+                  <button 
+                    onClick={() => {
+                      showToast(`Reply draft dispatch sent to ${selectedEmail.email}!`);
+                      setReplyText('');
+                    }}
+                    className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-1.8 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-sm"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    Dispatch Mail
+                  </button>
+                </div>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="flex-1 flex flex-col items-center justify-center text-slate-400 dark:text-slate-500">
+            <MailOpen className="w-12 h-12 mb-3 opacity-30" />
+            <p className="text-xs font-semibold uppercase tracking-wider">Select conversation to review</p>
+          </div>
+        )}
+      </div>
+
+      {toastMessage && (
+        <div className="fixed bottom-8 right-8 bg-slate-900 dark:bg-[#0c0d14] border border-slate-800 text-white px-4 py-3 rounded-lg shadow-2xl flex items-center gap-3 z-50 animate-in slide-in-from-bottom-5 text-xs">
+          <span className="font-semibold">{toastMessage}</span>
+          <button onClick={() => setToastMessage('')} className="text-slate-400 hover:text-white transition-colors">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}

@@ -1,0 +1,202 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ------------------------------------------------------
+// 1. USERS & RBAC
+// ------------------------------------------------------
+enum Role {
+  ADMIN
+  USER
+}
+
+model User {
+  id             String          @id @default(uuid())
+  email          String          @unique
+  name           String?
+  passwordHash   String
+  role           Role            @default(USER)
+  createdAt      DateTime        @default(now())
+  
+  // Ownership Relations
+  campaigns      Campaign[]
+  senderAccounts SenderAccount[]
+}
+
+// ------------------------------------------------------
+// 2. GLOBAL SETTINGS
+// ------------------------------------------------------
+model GlobalSettings {
+  id        String   @id @default(uuid())
+  smtpHost  String?
+  smtpPort  Int?
+  smtpUser  String?
+  smtpPass  String?
+  updatedAt DateTime @updatedAt
+}
+
+// ------------------------------------------------------
+// 3. SENDER ACCOUNTS & HEALTH
+// ------------------------------------------------------
+model SenderAccount {
+  id              String            @id @default(uuid())
+  emailAddress    String            @unique
+  name            String?           // Matches UI displayed sender name
+  provider        String
+  status          String            @default("Active")
+  
+  // Ownership
+  userId          String
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Granular Sending Frequency & Limits
+  minuteLimit     Int               @default(2)
+  hourlyLimit     Int               @default(40)
+  dailyLimit      Int               @default(500)
+  dailyMax        Int               @default(500)     // Matches dailyMax target in UI
+  
+  // Warmup & Deliverability Telemetry
+  warmupEnabled   Boolean           @default(false)
+  reputationScore Decimal           @default(100.0) @db.Decimal(5, 2)
+  warmupLimit     Int               @default(50)
+  warmupRamp      Int               @default(2)
+  warmupSent      Int               @default(0)       // Matches warmupSent count in UI
+  savedSpam       Int               @default(0)       // Matches savedSpam count in UI
+  savedPromo      Int               @default(0)       // Matches savedPromo count in UI
+  warmupReplies   Int               @default(0)       // Matches warmupReplies count in UI
+  
+  campaigns       Campaign[]
+  inboundReplies  InboundResponse[]
+}
+
+// ------------------------------------------------------
+// 4. CAMPAIGNS & SEQUENCES
+// ------------------------------------------------------
+model Campaign {
+  id              String               @id @default(uuid())
+  name            String
+  status          String               @default("Draft")
+  
+  // Ownership
+  userId          String
+  user            User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  senderAccountId String
+  senderAccount   SenderAccount        @relation(fields: [senderAccountId], references: [id], onDelete: Cascade)
+  
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  // Advanced scheduling and options (From original schema & UI elements)
+  timezone        String               @default("UTC")
+  sendSchedule    Json?                // E.g., {"days": ["Mon","Tue","Wed","Thu","Fri"], "window": {"start": "09:00", "end": "17:00"}}
+  stopOnReply     Boolean              @default(true)
+  trackOpens      Boolean              @default(true)
+  trackClicks     Boolean              @default(true)
+  
+  steps           CampaignStep[]
+  enrollments     CampaignEnrollment[]
+}
+
+model CampaignStep {
+  id         String   @id @default(uuid())
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  stepOrder  Int      // 1, 2, 3... 
+  waitDays   Int      @default(0)
+  subject    String
+  body       String   @db.Text
+  isABTest   Boolean  @default(false) // Matches AB variation trigger in UI
+}
+
+// ------------------------------------------------------
+// 5. LEADS & ENROLLMENT (The Junction Architecture)
+// ------------------------------------------------------
+enum LeadStatus {
+  Neutral
+  Interested
+  Not_Interested
+  Meeting_Booked
+  Out_of_Office
+  Bounced
+}
+
+enum LeadValidationStatus {
+  Valid
+  Invalid
+  Risky
+  Unverified
+}
+
+model Lead {
+  id               String               @id @default(uuid())
+  email            String               @unique
+  name             String?              // Unified name field matching the UI
+  company          String?              // Unified company field matching variables {{company}}
+  status           LeadStatus           @default(Neutral) // Global CRM status values
+  validationStatus LeadValidationStatus @default(Unverified) // Matches bulk verification categories
+  customVariables  Json?                // Holds extra CSV metadata cols
+  
+  enrollments      CampaignEnrollment[]
+  dispatches       EmailDispatch[]
+  replies          InboundResponse[]
+}
+
+// Junction table mapping leads globally to specific campaigns
+model CampaignEnrollment {
+  id                  String     @id @default(uuid())
+  leadId              String
+  campaignId          String
+  lead                Lead       @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  campaign            Campaign   @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  
+  status              String     @default("Active") // Enrollment status: Active, Paused, Bounced, Completed
+  enrolledAt          DateTime   @default(now())
+
+  // Sequence Execution State per campaign (moved from Lead for multiple concurrent campaigns support)
+  currentSequenceStep Int        @default(1)        // Step order tracking
+  nextActionDate      DateTime?                     // Trigger timestamp for worker scheduler
+
+  // Prevents enrolling the same lead into the same campaign twice
+  @@unique([leadId, campaignId]) 
+}
+
+// ------------------------------------------------------
+// 6. DISPATCH & EVENT TRACKING
+// ------------------------------------------------------
+model EmailDispatch {
+  id        String       @id @default(uuid())
+  leadId    String
+  lead      Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  messageId String       @unique
+  sentAt    DateTime     @default(now())
+  events    EmailEvent[]
+}
+
+model EmailEvent {
+  id         String        @id @default(uuid())
+  messageId  String
+  dispatch   EmailDispatch @relation(fields: [messageId], references: [messageId], onDelete: Cascade)
+  eventType  String
+  clickedUrl String?
+  timestamp  DateTime      @default(now())
+}
+
+// ------------------------------------------------------
+// 7. UNIBOX INBOUND REPLIES
+// ------------------------------------------------------
+model InboundResponse {
+  id              String         @id @default(uuid())
+  leadId          String
+  lead            Lead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  senderAccountId String?        // Captures which account received the inbound reply
+  senderAccount   SenderAccount? @relation(fields: [senderAccountId], references: [id], onDelete: SetNull)
+  subject         String
+  body            String         @db.Text
+  receivedAt      DateTime       @default(now())
+  unread          Boolean        @default(true)
+}

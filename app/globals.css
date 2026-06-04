@@ -1,0 +1,290 @@
+@import url('https://fonts.googleapis.com/css2?family=Google+Sans+Flex:opsz,wght@8..144,100..1000&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Google Sans Flex", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+@variant dark (&:where(.dark, .dark *));
+
+:root {
+  /* Dark mode is the absolute default */
+  --app-bg: #0a0a0f;
+  --card-bg: #0e1017;
+  --panel-bg: #12141d;
+  --border-card: #1b1c26;
+  --border-input: #1f2130;
+  --text-white: #ffffff;
+  --text-gray-350: #cbd5e1;
+  --text-gray-300: #d1d5db;
+  --text-gray-400: #94a3b8;
+  --text-gray-500: #64748b;
+  --accent-blue-bg: rgba(37, 99, 235, 0.15);
+  --accent-blue-border: rgba(37, 99, 235, 0.2);
+  --accent-blue-text: #60a5fa;
+}
+
+.light {
+  --app-bg: #f8fafc;
+  --card-bg: #ffffff;
+  --panel-bg: #f1f5f9;
+  --border-card: #e2e8f0;
+  --border-input: #cbd5e1;
+  --text-white: #0f172a;
+  --text-gray-350: #334155;
+  --text-gray-300: #1e293b;
+  --text-gray-400: #475569;
+  --text-gray-500: #64748b;
+  --accent-blue-bg: #eff6ff;
+  --accent-blue-border: #bfdbfe;
+  --accent-blue-text: #1d4ed8;
+}
+
+/* Base Body override */
+.light body {
+  background-color: var(--app-bg) !important;
+  color: var(--text-white) !important;
+}
+
+/* Background class mappings */
+.light .bg-\[\#090a10\],
+.light .bg-\[\#0a0a0f\] {
+  background-color: var(--app-bg) !important;
+}
+
+.light .bg-\[\#0c0d14\],
+.light .bg-\[\#0b0c13\],
+.light .bg-\[\#0e1017\],
+.light .bg-\[\#0e1017\]\/50 {
+  background-color: var(--card-bg) !important;
+}
+
+.light .bg-\[\#12131d\],
+.light .bg-\[\#12141d\],
+.light .bg-\[\#12141d\]\/50,
+.light .bg-\[\#12141d\]\/45,
+.light .bg-\[\#12141d\]\/44,
+.light .bg-\[\#12141d\]\/40,
+.light .bg-gray-950\/20,
+.light .bg-gray-900 {
+  background-color: var(--panel-bg) !important;
+}
+
+/* Progress-bars, Toggle backdrops and slider track overrides in light mode */
+.light .bg-gray-800 {
+  background-color: #e2e8f0 !important;
+}
+.light .bg-gray-800\/40 {
+  background-color: rgba(71, 85, 105, 0.08) !important;
+}
+
+/* Ensure Toggle checked states are correctly styled with blue/rose in light mode matches peer checked and overlays */
+.light .peer:checked ~ .peer-checked\:bg-blue-600 {
+  background-color: #2563eb !important;
+}
+.light .peer:checked ~ .peer-checked\:bg-rose-500 {
+  background-color: #f43f5e !important;
+}
+
+/* Border overrides */
+.light .border-\[\#1a1b26\],
+.light .border-\[\#1b1c26\],
+.light .border-\[\#1b1c26\]\/60 {
+  border-color: var(--border-card) !important;
+}
+
+.light .border-\[\#1f2130\],
+.light .border-\[\#1e202f\],
+.light .border-\[\#20222f\],
+.light .border-gray-700\/50 {
+  border-color: var(--border-input) !important;
+}
+
+/* Interactive hovers & states */
+.light .hover\:bg-white\/\[0\.01\]:hover,
+.light .hover\:bg-white\/\[0\.02\]:hover,
+.light .hover\:bg-white\/\[0\.03\]:hover,
+.light .hover\:bg-white\/\[0\.05\]:hover {
+  background-color: rgba(15, 23, 42, 0.04) !important;
+}
+.light .hover\:bg-\[\#1b1d28\]:hover {
+  background-color: #e2e8f0 !important;
+}
+
+/* Text class mappings */
+.light .text-white {
+  color: var(--text-white) !important;
+}
+.light .text-gray-200,
+.light .text-gray-250,
+.light .text-gray-300,
+.light .text-gray-350 {
+  color: var(--text-gray-300) !important;
+}
+.light .text-gray-400 {
+  color: var(--text-gray-400) !important;
+}
+.light .text-gray-500 {
+  color: var(--text-gray-500) !important;
+}
+
+/* Solid high-contrast text overrides for soft light status badges or colors */
+.light .text-emerald-400 {
+  color: #059669 !important;
+}
+.light .text-rose-400 {
+  color: #dc2626 !important;
+}
+.light .text-amber-500,
+.light .text-amber-400 {
+  color: #d97706 !important;
+}
+.light .text-blue-400 {
+  color: #2563eb !important;
+}
+
+/* Ensure text remains pure white on dark rich core components like premium buttons so they stay modern */
+.light .bg-blue-750,
+.light .bg-blue-700,
+.light .bg-blue-650,
+.light .bg-blue-600,
+.light .bg-blue-550,
+.light .bg-blue-505,
+.light .bg-blue-500,
+.light .bg-rose-500,
+.light .bg-rose-600,
+.light .bg-emerald-500,
+.light .bg-emerald-600,
+.light button.bg-blue-600,
+.light button.bg-rose-500,
+.light a.bg-blue-600,
+.light a.bg-rose-500,
+.light .bg-blue-750 *,
+.light .bg-blue-700 *,
+.light .bg-blue-650 *,
+.light .bg-blue-600 *,
+.light .bg-blue-550 *,
+.light .bg-blue-505 *,
+.light .bg-blue-500 *,
+.light .bg-rose-500 *,
+.light .bg-rose-600 *,
+.light .bg-emerald-500 *,
+.light .bg-emerald-600 * {
+  color: #ffffff !important;
+}
+
+/* Fix text hover invisibility bug in light mode */
+.light .hover\:text-white:hover,
+.light .group-hover\:text-white,
+.light .group:hover .group-hover\:text-white {
+  color: var(--text-white) !important;
+}
+
+/* Dynamic status badge custom backgrounds in light mode so they are light-translucent with premium look */
+.light .bg-\[\#064e3b\]\/35,
+.light .bg-emerald-500\/10 {
+  background-color: #d1fae5 !important; /* Soft green */
+}
+.light .bg-\[\#1c0d12\],
+.light .bg-rose-500\/10 {
+  background-color: #fee2e2 !important; /* Soft rose red */
+}
+.light .bg-\[\#1e293b\],
+.light .bg-blue-500\/10 {
+  background-color: #dbeafe !important; /* Soft blue */
+}
+.light .bg-\[\#1c1917\],
+.light .bg-amber-500\/10 {
+  background-color: #fef3c7 !important; /* Soft amber yellow */
+}
+.light .bg-\[\#18181b\] {
+  background-color: #f1f5f9 !important; /* Soft grey */
+}
+.light .bg-\[\#1e1b4b\] {
+  background-color: #eff6ff !important; /* Soft blue */
+}
+.light .bg-\[\#9d174d\]\/10 {
+  background-color: #fce7f3 !important; /* Soft pink */
+}
+
+/* Exquisite border color customization for soft status badges in light mode */
+.light .border-emerald-500\/10,
+.light .border-emerald-500\/15,
+.light .border-emerald-500\/20 {
+  border-color: #a7f3d0 !important;
+}
+.light .border-rose-500\/10,
+.light .border-rose-500\/15 {
+  border-color: #fecaca !important;
+}
+.light .border-amber-500\/10,
+.light .border-amber-500\/15 {
+  border-color: #fde68a !important;
+}
+.light .border-blue-500\/15,
+.light .border-blue-500\/20 {
+  border-color: #bfdbfe !important;
+}
+.light .border-blue-500\/15 {
+  border-color: #bfdbfe !important;
+}
+
+/* Special element overrides (e.g., active items in navigation) */
+.light .bg-blue-600\/10,
+.light .bg-blue-505\/10,
+.light .bg-blue-505\/15,
+.light .bg-blue-500\/10 {
+  background-color: var(--accent-blue-bg) !important;
+}
+.light .border-blue-500\/10,
+.light .border-blue-550\/15,
+.light .border-blue-500\/15 {
+  border-color: var(--accent-blue-border) !important;
+}
+.light .text-blue-400,
+.light .text-blue-305,
+.light .text-blue-300,
+.light .text-blue-250 {
+  color: var(--accent-blue-text) !important;
+}
+
+/* Background grid lines custom mapping for light mode */
+.light .bg-\[\#090a10\] > div {
+  background-image: linear-gradient(to right, rgba(0, 0, 0, 0.06) 1px, transparent 1px),
+                    linear-gradient(to bottom, rgba(0, 0, 0, 0.06) 1px, transparent 1px) !important;
+  opacity: 0.6 !important;
+}
+
+.light .bg-gradient-to-b {
+  background-image: linear-gradient(to bottom, transparent, rgba(248, 250, 252, 0.6) 50%, #f8fafc) !important;
+}
+
+/* Tooltip and dropdown shadow polish for light mode */
+.light .shadow-2xl {
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.08) !important;
+}
+.light .shadow-sm {
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05) !important;
+}
+
+/* Ensure form controls (like time/date/select dropdowns) are polished in light mode */
+.light select,
+.light input,
+.light textarea {
+  color: var(--text-white) !important;
+}
+
+/* Handle some hardcoded chart SVG text/axis lines in light mode if needed */
+.light .recharts-cartesian-grid-horizontal line {
+  stroke: var(--border-card) !important;
+}
+
+/* Recharts tooltip customization in light mode */
+.light .recharts-default-tooltip {
+  background-color: var(--card-bg) !important;
+  border-color: var(--border-card) !important;
+  color: var(--text-white) !important;
+}
+.light .recharts-tooltip-item {
+  color: var(--text-white) !important;
+}

@@ -33,12 +33,18 @@ export function Sidebar() {
   const { theme, toggleTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const [session, setSessionState] = useState<any>(null);
+  const [systemStatus, setSystemStatus] = useState<any>(null);
 
   useEffect(() => {
     setMounted(true);
     fetch('/api/session')
       .then(res => res.json())
       .then(data => setSessionState(data))
+      .catch(() => {});
+
+    fetch('/api/system-status')
+      .then(res => res.json())
+      .then(data => setSystemStatus(data))
       .catch(() => {});
   }, []);
 
@@ -169,8 +175,20 @@ export function Sidebar() {
           <div className="flex items-center justify-between">
             <span className="text-xs text-slate-700 dark:text-slate-350 font-medium">ArcReach API</span>
             <div className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-              <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold font-mono uppercase">OPERATIONAL</span>
+              <span className={cn(
+                "w-1.5 h-1.5 rounded-full",
+                systemStatus?.deliveryStatus === 'OPERATIONAL' && "bg-emerald-500",
+                systemStatus?.deliveryStatus === 'STANDBY' && "bg-amber-500",
+                (systemStatus?.deliveryStatus === 'INACTIVE' || !systemStatus?.deliveryStatus) && "bg-slate-400 dark:bg-slate-600"
+              )}></span>
+              <span className={cn(
+                "text-[10px] font-bold font-mono uppercase",
+                systemStatus?.deliveryStatus === 'OPERATIONAL' && "text-emerald-600 dark:text-emerald-400",
+                systemStatus?.deliveryStatus === 'STANDBY' && "text-amber-600 dark:text-amber-400",
+                (systemStatus?.deliveryStatus === 'INACTIVE' || !systemStatus?.deliveryStatus) && "text-slate-550 dark:text-slate-400"
+              )}>
+                {systemStatus?.deliveryStatus || 'LOADING...'}
+              </span>
             </div>
           </div>
         </div>

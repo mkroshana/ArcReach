@@ -2,6 +2,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { 
   Plus, 
   CheckCircle2, 
@@ -16,7 +18,8 @@ import {
   User,
   ChevronRight,
   Sparkles,
-  Inbox
+  Inbox,
+  Trash2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -25,12 +28,15 @@ interface DbCampaign {
   name: string;
   status: 'Active' | 'Draft' | 'Paused';
   senderAccountId: string;
-  senderEmail?: string;
+  senderAccount?: {
+    emailAddress: string;
+  };
   userId: string | null;
   createdAt: string;
 }
 
 export default function CampaignsPage() {
+  const router = useRouter();
   const [campaigns, setCampaigns] = useState<DbCampaign[]>([]);
   const [accounts, setAccounts] = useState<any[]>([]);
   const [session, setSession] = useState<any>(null);
@@ -109,14 +115,38 @@ export default function CampaignsPage() {
         throw new Error(await res.text() || 'Failed to establish campaign.');
       }
 
+      const created = await res.json();
       showToast('Campaign sequence initiated successfully');
       setCampaignName('');
       setIsAddOpen(false);
-      await loadData(); // Refresh list immediately
+      
+      // Redirect to newly created campaign editor page!
+      router.push(`/campaigns/${created.id}`);
     } catch (err: any) {
       showToast(err.message || 'Error occurred', 'error');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleDeleteCampaign = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm('Are you sure you want to permanently delete this campaign? All step templates and metrics will be purged.')) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/campaigns?id=${id}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        setCampaigns(campaigns.filter(c => c.id !== id));
+        showToast('Campaign sequence deleted.');
+      } else {
+        showToast('Failed to delete campaign sequence.', 'error');
+      }
+    } catch (err) {
+      showToast('Error occurred deleting campaign.', 'error');
     }
   };
 
@@ -136,8 +166,8 @@ export default function CampaignsPage() {
             exit={{ opacity: 0, y: -20 }}
             className={`fixed top-4 right-4 z-50 flex items-center gap-3 px-4 py-3 rounded-xl border backdrop-blur-md shadow-2xl min-w-[280px] ${
               toast.type === 'success' 
-                ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-450' 
-                : 'bg-rose-500/10 border-rose-500/20 text-rose-600 dark:text-rose-450'
+                ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-455' 
+                : 'bg-rose-500/10 border-rose-500/20 text-rose-600 dark:text-rose-455'
             }`}
           >
             <CheckCircle2 className="w-5 h-5 flex-shrink-0" />
@@ -170,7 +200,7 @@ export default function CampaignsPage() {
       {/* Main Table Panel */}
       <div className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1b1c26] rounded-xl overflow-hidden shadow-xs mt-4">
         {/* Table Management Bar */}
-        <div className="p-4 border-b border-slate-200 dark:border-[#1b1c26] flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-slate-50/40 dark:bg-slate-950/20">
+        <div className="p-4 border-b border-slate-200 dark:border-[#1b1c26] flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-slate-50/40 dark:bg-slate-955/20">
           <div className="relative w-full sm:w-72">
             <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
             <input 
@@ -184,14 +214,14 @@ export default function CampaignsPage() {
           <div className="flex gap-2 w-full sm:w-auto justify-end">
             <button 
               onClick={() => showToast('Campaign criteria filters loaded')}
-              className="px-3 py-1.8 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-350 transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer"
+              className="px-3 py-1.8 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/50 border border-slate-202 dark:border-slate-800 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-350 transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer"
             >
               <Filter className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
               Filter
             </button>
             <button 
               onClick={() => showToast('Campaign stats CSV report ready for download')}
-              className="px-3 py-1.8 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-350 transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer"
+              className="px-3 py-1.8 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/50 border border-slate-202 dark:border-slate-800 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-350 transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer"
             >
               <FileSpreadsheet className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
               Export Directory CSV
@@ -201,7 +231,7 @@ export default function CampaignsPage() {
 
         {/* Structured Table */}
         {loading ? (
-          <div className="py-20 text-center text-slate-450 dark:text-slate-500 text-xs space-y-3">
+          <div className="py-20 text-center text-slate-450 dark:text-slate-550 text-xs space-y-3">
             <div className="w-6 h-6 border-2 border-slate-300 dark:border-slate-700 border-t-blue-500 animate-spin rounded-full mx-auto" />
             <p className="font-medium tracking-wide">Querying corporate campaigns list secure nodes...</p>
           </div>
@@ -209,7 +239,7 @@ export default function CampaignsPage() {
           <div className="w-full overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-slate-200 dark:border-[#1b1c26] text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest bg-slate-50/10 dark:bg-slate-950/20">
+                <tr className="border-b border-slate-200 dark:border-[#1b1c26] text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest bg-slate-50/10 dark:bg-slate-955/20">
                   <th className="px-5 py-3">Sequence Details</th>
                   <th className="px-5 py-3">Sender Mailbox Relay</th>
                   <th className="px-5 py-3">Assign Owner</th>
@@ -217,10 +247,11 @@ export default function CampaignsPage() {
                   <th className="px-5 py-3 text-right">Configure</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-[#1b1c26]/60 text-slate-700 dark:text-slate-300">
+              <tbody className="divide-y divide-slate-100 dark:divide-[#1b1c26]/60 text-slate-750 dark:text-slate-300">
                 {filteredCampaigns.map((campaign) => (
                   <tr 
                     key={campaign.id} 
+                    onClick={() => router.push(`/campaigns/${campaign.id}`)}
                     className="hover:bg-slate-50/50 dark:hover:bg-white/[0.01] transition-colors group cursor-pointer"
                   >
                     <td className="px-5 py-3.5">
@@ -228,15 +259,15 @@ export default function CampaignsPage() {
                         <Layers className="w-4 h-4 text-slate-400 dark:text-slate-505 group-hover:text-blue-500 dark:group-hover:text-blue-400 transition-colors" />
                         {campaign.name}
                       </div>
-                      <div className="text-[10px] text-slate-400 dark:text-slate-505 font-mono mt-10">ID: {campaign.id} • Enrolled {new Date(campaign.createdAt).toLocaleDateString()}</div>
+                      <div className="text-[10px] text-slate-400 dark:text-slate-505 font-mono mt-1">ID: {campaign.id} • Created {new Date(campaign.createdAt).toLocaleDateString()}</div>
                     </td>
                     <td className="px-5 py-3.5 text-xs text-slate-600 dark:text-slate-400 font-mono">
                       <span className="flex items-center gap-1.5">
                         <Mail className="w-3.5 h-3.5 text-slate-400" />
-                        {campaign.senderEmail || 'N/A'}
+                        {campaign.senderAccount?.emailAddress || 'N/A'}
                       </span>
                     </td>
-                    <td className="px-5 py-3.5 text-xs text-slate-600 dark:text-slate-400">
+                    <td className="px-5 py-3.5 text-xs text-slate-655 dark:text-slate-400">
                       <span className="flex items-center gap-1.5 font-medium">
                         <User className="w-3.5 h-3.5 text-slate-400" />
                         {campaign.userId === session?.id ? 'Me (' + session?.name + ')' : (campaign.userId || 'Company Admin')}
@@ -252,11 +283,23 @@ export default function CampaignsPage() {
                         {campaign.status}
                       </span>
                     </td>
-                    <td className="px-5 py-3.5 text-right">
-                      <button className="text-slate-550 dark:text-slate-400 group-hover:text-slate-900 dark:group-hover:text-white p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-white/[0.02] transition-colors flex items-center gap-1 ml-auto text-xs font-semibold">
-                        Configure
-                        <ChevronRight className="w-4 h-4 text-slate-400" />
-                      </button>
+                    <td className="px-5 py-3.5 text-right" onClick={e => e.stopPropagation()}>
+                      <div className="flex items-center justify-end gap-2">
+                        <button 
+                          onClick={(e) => handleDeleteCampaign(campaign.id, e)}
+                          className="p-1.5 hover:bg-rose-500/10 text-slate-400 hover:text-rose-600 rounded transition-colors"
+                          title="Delete Outbound Sequence"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                        <Link 
+                          href={`/campaigns/${campaign.id}`}
+                          className="text-slate-550 dark:text-slate-400 group-hover:text-slate-900 dark:group-hover:text-white p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-white/[0.02] transition-colors flex items-center gap-1 text-xs font-semibold"
+                        >
+                          Configure
+                          <ChevronRight className="w-4 h-4 text-slate-400" />
+                        </Link>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -274,7 +317,7 @@ export default function CampaignsPage() {
         )}
       </div>
 
-      {/* Frosted Campaign Create Modal */}
+      {/* Campaign Create Modal */}
       <AnimatePresence>
         {isAddOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -284,7 +327,7 @@ export default function CampaignsPage() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setIsAddOpen(false)}
-              className="absolute inset-0 bg-slate-950/40 backdrop-blur-xs"
+              className="absolute inset-0 bg-slate-955/40 backdrop-blur-xs"
             />
 
             {/* Modal Box */}
@@ -292,7 +335,7 @@ export default function CampaignsPage() {
               initial={{ opacity: 0, scale: 0.95, y: 15 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] w-full max-w-md rounded-2xl p-6 shadow-2xl relative z-10 overflow-hidden"
+              className="bg-white dark:bg-[#0e1017] border border-slate-202 dark:border-[#1f2130] w-full max-w-md rounded-2xl p-6 shadow-2xl relative z-10 overflow-hidden"
             >
               <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500/5 rounded-full blur-xl pointer-events-none" />
 
@@ -303,7 +346,7 @@ export default function CampaignsPage() {
                 </div>
                 <button
                   onClick={() => setIsAddOpen(false)}
-                  className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800/50 rounded-lg text-slate-400 dark:text-slate-505 transition-colors cursor-pointer"
+                  className="p-1 hover:bg-slate-100 dark:hover:bg-slate-805/50 rounded-lg text-slate-400 dark:text-slate-505 transition-colors cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -323,7 +366,7 @@ export default function CampaignsPage() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-[10px] text-slate-450 dark:text-slate-500 uppercase tracking-widest font-bold flex items-center gap-1.5">
+                  <label className="text-[10px] text-slate-455 dark:text-slate-500 uppercase tracking-widest font-bold flex items-center gap-1.5">
                     <Mail className="w-3.5 h-3.5" />
                     Connect Sender Mailbox Node
                   </label>

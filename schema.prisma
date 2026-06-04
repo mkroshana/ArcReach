@@ -200,3 +200,16 @@ model InboundResponse {
   receivedAt      DateTime       @default(now())
   unread          Boolean        @default(true)
 }
+
+// ------------------------------------------------------
+// 8. COPY LIBRARY / TEMPLATES
+// ------------------------------------------------------
+model Template {
+  id        String   @id @default(uuid())
+  name      String
+  subject   String
+  body      String   @db.Text
+  category  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

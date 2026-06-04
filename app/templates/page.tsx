@@ -1,38 +1,18 @@
+/* eslint-disable react-hooks/set-state-in-effect */
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { FileText, Search, Plus, Eye, Sparkles, Copy, Check, Trash2, ArrowRight, X } from 'lucide-react';
 
-const initialTemplates = [
-  {
-    id: 1,
-    name: 'SaaS Cold Pitch',
-    subject: '{Quick question|Simple query} regarding {{company}} outreach',
-    body: 'Hi {{firstName}},\n\nI was looking at {{company}} and noticed you guys might be looking to scale your cold pipeline.\n\nWe help companies generate highly qualified meetings completely automated.\n\n{Let me know if you have 5 mins next week?|Would you be open to a quick chat?}\n\nBest,\nJohn',
-    category: 'Cold Outreach'
-  },
-  {
-    id: 2,
-    name: 'Friendly Bump (No response)',
-    subject: 'Following up / {{firstName}} x ArcReach',
-    body: 'Hey {{firstName}},\n\nI know you are super busy, so I wanted to give this a quick bump.\n\nDid you have a chance to look over my last email?\n\n{Best|Cheers},\nJohn',
-    category: 'Follow Up'
-  },
-  {
-    id: 3,
-    name: 'Value Offering / Case Study',
-    subject: 'how we helped Stark Ind scale 3x',
-    body: 'Hi {{firstName}},\n\nI thought you might find this interesting. We recently wrote a case study detailing how we helped marketing teams double their response rates in under 30 days.\n\nNo pitch - {here is the link|you can read it here}: [Link]\n\nHope this is helpful!\nJohn',
-    category: 'Value Prep'
-  }
-];
+const initialTemplates = []; // Kept for type safety if needed elsewhere, but loaded from API
 
 export default function TemplatesPage() {
-  const [templates, setTemplates] = useState(initialTemplates);
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
-  const [editingTemplate, setEditingTemplate] = useState<any>(initialTemplates[0]);
-  const [copiedId, setCopiedId] = useState<number | null>(null);
+  const [editingTemplate, setEditingTemplate] = useState<any>(null);
+  const [copiedId, setCopiedId] = useState<any>(null);
   const [previewResolved, setPreviewResolved] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
 
@@ -41,8 +21,32 @@ export default function TemplatesPage() {
     setTimeout(() => setToastMessage(''), 3005);
   };
 
+  const fetchTemplates = async () => {
+    try {
+      setLoading(true);
+      const res = await fetch('/api/templates');
+      if (res.ok) {
+        const data = await res.json();
+        setTemplates(data);
+        if (data.length > 0) {
+          setEditingTemplate(data[0]);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to fetch templates:', e);
+      showToast('Error loading templates');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchTemplates();
+  }, []);
+
   // Spintax and Variable Resolver
   const resolveTemplateText = (text: string) => {
+    if (!text) return '';
     let result = text;
     // Replace variables with mock values
     result = result.replace(/\{\{firstName\}\}/g, 'Emily');
@@ -58,7 +62,7 @@ export default function TemplatesPage() {
     return result;
   };
 
-  const handleCopy = (id: number, text: string) => {
+  const handleCopy = (id: any, text: string) => {
     navigator.clipboard.writeText(text);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
@@ -73,17 +77,73 @@ export default function TemplatesPage() {
     return matchesSearch && matchesCategory;
   });
 
-  const handleSave = () => {
-    setTemplates(templates.map(t => t.id === editingTemplate.id ? editingTemplate : t));
-    showToast('Template saved successfully!');
+  const handleSave = async () => {
+    if (!editingTemplate) return;
+    try {
+      const isNew = typeof editingTemplate.id === 'number'; // Local temporary ID (Date.now())
+      const method = isNew ? 'POST' : 'PUT';
+      const payload = {
+        name: editingTemplate.name,
+        subject: editingTemplate.subject,
+        body: editingTemplate.body,
+        category: editingTemplate.category,
+        ...(isNew ? {} : { id: editingTemplate.id })
+      };
+
+      const res = await fetch('/api/templates', {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok) {
+        const saved = await res.json();
+        const updated = templates.map(t => t.id === editingTemplate.id ? saved : t);
+        setTemplates(updated);
+        setEditingTemplate(saved);
+        showToast('Template saved successfully!');
+      } else {
+        const err = await res.json();
+        showToast(`Failed to save: ${err.error || 'Unknown error'}`);
+      }
+    } catch (e) {
+      console.error(e);
+      showToast('Connection error while saving template');
+    }
   };
 
-  const deleteTemplate = (id: number) => {
+  const deleteTemplate = async (id: any) => {
     if (confirm('Are you sure you want to delete this template?')) {
-      const updated = templates.filter(t => t.id !== id);
-      setTemplates(updated);
-      if (editingTemplate?.id === id) {
-        setEditingTemplate(updated[0] || null);
+      try {
+        const isNew = typeof id === 'number';
+        if (isNew) {
+          const updated = templates.filter(t => t.id !== id);
+          setTemplates(updated);
+          if (editingTemplate?.id === id) {
+            setEditingTemplate(updated[0] || null);
+          }
+          showToast('Draft template discarded.');
+          return;
+        }
+
+        const res = await fetch(`/api/templates?id=${id}`, {
+          method: 'DELETE'
+        });
+
+        if (res.ok) {
+          const updated = templates.filter(t => t.id !== id);
+          setTemplates(updated);
+          if (editingTemplate?.id === id) {
+            setEditingTemplate(updated[0] || null);
+          }
+          showToast('Template deleted successfully!');
+        } else {
+          const err = await res.json();
+          showToast(`Failed to delete: ${err.error || 'Unknown error'}`);
+        }
+      } catch (e) {
+        console.error(e);
+        showToast('Connection error while deleting template');
       }
     }
   };
@@ -98,6 +158,7 @@ export default function TemplatesPage() {
     };
     setTemplates([newT, ...templates]);
     setEditingTemplate(newT);
+    setPreviewResolved(false);
   };
 
   return (
@@ -151,34 +212,43 @@ export default function TemplatesPage() {
 
           {/* Templates Stack */}
           <div className="space-y-2 overflow-y-auto max-h-[500px]">
-            {filteredTemplates.map(t => (
-              <div 
-                key={t.id}
-                onClick={() => {
-                  setEditingTemplate(t);
-                  setPreviewResolved(false);
-                }}
-                className={`p-4 rounded-lg border text-left cursor-pointer transition-all ${
-                  editingTemplate?.id === t.id 
-                    ? 'bg-blue-50/50 dark:bg-blue-600/10 border-blue-200 dark:border-blue-500/15' 
-                    : 'bg-white dark:bg-[#0e1017] border-slate-200 dark:border-[#1b1c26] hover:bg-slate-50/50 dark:hover:bg-white/[0.01]'
-                }`}
-              >
-                <div className="flex justify-between items-start mb-1.5">
-                  <h3 className="font-bold text-xs text-slate-900 dark:text-white line-clamp-1">{t.name}</h3>
-                  <span className="text-[8px] bg-blue-50 dark:bg-blue-500/15 border border-blue-150 dark:border-blue-500/15 text-blue-750 dark:text-blue-400 font-bold px-1.5 py-0.5 rounded uppercase tracking-widest font-mono">
-                    {t.category}
-                  </span>
-                </div>
-                <p className="text-[10px] text-slate-400 dark:text-slate-500 font-mono mb-2 truncate font-semibold">{t.subject}</p>
-                <p className="text-[11px] text-slate-650 dark:text-slate-400 line-clamp-2 leading-relaxed">{t.body}</p>
+            {loading ? (
+              <div className="py-12 text-center text-slate-405 dark:text-slate-500 text-xs">
+                <div className="w-5 h-5 border-2 border-slate-200 dark:border-slate-800 border-t-blue-500 animate-spin rounded-full mx-auto mb-2.5" />
+                <p className="font-medium tracking-wide">Retrieving copy templates...</p>
               </div>
-            ))}
-            {filteredTemplates.length === 0 && (
-              <div className="text-center py-10 bg-white dark:bg-[#0e1017] border border-dashed border-slate-200 dark:border-[#1b1c26] rounded-lg">
-                <FileText className="w-6 h-6 mx-auto text-slate-400 dark:text-gray-500 mb-2" />
-                <p className="text-xs text-slate-500 dark:text-gray-400 font-medium">No email templates found</p>
-              </div>
+            ) : (
+              <>
+                {filteredTemplates.map(t => (
+                  <div 
+                    key={t.id}
+                    onClick={() => {
+                      setEditingTemplate(t);
+                      setPreviewResolved(false);
+                    }}
+                    className={`p-4 rounded-lg border text-left cursor-pointer transition-all ${
+                      editingTemplate?.id === t.id 
+                        ? 'bg-blue-50/50 dark:bg-blue-600/10 border-blue-200 dark:border-blue-500/15' 
+                        : 'bg-white dark:bg-[#0e1017] border-slate-200 dark:border-[#1b1c26] hover:bg-slate-50/50 dark:hover:bg-white/[0.01]'
+                    }`}
+                  >
+                    <div className="flex justify-between items-start mb-1.5">
+                      <h3 className="font-bold text-xs text-slate-900 dark:text-white line-clamp-1">{t.name}</h3>
+                      <span className="text-[8px] bg-blue-50 dark:bg-blue-500/15 border border-blue-150 dark:border-blue-500/15 text-blue-750 dark:text-blue-400 font-bold px-1.5 py-0.5 rounded uppercase tracking-widest font-mono">
+                        {t.category}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 dark:text-slate-500 font-mono mb-2 truncate font-semibold">{t.subject}</p>
+                    <p className="text-[11px] text-slate-650 dark:text-slate-400 line-clamp-2 leading-relaxed">{t.body}</p>
+                  </div>
+                ))}
+                {filteredTemplates.length === 0 && (
+                  <div className="text-center py-10 bg-white dark:bg-[#0e1017] border border-dashed border-slate-200 dark:border-[#1b1c26] rounded-lg">
+                    <FileText className="w-6 h-6 mx-auto text-slate-400 dark:text-gray-550 mb-2" />
+                    <p className="text-xs text-slate-500 dark:text-gray-500 font-medium">No email templates found</p>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>

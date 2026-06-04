@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { prisma } from '@/lib/db';
 
 export async function POST(req: NextRequest) {
   try {
@@ -10,20 +11,54 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ validationResponse: event.data.validationCode });
       }
 
+      const data = event.data || {};
+      const messageId = data.messageId;
+
+      if (!messageId) continue;
+
+      // Find the email dispatch linked to the messageId
+      const dispatch = await prisma.emailDispatch.findUnique({
+        where: { messageId }
+      });
+
+      if (!dispatch) {
+        console.log(`[Webhook] Dispatch log not found for Message ID: ${messageId}`);
+        continue;
+      }
+
       // Process Communication Services Events
       switch (event.eventType) {
         case 'Microsoft.Communication.EmailDeliveryReportReceived':
-          console.log('Delivery Report Received:', event.data);
-          // TODO: Update database with delivery status (Delivered, Bounced, etc.)
-          // Example: db.campaigns.updateStatus(event.data.messageId, event.data.deliveryStatus)
+          console.log('Delivery Report Received:', data);
+          const status = data.status; // "Delivered" or "Failed" (Bounce)
+          
+          if (status === 'Failed') {
+            // Update Lead validation status to Invalid
+            await prisma.lead.update({
+              where: { id: dispatch.leadId },
+              data: { validationStatus: 'Invalid' }
+            });
+            // Update active enrollments to Bounced
+            await prisma.campaignEnrollment.updateMany({
+              where: { leadId: dispatch.leadId },
+              data: { status: 'Bounced' }
+            });
+          }
           break;
 
         case 'Microsoft.Communication.EmailEngagementTrackingReportReceived':
-          console.log('Engagement Report Received:', event.data);
-          // TODO: Update database with open/click metrics
-          // Example:
-          // if (event.data.engagementContext.engagementType === 'View') { ... increment opens ... }
-          // if (event.data.engagementContext.engagementType === 'Click') { ... increment clicks ... }
+          console.log('Engagement Report Received:', data);
+          const rawType = data.engagementType; // "View" (Open) or "Click"
+          const eventType = rawType === 'View' ? 'open' : 'click';
+          
+          // Log click URL details if present
+          await prisma.emailEvent.create({
+            data: {
+              messageId,
+              eventType,
+              clickedUrl: data.linkUri || null
+            }
+          });
           break;
 
         default:
@@ -32,8 +67,8 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ status: 'success' }, { status: 200 });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Webhook processing error:', error);
-    return NextResponse.json({ status: 'error' }, { status: 500 });
+    return NextResponse.json({ status: 'error', error: error.message }, { status: 500 });
   }
 }

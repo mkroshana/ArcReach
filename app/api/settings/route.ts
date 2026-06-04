@@ -26,7 +26,9 @@ export async function GET() {
           smtpHost: 'smtp.mailgun.org',
           smtpPort: 587,
           smtpUser: 'postmaster@sandbox.arcreach.com',
-          smtpPass: '•••••••••••••••••••••••••••••'
+          smtpPass: '•••••••••••••••••••••••••••••',
+          rateLimitMinute: 60,
+          rateLimitHour: 1000
         }
       });
     }
@@ -49,7 +51,7 @@ export async function PUT(req: NextRequest) {
   try {
     const session = await getSession();
     const body = await req.json();
-    const { name, smtpHost, smtpPort, smtpUser, smtpPass } = body;
+    const { name, smtpHost, smtpPort, smtpUser, smtpPass, rateLimitMinute, rateLimitHour } = body;
 
     // 1. Update user profile name in the DB
     if (name !== undefined) {
@@ -74,6 +76,12 @@ export async function PUT(req: NextRequest) {
     if (smtpPort !== undefined) settingsData.smtpPort = Number(smtpPort) || null;
     if (smtpUser !== undefined) settingsData.smtpUser = smtpUser;
     if (smtpPass !== undefined) settingsData.smtpPass = smtpPass;
+    if (rateLimitMinute !== undefined) {
+      settingsData.rateLimitMinute = rateLimitMinute === null ? null : Number(rateLimitMinute);
+    }
+    if (rateLimitHour !== undefined) {
+      settingsData.rateLimitHour = rateLimitHour === null ? null : Number(rateLimitHour);
+    }
 
     let updatedSettings;
     if (settings) {
@@ -87,7 +95,9 @@ export async function PUT(req: NextRequest) {
           smtpHost: smtpHost || null,
           smtpPort: Number(smtpPort) || null,
           smtpUser: smtpUser || null,
-          smtpPass: smtpPass || null
+          smtpPass: smtpPass || null,
+          rateLimitMinute: rateLimitMinute === undefined ? 60 : (rateLimitMinute === null ? null : Number(rateLimitMinute)),
+          rateLimitHour: rateLimitHour === undefined ? 1000 : (rateLimitHour === null ? null : Number(rateLimitHour))
         }
       });
     }

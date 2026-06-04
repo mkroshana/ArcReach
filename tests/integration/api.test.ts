@@ -50,6 +50,8 @@ describe('ArcReach Live API Integration Tests', () => {
       const originalSettings = await getRes.json();
       expect(originalSettings).toHaveProperty('user');
       expect(originalSettings).toHaveProperty('settings');
+      expect(originalSettings.settings).toHaveProperty('rateLimitMinute');
+      expect(originalSettings.settings).toHaveProperty('rateLimitHour');
 
       // 2. Update settings
       const payload = {
@@ -57,7 +59,9 @@ describe('ArcReach Live API Integration Tests', () => {
         smtpHost: 'smtp.sendgrid.net',
         smtpPort: 587,
         smtpUser: 'apikey',
-        smtpPass: 'SG.placeholder'
+        smtpPass: 'SG.placeholder',
+        rateLimitMinute: 120,
+        rateLimitHour: 2500
       };
       const putRes = await fetch(`${BASE_URL}/api/settings`, {
         method: 'PUT',
@@ -67,6 +71,15 @@ describe('ArcReach Live API Integration Tests', () => {
       expect(putRes.status).toBe(200);
       const putData = await putRes.json();
       expect(putData.success).toBe(true);
+      expect(putData.settings.rateLimitMinute).toBe(120);
+      expect(putData.settings.rateLimitHour).toBe(2500);
+
+      // 3. Confirm GET updates are persistent
+      const confirmRes = await fetch(`${BASE_URL}/api/settings`);
+      expect(confirmRes.status).toBe(200);
+      const confirmData = await confirmRes.json();
+      expect(confirmData.settings.rateLimitMinute).toBe(120);
+      expect(confirmData.settings.rateLimitHour).toBe(2500);
     });
 
     it('should test SMTP authentication logging', async () => {

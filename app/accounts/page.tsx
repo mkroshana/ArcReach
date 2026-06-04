@@ -98,15 +98,52 @@ export default function AccountsPage() {
     loadData();
   }, []);
 
-  // Warmup live feed logs simulation
+  // Warmup live feed logs simulation & database state updates
   useEffect(() => {
     if (selectedWarmupAccount && selectedWarmupAccount.warmupEnabled) {
-      const interval = setInterval(() => {
+      const interval = setInterval(async () => {
         const logIndex = Math.floor(Math.random() * mockLogsPool.length);
+        const logMessage = mockLogsPool[logIndex];
         const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        const newLog = `[${time}] - ${mockLogsPool[logIndex]}`;
+        const newLog = `[${time}] - ${logMessage}`;
         setLiveLogs(prev => [newLog, ...prev.slice(0, 9)]);
-      }, 5000);
+
+        // 1. Calculate incremental warmup stats
+        const updates: any = {
+          id: selectedWarmupAccount.id,
+          warmupSent: (selectedWarmupAccount.warmupSent || 0) + 1,
+        };
+
+        if (logMessage.includes('Spam folder')) {
+          updates.savedSpam = (selectedWarmupAccount.savedSpam || 0) + 1;
+        } else if (logMessage.includes('Promotions list')) {
+          updates.savedPromo = (selectedWarmupAccount.savedPromo || 0) + 1;
+        } else if (logMessage.includes('reply') || logMessage.includes('replied')) {
+          updates.warmupReplies = (selectedWarmupAccount.warmupReplies || 0) + 1;
+        }
+
+        // Slightly float reputation score up towards 100.00
+        const currentRep = Number(selectedWarmupAccount.reputationScore) || 98.0;
+        if (currentRep < 100) {
+          updates.reputationScore = Math.min(100, currentRep + 0.05);
+        }
+
+        // 2. Sync updates to PostgreSQL database
+        try {
+          const res = await fetch('/api/accounts', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(updates),
+          });
+          if (res.ok) {
+            const updatedAccount = await res.json();
+            setAccounts(prev => prev.map(acc => acc.id === selectedWarmupAccount.id ? updatedAccount : acc));
+            setSelectedWarmupAccount(updatedAccount);
+          }
+        } catch (e) {
+          console.error('Failed to sync warmup autopilot database metrics:', e);
+        }
+      }, 7000);
 
       return () => clearInterval(interval);
     }

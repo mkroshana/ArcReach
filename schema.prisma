@@ -32,12 +32,14 @@ model User {
 // 2. GLOBAL SETTINGS
 // ------------------------------------------------------
 model GlobalSettings {
-  id        String   @id @default(uuid())
-  smtpHost  String?
-  smtpPort  Int?
-  smtpUser  String?
-  smtpPass  String?
-  updatedAt DateTime @updatedAt
+  id              String   @id @default(uuid())
+  smtpHost        String?
+  smtpPort        Int?
+  smtpUser        String?
+  smtpPass        String?
+  rateLimitMinute Int?     @default(60)
+  rateLimitHour   Int?     @default(1000)
+  updatedAt       DateTime @updatedAt
 }
 
 // ------------------------------------------------------

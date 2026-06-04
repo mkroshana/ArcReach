@@ -110,6 +110,11 @@ export default function SettingsPage() {
   const [smtpLogs, setSmtpLogs] = useState<string[]>([]);
   const [smtpLoading, setSmtpLoading] = useState(false);
 
+  // Service-Level Rate Limits State
+  const [rateLimitMinute, setRateLimitMinute] = useState('');
+  const [rateLimitHour, setRateLimitHour] = useState('');
+  const [rateLimitLoading, setRateLimitLoading] = useState(false);
+
   const loadSettings = async () => {
     try {
       setLoading(true);
@@ -124,12 +129,14 @@ export default function SettingsPage() {
         setLastName(parts.slice(1).join(' ') || '');
         setEmail(data.user.email || '');
 
-        // Populate SMTP
+        // Populate SMTP & Global Limits
         if (data.settings) {
           setSmtpHost(data.settings.smtpHost || '');
           setSmtpPort(data.settings.smtpPort ? String(data.settings.smtpPort) : '');
           setSmtpUser(data.settings.smtpUser || '');
           setSmtpPass(data.settings.smtpPass || '');
+          setRateLimitMinute(data.settings.rateLimitMinute !== null && data.settings.rateLimitMinute !== undefined ? String(data.settings.rateLimitMinute) : '60');
+          setRateLimitHour(data.settings.rateLimitHour !== null && data.settings.rateLimitHour !== undefined ? String(data.settings.rateLimitHour) : '1000');
         }
       }
     } catch (e) {
@@ -197,6 +204,31 @@ export default function SettingsPage() {
       console.error(error);
     } finally {
       setSmtpLoading(false);
+    }
+  };
+
+  const handleSaveRateLimits = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setRateLimitLoading(true);
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rateLimitMinute: rateLimitMinute ? Number(rateLimitMinute) : null,
+          rateLimitHour: rateLimitHour ? Number(rateLimitHour) : null
+        })
+      });
+      if (res.ok) {
+        triggerToast('Service-level rate limits saved successfully.');
+      } else {
+        triggerToast('Failed to save rate limits.');
+      }
+    } catch (err) {
+      console.error(err);
+      triggerToast('Error saving rate limits.');
+    } finally {
+      setRateLimitLoading(false);
     }
   };
 
@@ -859,6 +891,48 @@ export default function SettingsPage() {
                     </div>
                   )}
                 </div>
+              </div>
+
+              {/* Service-Level Rate Limits */}
+              <div className="bg-white dark:bg-[#0e1017] border border-slate-202 dark:border-[#1b1c26] rounded-xl p-5 shadow-xs">
+                <h3 className="text-xs font-bold uppercase tracking-widest text-slate-855 dark:text-slate-200 mb-0.5">Service-Level Outbound Rate Limits</h3>
+                <p className="text-[11px] text-slate-400 dark:text-slate-505 mb-4 font-medium">Configure global limits for sending frequencies across all campaigns and active senders.</p>
+
+                <form onSubmit={handleSaveRateLimits} className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] text-slate-555 dark:text-slate-405 font-bold uppercase tracking-widest">Requests Per Minute (RPM)</label>
+                      <input 
+                        type="number" 
+                        value={rateLimitMinute}
+                        onChange={(e) => setRateLimitMinute(e.target.value)}
+                        placeholder="60"
+                        className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none font-mono focus:ring-2 focus:ring-blue-500/35"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] text-slate-555 dark:text-slate-405 font-bold uppercase tracking-widest">Requests Per Hour (RPH)</label>
+                      <input 
+                        type="number" 
+                        value={rateLimitHour}
+                        onChange={(e) => setRateLimitHour(e.target.value)}
+                        placeholder="1000"
+                        className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none font-mono focus:ring-2 focus:ring-blue-500/35"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end pt-4 border-t border-slate-100 dark:border-slate-850 mt-4">
+                    <button 
+                      type="submit" 
+                      disabled={rateLimitLoading}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg transition-all text-xs flex items-center gap-1.5 shadow-md cursor-pointer"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      {rateLimitLoading ? 'Saving Limits...' : 'Save Limits'}
+                    </button>
+                  </div>
+                </form>
               </div>
 
             </div>

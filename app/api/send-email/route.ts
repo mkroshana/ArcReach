@@ -1,32 +1,57 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { prisma } from '@/lib/db';
+import nodemailer from 'nodemailer';
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { campaignId, leadData } = body;
+    const { campaignId, leadData, subject, bodyText } = body;
 
-    // TODO: Initialize Azure Communication Services Email SDK here
-    // Example:
-    // const { EmailClient } = require("@azure/communication-email");
-    // const connectionString = process.env.AZURE_COMMUNICATION_CONNECTION_STRING;
-    // const client = new EmailClient(connectionString);
+    if (!leadData || !leadData.email) {
+      return NextResponse.json({ success: false, error: 'Recipient lead details are required.' }, { status: 400 });
+    }
+
+    // 1. Fetch global settings from the database
+    const settings = await prisma.globalSettings.findFirst();
     
-    // TODO: Format the message from campaign template and lead data
-    // const message = {
-    //   senderAddress: "DoNotReply@<your-verified-domain>",
-    //   content: { subject: "...", plainText: "...", html: "..." },
-    //   recipients: { to: [{ address: leadData.email }] },
-    // };
+    // 2. If SMTP details are not configured, fall back to mock relay (development sandbox mode)
+    if (!settings || !settings.smtpHost || !settings.smtpUser || !settings.smtpPass) {
+      console.log(`[Mock Send Relay] Campaign: ${campaignId || 'manual'}, Lead: ${leadData.email}`);
+      return NextResponse.json({ 
+        success: true, 
+        message: 'Email queued for sending (Mock relay fallback).',
+        messageId: `mock-msg-${Date.now()}-${Math.random().toString(36).substring(7)}` 
+      });
+    }
 
-    // TODO: Send email
-    // const poller = await client.beginSend(message);
-    // const result = await poller.pollUntilDone();
+    // 3. Dispatch real outbound email using configured SMTP relay credentials
+    const portNum = Number(settings.smtpPort) || 587;
+    const transport = nodemailer.createTransport({
+      host: settings.smtpHost,
+      port: portNum,
+      secure: portNum === 465,
+      auth: {
+        user: settings.smtpUser,
+        pass: settings.smtpPass,
+      },
+    });
 
-    console.log(`[Mock Send] Campaign: ${campaignId}, Lead: ${leadData.email}`);
+    const info = await transport.sendMail({
+      from: `"ArcReach Outreach" <${settings.smtpUser}>`,
+      to: leadData.email,
+      subject: subject || 'Outreach from ArcReach',
+      text: bodyText || '',
+    });
 
-    return NextResponse.json({ success: true, message: 'Email queued for sending.' });
-  } catch (error) {
+    console.log(`[SMTP Send Success] Message ID: ${info.messageId} sent to ${leadData.email}`);
+
+    return NextResponse.json({ 
+      success: true, 
+      message: 'Email successfully sent via SMTP.', 
+      messageId: info.messageId 
+    });
+  } catch (error: any) {
     console.error('Error sending email:', error);
-    return NextResponse.json({ success: false, error: 'Failed to send email.' }, { status: 500 });
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }

@@ -15,13 +15,14 @@ import {
   X,
   RefreshCw
 } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 export default function LeadsPage() {
   const [leads, setLeads] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isDragging, setIsDragging] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   // Search and Filter states
   const [search, setSearch] = useState('');
@@ -177,38 +178,92 @@ export default function LeadsPage() {
     document.body.removeChild(link);
   };
 
+  const processCSVFile = async (file: File) => {
+    showToast('Importing CSV contacts data...');
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const text = event.target?.result as string;
+      try {
+        const parsedLeads = [];
+        const lines = text.split(/\r?\n/);
+        if (lines.length < 2) {
+          showToast('Invalid CSV format. Header row required.');
+          return;
+        }
+
+        const headers = lines[0].split(',').map(h => h.replace(/^["']|["']$/g, '').trim().toLowerCase());
+        const emailIdx = headers.indexOf('email');
+        const nameIdx = headers.indexOf('name');
+        const companyIdx = headers.indexOf('company');
+
+        if (emailIdx === -1) {
+          showToast('CSV must contain at least an "email" column.');
+          return;
+        }
+
+        for (let i = 1; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (!line) continue;
+          
+          // Simple CSV column parser
+          const cols = line.split(',').map(c => c.replace(/^["']|["']$/g, '').trim());
+          const email = cols[emailIdx];
+          
+          if (email && email.includes('@')) {
+            parsedLeads.push({
+              email,
+              name: nameIdx !== -1 && cols[nameIdx] ? cols[nameIdx] : email.split('@')[0],
+              company: companyIdx !== -1 && cols[companyIdx] ? cols[companyIdx] : 'Unknown'
+            });
+          }
+        }
+
+        if (parsedLeads.length === 0) {
+          showToast('No valid contacts found in CSV.');
+          return;
+        }
+
+        let count = 0;
+        for (const lead of parsedLeads) {
+          try {
+            const res = await fetch('/api/leads', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                name: lead.name,
+                email: lead.email,
+                company: lead.company,
+                status: 'Neutral',
+                validationStatus: 'Unverified'
+              })
+            });
+            if (res.ok) count++;
+          } catch (e) {}
+        }
+
+        showToast(`Spreadsheet imported! Added ${count} new contacts to CRM.`);
+        fetchLeads();
+      } catch (err) {
+        showToast('Error parsing CSV file.');
+        console.error(err);
+      }
+    };
+    reader.readAsText(file);
+  };
+
   const handleDropUpload = async (e: any) => {
     e.preventDefault();
     setIsDragging(false);
-    showToast('Importing CSV contacts data...');
-
-    // Simulate CSV parsing
     const files = e.dataTransfer?.files;
     if (files && files.length > 0) {
-      const sampleNames = ['Bruce Wayne', 'Diana Prince', 'Clark Kent', 'Barry Allen', 'Hal Jordan'];
-      const sampleEmails = ['bruce@wayne.corp', 'diana@themyscira.org', 'clark@dailyplanet.com', 'barry@star.labs', 'hal@ferris.air'];
-      const sampleCompanies = ['Wayne Ent.', 'Justice League', 'Daily Planet', 'STAR Labs', 'Ferris Aircraft'];
+      await processCSVFile(files[0]);
+    }
+  };
 
-      let count = 0;
-      for (let i = 0; i < sampleEmails.length; i++) {
-        try {
-          const res = await fetch('/api/leads', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              name: sampleNames[i],
-              email: sampleEmails[i],
-              company: sampleCompanies[i],
-              status: 'Neutral',
-              validationStatus: 'Unverified'
-            })
-          });
-          if (res.ok) count++;
-        } catch (e) {}
-      }
-
-      showToast(`Spreadsheet imported! Added ${count} new contacts to CRM.`);
-      fetchLeads();
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      await processCSVFile(files[0]);
     }
   };
 
@@ -328,40 +383,30 @@ export default function LeadsPage() {
       )}
 
       {/* CSV Import container */}
+      <input 
+        type="file" 
+        ref={fileInputRef} 
+        onChange={handleFileChange} 
+        accept=".csv" 
+        className="hidden" 
+      />
       <div 
         className={`relative overflow-hidden rounded-xl border border-dashed transition-all duration-200 ${
           isDragging 
-            ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/20' 
-            : 'border-slate-350 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50/50 dark:hover:bg-slate-850/45'
+            ? 'border-blue-500 bg-blue-50 dark:bg-blue-955/20' 
+            : 'border-slate-355 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50/50 dark:hover:bg-slate-850/45'
         } p-8 flex flex-col items-center justify-center cursor-pointer shadow-xs`}
         onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
         onDragLeave={() => setIsDragging(false)}
         onDrop={handleDropUpload}
-        onClick={() => {
-          const email = prompt("Enter simulated contact address:");
-          if (email) {
-            const name = email.split('@')[0];
-            fetch('/api/leads', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ email, name, company: 'External Node' })
-            }).then(res => {
-              if (res.ok) {
-                showToast('Simulated lead injected successfully!');
-                fetchLeads();
-              } else {
-                showToast('Failed to insert lead.');
-              }
-            });
-          }
-        }}
+        onClick={() => fileInputRef.current?.click()}
       >
         <div className="w-10 h-10 mb-3 rounded-lg bg-slate-50 dark:bg-slate-955 flex items-center justify-center border border-slate-202 dark:border-slate-805">
           <UploadCloud className="w-4.5 h-4.5 text-blue-650 dark:text-blue-400" />
         </div>
         <h3 className="text-sm font-semibold text-slate-805 dark:text-white uppercase tracking-widest mb-1">Import bulk list CSV</h3>
         <p className="text-slate-500 dark:text-slate-400 text-center max-w-md text-xs mb-3 font-medium">
-          Drag and drop contacts list, or click to add custom simulated spreadsheets.
+          Drag and drop contacts list, or click to select and import custom CSV spreadsheets.
         </p>
         <button className="bg-white dark:bg-slate-950 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-205 dark:border-slate-800 text-slate-700 dark:text-slate-300 px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors shadow-xs">
           Browse Files (.csv)

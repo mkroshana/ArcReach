@@ -107,3 +107,26 @@ Azure Event Grid webhook events (delivery confirmations, opens, clicks) are capt
    npm run dev
    ```
    Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+---
+
+## 🧪 Running Automated Tests
+
+ArcReach features an automated testing architecture to validate both core logic and live endpoints. We use **Vitest** to run our TypeScript test suites.
+
+To run the tests:
+
+1. **Ensure the Next.js local server is running** (required for API integration tests):
+   ```bash
+   npm run dev
+   ```
+
+2. **Execute the test suite:**
+   ```bash
+   npm run test
+   ```
+
+3. **Run tests in interactive watch mode:**
+   ```bash
+   npm run test:watch
+   ```

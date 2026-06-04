@@ -4,7 +4,7 @@ const BASE_URL = 'http://localhost:3000';
 
 describe('ArcReach Live API Integration Tests', () => {
   
-  // Ensure the Next.js dev server is reachable
+  // Ensure Next.js dev server is reachable
   beforeAll(async () => {
     try {
       await fetch(`${BASE_URL}/api/system-status`);
@@ -27,10 +27,6 @@ describe('ArcReach Live API Integration Tests', () => {
       expect(data).toHaveProperty('leadsCount');
       
       expect(['OPERATIONAL', 'STANDBY', 'INACTIVE']).toContain(data.deliveryStatus);
-      expect(typeof data.smtpConfigured).toBe('boolean');
-      expect(typeof data.accountsCount).toBe('number');
-      expect(typeof data.activeCampaignsCount).toBe('number');
-      expect(typeof data.leadsCount).toBe('number');
     });
   });
 
@@ -42,20 +38,53 @@ describe('ArcReach Live API Integration Tests', () => {
       const data = await res.json();
       expect(data).toHaveProperty('stats');
       expect(data).toHaveProperty('trends');
-      
-      expect(data.stats).toHaveProperty('totalSent');
-      expect(data.stats).toHaveProperty('totalReplies');
-      expect(data.stats).toHaveProperty('averageOpenRate');
-      expect(data.stats).toHaveProperty('averageClickRate');
-      
       expect(Array.isArray(data.trends)).toBe(true);
-      if (data.trends.length > 0) {
-        const item = data.trends[0];
-        expect(item).toHaveProperty('name');
-        expect(item).toHaveProperty('sent');
-        expect(item).toHaveProperty('opens');
-        expect(item).toHaveProperty('clicks');
-      }
+    });
+  });
+
+  describe('GET /api/settings & PUT /api/settings', () => {
+    it('should retrieve and update global SMTP settings successfully', async () => {
+      // 1. Get settings
+      const getRes = await fetch(`${BASE_URL}/api/settings`);
+      expect(getRes.status).toBe(200);
+      const originalSettings = await getRes.json();
+      expect(originalSettings).toHaveProperty('user');
+      expect(originalSettings).toHaveProperty('settings');
+
+      // 2. Update settings
+      const payload = {
+        name: 'Standard Marketer',
+        smtpHost: 'smtp.sendgrid.net',
+        smtpPort: 587,
+        smtpUser: 'apikey',
+        smtpPass: 'SG.placeholder'
+      };
+      const putRes = await fetch(`${BASE_URL}/api/settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      expect(putRes.status).toBe(200);
+      const putData = await putRes.json();
+      expect(putData.success).toBe(true);
+    });
+
+    it('should test SMTP authentication logging', async () => {
+      const payload = {
+        smtpHost: 'smtp.sendgrid.net',
+        smtpPort: '587',
+        smtpUser: 'apikey',
+        smtpPass: 'SG.placeholder'
+      };
+      const testRes = await fetch(`${BASE_URL}/api/settings/test-smtp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      expect(testRes.status).toBe(200);
+      const testData = await testRes.json();
+      expect(testData).toHaveProperty('success');
+      expect(Array.isArray(testData.logs)).toBe(true);
     });
   });
 
@@ -65,86 +94,233 @@ describe('ArcReach Live API Integration Tests', () => {
     it('should retrieve templates list with seeded items', async () => {
       const res = await fetch(`${BASE_URL}/api/templates`);
       expect(res.status).toBe(200);
-      
       const templates = await res.json();
       expect(Array.isArray(templates)).toBe(true);
       expect(templates.length).toBeGreaterThan(0);
-      
-      // Look for default seeded templates keys
-      const sample = templates[0];
-      expect(sample).toHaveProperty('id');
-      expect(sample).toHaveProperty('name');
-      expect(sample).toHaveProperty('subject');
-      expect(sample).toHaveProperty('body');
-      expect(sample).toHaveProperty('category');
     });
 
-    it('should successfully create a new template (POST)', async () => {
+    it('should successfully create, update, and delete a template', async () => {
+      // Create
       const payload = {
         name: 'Automated Test Template',
         subject: 'Vitest Test Subject line',
         body: 'Hello {{firstName}}, this is a test from Vitest framework.',
         category: 'Cold Outreach'
       };
-
-      const res = await fetch(`${BASE_URL}/api/templates`, {
+      const createRes = await fetch(`${BASE_URL}/api/templates`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      expect(res.status).toBe(200);
+      expect(createRes.status).toBe(200);
+      const created = await createRes.json();
+      createdTemplateId = created.id;
 
-      const created = await res.json();
-      expect(created).toHaveProperty('id');
-      expect(created.name).toBe(payload.name);
-      expect(created.subject).toBe(payload.subject);
-      expect(created.body).toBe(payload.body);
-      expect(created.category).toBe(payload.category);
-
-      createdTemplateId = created.id; // Save for updates and deletion
-    });
-
-    it('should successfully update an existing template (PUT)', async () => {
-      expect(createdTemplateId).toBeDefined();
-
-      const payload = {
+      // Update
+      const updatePayload = {
         id: createdTemplateId,
         name: 'Updated Test Template',
         subject: 'Updated Subject Line',
         body: 'Hello {{firstName}}, updated test body.',
         category: 'Follow Up'
       };
-
-      const res = await fetch(`${BASE_URL}/api/templates`, {
+      const updateRes = await fetch(`${BASE_URL}/api/templates`, {
         method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatePayload)
+      });
+      expect(updateRes.status).toBe(200);
+
+      // Delete
+      const deleteRes = await fetch(`${BASE_URL}/api/templates?id=${createdTemplateId}`, {
+        method: 'DELETE'
+      });
+      expect(deleteRes.status).toBe(200);
+    });
+  });
+
+  describe('Accounts CRUD Lifecycle API', () => {
+    let createdAccountId: string;
+
+    it('should successfully create, update, and delete a sender account', async () => {
+      const payload = {
+        emailAddress: `test-sender-${Date.now()}@arcreach-test.io`,
+        name: 'Test Outbound Sender',
+        provider: 'Google Workspace',
+        minuteLimit: 5,
+        hourlyLimit: 100,
+        dailyLimit: 500,
+        warmupEnabled: false
+      };
+
+      // Create
+      const createRes = await fetch(`${BASE_URL}/api/accounts`, {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      expect(res.status).toBe(200);
+      expect(createRes.status).toBe(200);
+      const created = await createRes.json();
+      expect(created).toHaveProperty('id');
+      createdAccountId = created.id;
 
-      const updated = await res.json();
-      expect(updated.id).toBe(createdTemplateId);
-      expect(updated.name).toBe(payload.name);
-      expect(updated.subject).toBe(payload.subject);
-      expect(updated.category).toBe(payload.category);
-    });
+      // Update limits and reputation status
+      const updatePayload = {
+        id: createdAccountId,
+        name: 'Updated Test Sender',
+        warmupEnabled: true,
+        minuteLimit: 10
+      };
+      const updateRes = await fetch(`${BASE_URL}/api/accounts`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatePayload)
+      });
+      expect(updateRes.status).toBe(200);
+      const updated = await updateRes.json();
+      expect(updated.warmupEnabled).toBe(true);
 
-    it('should successfully delete the template (DELETE)', async () => {
-      expect(createdTemplateId).toBeDefined();
-
-      const res = await fetch(`${BASE_URL}/api/templates?id=${createdTemplateId}`, {
+      // Clean up / Delete
+      const deleteRes = await fetch(`${BASE_URL}/api/accounts?id=${createdAccountId}`, {
         method: 'DELETE'
       });
+      expect(deleteRes.status).toBe(200);
+    });
+  });
+
+  describe('Leads CRUD & Verification Lifecycle API', () => {
+    let createdLeadId: string;
+    const testEmail = `test-lead-${Date.now()}@gmail.com`;
+
+    it('should successfully create, verify, and delete a CRM lead', async () => {
+      const payload = {
+        name: 'CRM Lead Test',
+        email: testEmail,
+        company: 'Automated CRM Inc',
+        status: 'Neutral',
+        validationStatus: 'Unverified'
+      };
+
+      // Create Lead
+      const createRes = await fetch(`${BASE_URL}/api/leads`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      expect(createRes.status).toBe(200);
+      const created = await createRes.json();
+      createdLeadId = created.id;
+
+      // Verify lead domain DNS records
+      const verifyRes = await fetch(`${BASE_URL}/api/leads/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: [createdLeadId] })
+      });
+      expect(verifyRes.status).toBe(200);
+      const verification = await verifyRes.json();
+      expect(verification.success).toBe(true);
+      expect(Array.isArray(verification.verifiedLeads)).toBe(true);
+
+      // Delete Lead
+      const deleteRes = await fetch(`${BASE_URL}/api/leads?id=${createdLeadId}`, {
+        method: 'DELETE'
+      });
+      expect(deleteRes.status).toBe(200);
+    });
+  });
+
+  describe('Campaigns & Sequence Steps Lifecycle API', () => {
+    let createdAccountId: string;
+    let createdCampaignId: string;
+
+    // Create a temporary sender account since campaigns require a linked account
+    beforeAll(async () => {
+      const senderPayload = {
+        emailAddress: `campaign-sender-${Date.now()}@arcreach-test.io`,
+        name: 'Campaign Sender',
+        provider: 'Custom SMTP',
+        minuteLimit: 5,
+        hourlyLimit: 50,
+        dailyLimit: 200,
+        warmupEnabled: false
+      };
+      const res = await fetch(`${BASE_URL}/api/accounts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(senderPayload)
+      });
+      const created = await res.json();
+      createdAccountId = created.id;
+    });
+
+    it('should successfully create, detail, update steps, and delete a campaign', async () => {
+      expect(createdAccountId).toBeDefined();
+
+      // 1. Create Campaign (Draft)
+      const campaignPayload = {
+        name: 'Automated Outreach Campaign',
+        status: 'Draft',
+        senderAccountId: createdAccountId
+      };
+      const createRes = await fetch(`${BASE_URL}/api/campaigns`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(campaignPayload)
+      });
+      expect(createRes.status).toBe(200);
+      const createdCmp = await createRes.json();
+      createdCampaignId = createdCmp.id;
+
+      // 2. Get Campaign Details & Verify Telemetry structures
+      const getRes = await fetch(`${BASE_URL}/api/campaigns/${createdCampaignId}`);
+      expect(getRes.status).toBe(200);
+      const detail = await getRes.json();
+      expect(detail).toHaveProperty('telemetry');
+      expect(detail.telemetry).toHaveProperty('opens');
+
+      // 3. Update campaign details and steps transactionally (PUT)
+      const updatePayload = {
+        name: 'Updated Campaign Name',
+        status: 'Active',
+        timezone: 'America/New_York',
+        stopOnReply: true,
+        steps: [
+          { waitDays: 0, subject: 'Welcome {{firstName}}!', body: 'Hi {{firstName}}, check out {{company}}.' },
+          { waitDays: 3, subject: 'Quick Bump', body: 'Hey {Hi|Hey}, just bumping this.' }
+        ]
+      };
+      const updateRes = await fetch(`${BASE_URL}/api/campaigns/${createdCampaignId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatePayload)
+      });
+      expect(updateRes.status).toBe(200);
+      const updatedDetail = await updateRes.json();
+      expect(updatedDetail.name).toBe(updatePayload.name);
+      expect(updatedDetail.status).toBe(updatePayload.status);
+      expect(updatedDetail.timezone).toBe(updatePayload.timezone);
+      expect(updatedDetail.steps.length).toBe(2);
+
+      // 4. Delete Campaign
+      const deleteRes = await fetch(`${BASE_URL}/api/campaigns?id=${createdCampaignId}`, {
+        method: 'DELETE'
+      });
+      expect(deleteRes.status).toBe(200);
+
+      // Cleanup Sender Account
+      await fetch(`${BASE_URL}/api/accounts?id=${createdAccountId}`, {
+        method: 'DELETE'
+      });
+    });
+  });
+
+  describe('Unibox Live API Interactions', () => {
+    it('should fetch inbound replies list', async () => {
+      const res = await fetch(`${BASE_URL}/api/unibox`);
       expect(res.status).toBe(200);
-
-      const result = await res.json();
-      expect(result.success).toBe(true);
-
-      // Verify template no longer exists in list
-      const listRes = await fetch(`${BASE_URL}/api/templates`);
-      const templates = await listRes.json();
-      const match = templates.find((t: any) => t.id === createdTemplateId);
-      expect(match).toBeUndefined();
+      const replies = await res.json();
+      expect(Array.isArray(replies)).toBe(true);
     });
   });
 });

@@ -48,18 +48,13 @@ export function Sidebar() {
       .catch(() => {});
   }, []);
 
-  const handleToggleSessionRole = async () => {
-    const nextAction = session?.role === 'ADMIN' ? 'set_user' : 'set_admin';
+  const handleLogout = async () => {
     try {
-      const res = await fetch('/api/session', {
+      const res = await fetch('/api/auth/logout', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: nextAction }),
       });
-      const data = await res.json();
-      if (data.success) {
-        setSessionState(data.session);
-        window.location.reload();
+      if (res.ok) {
+        window.location.href = '/login';
       }
     } catch (e) {
       console.error(e);
@@ -82,17 +77,17 @@ export function Sidebar() {
         <span className="text-lg font-bold tracking-tight text-slate-900 dark:text-white uppercase tracking-wider">ArcReach</span>
       </div>
 
-      {/* Session Swapping Widget */}
+      {/* Session Widget */}
       <div className="mb-5 mx-1 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/25 shadow-2xs">
         <div className="flex items-center justify-between text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-1.5">
           <span>Active Session</span>
           <span className={cn(
             "px-1.5 py-0.5 rounded text-[8px] font-mono tracking-normal",
             session?.role === 'ADMIN' 
-              ? "bg-rose-500/10 text-rose-600 dark:text-rose-450 border border-rose-500/15" 
-              : "bg-blue-500/10 text-blue-600 dark:text-blue-450 border border-blue-500/15"
+              ? "bg-rose-500/10 text-rose-600 dark:text-rose-455 border border-rose-500/15" 
+              : "bg-blue-500/10 text-blue-600 dark:text-blue-455 border border-blue-500/15"
           )}>
-            {session?.role || 'LDR'}
+            {session?.role || 'USER'}
           </span>
         </div>
         <div className="text-xs font-bold text-slate-800 dark:text-white truncate">
@@ -102,10 +97,10 @@ export function Sidebar() {
           {session?.email || 'Connecting...'}
         </div>
         <button
-          onClick={handleToggleSessionRole}
+          onClick={handleLogout}
           className="w-full py-1.5 rounded-lg text-[9px] font-bold text-center border cursor-pointer border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-350 hover:bg-slate-100 dark:hover:bg-slate-800/40 transition-colors uppercase tracking-wider"
         >
-          Toggle to {session?.role === 'ADMIN' ? 'Standard User' : 'Admin'}
+          Log Out
         </button>
       </div>
 

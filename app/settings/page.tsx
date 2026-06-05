@@ -26,6 +26,7 @@ import {
   UserCheck
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import { useTimezones } from '@/hooks/use-timezones';
 
 interface ApiKeyItem {
   id: string;
@@ -44,10 +45,26 @@ interface WebhookItem {
   created: string;
 }
 
+const getGlobalSmtpStatusLabel = (provider: string) => {
+  switch (provider) {
+    case 'AZURE':
+      return '[Inactive - Routed via Azure Communication Services]';
+    case 'MOCK':
+      return '[Inactive - Simulated via Development Sandbox]';
+    default:
+      return '';
+  }
+};
+
+const isGlobalSmtpDisabled = (provider: string) => {
+  return provider === 'AZURE' || provider === 'MOCK';
+};
+
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<'profile' | 'security' | 'notifications' | 'integrations'>('profile');
   const [toastMessage, setToastMessage] = useState<string>('');
   const [loading, setLoading] = useState(true);
+  const timezoneOptions = useTimezones();
 
   const triggerToast = (msg: string) => {
     setToastMessage(msg);
@@ -60,7 +77,7 @@ export default function SettingsPage() {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
-  const [orgName, setOrgName] = useState('ArcReach Solutions Ltd');
+  const [orgName, setOrgName] = useState('');
   const [timezone, setTimezone] = useState('America/New_York');
 
   const profileInitials = `${firstName.trim().charAt(0) || 'J'}${lastName.trim().charAt(0) || 'D'}`.toUpperCase();
@@ -90,10 +107,10 @@ export default function SettingsPage() {
   const [notifSpamTraps, setNotifSpamTraps] = useState(true);
 
   // --- API INTEGRATIONS STATES ---
+  const [activeProvider, setActiveProvider] = useState('MOCK');
   const [azureConnected, setAzureConnected] = useState(true);
-  const [azureConnString, setAzureConnString] = useState('endpoint=https://arcreach-relay.communication.azure.com/;accesskey=****m928s19==');
-  const [azureSenderDomain, setAzureSenderDomain] = useState('outbound.arcreach-platform.com');
-  const [showAzureConfig, setShowAzureConfig] = useState(false);
+  const [azureConnString, setAzureConnString] = useState('');
+  const [azureSenderDomain, setAzureSenderDomain] = useState('');
 
   const [webhooks, setWebhooks] = useState<WebhookItem[]>([
     { id: 'wh-1', url: 'https://api.crm-client.com/webhooks/arcreach', events: ['lead.replied', 'email.bounced'], secret: 'whsec_e9a182c38d4f7281', created: '2026-05-20' }
@@ -108,6 +125,11 @@ export default function SettingsPage() {
   const [smtpUser, setSmtpUser] = useState('');
   const [smtpPass, setSmtpPass] = useState('');
   const [smtpLogs, setSmtpLogs] = useState<string[]>([]);
+  // IMAP Settings State
+  const [imapHost, setImapHost] = useState('');
+  const [imapPort, setImapPort] = useState('');
+  const [imapUser, setImapUser] = useState('');
+  const [imapPass, setImapPass] = useState('');
   const [smtpLoading, setSmtpLoading] = useState(false);
 
   // Service-Level Rate Limits State
@@ -128,13 +150,22 @@ export default function SettingsPage() {
         setFirstName(parts[0] || '');
         setLastName(parts.slice(1).join(' ') || '');
         setEmail(data.user.email || '');
+        setOrgName(data.user.organization || '');
+        setTimezone(data.user.timezone || 'America/New_York');
 
         // Populate SMTP & Global Limits
         if (data.settings) {
+          setActiveProvider(data.settings.activeProvider || 'MOCK');
+          setAzureConnString(data.settings.azureConnString || '');
+          setAzureSenderDomain(data.settings.azureSenderDomain || '');
           setSmtpHost(data.settings.smtpHost || '');
           setSmtpPort(data.settings.smtpPort ? String(data.settings.smtpPort) : '');
           setSmtpUser(data.settings.smtpUser || '');
           setSmtpPass(data.settings.smtpPass || '');
+          setImapHost(data.settings.imapHost || '');
+          setImapPort(data.settings.imapPort ? String(data.settings.imapPort) : '');
+          setImapUser(data.settings.imapUser || '');
+          setImapPass(data.settings.imapPass || '');
           setRateLimitMinute(data.settings.rateLimitMinute !== null && data.settings.rateLimitMinute !== undefined ? String(data.settings.rateLimitMinute) : '60');
           setRateLimitHour(data.settings.rateLimitHour !== null && data.settings.rateLimitHour !== undefined ? String(data.settings.rateLimitHour) : '1000');
         }
@@ -157,7 +188,9 @@ export default function SettingsPage() {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: `${firstName} ${lastName}`.trim()
+          name: `${firstName} ${lastName}`.trim(),
+          organization: orgName,
+          timezone: timezone
         })
       });
       if (res.ok) {
@@ -191,10 +224,19 @@ export default function SettingsPage() {
         const saveRes = await fetch('/api/settings', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ smtpHost, smtpPort, smtpUser, smtpPass })
+          body: JSON.stringify({ 
+            smtpHost, 
+            smtpPort, 
+            smtpUser, 
+            smtpPass,
+            imapHost,
+            imapPort,
+            imapUser,
+            imapPass
+          })
         });
         if (saveRes.ok) {
-          triggerToast('Outbound custom SMTP configuration validated and saved!');
+          triggerToast('Outbound SMTP configuration validated and saved!');
         }
       } else {
         triggerToast('SMTP validation failed.');
@@ -204,6 +246,34 @@ export default function SettingsPage() {
       console.error(error);
     } finally {
       setSmtpLoading(false);
+    }
+  };
+
+  const handleSaveSmtpImap = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          smtpHost,
+          smtpPort,
+          smtpUser,
+          smtpPass,
+          imapHost,
+          imapPort,
+          imapUser,
+          imapPass
+        })
+      });
+      if (res.ok) {
+        triggerToast('SMTP and IMAP configurations saved successfully.');
+      } else {
+        triggerToast('Failed to save SMTP/IMAP settings.');
+      }
+    } catch (err) {
+      console.error(err);
+      triggerToast('Error saving SMTP/IMAP settings.');
     }
   };
 
@@ -229,6 +299,81 @@ export default function SettingsPage() {
       triggerToast('Error saving rate limits.');
     } finally {
       setRateLimitLoading(false);
+    }
+  };
+
+  const handleUpdatePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentPassword || !newPassword) {
+      triggerToast('Please fill out all password fields.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      triggerToast('New passwords do not match.');
+      return;
+    }
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          currentPassword,
+          newPassword
+        })
+      });
+      if (res.ok) {
+        triggerToast('Password updated successfully.');
+        setCurrentPassword('');
+        setNewPassword('');
+        setConfirmPassword('');
+      } else {
+        const errData = await res.json();
+        triggerToast(errData.error || 'Failed to update password.');
+      }
+    } catch (err) {
+      console.error(err);
+      triggerToast('Error updating password.');
+    }
+  };
+
+  const handleProviderChange = async (newProvider: string) => {
+    setActiveProvider(newProvider);
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activeProvider: newProvider })
+      });
+      if (res.ok) {
+        triggerToast(`Active delivery provider updated to ${newProvider}`);
+      } else {
+        triggerToast('Failed to update active delivery provider.');
+      }
+    } catch (e) {
+      console.error(e);
+      triggerToast('Error updating active delivery provider.');
+    }
+  };
+
+  const handleSaveAzureConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          azureConnString,
+          azureSenderDomain
+        })
+      });
+      if (res.ok) {
+        triggerToast('Azure Communication Services configuration saved successfully.');
+      } else {
+        triggerToast('Failed to save Azure settings.');
+      }
+    } catch (err) {
+      console.error(err);
+      triggerToast('Error saving Azure settings.');
     }
   };
 
@@ -421,9 +566,11 @@ export default function SettingsPage() {
                         onChange={(e) => setTimezone(e.target.value)}
                         className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500/35 cursor-pointer"
                       >
-                        <option value="America/New_York">UTC-5 East Coast (New York)</option>
-                        <option value="America/Los_Angeles">UTC-8 West Coast (Los Angeles)</option>
-                        <option value="UTC">UTC Offset</option>
+                        {timezoneOptions.map(option => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
                       </select>
                     </div>
                   </div>
@@ -433,7 +580,7 @@ export default function SettingsPage() {
                     <input 
                       type="email" 
                       value={email}
-                      className="w-full bg-slate-100/60 dark:bg-gray-955/20 border border-slate-202 dark:border-[#1b1c26] text-slate-400 dark:text-slate-505 text-xs rounded-lg px-3 py-2 cursor-not-allowed outline-none"
+                      className="w-full bg-slate-100/60 dark:bg-slate-900/50 border border-slate-202 dark:border-[#1b1c26] text-slate-400 dark:text-slate-400 text-xs rounded-lg px-3 py-2 cursor-not-allowed outline-none"
                       disabled
                     />
                   </div>
@@ -462,7 +609,7 @@ export default function SettingsPage() {
           {/* ================= SECURITY & KEYS TAB ================= */}
           {activeTab === 'security' && (
             <div className="space-y-6 animate-in fade-in duration-300">
-              <form onSubmit={(e) => { e.preventDefault(); triggerToast('Password updated (local simulation).'); }} className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1b1c26] rounded-xl p-5 shadow-xs">
+              <form onSubmit={handleUpdatePassword} className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1b1c26] rounded-xl p-5 shadow-xs">
                 <h3 className="text-xs font-bold uppercase tracking-widest text-[#64748b] dark:text-slate-400 mb-4 pb-2 border-b border-slate-100 dark:border-[#1b1c26]">Change Secure Password</h3>
                 
                 <div className="space-y-4">
@@ -534,7 +681,7 @@ export default function SettingsPage() {
                       setTwoFactorEnabled(!twoFactorEnabled);
                       triggerToast(`2FA verification status ${!twoFactorEnabled ? 'enforced' : 'deactivated'}.`);
                     }}
-                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${twoFactorEnabled ? 'bg-blue-600' : 'bg-slate-200 dark:bg-slate-800'}`}
+                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${twoFactorEnabled ? 'bg-blue-600' : 'bg-slate-200 dark:bg-slate-800'}`}
                   >
                     <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${twoFactorEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
                   </button>
@@ -697,26 +844,240 @@ export default function SettingsPage() {
           {activeTab === 'integrations' && (
             <div className="space-y-6 animate-in fade-in duration-300">
               
-              {/* Azure Services */}
-              <div className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1b1c26] rounded-xl p-5 shadow-xs">
-                <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-[#1b1c26] mb-4">
-                  <div>
-                    <h3 className="text-xs font-bold uppercase tracking-widest text-slate-855 dark:text-slate-200">Azure Communication Services</h3>
-                    <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5 font-medium">Core outbound bulk sending connection pipeline.</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className={`text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded font-mono border ${
-                      azureConnected 
-                        ? 'bg-emerald-50 dark:bg-emerald-505/10 text-emerald-700 dark:text-emerald-400 border-emerald-150 dark:border-emerald-500/20' 
-                        : 'bg-slate-100 dark:bg-slate-900 text-slate-500 dark:text-slate-400 border-slate-202 dark:border-slate-800'
-                    }`}>
-                      {azureConnected ? 'CONNECTED' : 'INACTIVE'}
-                    </span>
-                  </div>
+              {/* Outbound Mail Delivery Service */}
+              <div className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1b1c26] rounded-xl p-5 shadow-xs space-y-4">
+                <div className="pb-3 border-b border-slate-100 dark:border-slate-850">
+                  <h3 className="text-xs font-bold uppercase tracking-widest text-slate-855 dark:text-slate-200 mb-0.5 font-sans">Outbound Mail Delivery Service</h3>
+                  <p className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">Select your active outbound sending channel provider and authenticate connection pipelines.</p>
                 </div>
+
+                <div className="space-y-1.5 max-w-md">
+                  <label className="text-[10px] text-slate-555 dark:text-slate-400 font-bold uppercase tracking-widest">Active Email Delivery Service</label>
+                  <select 
+                    value={activeProvider}
+                    onChange={(e) => handleProviderChange(e.target.value)}
+                    className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500/35 cursor-pointer font-medium"
+                  >
+                    <option value="MOCK">Development Sandbox (Mock Relay)</option>
+                    <option value="AZURE">Azure Communication Services</option>
+                    <option value="SMTP">Custom SMTP Relayer</option>
+                    <option value="GOOGLE">Google Workspace / Gmail</option>
+                    <option value="MICROSOFT">Microsoft 365 / Outlook</option>
+                  </select>
+                </div>
+
+                {/* Conditionally render settings based on provider */}
+                {activeProvider === 'MOCK' && (
+                  <div className="p-4 bg-slate-50 dark:bg-[#12141d] border border-slate-202 dark:border-[#1f2130] rounded-xl text-xs text-slate-500 dark:text-slate-400 flex items-start gap-2.5">
+                    <Info className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-bold text-slate-750 dark:text-slate-350 mb-0.5">Development Sandbox Mode Active</p>
+                      <p className="text-[11px]">Emails generated by outreach sequences are simulated and printed directly to the terminal console logs, preventing dispatches to real mailboxes during development.</p>
+                    </div>
+                  </div>
+                )}
+
+                {activeProvider === 'AZURE' && (
+                  <form onSubmit={handleSaveAzureConfig} className="p-4 bg-slate-50 dark:bg-[#12141d] border border-slate-202 dark:border-[#1f2130] rounded-xl space-y-4 animate-in slide-in-from-top-2 duration-250">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] text-slate-555 dark:text-slate-405 font-bold uppercase tracking-widest">Azure Connection String</label>
+                        <input 
+                          type="password" 
+                          required
+                          value={azureConnString}
+                          onChange={(e) => setAzureConnString(e.target.value)}
+                          placeholder="endpoint=https://...;accesskey=..."
+                          className="w-full bg-white dark:bg-slate-950 border border-slate-202 dark:border-slate-800 text-slate-850 dark:text-white text-xs rounded-lg px-3 py-2 outline-none font-mono focus:ring-2 focus:ring-blue-500/35"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] text-slate-555 dark:text-slate-405 font-bold uppercase tracking-widest">Verified Sender Domain</label>
+                        <input 
+                          type="text" 
+                          required
+                          value={azureSenderDomain}
+                          onChange={(e) => setAzureSenderDomain(e.target.value)}
+                          placeholder="outbound.yourdomain.com"
+                          className="w-full bg-white dark:bg-slate-955 border border-slate-202 dark:border-slate-800 text-slate-850 dark:text-white text-xs rounded-lg px-3 py-2 outline-none font-mono focus:ring-2 focus:ring-blue-500/35"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex justify-end">
+                      <button 
+                        type="submit" 
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg text-xs transition-colors shadow-2xs cursor-pointer flex items-center gap-1.5"
+                      >
+                        <Save className="w-3.5 h-3.5" />
+                        Save Azure Configuration
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {(activeProvider === 'SMTP' || activeProvider === 'GOOGLE' || activeProvider === 'MICROSOFT' || activeProvider === 'AZURE' || activeProvider === 'MOCK') && (
+                  <form onSubmit={handleSaveSmtpImap} className="p-4 bg-slate-50 dark:bg-[#12141d] border border-slate-202 dark:border-[#1f2130] rounded-xl space-y-6 animate-in slide-in-from-top-2 duration-250">
+                    
+                    {/* SMTP Outbound Section */}
+                    <div className="space-y-4">
+                      <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider pb-1 border-b border-slate-200/60 dark:border-slate-800/40">
+                        Outbound Mail Delivery [SMTP] {getGlobalSmtpStatusLabel(activeProvider)}
+                      </h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] text-slate-555 dark:text-slate-400 font-bold uppercase tracking-widest">SMTP Host Server</label>
+                          <input 
+                            type="text" 
+                            disabled={isGlobalSmtpDisabled(activeProvider)}
+                            value={smtpHost}
+                            onChange={(e) => setSmtpHost(e.target.value)}
+                            placeholder={
+                              activeProvider === 'GOOGLE' ? 'smtp.gmail.com' :
+                              activeProvider === 'MICROSOFT' ? 'smtp.office365.com' :
+                              'e.g. smtp.mailgun.org'
+                            }
+                            className="w-full bg-white dark:bg-slate-950 border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none font-mono focus:ring-2 focus:ring-blue-500/35 disabled:opacity-50"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] text-slate-555 dark:text-slate-405 font-bold uppercase tracking-widest">Port Connection</label>
+                          <input 
+                            type="text" 
+                            disabled={isGlobalSmtpDisabled(activeProvider)}
+                            value={smtpPort}
+                            onChange={(e) => setSmtpPort(e.target.value)}
+                            placeholder="587"
+                            className="w-full bg-white dark:bg-slate-950 border border-slate-202 dark:border-[#1f2130] text-slate-805 dark:text-white text-xs rounded-lg px-3 py-2 outline-none font-mono focus:ring-2 focus:ring-blue-500/35 disabled:opacity-50"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] text-slate-555 dark:text-slate-405 font-bold uppercase tracking-widest">Identity Username</label>
+                          <input 
+                            type="text" 
+                            disabled={isGlobalSmtpDisabled(activeProvider)}
+                            value={smtpUser}
+                            onChange={(e) => setSmtpUser(e.target.value)}
+                            placeholder="e.g. user@yourdomain.com"
+                            className="w-full bg-white dark:bg-slate-955 border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none font-mono focus:ring-2 focus:ring-blue-500/35 disabled:opacity-50"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] text-slate-555 dark:text-slate-405 font-bold uppercase tracking-widest">Outbound SMTP Password Key</label>
+                          <input 
+                            type="password" 
+                            disabled={isGlobalSmtpDisabled(activeProvider)}
+                            value={smtpPass}
+                            onChange={(e) => setSmtpPass(e.target.value)}
+                            placeholder="SMTP Connection Password Key"
+                            className="w-full bg-white dark:bg-slate-955 border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none font-mono focus:ring-2 focus:ring-blue-500/35 disabled:opacity-50"
+                          />
+                        </div>
+                        <div className="flex items-end pb-0.5">
+                          <button 
+                            type="button" 
+                            disabled={smtpLoading || isGlobalSmtpDisabled(activeProvider)}
+                            onClick={handleTestSmtpConnection}
+                            className="w-full flex items-center justify-center gap-2 bg-blue-605/10 hover:bg-blue-600/10 text-blue-600 dark:text-blue-400 font-bold text-xs py-2 rounded-lg transition-colors border border-blue-200 dark:border-blue-500/30 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <RefreshCw className={`w-3.5 h-3.5 ${smtpLoading ? 'animate-spin' : ''}`} />
+                            {smtpLoading ? 'Communicating Server...' : 'Test SMTP Authentication Connection'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* IMAP Inbound Section */}
+                    <div className="space-y-4 pt-2">
+                      <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider pb-1 border-b border-slate-200/60 dark:border-slate-800/40">
+                        Inbound Reply Sync [IMAP] {getGlobalSmtpStatusLabel(activeProvider)}
+                      </h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] text-slate-555 dark:text-slate-400 font-bold uppercase tracking-widest">IMAP Host Server</label>
+                          <input 
+                            type="text" 
+                            disabled={isGlobalSmtpDisabled(activeProvider)}
+                            value={imapHost}
+                            onChange={(e) => setImapHost(e.target.value)}
+                            placeholder={
+                              activeProvider === 'GOOGLE' ? 'imap.gmail.com' :
+                              activeProvider === 'MICROSOFT' ? 'outlook.office365.com' :
+                              'e.g. imap.mailgun.org'
+                            }
+                            className="w-full bg-white dark:bg-slate-950 border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none font-mono focus:ring-2 focus:ring-blue-500/35 disabled:opacity-50"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] text-slate-555 dark:text-slate-405 font-bold uppercase tracking-widest">Port Connection</label>
+                          <input 
+                            type="text" 
+                            disabled={isGlobalSmtpDisabled(activeProvider)}
+                            value={imapPort}
+                            onChange={(e) => setImapPort(e.target.value)}
+                            placeholder="993"
+                            className="w-full bg-white dark:bg-slate-950 border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none font-mono focus:ring-2 focus:ring-blue-500/35 disabled:opacity-50"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] text-slate-555 dark:text-slate-405 font-bold uppercase tracking-widest">IMAP Username</label>
+                          <input 
+                            type="text" 
+                            disabled={isGlobalSmtpDisabled(activeProvider)}
+                            value={imapUser}
+                            onChange={(e) => setImapUser(e.target.value)}
+                            placeholder="e.g. user@yourdomain.com"
+                            className="w-full bg-white dark:bg-slate-955 border border-slate-202 dark:border-[#1f2130] text-slate-805 dark:text-white text-xs rounded-lg px-3 py-2 outline-none font-mono focus:ring-2 focus:ring-blue-500/35 disabled:opacity-50"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] text-slate-555 dark:text-slate-405 font-bold uppercase tracking-widest">Inbound IMAP Password Key</label>
+                          <input 
+                            type="password" 
+                            disabled={isGlobalSmtpDisabled(activeProvider)}
+                            value={imapPass}
+                            onChange={(e) => setImapPass(e.target.value)}
+                            placeholder="IMAP Connection Password Key"
+                            className="w-full bg-white dark:bg-slate-955 border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none font-mono focus:ring-2 focus:ring-blue-500/35 disabled:opacity-50"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end pt-2 border-t border-slate-150 dark:border-slate-850">
+                      <button 
+                        type="submit" 
+                        disabled={isGlobalSmtpDisabled(activeProvider)}
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-600/50 text-white font-semibold rounded-lg text-xs transition-colors shadow-2xs cursor-pointer flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <Save className="w-3.5 h-3.5" />
+                        Save SMTP & IMAP Configuration
+                      </button>
+                    </div>
+
+                    {(smtpLogs.length > 0 || smtpLoading) && (
+                      <div className="p-3.5 bg-slate-950 rounded-lg text-[11px] font-mono whitespace-pre-wrap text-[#cbd5e1] leading-relaxed border border-slate-850 max-h-52 overflow-y-auto w-full">
+                        <div className="text-slate-500 pb-1.5 border-b border-slate-900 mb-1.5 flex justify-between items-center text-[9px] tracking-wider uppercase font-bold">
+                          <span>SMTP Dispatch Diagnostic Console</span>
+                          {smtpLoading && <span className="animate-pulse text-blue-400">CONNECTING...</span>}
+                        </div>
+                        {smtpLogs.map((logStr, idx) => (
+                          <div key={idx} className={logStr.startsWith('✓') ? "text-emerald-400 font-bold" : ""}>
+                            {logStr}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </form>
+                )}
               </div>
 
-              {/* Webhooks Manager */}
+              {/* Outbound Event Webhooks */}
               <div className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1b1c26] rounded-xl p-5 shadow-xs">
                 <div className="flex justify-between items-center pb-3 border-b border-slate-100 dark:border-[#1b1c26] mb-4">
                   <div>
@@ -742,7 +1103,7 @@ export default function SettingsPage() {
                         placeholder="https://your-crm.com/api/v1/ingest"
                         value={newWebhookUrl}
                         onChange={(e) => setNewWebhookUrl(e.target.value)}
-                        className="w-full bg-white dark:bg-slate-950 border border-slate-202 dark:border-slate-800 text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500/35 shadow-2xs"
+                        className="w-full bg-white dark:bg-slate-955 border border-slate-202 dark:border-slate-800 text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500/35 shadow-2xs"
                       />
                     </div>
 
@@ -805,91 +1166,12 @@ export default function SettingsPage() {
                             </span>
                           ))}
                         </div>
-                        <div className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">
+                        <div className="text-[10px] text-slate-400 dark:text-slate-505 font-mono">
                           Signing Secret: <span className="bg-slate-100 dark:bg-slate-900 px-1 py-0.5 rounded">{wh.secret}</span>
                         </div>
                       </div>
                     </div>
                   ))}
-                </div>
-              </div>
-
-              {/* Custom SMTP Outbound Relayer */}
-              <div className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1b1c26] rounded-xl p-5 shadow-xs">
-                <h3 className="text-xs font-bold uppercase tracking-widest text-slate-855 dark:text-slate-200 mb-0.5">Alternative Outbound SMTP Relay</h3>
-                <p className="text-[11px] text-slate-400 dark:text-slate-500 mb-4 font-medium">Bypass Azure and dispatch lead sequencers via your own transactional server credentials.</p>
-
-                <div className="space-y-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] text-slate-555 dark:text-slate-400 font-bold uppercase tracking-widest">SMTP Host Server</label>
-                      <input 
-                        type="text" 
-                        value={smtpHost}
-                        onChange={(e) => setSmtpHost(e.target.value)}
-                        placeholder="e.g. smtp.mailgun.org"
-                        className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none font-mono focus:ring-2 focus:ring-blue-500/35"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] text-slate-555 dark:text-slate-405 font-bold uppercase tracking-widest">Port Connection</label>
-                      <input 
-                        type="text" 
-                        value={smtpPort}
-                        onChange={(e) => setSmtpPort(e.target.value)}
-                        placeholder="587"
-                        className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none font-mono focus:ring-2 focus:ring-blue-500/35"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] text-slate-555 dark:text-slate-405 font-bold uppercase tracking-widest">Identity Username</label>
-                      <input 
-                        type="text" 
-                        value={smtpUser}
-                        onChange={(e) => setSmtpUser(e.target.value)}
-                        placeholder="e.g. user@sandbox.com"
-                        className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none font-mono focus:ring-2 focus:ring-blue-500/35"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] text-slate-555 dark:text-slate-405 font-bold uppercase tracking-widest">Outbound Password Key</label>
-                      <input 
-                        type="password" 
-                        value={smtpPass}
-                        onChange={(e) => setSmtpPass(e.target.value)}
-                        placeholder="SMTP Connection Password"
-                        className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none font-mono focus:ring-2 focus:ring-blue-500/35"
-                      />
-                    </div>
-                    <div className="flex items-end pb-0.5">
-                      <button 
-                        type="button" 
-                        disabled={smtpLoading}
-                        onClick={handleTestSmtpConnection}
-                        className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-650 text-white font-semibold text-xs py-2 rounded-lg transition-colors shadow-2xs font-sans cursor-pointer"
-                      >
-                        <RefreshCw className={`w-3.5 h-3.5 ${smtpLoading ? 'animate-spin' : ''}`} />
-                        {smtpLoading ? 'Communicating Server...' : 'Test SMTP Authentication Connection'}
-                      </button>
-                    </div>
-                  </div>
-
-                  {(smtpLogs.length > 0 || smtpLoading) && (
-                    <div className="p-3.5 bg-slate-950 rounded-lg text-[11px] font-mono whitespace-pre-wrap text-[#cbd5e1] leading-relaxed border border-slate-850 max-h-52 overflow-y-auto">
-                      <div className="text-slate-500 pb-1.5 border-b border-slate-900 mb-1.5 flex justify-between items-center text-[9px] tracking-wider uppercase font-bold">
-                        <span>SMTP Dispatch Diagnostic Console</span>
-                        {smtpLoading && <span className="animate-pulse text-blue-400">CONNECTING...</span>}
-                      </div>
-                      {smtpLogs.map((logStr, idx) => (
-                        <div key={idx} className={logStr.startsWith('✓') ? "text-emerald-400 font-bold" : ""}>
-                          {logStr}
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
               </div>
 

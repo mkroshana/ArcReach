@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { hashPassword } from '@/lib/auth';
 
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient | undefined };
 
@@ -144,7 +145,7 @@ export const db = {
     return prisma.user.create({
       data: {
         ...data,
-        passwordHash: 'dummy-hash'
+        passwordHash: hashPassword('securemypassword123')
       }
     });
   },

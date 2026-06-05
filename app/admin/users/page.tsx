@@ -2,15 +2,15 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { 
-  Users, 
-  Shield, 
-  Trash2, 
-  UserPlus, 
-  CheckCircle, 
-  AlertTriangle, 
-  X, 
-  Mail, 
+import {
+  Users,
+  Shield,
+  Trash2,
+  UserPlus,
+  CheckCircle,
+  AlertTriangle,
+  X,
+  Mail,
   Calendar,
   Lock,
   UserCheck
@@ -165,19 +165,18 @@ export default function UsersAdminPage() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 max-w-5xl mx-auto pb-10">
-      
+
       {/* Toast Overlay */}
       <AnimatePresence>
         {toast && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, y: -20, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -20 }}
-            className={`fixed top-4 right-4 z-50 flex items-center gap-3 px-4 py-3 rounded-xl shadow-xl border backdrop-blur-md min-w-[300px] ${
-              toast.type === 'success' 
-                ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400' 
-                : 'bg-rose-500/10 border-rose-500/20 text-rose-600 dark:text-rose-400'
-            }`}
+            className={`fixed top-4 right-4 z-50 flex items-center gap-3 px-4 py-3 rounded-xl shadow-xl border backdrop-blur-md min-w-[300px] ${toast.type === 'success'
+              ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400'
+              : 'bg-rose-500/10 border-rose-500/20 text-rose-600 dark:text-rose-400'
+              }`}
           >
             {toast.type === 'success' ? <CheckCircle className="w-5 h-5 flex-shrink-0" /> : <AlertTriangle className="w-5 h-5 flex-shrink-0" />}
             <p className="text-xs font-semibold leading-normal">{toast.message}</p>
@@ -191,12 +190,12 @@ export default function UsersAdminPage() {
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white mb-0.5">Corporate Directory</h1>
           <p className="text-slate-500 dark:text-slate-400 text-xs">Establish team members, assign specific permissions (RBAC), and manage organizational roles.</p>
         </div>
-        <button 
+        <button
           onClick={() => setIsAddOpen(true)}
           className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg font-semibold flex items-center gap-2 transition-colors text-xs shadow-xs"
         >
           <UserPlus className="w-4 h-4" />
-          Add Corporate User
+          Add User
         </button>
       </header>
 
@@ -266,11 +265,10 @@ export default function UsersAdminPage() {
                       {item.email}
                     </td>
                     <td className="px-5 py-3.5">
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-bold border uppercase tracking-wider ${
-                        item.role === 'ADMIN'
-                          ? 'bg-rose-50 dark:bg-rose-550/10 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-550/20'
-                          : 'bg-blue-50 dark:bg-blue-550/10 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-550/20'
-                      }`}>
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-bold border uppercase tracking-wider ${item.role === 'ADMIN'
+                        ? 'bg-rose-50 dark:bg-rose-550/10 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-550/20'
+                        : 'bg-blue-50 dark:bg-blue-550/10 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-550/20'
+                        }`}>
                         {item.role === 'ADMIN' ? <Shield className="w-2.5 h-2.5" /> : <Users className="w-2.5 h-2.5" />}
                         {item.role}
                       </span>
@@ -282,22 +280,20 @@ export default function UsersAdminPage() {
                       <button
                         onClick={() => handleToggleRole(item.id, item.role)}
                         disabled={item.id === 'admin-id-999'}
-                        className={`text-[10px] font-bold uppercase border px-2.5 py-1 rounded-lg transition-colors inline-flex items-center gap-1 ${
-                          item.id === 'admin-id-999'
-                            ? 'opacity-30 cursor-not-allowed border-slate-200 dark:border-slate-800 text-slate-400'
-                            : 'border-slate-201 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60 cursor-pointer text-slate-700 dark:text-slate-300'
-                        }`}
+                        className={`text-[10px] font-bold uppercase border px-2.5 py-1 rounded-lg transition-colors inline-flex items-center gap-1 ${item.id === 'admin-id-999'
+                          ? 'opacity-30 cursor-not-allowed border-slate-200 dark:border-slate-800 text-slate-400'
+                          : 'border-slate-201 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60 cursor-pointer text-slate-700 dark:text-slate-300'
+                          }`}
                       >
                         Demote to {item.role === 'ADMIN' ? 'User' : 'Admin'}
                       </button>
                       <button
                         onClick={() => handleDeleteUser(item.id)}
                         disabled={item.id === 'admin-id-999'}
-                        className={`p-1.5 rounded-lg border transition-colors inline-flex items-center justify-center ${
-                          item.id === 'admin-id-999'
-                            ? 'opacity-30 cursor-not-allowed border-slate-200 dark:border-slate-800 text-slate-400'
-                            : 'border-rose-150 dark:border-[#961747]/30 text-rose-500 dark:text-rose-455 hover:bg-rose-500/10 cursor-pointer'
-                        }`}
+                        className={`p-1.5 rounded-lg border transition-colors inline-flex items-center justify-center ${item.id === 'admin-id-999'
+                          ? 'opacity-30 cursor-not-allowed border-slate-200 dark:border-slate-800 text-slate-400'
+                          : 'border-rose-150 dark:border-[#961747]/30 text-rose-500 dark:text-rose-455 hover:bg-rose-500/10 cursor-pointer'
+                          }`}
                         title="Deauthorize Member"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -349,7 +345,7 @@ export default function UsersAdminPage() {
 
               <form onSubmit={handleCreateUser} className="space-y-4">
                 <div className="space-y-1.5">
-                  <label className="text-[10px] text-slate-450 dark:text-slate-500 uppercase tracking-widest font-bold">Employee Name</label>
+                  <label className="text-[10px] text-slate-450 dark:text-slate-500 uppercase tracking-widest font-bold">Name</label>
                   <input
                     type="text"
                     required
@@ -363,7 +359,7 @@ export default function UsersAdminPage() {
                 <div className="space-y-1.5">
                   <label className="text-[10px] text-slate-450 dark:text-slate-500 uppercase tracking-widest font-bold flex items-center gap-1.5">
                     <Mail className="w-3.5 h-3.5" />
-                    Corporate Email
+                    Email
                   </label>
                   <input
                     type="email"
@@ -394,22 +390,20 @@ export default function UsersAdminPage() {
                     <button
                       type="button"
                       onClick={() => setNewRole('USER')}
-                      className={`py-2 rounded-lg border text-xs font-semibold uppercase tracking-wider transition-all cursor-pointer ${
-                        newRole === 'USER'
-                          ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-400'
-                          : 'border-slate-201 dark:border-slate-800 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800/40'
-                      }`}
+                      className={`py-2 rounded-lg border text-xs font-semibold uppercase tracking-wider transition-all cursor-pointer ${newRole === 'USER'
+                        ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-400'
+                        : 'border-slate-201 dark:border-slate-800 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800/40'
+                        }`}
                     >
                       User role
                     </button>
                     <button
                       type="button"
                       onClick={() => setNewRole('ADMIN')}
-                      className={`py-2 rounded-lg border text-xs font-semibold uppercase tracking-wider transition-all cursor-pointer ${
-                        newRole === 'ADMIN'
-                          ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-450'
-                          : 'border-slate-201 dark:border-slate-800 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800/40'
-                      }`}
+                      className={`py-2 rounded-lg border text-xs font-semibold uppercase tracking-wider transition-all cursor-pointer ${newRole === 'ADMIN'
+                        ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-450'
+                        : 'border-slate-201 dark:border-slate-800 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800/40'
+                        }`}
                     >
                       Admin role
                     </button>

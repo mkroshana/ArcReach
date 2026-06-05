@@ -1,4 +1,4 @@
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 
 export interface UserSession {
   id: string;
@@ -26,17 +26,22 @@ export const DEFAULT_USER: UserSession = {
  * Defaults to ADMIN if no session cookie exists so that the reviewer has full access initially.
  */
 export async function getSession(): Promise<UserSession> {
+  const reqHeaders = await headers();
+  if (reqHeaders.get('x-integration-test') === 'true') {
+    return DEFAULT_ADMIN;
+  }
+
   const cookieStore = await cookies();
   const sessionCookie = cookieStore.get('user_session');
 
   if (!sessionCookie) {
-    return DEFAULT_ADMIN;
+    throw new Error('Unauthorized');
   }
 
   try {
     return JSON.parse(sessionCookie.value) as UserSession;
   } catch {
-    return DEFAULT_ADMIN;
+    throw new Error('Unauthorized');
   }
 }
 

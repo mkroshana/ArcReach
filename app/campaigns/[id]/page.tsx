@@ -25,12 +25,14 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { use, useState, useEffect } from 'react';
+import { useTimezones } from '@/hooks/use-timezones';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
 
 export default function CampaignDetailsPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
   const campaignId = resolvedParams.id;
+  const timezoneOptions = useTimezones();
 
   const [campaign, setCampaign] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -441,9 +443,11 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                         onChange={(e) => setTimezone(e.target.value)}
                         className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-202 dark:border-slate-800 text-slate-700 dark:text-slate-300 text-xs rounded-lg px-3 py-2 outline-none font-medium cursor-pointer"
                       >
-                        <option value="America/New_York">Eastern Time (US & Canada)</option>
-                        <option value="America/Los_Angeles">Pacific Time (US & Canada)</option>
-                        <option value="UTC">UTC Offset</option>
+                        {timezoneOptions.map(option => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
                       </select>
                     </div>
 

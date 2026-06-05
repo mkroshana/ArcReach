@@ -30,7 +30,15 @@ export async function POST(req: NextRequest) {
       userId,
       warmupEnabled,
       warmupLimit,
-      warmupRamp
+      warmupRamp,
+      smtpHost,
+      smtpPort,
+      smtpUser,
+      smtpPass,
+      imapHost,
+      imapPort,
+      imapUser,
+      imapPass
     } = data;
 
     if (!emailAddress || !provider) {
@@ -53,6 +61,14 @@ export async function POST(req: NextRequest) {
       warmupEnabled: !!warmupEnabled,
       warmupLimit: Number(warmupLimit) || 50,
       warmupRamp: Number(warmupRamp) || 2,
+      smtpHost: smtpHost || null,
+      smtpPort: smtpPort ? Number(smtpPort) : null,
+      smtpUser: smtpUser || null,
+      smtpPass: smtpPass || null,
+      imapHost: imapHost || null,
+      imapPort: imapPort ? Number(imapPort) : null,
+      imapUser: imapUser || null,
+      imapPass: imapPass || null,
     });
 
     return NextResponse.json(newAccount);
@@ -82,6 +98,13 @@ export async function PUT(req: NextRequest) {
     // If standard user, prevent them from reassigning the account to someone else
     if (session.role !== 'ADMIN') {
       delete updates.userId;
+    }
+
+    if (updates.smtpPort !== undefined) {
+      updates.smtpPort = updates.smtpPort ? Number(updates.smtpPort) : null;
+    }
+    if (updates.imapPort !== undefined) {
+      updates.imapPort = updates.imapPort ? Number(updates.imapPort) : null;
     }
 
     const updated = await db.updateAccount(id, updates);

@@ -19,6 +19,8 @@ model User {
   id             String          @id @default(uuid())
   email          String          @unique
   name           String?
+  organization   String?
+  timezone       String?
   passwordHash   String
   role           Role            @default(USER)
   createdAt      DateTime        @default(now())
@@ -32,14 +34,21 @@ model User {
 // 2. GLOBAL SETTINGS
 // ------------------------------------------------------
 model GlobalSettings {
-  id              String   @id @default(uuid())
-  smtpHost        String?
-  smtpPort        Int?
-  smtpUser        String?
-  smtpPass        String?
-  rateLimitMinute Int?     @default(60)
-  rateLimitHour   Int?     @default(1000)
-  updatedAt       DateTime @updatedAt
+  id                String   @id @default(uuid())
+  activeProvider    String   @default("MOCK")
+  azureConnString   String?
+  azureSenderDomain String?
+  smtpHost          String?
+  smtpPort          Int?
+  smtpUser          String?
+  smtpPass          String?
+  imapHost          String?
+  imapPort          Int?
+  imapUser          String?
+  imapPass          String?
+  rateLimitMinute   Int?     @default(60)
+  rateLimitHour     Int?     @default(1000)
+  updatedAt         DateTime @updatedAt
 }
 
 // ------------------------------------------------------
@@ -74,6 +83,16 @@ model SenderAccount {
   
   campaigns       Campaign[]
   inboundReplies  InboundResponse[]
+
+  // Individual Mailbox Credentials
+  smtpHost        String?
+  smtpPort        Int?
+  smtpUser        String?
+  smtpPass        String?
+  imapHost        String?
+  imapPort        Int?
+  imapUser        String?
+  imapPass        String?
 }
 
 // ------------------------------------------------------

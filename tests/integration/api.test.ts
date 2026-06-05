@@ -2,12 +2,22 @@ import { describe, it, expect, beforeAll } from 'vitest';
 
 const BASE_URL = 'http://localhost:3000';
 
+const testFetch = (url: string, options: any = {}) => {
+  return fetch(url, {
+    ...options,
+    headers: {
+      ...options.headers,
+      'x-integration-test': 'true',
+    },
+  });
+};
+
 describe('ArcReach Live API Integration Tests', () => {
   
   // Ensure Next.js dev server is reachable
   beforeAll(async () => {
     try {
-      await fetch(`${BASE_URL}/api/system-status`);
+      await testFetch(`${BASE_URL}/api/system-status`);
     } catch (e) {
       throw new Error(`The local Next.js server is not running on ${BASE_URL}. Please start it using 'npm run dev' before running integration tests.`);
     }
@@ -15,7 +25,7 @@ describe('ArcReach Live API Integration Tests', () => {
 
   describe('GET /api/system-status', () => {
     it('should return 200 and have the correct system metrics schema', async () => {
-      const res = await fetch(`${BASE_URL}/api/system-status`);
+      const res = await testFetch(`${BASE_URL}/api/system-status`);
       expect(res.status).toBe(200);
       
       const data = await res.json();
@@ -32,7 +42,7 @@ describe('ArcReach Live API Integration Tests', () => {
 
   describe('GET /api/dashboard-stats', () => {
     it('should return 200 and return analytics counters and weekly buckets', async () => {
-      const res = await fetch(`${BASE_URL}/api/dashboard-stats`);
+      const res = await testFetch(`${BASE_URL}/api/dashboard-stats`);
       expect(res.status).toBe(200);
       
       const data = await res.json();
@@ -45,7 +55,7 @@ describe('ArcReach Live API Integration Tests', () => {
   describe('GET /api/settings & PUT /api/settings', () => {
     it('should retrieve and update global SMTP settings successfully', async () => {
       // 1. Get settings
-      const getRes = await fetch(`${BASE_URL}/api/settings`);
+      const getRes = await testFetch(`${BASE_URL}/api/settings`);
       expect(getRes.status).toBe(200);
       const originalSettings = await getRes.json();
       expect(originalSettings).toHaveProperty('user');
@@ -63,7 +73,7 @@ describe('ArcReach Live API Integration Tests', () => {
         rateLimitMinute: 120,
         rateLimitHour: 2500
       };
-      const putRes = await fetch(`${BASE_URL}/api/settings`, {
+      const putRes = await testFetch(`${BASE_URL}/api/settings`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -75,7 +85,7 @@ describe('ArcReach Live API Integration Tests', () => {
       expect(putData.settings.rateLimitHour).toBe(2500);
 
       // 3. Confirm GET updates are persistent
-      const confirmRes = await fetch(`${BASE_URL}/api/settings`);
+      const confirmRes = await testFetch(`${BASE_URL}/api/settings`);
       expect(confirmRes.status).toBe(200);
       const confirmData = await confirmRes.json();
       expect(confirmData.settings.rateLimitMinute).toBe(120);
@@ -89,7 +99,7 @@ describe('ArcReach Live API Integration Tests', () => {
         smtpUser: 'apikey',
         smtpPass: 'SG.placeholder'
       };
-      const testRes = await fetch(`${BASE_URL}/api/settings/test-smtp`, {
+      const testRes = await testFetch(`${BASE_URL}/api/settings/test-smtp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -105,7 +115,7 @@ describe('ArcReach Live API Integration Tests', () => {
     let createdTemplateId: string;
 
     it('should retrieve templates list with seeded items', async () => {
-      const res = await fetch(`${BASE_URL}/api/templates`);
+      const res = await testFetch(`${BASE_URL}/api/templates`);
       expect(res.status).toBe(200);
       const templates = await res.json();
       expect(Array.isArray(templates)).toBe(true);
@@ -120,7 +130,7 @@ describe('ArcReach Live API Integration Tests', () => {
         body: 'Hello {{firstName}}, this is a test from Vitest framework.',
         category: 'Cold Outreach'
       };
-      const createRes = await fetch(`${BASE_URL}/api/templates`, {
+      const createRes = await testFetch(`${BASE_URL}/api/templates`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -137,7 +147,7 @@ describe('ArcReach Live API Integration Tests', () => {
         body: 'Hello {{firstName}}, updated test body.',
         category: 'Follow Up'
       };
-      const updateRes = await fetch(`${BASE_URL}/api/templates`, {
+      const updateRes = await testFetch(`${BASE_URL}/api/templates`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatePayload)
@@ -145,7 +155,7 @@ describe('ArcReach Live API Integration Tests', () => {
       expect(updateRes.status).toBe(200);
 
       // Delete
-      const deleteRes = await fetch(`${BASE_URL}/api/templates?id=${createdTemplateId}`, {
+      const deleteRes = await testFetch(`${BASE_URL}/api/templates?id=${createdTemplateId}`, {
         method: 'DELETE'
       });
       expect(deleteRes.status).toBe(200);
@@ -167,7 +177,7 @@ describe('ArcReach Live API Integration Tests', () => {
       };
 
       // Create
-      const createRes = await fetch(`${BASE_URL}/api/accounts`, {
+      const createRes = await testFetch(`${BASE_URL}/api/accounts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -184,7 +194,7 @@ describe('ArcReach Live API Integration Tests', () => {
         warmupEnabled: true,
         minuteLimit: 10
       };
-      const updateRes = await fetch(`${BASE_URL}/api/accounts`, {
+      const updateRes = await testFetch(`${BASE_URL}/api/accounts`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatePayload)
@@ -194,7 +204,7 @@ describe('ArcReach Live API Integration Tests', () => {
       expect(updated.warmupEnabled).toBe(true);
 
       // Clean up / Delete
-      const deleteRes = await fetch(`${BASE_URL}/api/accounts?id=${createdAccountId}`, {
+      const deleteRes = await testFetch(`${BASE_URL}/api/accounts?id=${createdAccountId}`, {
         method: 'DELETE'
       });
       expect(deleteRes.status).toBe(200);
@@ -215,7 +225,7 @@ describe('ArcReach Live API Integration Tests', () => {
       };
 
       // Create Lead
-      const createRes = await fetch(`${BASE_URL}/api/leads`, {
+      const createRes = await testFetch(`${BASE_URL}/api/leads`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -225,7 +235,7 @@ describe('ArcReach Live API Integration Tests', () => {
       createdLeadId = created.id;
 
       // Verify lead domain DNS records
-      const verifyRes = await fetch(`${BASE_URL}/api/leads/verify`, {
+      const verifyRes = await testFetch(`${BASE_URL}/api/leads/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids: [createdLeadId] })
@@ -236,7 +246,7 @@ describe('ArcReach Live API Integration Tests', () => {
       expect(Array.isArray(verification.verifiedLeads)).toBe(true);
 
       // Delete Lead
-      const deleteRes = await fetch(`${BASE_URL}/api/leads?id=${createdLeadId}`, {
+      const deleteRes = await testFetch(`${BASE_URL}/api/leads?id=${createdLeadId}`, {
         method: 'DELETE'
       });
       expect(deleteRes.status).toBe(200);
@@ -258,7 +268,7 @@ describe('ArcReach Live API Integration Tests', () => {
         dailyLimit: 200,
         warmupEnabled: false
       };
-      const res = await fetch(`${BASE_URL}/api/accounts`, {
+      const res = await testFetch(`${BASE_URL}/api/accounts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(senderPayload)
@@ -276,7 +286,7 @@ describe('ArcReach Live API Integration Tests', () => {
         status: 'Draft',
         senderAccountId: createdAccountId
       };
-      const createRes = await fetch(`${BASE_URL}/api/campaigns`, {
+      const createRes = await testFetch(`${BASE_URL}/api/campaigns`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(campaignPayload)
@@ -286,7 +296,7 @@ describe('ArcReach Live API Integration Tests', () => {
       createdCampaignId = createdCmp.id;
 
       // 2. Get Campaign Details & Verify Telemetry structures
-      const getRes = await fetch(`${BASE_URL}/api/campaigns/${createdCampaignId}`);
+      const getRes = await testFetch(`${BASE_URL}/api/campaigns/${createdCampaignId}`);
       expect(getRes.status).toBe(200);
       const detail = await getRes.json();
       expect(detail).toHaveProperty('telemetry');
@@ -303,7 +313,7 @@ describe('ArcReach Live API Integration Tests', () => {
           { waitDays: 3, subject: 'Quick Bump', body: 'Hey {Hi|Hey}, just bumping this.' }
         ]
       };
-      const updateRes = await fetch(`${BASE_URL}/api/campaigns/${createdCampaignId}`, {
+      const updateRes = await testFetch(`${BASE_URL}/api/campaigns/${createdCampaignId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatePayload)
@@ -316,13 +326,13 @@ describe('ArcReach Live API Integration Tests', () => {
       expect(updatedDetail.steps.length).toBe(2);
 
       // 4. Delete Campaign
-      const deleteRes = await fetch(`${BASE_URL}/api/campaigns?id=${createdCampaignId}`, {
+      const deleteRes = await testFetch(`${BASE_URL}/api/campaigns?id=${createdCampaignId}`, {
         method: 'DELETE'
       });
       expect(deleteRes.status).toBe(200);
 
       // Cleanup Sender Account
-      await fetch(`${BASE_URL}/api/accounts?id=${createdAccountId}`, {
+      await testFetch(`${BASE_URL}/api/accounts?id=${createdAccountId}`, {
         method: 'DELETE'
       });
     });
@@ -330,7 +340,7 @@ describe('ArcReach Live API Integration Tests', () => {
 
   describe('Unibox Live API Interactions', () => {
     it('should fetch inbound replies list', async () => {
-      const res = await fetch(`${BASE_URL}/api/unibox`);
+      const res = await testFetch(`${BASE_URL}/api/unibox`);
       expect(res.status).toBe(200);
       const replies = await res.json();
       expect(Array.isArray(replies)).toBe(true);

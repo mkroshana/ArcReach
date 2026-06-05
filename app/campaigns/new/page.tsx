@@ -3,8 +3,10 @@
 import { ArrowLeft, Save, Send, Settings, Users, AlignLeft, Clock, ToggleLeft, Plus, Trash2, SplitSquareHorizontal } from 'lucide-react';
 import Link from 'next/link';
 import { useState } from 'react';
+import { useTimezones } from '@/hooks/use-timezones';
 
 export default function NewCampaignPage() {
+  const timezoneOptions = useTimezones();
   const [activeTab, setActiveTab] = useState('Sequence');
   const [steps, setSteps] = useState([
     { id: 1, waitDays: 0, subject: '', body: '', isABTest: false }
@@ -190,9 +192,11 @@ export default function NewCampaignPage() {
                     <div className="space-y-1.5">
                       <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">Outbox Timezone</label>
                       <select className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 text-xs rounded-lg px-3 py-2 outline-none font-medium">
-                        <option>(GMT-05:00) Eastern Time (US & Canada)</option>
-                        <option>(GMT-08:00) Pacific Time (US & Canada)</option>
-                        <option>(GMT+00:00) UTC Offset</option>
+                        {timezoneOptions.map(option => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
                       </select>
                     </div>
 

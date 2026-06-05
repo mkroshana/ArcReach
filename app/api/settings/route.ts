@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getSession, setSession } from '@/lib/session';
+import { verifyPassword, hashPassword } from '@/lib/auth';
 
 export async function GET() {
   try {
@@ -13,6 +14,8 @@ export async function GET() {
         id: true,
         email: true,
         name: true,
+        organization: true,
+        timezone: true,
         role: true,
         createdAt: true
       }
@@ -51,13 +54,18 @@ export async function PUT(req: NextRequest) {
   try {
     const session = await getSession();
     const body = await req.json();
-    const { name, smtpHost, smtpPort, smtpUser, smtpPass, rateLimitMinute, rateLimitHour } = body;
+    const { name, organization, timezone, activeProvider, azureConnString, azureSenderDomain, smtpHost, smtpPort, smtpUser, smtpPass, imapHost, imapPort, imapUser, imapPass, rateLimitMinute, rateLimitHour, currentPassword, newPassword } = body;
 
-    // 1. Update user profile name in the DB
-    if (name !== undefined) {
+    // 1. Update user profile details in the DB
+    if (name !== undefined || organization !== undefined || timezone !== undefined) {
+      const dataToUpdate: any = {};
+      if (name !== undefined) dataToUpdate.name = name;
+      if (organization !== undefined) dataToUpdate.organization = organization;
+      if (timezone !== undefined) dataToUpdate.timezone = timezone;
+
       const updatedUser = await prisma.user.update({
         where: { id: session.id },
-        data: { name }
+        data: dataToUpdate
       });
       // Sync active cookies session as well
       await setSession({
@@ -68,14 +76,45 @@ export async function PUT(req: NextRequest) {
       });
     }
 
+    // Update password in the DB
+    if (newPassword !== undefined) {
+      if (!currentPassword) {
+        return NextResponse.json({ error: 'Current password is required.' }, { status: 400 });
+      }
+
+      const userObj = await prisma.user.findUnique({
+        where: { id: session.id }
+      });
+
+      if (!userObj) {
+        return NextResponse.json({ error: 'User not found.' }, { status: 404 });
+      }
+
+      if (!verifyPassword(currentPassword, userObj.passwordHash)) {
+        return NextResponse.json({ error: 'Current password does not match.' }, { status: 400 });
+      }
+
+      await prisma.user.update({
+        where: { id: session.id },
+        data: { passwordHash: hashPassword(newPassword) }
+      });
+    }
+
     // 2. Update Global Settings
     const settings = await prisma.globalSettings.findFirst();
     
     const settingsData: any = {};
+    if (activeProvider !== undefined) settingsData.activeProvider = activeProvider;
+    if (azureConnString !== undefined) settingsData.azureConnString = azureConnString;
+    if (azureSenderDomain !== undefined) settingsData.azureSenderDomain = azureSenderDomain;
     if (smtpHost !== undefined) settingsData.smtpHost = smtpHost;
     if (smtpPort !== undefined) settingsData.smtpPort = Number(smtpPort) || null;
     if (smtpUser !== undefined) settingsData.smtpUser = smtpUser;
     if (smtpPass !== undefined) settingsData.smtpPass = smtpPass;
+    if (imapHost !== undefined) settingsData.imapHost = imapHost;
+    if (imapPort !== undefined) settingsData.imapPort = Number(imapPort) || null;
+    if (imapUser !== undefined) settingsData.imapUser = imapUser;
+    if (imapPass !== undefined) settingsData.imapPass = imapPass;
     if (rateLimitMinute !== undefined) {
       settingsData.rateLimitMinute = rateLimitMinute === null ? null : Number(rateLimitMinute);
     }
@@ -92,10 +131,17 @@ export async function PUT(req: NextRequest) {
     } else {
       updatedSettings = await prisma.globalSettings.create({
         data: {
+          activeProvider: activeProvider || 'MOCK',
+          azureConnString: azureConnString || null,
+          azureSenderDomain: azureSenderDomain || null,
           smtpHost: smtpHost || null,
           smtpPort: Number(smtpPort) || null,
           smtpUser: smtpUser || null,
           smtpPass: smtpPass || null,
+          imapHost: imapHost || null,
+          imapPort: Number(imapPort) || null,
+          imapUser: imapUser || null,
+          imapPass: imapPass || null,
           rateLimitMinute: rateLimitMinute === undefined ? 60 : (rateLimitMinute === null ? null : Number(rateLimitMinute)),
           rateLimitHour: rateLimitHour === undefined ? 1000 : (rateLimitHour === null ? null : Number(rateLimitHour))
         }

@@ -325,10 +325,12 @@ describe('ArcReach Live API Integration Tests', () => {
       expect(updatedDetail.timezone).toBe(updatePayload.timezone);
       expect(updatedDetail.steps.length).toBe(2);
 
-      // 4. Delete Campaign
       const deleteRes = await testFetch(`${BASE_URL}/api/campaigns?id=${createdCampaignId}`, {
         method: 'DELETE'
       });
+      if (deleteRes.status !== 200) {
+        console.error('DELETE CAMPAIGN FAILED:', deleteRes.status, await deleteRes.text());
+      }
       expect(deleteRes.status).toBe(200);
 
       // Cleanup Sender Account
@@ -344,6 +346,6 @@ describe('ArcReach Live API Integration Tests', () => {
       expect(res.status).toBe(200);
       const replies = await res.json();
       expect(Array.isArray(replies)).toBe(true);
-    });
+    }, 60000);
   });
 });

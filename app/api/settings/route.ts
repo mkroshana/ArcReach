@@ -26,6 +26,7 @@ export async function GET() {
     if (!settings) {
       settings = await prisma.globalSettings.create({
         data: {
+          activeProvider: 'AZURE',
           smtpHost: 'smtp.mailgun.org',
           smtpPort: 587,
           smtpUser: 'postmaster@sandbox.arcreach.com',
@@ -33,6 +34,11 @@ export async function GET() {
           rateLimitMinute: 60,
           rateLimitHour: 1000
         }
+      });
+    } else if (settings.activeProvider !== 'AZURE') {
+      settings = await prisma.globalSettings.update({
+        where: { id: settings.id },
+        data: { activeProvider: 'AZURE' }
       });
     }
 
@@ -124,6 +130,7 @@ export async function PUT(req: NextRequest) {
 
     let updatedSettings;
     if (settings) {
+      settingsData.activeProvider = 'AZURE';
       updatedSettings = await prisma.globalSettings.update({
         where: { id: settings.id },
         data: settingsData
@@ -131,7 +138,7 @@ export async function PUT(req: NextRequest) {
     } else {
       updatedSettings = await prisma.globalSettings.create({
         data: {
-          activeProvider: activeProvider || 'MOCK',
+          activeProvider: 'AZURE',
           azureConnString: azureConnString || null,
           azureSenderDomain: azureSenderDomain || null,
           smtpHost: smtpHost || null,

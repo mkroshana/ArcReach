@@ -118,6 +118,7 @@ model Campaign {
   stopOnReply     Boolean              @default(true)
   trackOpens      Boolean              @default(true)
   trackClicks     Boolean              @default(true)
+  audienceCohort  String               @default("Valid") // Valid, Unverified, etc.
   
   steps           CampaignStep[]
   enrollments     CampaignEnrollment[]

@@ -46,12 +46,58 @@ export async function POST(req: NextRequest) {
     }
 
     if (provider === 'AZURE') {
-      console.log(`[Azure Communication Services Send] Campaign: ${campaignId || 'manual'}, Lead: ${leadData.email}`);
-      return NextResponse.json({ 
-        success: true, 
-        message: 'Email successfully sent via Azure Communication Services (Simulated).', 
-        messageId: `azure-msg-${Date.now()}-${Math.random().toString(36).substring(7)}` 
-      });
+      const connString = settings?.azureConnString;
+      const senderDomain = settings?.azureSenderDomain;
+
+      if (!connString || !senderDomain) {
+        return NextResponse.json({
+          success: false,
+          error: 'Azure Communication Services is active, but Connection String or Sender Domain is not configured in settings.'
+        }, { status: 400 });
+      }
+
+      if (!activeSenderAccount) {
+        return NextResponse.json({
+          success: false,
+          error: 'Active sender account is required to determine the from username for Azure Communication Services.'
+        }, { status: 400 });
+      }
+
+      try {
+        const { EmailClient } = require("@azure/communication-email");
+        const emailClient = new EmailClient(connString);
+
+        const [username] = activeSenderAccount.emailAddress.split('@');
+        const fromAddress = `${username}@${senderDomain}`;
+
+        const message = {
+          senderAddress: fromAddress,
+          content: {
+            subject: subject || 'Outreach from ArcReach',
+            plainText: bodyText || '',
+          },
+          recipients: {
+            to: [{ address: leadData.email }],
+          },
+        };
+
+        const poller = await emailClient.beginSend(message);
+        const result = await poller.pollUntilDone();
+
+        console.log(`[Azure Send Success] Message ID: ${result.id} | From: ${fromAddress} → To: ${leadData.email}`);
+
+        return NextResponse.json({ 
+          success: true, 
+          message: 'Email successfully sent via Azure Communication Services.', 
+          messageId: result.id 
+        });
+      } catch (err: any) {
+        console.error('[Azure Send Error]', err);
+        return NextResponse.json({
+          success: false,
+          error: `Azure Communication Services failed to send email: ${err.message || err}`
+        }, { status: 550 });
+      }
     }
 
     // SMTP settings selection: prefer individual sender account details, fallback to global

@@ -23,7 +23,8 @@ import {
   Activity,
   Save,
   Send,
-  Loader2
+  Loader2,
+  Trash2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -107,6 +108,10 @@ export default function AccountsPage() {
   // Send Test Email state
   const [sendingTestEmail, setSendingTestEmail] = useState(false);
 
+  // Deletion state
+  const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
   // Success message toast
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
@@ -161,6 +166,11 @@ export default function AccountsPage() {
     } else if (selectedProvider === 'SendGrid Relay Node') {
       setSmtpHost('smtp.sendgrid.net');
       setSmtpPort('587');
+      setImapHost('');
+      setImapPort('');
+    } else if (selectedProvider === 'Azure Relay Node') {
+      setSmtpHost('');
+      setSmtpPort('');
       setImapHost('');
       setImapPort('');
     } else {
@@ -446,6 +456,36 @@ export default function AccountsPage() {
     }
   };
 
+  const handleDeleteAccount = async () => {
+    if (!selectedWarmupAccount || deleting) return;
+    if (!confirmDelete) {
+      setConfirmDelete(true);
+      setTimeout(() => setConfirmDelete(false), 4000); // Reset after 4 seconds
+      return;
+    }
+
+    try {
+      setDeleting(true);
+      const res = await fetch(`/api/accounts?id=${selectedWarmupAccount.id}`, {
+        method: 'DELETE',
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to delete mailbox connection');
+      }
+
+      showToast('Mailbox connection deleted successfully');
+      setSelectedWarmupAccount(null); // Go back to list
+      await loadData(); // Reload accounts list
+    } catch (err: any) {
+      showToast(err.message || 'Error occurred deleting mailbox', 'error');
+    } finally {
+      setDeleting(false);
+      setConfirmDelete(false);
+    }
+  };
+
   const getOwnerName = (ownerId: string | null) => {
     if (!ownerId) return 'Unassigned';
     if (ownerId === session?.id) return 'Me (' + session?.name + ')';
@@ -644,19 +684,36 @@ export default function AccountsPage() {
               </div>
               <p className="text-slate-500 dark:text-slate-400 text-xs font-medium">Automate peer exchanges across secure clean IP addresses to lift domain safety scores.</p>
             </div>
-            <button
-              onClick={handleSendTestEmail}
-              disabled={sendingTestEmail}
-              className="flex items-center gap-2 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-600/50 text-white text-xs font-semibold rounded-lg transition-all shadow-xs cursor-pointer group"
-              title={`Send a test email to ${session?.email || 'your email'}`}
-            >
-              {sendingTestEmail ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <Send className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
-              )}
-              {sendingTestEmail ? 'Sending...' : 'Send Test Email'}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleSendTestEmail}
+                disabled={sendingTestEmail}
+                className="flex items-center gap-2 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-600/50 text-white text-xs font-semibold rounded-lg transition-all shadow-xs cursor-pointer group"
+              >
+                {sendingTestEmail ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Send className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+                )}
+                {sendingTestEmail ? 'Sending...' : 'Send Test Email'}
+              </button>
+              <button
+                onClick={handleDeleteAccount}
+                disabled={deleting}
+                className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-all shadow-xs cursor-pointer ${
+                  confirmDelete 
+                    ? 'bg-rose-600 hover:bg-rose-700 text-white' 
+                    : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/40 dark:hover:bg-slate-800 text-rose-600 dark:text-rose-450 border border-slate-200 dark:border-slate-800'
+                }`}
+              >
+                {deleting ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="w-3.5 h-3.5" />
+                )}
+                {deleting ? 'Deleting...' : confirmDelete ? 'Confirm Delete' : 'Delete Mailbox'}
+              </button>
+            </div>
           </div>
 
           {/* Quick Metrics */}
@@ -839,63 +896,71 @@ export default function AccountsPage() {
                 </h2>
                 
                 <form onSubmit={handleSaveAccountCredentials} className="space-y-4">
-                  <div className="p-3.5 rounded-xl border border-slate-200 dark:border-[#1e202d] bg-slate-50/30 dark:bg-[#10121a]/50 space-y-3">
-                    <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                      Outbound Mail Delivery [SMTP] {getSmtpStatusLabel(globalActiveProvider)}
-                    </h4>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-widest leading-none">SMTP Host</label>
-                        <input 
-                          type="text" 
-                          disabled={isSmtpDisabled(globalActiveProvider)}
-                          placeholder="smtp.example.com"
-                          value={editSmtpHost}
-                          onChange={(e) => setEditSmtpHost(e.target.value)}
-                          className="w-full bg-white dark:bg-[#0e1017] border border-slate-205 dark:border-[#1f2130] text-slate-805 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono disabled:opacity-50"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-widest leading-none">SMTP Port</label>
-                        <input 
-                          type="text" 
-                          disabled={isSmtpDisabled(globalActiveProvider)}
-                          placeholder="587"
-                          value={editSmtpPort}
-                          onChange={(e) => setEditSmtpPort(e.target.value)}
-                          className="w-full bg-white dark:bg-[#0e1017] border border-slate-205 dark:border-[#1f2130] text-slate-805 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono disabled:opacity-50"
-                        />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-widest leading-none">SMTP Username</label>
-                        <input 
-                          type="text" 
-                          disabled={isSmtpDisabled(globalActiveProvider)}
-                          placeholder="user@domain.com"
-                          value={editSmtpUser}
-                          onChange={(e) => setEditSmtpUser(e.target.value)}
-                          className="w-full bg-white dark:bg-[#0e1017] border border-slate-205 dark:border-[#1f2130] text-slate-805 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono disabled:opacity-50"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-widest leading-none">SMTP Password</label>
-                        <input 
-                          type="password" 
-                          disabled={isSmtpDisabled(globalActiveProvider)}
-                          placeholder="Password or App Key"
-                          value={editSmtpPass}
-                          onChange={(e) => setEditSmtpPass(e.target.value)}
-                          className="w-full bg-white dark:bg-[#0e1017] border border-slate-205 dark:border-[#1f2130] text-slate-805 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono disabled:opacity-50"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {selectedWarmupAccount.provider !== 'SendGrid Relay Node' && (
+                  {!isSmtpDisabled(globalActiveProvider) && (
                     <div className="p-3.5 rounded-xl border border-slate-200 dark:border-[#1e202d] bg-slate-50/30 dark:bg-[#10121a]/50 space-y-3">
-                      <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Inbound Reply Sync [IMAP]</h4>
+                      <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                        {selectedWarmupAccount.provider === 'Google Workspace'
+                          ? `Outbound Mail Delivery [Google App Password Method] ${getSmtpStatusLabel(globalActiveProvider)}`
+                          : `Outbound Mail Delivery [SMTP] ${getSmtpStatusLabel(globalActiveProvider)}`}
+                      </h4>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-widest leading-none">SMTP Host</label>
+                          <input 
+                            type="text" 
+                            disabled={isSmtpDisabled(globalActiveProvider)}
+                            placeholder="smtp.example.com"
+                            value={editSmtpHost}
+                            onChange={(e) => setEditSmtpHost(e.target.value)}
+                            className="w-full bg-white dark:bg-[#0e1017] border border-slate-205 dark:border-[#1f2130] text-slate-805 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono disabled:opacity-50"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-widest leading-none">SMTP Port</label>
+                          <input 
+                            type="text" 
+                            disabled={isSmtpDisabled(globalActiveProvider)}
+                            placeholder="587"
+                            value={editSmtpPort}
+                            onChange={(e) => setEditSmtpPort(e.target.value)}
+                            className="w-full bg-white dark:bg-[#0e1017] border border-slate-205 dark:border-[#1f2130] text-slate-805 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono disabled:opacity-50"
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-widest leading-none">SMTP Username</label>
+                          <input 
+                            type="text" 
+                            disabled={isSmtpDisabled(globalActiveProvider)}
+                            placeholder="user@domain.com"
+                            value={editSmtpUser}
+                            onChange={(e) => setEditSmtpUser(e.target.value)}
+                            className="w-full bg-white dark:bg-[#0e1017] border border-slate-205 dark:border-[#1f2130] text-slate-805 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono disabled:opacity-50"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-widest leading-none">SMTP Password</label>
+                          <input 
+                            type="password" 
+                            disabled={isSmtpDisabled(globalActiveProvider)}
+                            placeholder="Password or App Key"
+                            value={editSmtpPass}
+                            onChange={(e) => setEditSmtpPass(e.target.value)}
+                            className="w-full bg-white dark:bg-[#0e1017] border border-slate-205 dark:border-[#1f2130] text-slate-805 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono disabled:opacity-50"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedWarmupAccount.provider !== 'SendGrid Relay Node' && selectedWarmupAccount.provider !== 'Azure Relay Node' && (
+                    <div className="p-3.5 rounded-xl border border-slate-200 dark:border-[#1e202d] bg-slate-50/30 dark:bg-[#10121a]/50 space-y-3">
+                      <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                        {selectedWarmupAccount.provider === 'Google Workspace'
+                          ? 'Inbound Reply Sync [Google App Password Method]'
+                          : 'Inbound Reply Sync [IMAP]'}
+                      </h4>
                       <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-1">
                           <label className="text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-widest leading-none">IMAP Host</label>
@@ -1066,6 +1131,7 @@ export default function AccountsPage() {
                       <option>Microsoft 365</option>
                       <option>IMAP/SMTP Custom Protocol</option>
                       <option>SendGrid Relay Node</option>
+                      <option>Azure Relay Node</option>
                     </select>
                   </div>
 
@@ -1094,65 +1160,72 @@ export default function AccountsPage() {
                   </div>
                 </div>
 
-                {/* Outbound SMTP Details */}
-                <div className="p-3.5 rounded-xl border border-slate-200 dark:border-[#1e202d] bg-slate-50/30 dark:bg-[#10121a]/50 space-y-3">
-                  <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                    Outbound Mail Delivery [SMTP] {getSmtpStatusLabel(globalActiveProvider)}
-                  </h4>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <label className="text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-widest leading-none">SMTP Host</label>
-                      <input 
-                        type="text" 
-                        disabled={isSmtpDisabled(globalActiveProvider)}
-                        placeholder="smtp.example.com"
-                        value={smtpHost}
-                        onChange={(e) => setSmtpHost(e.target.value)}
-                        className="w-full bg-white dark:bg-[#0e1017] border border-slate-205 dark:border-[#1f2130] text-slate-805 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono disabled:opacity-50"
-                      />
+                {!isSmtpDisabled(globalActiveProvider) && (
+                  <div className="p-3.5 rounded-xl border border-slate-200 dark:border-[#1e202d] bg-slate-50/30 dark:bg-[#10121a]/50 space-y-3">
+                    <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                      {provider === 'Google Workspace'
+                        ? `Outbound Mail Delivery [Google App Password Method] ${getSmtpStatusLabel(globalActiveProvider)}`
+                        : `Outbound Mail Delivery [SMTP] ${getSmtpStatusLabel(globalActiveProvider)}`}
+                    </h4>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-widest leading-none">SMTP Host</label>
+                        <input 
+                          type="text" 
+                          disabled={isSmtpDisabled(globalActiveProvider)}
+                          placeholder="smtp.example.com"
+                          value={smtpHost}
+                          onChange={(e) => setSmtpHost(e.target.value)}
+                          className="w-full bg-white dark:bg-[#0e1017] border border-slate-205 dark:border-[#1f2130] text-slate-805 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono disabled:opacity-50"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-widest leading-none">SMTP Port</label>
+                        <input 
+                          type="text" 
+                          disabled={isSmtpDisabled(globalActiveProvider)}
+                          placeholder="587"
+                          value={smtpPort}
+                          onChange={(e) => setSmtpPort(e.target.value)}
+                          className="w-full bg-white dark:bg-[#0e1017] border border-slate-205 dark:border-[#1f2130] text-slate-805 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono disabled:opacity-50"
+                        />
+                      </div>
                     </div>
-                    <div className="space-y-1">
-                      <label className="text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-widest leading-none">SMTP Port</label>
-                      <input 
-                        type="text" 
-                        disabled={isSmtpDisabled(globalActiveProvider)}
-                        placeholder="587"
-                        value={smtpPort}
-                        onChange={(e) => setSmtpPort(e.target.value)}
-                        className="w-full bg-white dark:bg-[#0e1017] border border-slate-205 dark:border-[#1f2130] text-slate-805 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono disabled:opacity-50"
-                      />
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-widest leading-none">SMTP Username</label>
+                        <input 
+                          type="text" 
+                          disabled={isSmtpDisabled(globalActiveProvider)}
+                          placeholder="user@domain.com"
+                          value={smtpUser}
+                          onChange={(e) => setSmtpUser(e.target.value)}
+                          className="w-full bg-white dark:bg-[#0e1017] border border-slate-205 dark:border-[#1f2130] text-slate-805 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono disabled:opacity-50"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-widest leading-none">SMTP Password</label>
+                        <input 
+                          type="password" 
+                          disabled={isSmtpDisabled(globalActiveProvider)}
+                          placeholder="Password or App Key"
+                          value={smtpPass}
+                          onChange={(e) => setSmtpPass(e.target.value)}
+                          className="w-full bg-white dark:bg-[#0e1017] border border-slate-205 dark:border-[#1f2130] text-slate-805 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono disabled:opacity-50"
+                        />
+                      </div>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <label className="text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-widest leading-none">SMTP Username</label>
-                      <input 
-                        type="text" 
-                        disabled={isSmtpDisabled(globalActiveProvider)}
-                        placeholder="user@domain.com"
-                        value={smtpUser}
-                        onChange={(e) => setSmtpUser(e.target.value)}
-                        className="w-full bg-white dark:bg-[#0e1017] border border-slate-205 dark:border-[#1f2130] text-slate-805 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono disabled:opacity-50"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-widest leading-none">SMTP Password</label>
-                      <input 
-                        type="password" 
-                        disabled={isSmtpDisabled(globalActiveProvider)}
-                        placeholder="Password or App Key"
-                        value={smtpPass}
-                        onChange={(e) => setSmtpPass(e.target.value)}
-                        className="w-full bg-white dark:bg-[#0e1017] border border-slate-205 dark:border-[#1f2130] text-slate-805 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono disabled:opacity-50"
-                      />
-                    </div>
-                  </div>
-                </div>
+                )}
 
                 {/* Inbound IMAP Details */}
-                {provider !== 'SendGrid Relay Node' && (
+                {provider !== 'SendGrid Relay Node' && provider !== 'Azure Relay Node' && (
                   <div className="p-3.5 rounded-xl border border-slate-200 dark:border-[#1e202d] bg-slate-50/30 dark:bg-[#10121a]/50 space-y-3">
-                    <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Inbound Reply Sync [IMAP]</h4>
+                    <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                      {provider === 'Google Workspace'
+                        ? 'Inbound Reply Sync [Google App Password Method]'
+                        : 'Inbound Reply Sync [IMAP]'}
+                    </h4>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
                         <label className="text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-widest leading-none">IMAP Host</label>

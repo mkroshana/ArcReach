@@ -61,6 +61,45 @@ export async function POST(req: NextRequest) {
         where: { id: lead.id },
         data: { validationStatus: status }
       });
+
+      if (status === 'Valid') {
+        // Remove from Unverified campaigns
+        await prisma.campaignEnrollment.deleteMany({
+          where: {
+            leadId: lead.id,
+            campaign: {
+              audienceCohort: 'Unverified'
+            }
+          }
+        });
+        
+        // Enroll in Valid campaigns
+        const validCampaigns = await prisma.campaign.findMany({
+          where: {
+            audienceCohort: 'Valid'
+          },
+          select: { id: true }
+        });
+        
+        if (validCampaigns.length > 0) {
+          await prisma.campaignEnrollment.createMany({
+            data: validCampaigns.map(c => ({
+              leadId: lead.id,
+              campaignId: c.id,
+              status: 'Active',
+              currentSequenceStep: 1,
+              nextActionDate: new Date()
+            })),
+            skipDuplicates: true
+          });
+        }
+      } else if (status === 'Invalid' || (status as string) === 'Risky') {
+        // Delete enrollments for invalid or risky leads
+        await prisma.campaignEnrollment.deleteMany({
+          where: { leadId: lead.id }
+        });
+      }
+
       verifiedLeads.push(updated);
     }
 

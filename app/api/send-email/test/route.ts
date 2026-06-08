@@ -66,13 +66,52 @@ export async function POST(req: NextRequest) {
 
     // Handle AZURE provider
     if (provider === 'AZURE') {
-      console.log(`[Test Email - Azure] From: ${senderAccount.emailAddress} → To: ${recipientEmail}`);
-      return NextResponse.json({
-        success: true,
-        message: `Test email sent via Azure Communication Services (Simulated) to ${recipientEmail}.`,
-        messageId: `azure-test-${Date.now()}-${Math.random().toString(36).substring(7)}`,
-        recipient: recipientEmail,
-      });
+      const connString = settings?.azureConnString;
+      const senderDomain = settings?.azureSenderDomain;
+
+      if (!connString || !senderDomain) {
+        return NextResponse.json({
+          success: false,
+          error: 'Azure Communication Services is active, but Connection String or Sender Domain is not configured in settings.'
+        }, { status: 400 });
+      }
+
+      try {
+        const { EmailClient } = require("@azure/communication-email");
+        const emailClient = new EmailClient(connString);
+
+        const [username] = senderAccount.emailAddress.split('@');
+        const fromAddress = `${username}@${senderDomain}`;
+
+        const message = {
+          senderAddress: fromAddress,
+          content: {
+            subject,
+            plainText: bodyText,
+          },
+          recipients: {
+            to: [{ address: recipientEmail }],
+          },
+        };
+
+        const poller = await emailClient.beginSend(message);
+        const result = await poller.pollUntilDone();
+
+        console.log(`[Test Email - Azure Success] Message ID: ${result.id} | From: ${fromAddress} → To: ${recipientEmail}`);
+
+        return NextResponse.json({
+          success: true,
+          message: `Test email successfully sent via Azure Communication Services to ${recipientEmail}.`,
+          messageId: result.id,
+          recipient: recipientEmail,
+        });
+      } catch (err: any) {
+        console.error('[Test Email - Azure Error]', err);
+        return NextResponse.json({
+          success: false,
+          error: `Azure Communication Services failed to send: ${err.message || err}`
+        }, { status: 550 });
+      }
     }
 
     // SMTP-based delivery: prefer individual account credentials, fallback to global

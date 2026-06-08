@@ -21,7 +21,9 @@ import {
   SendHorizontal,
   PlayCircle,
   Sparkles,
-  ChevronDown
+  ChevronDown,
+  Play,
+  Loader2
 } from 'lucide-react';
 import Link from 'next/link';
 import { use, useState, useEffect } from 'react';
@@ -42,6 +44,8 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
   // Input states
   const [campaignName, setCampaignName] = useState('');
   const [status, setStatus] = useState('Draft');
+  const [audienceCohort, setAudienceCohort] = useState('Valid');
+  const [runningCampaign, setRunningCampaign] = useState(false);
   const [timezone, setTimezone] = useState('America/New_York');
   const [stopOnReply, setStopOnReply] = useState(true);
   const [trackOpens, setTrackOpens] = useState(true);
@@ -73,6 +77,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
         setCampaignName(data.name || '');
         setStatus(data.status || 'Draft');
         setTimezone(data.timezone || 'UTC');
+        setAudienceCohort(data.audienceCohort || 'Valid');
         setStopOnReply(data.stopOnReply !== false);
         setTrackOpens(data.trackOpens !== false);
         setTrackClicks(data.trackClicks !== false);
@@ -149,6 +154,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
           stopOnReply,
           trackOpens,
           trackClicks,
+          audienceCohort,
           steps
         })
       });
@@ -165,6 +171,27 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
       showToast('Error occurred saving sequence configuration.', 'error');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleRunCampaign = async () => {
+    try {
+      setRunningCampaign(true);
+      const res = await fetch(`/api/campaigns/${campaignId}/run`, {
+        method: 'POST'
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast(`Campaign processed! Sent ${data.dispatchedCount} emails.`);
+        await loadCampaign(); // Refresh metrics
+      } else {
+        showToast(data.error || 'Failed to process campaign cycle.', 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Error occurred while executing campaign.', 'error');
+    } finally {
+      setRunningCampaign(false);
     }
   };
 
@@ -249,10 +276,24 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {status === 'Active' && (
+            <button 
+              onClick={handleRunCampaign}
+              disabled={runningCampaign}
+              className="px-3.5 py-2 bg-amber-600 hover:bg-amber-500 disabled:bg-amber-600/50 text-white font-semibold rounded-lg text-xs flex items-center gap-1.5 cursor-pointer shadow-sm transition-colors"
+            >
+              {runningCampaign ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Play className="w-3.5 h-3.5" />
+              )}
+              {runningCampaign ? 'Running...' : 'Run Campaign'}
+            </button>
+          )}
           <button 
             onClick={() => handleSaveCampaign()}
             disabled={saving}
-            className="px-3.5 py-2 bg-white hover:bg-slate-50 dark:bg-slate-950 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-705 dark:text-slate-300 font-semibold rounded-lg text-xs flex items-center gap-1.5 cursor-pointer shadow-xs"
+            className="px-3.5 py-2 bg-white hover:bg-slate-50 dark:bg-slate-955 dark:hover:bg-slate-800 border border-slate-202 dark:border-slate-800 text-slate-705 dark:text-slate-300 font-semibold rounded-lg text-xs flex items-center gap-1.5 cursor-pointer shadow-xs"
           >
             <Save className="w-3.5 h-3.5 text-slate-400" />
             {saving ? 'Saving...' : 'Save Draft'}
@@ -557,12 +598,17 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                  </h2>
                  <div className="space-y-4">
                    <div className="space-y-1.5">
-                     <label className="text-[10px] text-slate-550 dark:text-slate-400 font-bold uppercase tracking-widest">Target CRM List Folder</label>
-                     <select className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-202 dark:border-slate-800 text-slate-700 dark:text-slate-300 text-xs rounded-lg px-3 py-2 outline-none cursor-pointer">
-                       <option>All Active Valid Leads ({campaign?.telemetry?.enrollments || 0})</option>
-                       <option>Segment: High Intent (0)</option>
-                     </select>
-                   </div>
+                      <label className="text-[10px] text-slate-550 dark:text-slate-400 font-bold uppercase tracking-widest">Target CRM List Folder</label>
+                      <select 
+                        value={audienceCohort}
+                        onChange={(e) => setAudienceCohort(e.target.value)}
+                        className="w-full bg-slate-50 dark:bg-slate-955 border border-slate-202 dark:border-slate-800 text-slate-705 dark:text-slate-300 text-xs rounded-lg px-3 py-2 outline-none cursor-pointer"
+                      >
+                        <option value="Valid">All Active Valid Leads ({campaign?.telemetry?.validLeadsCount || 0})</option>
+                        <option value="Unverified">All Unverified Leads ({campaign?.telemetry?.unverifiedLeadsCount || 0})</option>
+                        <option value="HighIntent">Segment: High Intent (0)</option>
+                      </select>
+                    </div>
                    <div className="p-4 bg-blue-50 dark:bg-blue-955/20 border border-blue-105 dark:border-blue-550/15 rounded-lg">
                      <p className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-widest">Selected Prospects Estimate</p>
                      <p className="text-2xl font-bold text-slate-905 dark:text-white mt-1">{campaign?.telemetry?.enrollments || 0}</p>

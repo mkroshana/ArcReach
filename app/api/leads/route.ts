@@ -46,6 +46,28 @@ export async function POST(req: NextRequest) {
       }
     });
 
+    // If validationStatus is Valid or Unverified, enroll in all matching campaigns
+    if (created.validationStatus === 'Valid' || created.validationStatus === 'Unverified') {
+      const campaigns = await prisma.campaign.findMany({
+        where: {
+          audienceCohort: created.validationStatus === 'Unverified' ? 'Unverified' : 'Valid'
+        },
+        select: { id: true }
+      });
+      if (campaigns.length > 0) {
+        await prisma.campaignEnrollment.createMany({
+          data: campaigns.map(c => ({
+            leadId: created.id,
+            campaignId: c.id,
+            status: 'Active',
+            currentSequenceStep: 1,
+            nextActionDate: new Date()
+          })),
+          skipDuplicates: true
+        });
+      }
+    }
+
     return NextResponse.json(created);
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { db, prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 
 export async function GET() {
@@ -18,8 +18,7 @@ export async function POST(req: NextRequest) {
   try {
     const session = await getSession();
     const data = await req.json();
-
-    const { name, status, senderAccountId, userId } = data;
+    const { name, status, senderAccountId, userId, audienceCohort } = data;
 
     if (!name || !senderAccountId) {
       return NextResponse.json({ error: 'Name and sender mailbox are required.' }, { status: 400 });
@@ -33,7 +32,29 @@ export async function POST(req: NextRequest) {
       status: status || 'Draft',
       senderAccountId,
       userId: targetUserId,
+      audienceCohort: audienceCohort || 'Valid',
     });
+
+    // Auto-enroll eligible leads matching chosen cohort
+    const selectedCohort = audienceCohort || 'Valid';
+    const eligibleLeads = await prisma.lead.findMany({
+      where: {
+        validationStatus: selectedCohort === 'Unverified' ? 'Unverified' : 'Valid'
+      }
+    });
+
+    if (eligibleLeads.length > 0) {
+      await prisma.campaignEnrollment.createMany({
+        data: eligibleLeads.map(lead => ({
+          leadId: lead.id,
+          campaignId: newCampaign.id,
+          status: 'Active',
+          currentSequenceStep: 1,
+          nextActionDate: new Date()
+        })),
+        skipDuplicates: true
+      });
+    }
 
     return NextResponse.json(newCampaign);
   } catch (error: any) {

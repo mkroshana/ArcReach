@@ -26,9 +26,34 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     }
 
     // Calculate real campaign telemetry metrics
-    const enrollmentsCount = await prisma.campaignEnrollment.count({
+    let enrollmentsCount = await prisma.campaignEnrollment.count({
       where: { campaignId: id }
     });
+
+    // Auto-migrate: if no enrollments exist, populate with eligible leads matching selected cohort
+    if (enrollmentsCount === 0) {
+      const selectedCohort = campaign.audienceCohort || 'Valid';
+      const eligibleLeads = await prisma.lead.findMany({
+        where: {
+          validationStatus: selectedCohort === 'Unverified' ? 'Unverified' : 'Valid'
+        }
+      });
+      if (eligibleLeads.length > 0) {
+        await prisma.campaignEnrollment.createMany({
+          data: eligibleLeads.map(lead => ({
+            leadId: lead.id,
+            campaignId: id,
+            status: 'Active',
+            currentSequenceStep: 1,
+            nextActionDate: new Date()
+          })),
+          skipDuplicates: true
+        });
+        enrollmentsCount = await prisma.campaignEnrollment.count({
+          where: { campaignId: id }
+        });
+      }
+    }
 
     const sentCount = await prisma.emailDispatch.count({
       where: {
@@ -76,8 +101,18 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       }
     });
 
+    const validLeadsCount = await prisma.lead.count({
+      where: { validationStatus: 'Valid' }
+    });
+
+    const unverifiedLeadsCount = await prisma.lead.count({
+      where: { validationStatus: 'Unverified' }
+    });
+
     const telemetry = {
       enrollments: enrollmentsCount,
+      validLeadsCount,
+      unverifiedLeadsCount,
       sent: sentCount,
       opens: opensCount,
       clicks: clicksCount,
@@ -123,6 +158,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       stopOnReply, 
       trackOpens, 
       trackClicks,
+      audienceCohort,
       steps 
     } = body;
 
@@ -135,6 +171,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     if (stopOnReply !== undefined) updates.stopOnReply = !!stopOnReply;
     if (trackOpens !== undefined) updates.trackOpens = !!trackOpens;
     if (trackClicks !== undefined) updates.trackClicks = !!trackClicks;
+    if (audienceCohort !== undefined) updates.audienceCohort = audienceCohort;
 
     // Use a transaction to ensure atomic updates of campaign config and sequence steps
     await prisma.$transaction(async (tx) => {
@@ -162,6 +199,35 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
             }))
           });
         }
+      }
+
+      // 3. Sync/enroll matching leads
+      const selectedCohort = audienceCohort || campaign.audienceCohort || 'Valid';
+      
+      // Delete old enrollments to prevent mixing cohorts
+      await tx.campaignEnrollment.deleteMany({
+        where: {
+          campaignId: id
+        }
+      });
+
+      const eligibleLeads = await tx.lead.findMany({
+        where: {
+          validationStatus: selectedCohort === 'Unverified' ? 'Unverified' : 'Valid'
+        }
+      });
+
+      if (eligibleLeads.length > 0) {
+        await tx.campaignEnrollment.createMany({
+          data: eligibleLeads.map(lead => ({
+            leadId: lead.id,
+            campaignId: id,
+            status: 'Active',
+            currentSequenceStep: 1,
+            nextActionDate: new Date()
+          })),
+          skipDuplicates: true
+        });
       }
     });
 

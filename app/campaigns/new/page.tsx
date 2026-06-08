@@ -279,6 +279,7 @@ export default function NewCampaignPage() {
                      <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">Target CRM List Folder</label>
                      <select className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 text-xs rounded-lg px-3 py-2 outline-none">
                        <option>All Active Valid Leads (1,240)</option>
+                       <option>All Unverified Leads (0)</option>
                        <option>Segment: High Intent (420)</option>
                        <option>Segment: Churned (150)</option>
                      </select>

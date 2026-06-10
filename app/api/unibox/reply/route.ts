@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
+import nodemailer from 'nodemailer';
 
 export async function POST(req: NextRequest) {
   try {
@@ -12,16 +13,118 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'leadId and body copy are required.' }, { status: 400 });
     }
 
-    // Generate a unique message ID (e.g. simulating mail SMTP routing headers)
-    const randomHex = Array.from({ length: 16 }, () => Math.random().toString(16)[2]).join('');
-    const messageId = `msg_${randomHex}@arcreach-relay.net`;
+    // Fetch the lead's email address
+    const lead = await prisma.lead.findUnique({
+      where: { id: leadId },
+      select: { email: true, name: true }
+    });
 
-    // 1. Create a dispatch record to trace this sent reply
+    if (!lead) {
+      return NextResponse.json({ error: 'Lead not found.' }, { status: 404 });
+    }
+
+    // Fetch global settings
+    const settings = await prisma.globalSettings.findFirst();
+    const provider = settings?.activeProvider || 'MOCK';
+
+    // Fetch the sender account if provided
+    let senderAccount = null;
+    if (senderAccountId) {
+      senderAccount = await prisma.senderAccount.findUnique({
+        where: { id: senderAccountId }
+      });
+    }
+
+    const senderName = senderAccount?.name || session.name || 'ArcReach';
+    const senderEmail = senderAccount?.emailAddress || session.email;
+
+    // Generate a unique message ID
+    const randomHex = Array.from({ length: 16 }, () => Math.random().toString(16)[2]).join('');
+    let messageId = `msg_${randomHex}@arcreach-relay.net`;
+
+    // Send the email based on the active provider
+    if (provider === 'MOCK') {
+      console.log(`[Unibox Reply - Mock] From: ${senderEmail} → To: ${lead.email} | Subject: ${subject}`);
+      console.log(`[Unibox Reply - Mock] Body: ${replyBody.substring(0, 100)}...`);
+    } else if (provider === 'AZURE') {
+      const connString = settings?.azureConnString;
+      const senderDomain = settings?.azureSenderDomain;
+      if (!connString || !senderDomain) {
+        throw new Error('Azure Communication Services is active, but Connection String or Sender Domain is missing.');
+      }
+
+      const { EmailClient } = require("@azure/communication-email");
+      const emailClient = new EmailClient(connString);
+      const [username] = senderEmail.split('@');
+      const fromAddress = `${username}@${senderDomain}`;
+
+      const message = {
+        senderAddress: fromAddress,
+        content: {
+          subject: subject || 'Re: Outreach',
+          plainText: replyBody,
+        },
+        recipients: {
+          to: [{ address: lead.email }],
+        },
+      };
+
+      console.log(`[Unibox Reply - Azure Sending] From: ${fromAddress} → To: ${lead.email} | Subject: ${subject}`);
+      const poller = await emailClient.beginSend(message);
+      const result = await poller.pollUntilDone();
+      
+      messageId = result.id || messageId;
+      console.log(`[Unibox Reply - Azure Success] Message ID: ${messageId} | From: ${fromAddress} → To: ${lead.email}`);
+    } else {
+      // SMTP-based delivery: prefer individual sender account credentials, fallback to global
+      let smtpHost = settings?.smtpHost;
+      let smtpPort = settings?.smtpPort || 587;
+      let smtpUser = settings?.smtpUser;
+      let smtpPass = settings?.smtpPass;
+
+      if (senderAccount?.smtpHost && senderAccount?.smtpUser && senderAccount?.smtpPass) {
+        smtpHost = senderAccount.smtpHost;
+        smtpPort = senderAccount.smtpPort || 587;
+        smtpUser = senderAccount.smtpUser;
+        smtpPass = senderAccount.smtpPass;
+      }
+
+      if (!smtpHost || !smtpUser || !smtpPass) {
+        return NextResponse.json({
+          error: 'SMTP configuration is missing. Configure SMTP credentials for the sender account or set global SMTP settings.'
+        }, { status: 400 });
+      }
+
+      const portNum = Number(smtpPort) || 587;
+      const transport = nodemailer.createTransport({
+        host: smtpHost,
+        port: portNum,
+        secure: portNum === 465,
+        auth: {
+          user: smtpUser,
+          pass: smtpPass,
+        },
+      });
+
+      const info = await transport.sendMail({
+        from: `"${senderName}" <${smtpUser}>`,
+        to: lead.email,
+        subject: subject || 'Re: Outreach',
+        text: replyBody,
+      });
+
+      messageId = info.messageId || messageId;
+      console.log(`[Unibox Reply - SMTP Success] Message ID: ${messageId} | From: ${smtpUser} → To: ${lead.email}`);
+    }
+
+    // Create a dispatch record to trace this sent reply
     const dispatch = await prisma.emailDispatch.create({
       data: {
         leadId,
         messageId,
-        sentAt: new Date()
+        sentAt: new Date(),
+        subject: subject || 'Re: Outreach',
+        body: replyBody
       }
     });
 
@@ -29,6 +132,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, dispatch });
   } catch (error: any) {
+    console.error('[Unibox Reply Error]', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

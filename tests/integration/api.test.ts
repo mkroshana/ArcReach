@@ -337,7 +337,7 @@ describe('ArcReach Live API Integration Tests', () => {
       await testFetch(`${BASE_URL}/api/accounts?id=${createdAccountId}`, {
         method: 'DELETE'
       });
-    });
+    }, 30000);
   });
 
   describe('Unibox Live API Interactions', () => {

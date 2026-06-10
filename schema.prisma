@@ -196,6 +196,8 @@ model EmailDispatch {
   lead      Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
   messageId String       @unique
   sentAt    DateTime     @default(now())
+  subject   String?
+  body      String?      @db.Text
   events    EmailEvent[]
 }
 

@@ -152,6 +152,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           data: {
             leadId: lead.id,
             messageId,
+            subject,
+            body: bodyText,
           }
         });
 

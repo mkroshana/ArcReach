@@ -22,6 +22,106 @@ const readableStatus: Record<string, string> = {
   'Bounced': 'Bounced'
 };
 
+/**
+ * Client-side sanitizer for email bodies that may contain leaked MIME headers,
+ * boundaries, or raw encoding artifacts (for data already stored in the DB).
+ * Strips all reply chain history to show only the new message content.
+ */
+function sanitizeEmailBody(body: string): string {
+  if (!body) return '';
+  let text = body;
+
+  // If the body contains a MIME boundary, try to extract the text/plain part
+  const boundaryMatch = text.match(/Content-Type:\s*multipart\/\w+;\s*boundary=["']?([^\s"';\r\n]+)["']?/i);
+  if (boundaryMatch) {
+    const boundary = boundaryMatch[1];
+    const parts = text.split('--' + boundary);
+    for (const part of parts) {
+      if (/Content-Type:\s*text\/plain/i.test(part)) {
+        const blankLine = part.search(/\r?\n\r?\n/);
+        if (blankLine !== -1) {
+          const match = part.match(/\r?\n\r?\n/);
+          text = part.substring(blankLine + (match ? match[0].length : 2)).trim();
+          break;
+        }
+      }
+    }
+  } else if (/^Content-Type:\s*text\/plain/im.test(text.substring(0, 300))) {
+    // Single-part with headers
+    const blankLine = text.search(/\r?\n\r?\n/);
+    if (blankLine !== -1) {
+      const match = text.match(/\r?\n\r?\n/);
+      text = text.substring(blankLine + (match ? match[0].length : 2)).trim();
+    }
+  }
+
+  // Decode common quoted-printable sequences
+  text = text.replace(/=([0-9A-F]{2})/gi, (_, hex) => {
+    try { return String.fromCharCode(parseInt(hex, 16)); } catch { return _; }
+  });
+  // Remove soft line breaks from QP
+  text = text.replace(/=+(?:\r?\n|$)/g, '');
+
+  // Strip HTML tags first
+  text = text.replace(/<br\s*\/?>/gi, '\n');
+  text = text.replace(/<\/?(p|div|tr|li|blockquote|h[1-6])[^>]*>/gi, '\n');
+  text = text.replace(/<[^>]+>/g, '');
+  text = text.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&nbsp;/g, ' ');
+
+  // Process line by line: strip MIME artifacts, quoted text, and stop at reply chain markers
+  const lines = text.split(/\r?\n/);
+  const cleaned: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const t = line.trim();
+
+    // Stop processing at "On ... wrote:" reply markers (can span 1-3 lines)
+    if (/^On\s+/i.test(t)) {
+      let combined = t;
+      for (let j = 1; j <= 2 && (i + j) < lines.length; j++) {
+        combined += ' ' + lines[i + j].trim();
+      }
+      if (/wrote:\s*$/.test(combined)) break;
+    }
+
+    // Stop at other reply chain markers
+    if (/^-----\s*Original Message\s*-----/i.test(t)) break;
+    if (/^_{3,}\s*$/.test(t) && i > 0) break;
+    if (/^From:\s+\S+@\S+/i.test(t) && cleaned.length > 0) break;
+    if (/^Sent:\s+/i.test(t) && cleaned.length > 0) break;
+    if (/^Date:\s+/i.test(t) && cleaned.length > 0) break;
+    if (/^Subject:\s+/i.test(t) && cleaned.length > 0) break;
+    if (/^To:\s+\S+@\S+/i.test(t) && cleaned.length > 0) break;
+
+    // Skip quoted lines (starts with >)
+    if (t.startsWith('>')) continue;
+
+    // Skip MIME headers and artifacts
+    if (/^Content-Type:\s/i.test(t)) continue;
+    if (/^Content-Transfer-Encoding:\s/i.test(t)) continue;
+    if (/^MIME-Version:\s/i.test(t)) continue;
+    if (/^Content-Disposition:\s/i.test(t)) continue;
+    if (/^Message-ID:\s/i.test(t)) continue;
+    if (/^In-Reply-To:\s/i.test(t)) continue;
+    if (/^References:\s/i.test(t)) continue;
+    if (/^BODY\[/i.test(t)) continue;
+    if (/^HEADER\.FIELDS/i.test(t)) continue;
+    if (/^charset=/i.test(t)) continue;
+
+    // Skip MIME boundary markers
+    if (/^--[a-zA-Z0-9_=.+/-]{10,}--?$/.test(t)) continue;
+
+    // Skip IMAP fetch artifacts like "{530}"
+    if (/^\{\d+\}$/.test(t)) continue;
+
+    cleaned.push(line);
+  }
+
+  text = cleaned.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  return text;
+}
+
 export default function UniboxPage() {
   const [replies, setReplies] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -65,7 +165,8 @@ export default function UniboxPage() {
   const fetchReplies = async (initial = false) => {
     try {
       if (initial) setLoading(true);
-      const res = await fetch('/api/unibox');
+      const url = initial ? '/api/unibox' : '/api/unibox?sync=true';
+      const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
         setReplies(data);
@@ -73,6 +174,8 @@ export default function UniboxPage() {
           setSelectedId(data[0].id);
           markAsRead(data[0].id);
         }
+        // Clear local sent replies stack after a successful API sync
+        setSentRepliesLocal({});
       }
     } catch (e) {
       console.error(e);
@@ -197,7 +300,9 @@ export default function UniboxPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           leadId: selectedEmail.lead.id,
-          subject: `Re: ${selectedEmail.subject}`,
+          subject: /^re:/i.test(selectedEmail.subject.trim())
+            ? selectedEmail.subject
+            : `Re: ${selectedEmail.subject}`,
           body: currentReplyText,
           senderAccountId: selectedEmail.senderAccountId
         })
@@ -309,7 +414,7 @@ export default function UniboxPage() {
                        </span>
                      </div>
                   </div>
-                  <div className="text-[11px] text-slate-505 dark:text-slate-400 truncate w-[94%] leading-snug font-medium">{item.body}</div>
+                  <div className="text-[11px] text-slate-505 dark:text-slate-400 truncate w-[94%] leading-snug font-medium">{sanitizeEmailBody(item.body)}</div>
                   {item.unread && (
                     <div className="absolute left-1.5 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-blue-500" />
                   )}
@@ -389,30 +494,42 @@ export default function UniboxPage() {
             </div>
 
             {/* Thread Content */}
-            <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-slate-50/30 dark:bg-slate-950/10">
-              {/* Previous Outbound Template Sent */}
-              <div className="flex gap-3 opacity-65">
-                <div className="w-7 h-7 rounded-md bg-slate-100 dark:bg-slate-800 border border-slate-202 dark:border-slate-700 flex items-center justify-center text-slate-400 dark:text-slate-400 text-[10px] font-bold shrink-0 shadow-xs">M</div>
-                <div className="bg-white dark:bg-slate-950 border border-slate-202 dark:border-slate-800/80 p-3.5 rounded-lg rounded-tl-sm text-xs text-slate-650 dark:text-slate-300 leading-relaxed font-sans shadow-2xs">
-                  Hi {selectedEmail.lead?.name?.split(' ')[0] || 'there'},<br/><br/>
-                  Hope this email finds you well. I noticed your brand `{selectedEmail.lead?.company || 'company'}` has been growing, and wanted to see if you have open cycles to streamline automated sequences.<br/><br/>
-                  Best regards,<br/>{selectedEmail.senderAccount?.name || 'ArcReach Senders'}
-                </div>
-              </div>
-
-              {/* Incoming Customer Reply */}
-              <div className="flex gap-3">
-                <div className="w-7 h-7 rounded-md bg-white dark:bg-slate-955 border border-slate-220 dark:border-slate-800 flex items-center justify-center text-blue-655 dark:text-blue-400 text-[10px] font-bold shrink-0 shadow-xs">
-                  {(selectedEmail.lead?.name || 'P').charAt(0)}
-                </div>
-                <div className="bg-white dark:bg-slate-900 border border-slate-202 dark:border-slate-750 p-4 rounded-lg rounded-tl-sm text-xs text-slate-805 dark:text-white leading-relaxed font-sans shadow-xs">
-                  {selectedEmail.body}
-                </div>
-              </div>
+            <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-slate-50/30 dark:bg-slate-955/10">
+              {(selectedEmail.messages || []).map((msg: any) => {
+                if (msg.type === 'outbound') {
+                  return (
+                    <div key={msg.id} className="flex gap-3 justify-end">
+                      <div className="bg-blue-50/70 dark:bg-blue-955/20 border border-blue-150 dark:border-blue-500/10 p-4 rounded-lg rounded-tr-sm text-xs text-slate-800 dark:text-white leading-relaxed font-sans shadow-xs max-w-[80%]">
+                        <div className="whitespace-pre-line">{msg.body}</div>
+                        <div className="text-[9px] text-slate-400 dark:text-slate-500 mt-2 text-right font-mono font-medium">
+                          {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </div>
+                      </div>
+                      <div className="w-7 h-7 rounded-md bg-blue-600 flex items-center justify-center text-white text-[10px] font-bold shrink-0 shadow-xs">
+                        Me
+                      </div>
+                    </div>
+                  );
+                } else {
+                  return (
+                    <div key={msg.id} className="flex gap-3">
+                      <div className="w-7 h-7 rounded-md bg-white dark:bg-slate-955 border border-slate-220 dark:border-slate-800 flex items-center justify-center text-blue-655 dark:text-blue-400 text-[10px] font-bold shrink-0 shadow-xs">
+                        {(selectedEmail.lead?.name || 'P').charAt(0)}
+                      </div>
+                      <div className="bg-white dark:bg-slate-900 border border-slate-202 dark:border-slate-750 p-4 rounded-lg rounded-tl-sm text-xs text-slate-805 dark:text-white leading-relaxed font-sans shadow-xs whitespace-pre-line">
+                        {sanitizeEmailBody(msg.body)}
+                        <div className="text-[9px] text-slate-400 dark:text-slate-500 mt-2 font-mono font-medium">
+                          {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+              })}
 
               {/* Local Sent Replies stack (simulates real-time thread updating) */}
               {(sentRepliesLocal[selectedEmail.id] || []).map((sent, index) => (
-                <div key={index} className="flex gap-3 justify-end animate-in fade-in slide-in-from-bottom-2 duration-200">
+                <div key={`local-${index}`} className="flex gap-3 justify-end animate-in fade-in slide-in-from-bottom-2 duration-200">
                   <div className="bg-blue-50/70 dark:bg-blue-955/20 border border-blue-150 dark:border-blue-500/10 p-4 rounded-lg rounded-tr-sm text-xs text-slate-800 dark:text-white leading-relaxed font-sans shadow-xs max-w-[80%]">
                     {sent.body}
                     <div className="text-[9px] text-slate-400 dark:text-slate-500 mt-2 text-right font-mono font-medium">{sent.sentAt}</div>

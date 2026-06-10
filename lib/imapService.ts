@@ -11,257 +11,375 @@ interface ImapMessage {
   body: string;
 }
 
+const activeSyncs = new Set<string>();
+
 export async function syncMailboxReplies(mailboxId: string) {
-  const mailbox = await prisma.senderAccount.findUnique({
-    where: { id: mailboxId }
-  });
-  
-  if (!mailbox || !mailbox.imapHost || !mailbox.imapPort || !mailbox.imapUser || !mailbox.imapPass) {
-    console.log(`[IMAP Sync] Mailbox ${mailboxId} is not configured with IMAP credentials.`);
-    return { success: false, reason: 'Not configured' };
+  if (activeSyncs.has(mailboxId)) {
+    console.log(`[IMAP Sync] Sync for mailbox ${mailboxId} is already in progress. Skipping.`);
+    return { success: false, reason: 'Already syncing' };
   }
   
-  console.log(`[IMAP Sync] Syncing replies for ${mailbox.emailAddress} using ${mailbox.imapHost}:${mailbox.imapPort}`);
+  activeSyncs.add(mailboxId);
   
-  let socket: tls.TLSSocket | null = null;
   try {
-    const messages = await new Promise<ImapMessage[]>((resolve, reject) => {
-      socket = tls.connect(
-        mailbox.imapPort!,
-        mailbox.imapHost!,
-        { rejectUnauthorized: false },
-        () => {
-          console.log('[IMAP Sync] Connected via TLS.');
-        }
-      );
-      
-      socket!.setTimeout(10000); // 10s timeout
-      
-      let initialResponseReceived = false;
-      let buffer = '';
-      
-      const commandsQueue: { tag: string; cmd: string; handler: (resp: string) => void }[] = [];
-      let currentCommandIdx = -1;
-      const fetchedMessages: ImapMessage[] = [];
-      
-      const makeTag = (prefix: string) => `${prefix}_${Math.random().toString(36).substring(2, 8)}`;
-      
-      const tagLogin = makeTag('A1_LOGIN');
-      const tagSelect = makeTag('A2_SELECT');
-      const tagSearch = makeTag('A3_SEARCH');
-      
-      const executeNext = () => {
-        currentCommandIdx++;
-        if (currentCommandIdx < commandsQueue.length) {
-          const item = commandsQueue[currentCommandIdx];
-          console.log(`[IMAP Sync] Sending: ${item.tag} ${item.cmd}`);
-          socket!.write(`${item.tag} ${item.cmd}\r\n`);
-        } else {
-          // Finished all commands, close connection
-          const tagLogout = makeTag('A_LOGOUT');
-          socket!.write(`${tagLogout} LOGOUT\r\n`);
-          socket!.end();
-          resolve(fetchedMessages);
-        }
-      };
-      
-      socket!.on('data', (chunk) => {
-        buffer += chunk.toString('utf8');
-        
-        if (!initialResponseReceived) {
-          // Check if we got the server greeting (* OK)
-          if (buffer.includes('\r\n')) {
-            initialResponseReceived = true;
-            buffer = '';
-            executeNext();
+    const mailbox = await prisma.senderAccount.findUnique({
+      where: { id: mailboxId }
+    });
+    
+    if (!mailbox || !mailbox.imapHost || !mailbox.imapPort || !mailbox.imapUser || !mailbox.imapPass) {
+      console.log(`[IMAP Sync] Mailbox ${mailboxId} is not configured with IMAP credentials.`);
+      return { success: false, reason: 'Not configured' };
+    }
+    
+    console.log(`[IMAP Sync] Syncing replies for ${mailbox.emailAddress} using ${mailbox.imapHost}:${mailbox.imapPort}`);
+    
+    let socket: tls.TLSSocket | null = null;
+    try {
+      const messages = await new Promise<ImapMessage[]>((resolve, reject) => {
+        socket = tls.connect(
+          mailbox.imapPort!,
+          mailbox.imapHost!,
+          { rejectUnauthorized: false },
+          () => {
+            console.log('[IMAP Sync] Connected via TLS.');
           }
-          return;
-        }
+        );
         
-        if (currentCommandIdx >= 0 && currentCommandIdx < commandsQueue.length) {
-          const item = commandsQueue[currentCommandIdx];
+        socket!.setTimeout(15000); // 15s timeout
+        
+        let initialResponseReceived = false;
+        let buffer = '';
+        
+        const commandsQueue: { tag: string; cmd: string; handler: (resp: string) => void | Promise<void> }[] = [];
+        let currentCommandIdx = -1;
+        const fetchedMessages: ImapMessage[] = [];
+        
+        const makeTag = (prefix: string) => `${prefix}_${Math.random().toString(36).substring(2, 8)}`;
+        
+        const tagLogin = makeTag('A1_LOGIN');
+        const tagSelect = makeTag('A2_SELECT');
+        const tagSearch = makeTag('A3_SEARCH');
+        
+        const executeNext = () => {
+          currentCommandIdx++;
+          if (currentCommandIdx < commandsQueue.length) {
+            const item = commandsQueue[currentCommandIdx];
+            console.log(`[IMAP Sync] Sending: ${item.tag} ${item.cmd}`);
+            socket!.write(`${item.tag} ${item.cmd}\r\n`);
+          } else {
+            // Finished all commands, close connection
+            const tagLogout = makeTag('A_LOGOUT');
+            socket!.write(`${tagLogout} LOGOUT\r\n`);
+            socket!.end();
+            resolve(fetchedMessages);
+          }
+        };
+        
+        socket!.on('data', (chunk) => {
+          buffer += chunk.toString('utf8');
           
-          const tagPattern = `${item.tag} `;
-          const tagIdx = buffer.indexOf(tagPattern);
+          if (!initialResponseReceived) {
+            if (buffer.includes('\r\n')) {
+              initialResponseReceived = true;
+              buffer = '';
+              executeNext();
+            }
+            return;
+          }
           
-          if (tagIdx !== -1) {
-            // Find the end of this line (which is \n)
-            const lineEndIdx = buffer.indexOf('\n', tagIdx + tagPattern.length);
-            if (lineEndIdx !== -1) {
-              const completionLineEnd = lineEndIdx + 1; // Include the \n
-              const responseStr = buffer.substring(0, completionLineEnd);
-              buffer = buffer.substring(completionLineEnd); // Retain subsequent data in buffer
-              
-              try {
-                item.handler(responseStr);
-                executeNext();
-              } catch (err) {
-                console.error(`[IMAP Sync] Error in command ${item.tag} handler:`, err);
-                socket!.destroy();
-                reject(err);
+          if (currentCommandIdx >= 0 && currentCommandIdx < commandsQueue.length) {
+            const item = commandsQueue[currentCommandIdx];
+            
+            const tagPattern = `${item.tag} `;
+            const tagIdx = buffer.indexOf(tagPattern);
+            
+            if (tagIdx !== -1) {
+              const lineEndIdx = buffer.indexOf('\n', tagIdx + tagPattern.length);
+              if (lineEndIdx !== -1) {
+                const completionLineEnd = lineEndIdx + 1;
+                const responseStr = buffer.substring(0, completionLineEnd);
+                buffer = buffer.substring(completionLineEnd);
+                
+                Promise.resolve(item.handler(responseStr))
+                  .then(() => {
+                    executeNext();
+                  })
+                  .catch((err) => {
+                    console.error(`[IMAP Sync] Error in command ${item.tag} handler:`, err);
+                    socket!.destroy();
+                    reject(err);
+                  });
               }
             }
           }
-        }
-      });
-      
-      socket!.on('timeout', () => {
-        console.log('[IMAP Sync] Timeout reached.');
-        socket!.destroy();
-        reject(new Error('IMAP connection timed out'));
-      });
-      
-      socket!.on('error', (err) => {
-        console.error('[IMAP Sync] Socket error:', err);
-        reject(err);
-      });
-      
-      socket!.on('close', () => {
-        console.log('[IMAP Sync] Connection closed.');
-        resolve(fetchedMessages);
-      });
-      
-      // Build commands queue
-      // 1. LOGIN
-      commandsQueue.push({
-        tag: tagLogin,
-        cmd: `LOGIN "${mailbox.imapUser!.replace(/"/g, '\\"')}" "${mailbox.imapPass!.replace(/"/g, '\\"')}"`,
-        handler: (resp) => {
-          if (!resp.includes(`${tagLogin} OK`)) {
-            throw new Error('IMAP Login failed: ' + resp);
-          }
-        }
-      });
-      
-      // 2. SELECT INBOX
-      commandsQueue.push({
-        tag: tagSelect,
-        cmd: 'SELECT INBOX',
-        handler: (resp) => {
-          if (!resp.includes(`${tagSelect} OK`)) {
-            throw new Error('IMAP SELECT failed: ' + resp);
-          }
-        }
-      });
-      
-      // 3. SEARCH ALL
-      commandsQueue.push({
-        tag: tagSearch,
-        cmd: 'SEARCH ALL',
-        handler: (resp) => {
-          if (!resp.includes(`${tagSearch} OK`)) {
-            throw new Error('IMAP SEARCH failed: ' + resp);
-          }
-          
-          const match = resp.match(/\* SEARCH\s+([0-9\s]+)/i);
-          if (match && match[1].trim()) {
-            const numbers = match[1].trim().split(/\s+/).filter(Boolean);
-            if (numbers.length > 0) {
-              // Take the last 20 messages to prevent fetching too many
-              const last20 = numbers.slice(-20);
-              const range = last20.join(',');
-              const tagFetch = makeTag('A4_FETCH');
-              
-              // Add FETCH command dynamically into the queue
-              commandsQueue.splice(currentCommandIdx + 1, 0, {
-                tag: tagFetch,
-                cmd: `FETCH ${range} (BODY[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES)] BODY[TEXT])`,
-                handler: (fetchResp) => {
-                  if (!fetchResp.includes(`${tagFetch} OK`)) {
-                    throw new Error('IMAP FETCH failed: ' + fetchResp);
-                  }
-                  const parsed = parseFetchResponse(fetchResp);
-                  fetchedMessages.push(...parsed);
-                }
-              });
+        });
+        
+        socket!.on('timeout', () => {
+          console.log('[IMAP Sync] Timeout reached.');
+          socket!.destroy();
+          reject(new Error('IMAP connection timed out'));
+        });
+        
+        socket!.on('error', (err) => {
+          console.error('[IMAP Sync] Socket error:', err);
+          reject(err);
+        });
+        
+        socket!.on('close', () => {
+          console.log('[IMAP Sync] Connection closed.');
+          resolve(fetchedMessages);
+        });
+        
+        // Build commands queue
+        // 1. LOGIN
+        commandsQueue.push({
+          tag: tagLogin,
+          cmd: `LOGIN "${mailbox.imapUser!.replace(/"/g, '\\"')}" "${mailbox.imapPass!.replace(/"/g, '\\"')}"`,
+          handler: (resp) => {
+            if (!resp.includes(`${tagLogin} OK`)) {
+              throw new Error('IMAP Login failed: ' + resp);
             }
           }
-        }
+        });
+        
+        // 2. SELECT INBOX
+        commandsQueue.push({
+          tag: tagSelect,
+          cmd: 'SELECT INBOX',
+          handler: (resp) => {
+            if (!resp.includes(`${tagSelect} OK`)) {
+              throw new Error('IMAP SELECT failed: ' + resp);
+            }
+          }
+        });
+        
+        // 3. SEARCH ALL
+        commandsQueue.push({
+          tag: tagSearch,
+          cmd: 'SEARCH ALL',
+          handler: (resp) => {
+            if (!resp.includes(`${tagSearch} OK`)) {
+              throw new Error('IMAP SEARCH failed: ' + resp);
+            }
+            
+            const match = resp.match(/\* SEARCH\s+([0-9\s]+)/i);
+            if (match && match[1].trim()) {
+              const numbers = match[1].trim().split(/\s+/).filter(Boolean);
+              if (numbers.length > 0) {
+                const last20 = numbers.slice(-20);
+                const range = last20.join(',');
+                const tagFetchHeaders = makeTag('A4_FETCH_HEADERS');
+                
+                // Add header FETCH command dynamically
+                commandsQueue.splice(currentCommandIdx + 1, 0, {
+                  tag: tagFetchHeaders,
+                  cmd: `FETCH ${range} (BODY[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES)])`,
+                  handler: async (headerResp) => {
+                    if (!headerResp.includes(`${tagFetchHeaders} OK`)) {
+                      throw new Error('IMAP Fetch headers failed: ' + headerResp);
+                    }
+                    const headerParsed = parseHeaderResponse(headerResp);
+                    if (headerParsed.length === 0) return;
+                    
+                    // Filter headers where the sender email matches an active Lead in our database
+                    const senderEmails = headerParsed.map(h => h.from.toLowerCase());
+                    const matchedLeads = await prisma.lead.findMany({
+                      where: { email: { in: senderEmails } }
+                    });
+                    const matchedLeadEmails = new Set(matchedLeads.map(l => l.email.toLowerCase()));
+                    
+                    // For each matching message, dynamically queue a command to fetch its body
+                    for (const msg of headerParsed) {
+                      if (matchedLeadEmails.has(msg.from.toLowerCase())) {
+                        const tagFetchBody = makeTag('A5_FETCH_BODY');
+                        commandsQueue.splice(currentCommandIdx + 1, 0, {
+                          tag: tagFetchBody,
+                          cmd: `FETCH ${msg.seq} (BODY[TEXT])`,
+                          handler: (bodyResp) => {
+                            if (!bodyResp.includes(`${tagFetchBody} OK`)) {
+                              throw new Error('IMAP Fetch body failed: ' + bodyResp);
+                            }
+                            const bodyParsedText = parseBodyResponse(bodyResp);
+                            fetchedMessages.push({
+                              from: msg.from,
+                              subject: msg.subject,
+                              date: msg.date,
+                              messageId: msg.messageId,
+                              inReplyTo: msg.inReplyTo,
+                              references: msg.references,
+                              body: cleanMimeBody(bodyParsedText)
+                            });
+                          }
+                        });
+                      }
+                    }
+                  }
+                });
+              }
+            }
+          }
+        });
       });
-    });
-    
-    console.log(`[IMAP Sync] Fetched ${messages.length} messages from mail server.`);
-    
-    // Now, process messages and match with database Leads
-    let newRepliesCount = 0;
-    for (const msg of messages) {
-      if (!msg.from) continue;
       
-      // 1. Look up lead by email
-      const lead = await prisma.lead.findUnique({
-        where: { email: msg.from }
-      });
+      console.log(`[IMAP Sync] Fetched ${messages.length} messages from mail server.`);
       
-      if (!lead) {
-        // Not a lead in our CRM, skip
-        continue;
-      }
-      
-      // 2. Check if this response already exists in db
-      const timeWindowStart = new Date(msg.date.getTime() - 10000); // -10s
-      const timeWindowEnd = new Date(msg.date.getTime() + 10000);   // +10s
-      
-      const existing = await prisma.inboundResponse.findFirst({
-        where: {
-          leadId: lead.id,
-          receivedAt: {
-            gte: timeWindowStart,
-            lte: timeWindowEnd
+      // Process messages and match with database Leads
+      let newRepliesCount = 0;
+      for (const msg of messages) {
+        if (!msg.from) continue;
+        
+        const lead = await prisma.lead.findUnique({
+          where: { email: msg.from }
+        });
+        
+        if (!lead) continue;
+        
+        const timeWindowStart = new Date(msg.date.getTime() - 10000);
+        const timeWindowEnd = new Date(msg.date.getTime() + 10000);
+        
+        const existing = await prisma.inboundResponse.findFirst({
+          where: {
+            leadId: lead.id,
+            receivedAt: {
+              gte: timeWindowStart,
+              lte: timeWindowEnd
+            }
+          }
+        });
+        
+        if (existing) continue;
+        
+        await prisma.inboundResponse.create({
+          data: {
+            leadId: lead.id,
+            senderAccountId: mailbox.id,
+            subject: msg.subject || 'No Subject',
+            body: msg.body || '',
+            receivedAt: msg.date,
+            unread: true
+          }
+        });
+        newRepliesCount++;
+        
+        const activeEnrollments = await prisma.campaignEnrollment.findMany({
+          where: {
+            leadId: lead.id,
+            status: 'Active'
+          },
+          include: {
+            campaign: true
+          }
+        });
+        
+        for (const enrollment of activeEnrollments) {
+          if (enrollment.campaign.stopOnReply) {
+            await prisma.campaignEnrollment.update({
+              where: { id: enrollment.id },
+              data: { status: 'Paused' }
+            });
+            console.log(`[IMAP Sync] Paused enrollment for lead ${lead.email} in campaign ${enrollment.campaign.name} due to stopOnReply.`);
           }
         }
-      });
-      
-      if (existing) {
-        // Already logged this reply, skip
-        continue;
       }
       
-      // 3. Create InboundResponse record
-      await prisma.inboundResponse.create({
-        data: {
-          leadId: lead.id,
-          senderAccountId: mailbox.id,
-          subject: msg.subject || 'No Subject',
-          body: msg.body || '',
-          receivedAt: msg.date,
-          unread: true
-        }
-      });
-      newRepliesCount++;
-      
-      // 4. Stop sequence on reply (if enabled in campaign)
-      const activeEnrollments = await prisma.campaignEnrollment.findMany({
-        where: {
-          leadId: lead.id,
-          status: 'Active'
-        },
-        include: {
-          campaign: true
-        }
-      });
-      
-      for (const enrollment of activeEnrollments) {
-        if (enrollment.campaign.stopOnReply) {
-          await prisma.campaignEnrollment.update({
-            where: { id: enrollment.id },
-            data: { status: 'Paused' }
-          });
-          console.log(`[IMAP Sync] Paused enrollment for lead ${lead.email} in campaign ${enrollment.campaign.name} due to stopOnReply.`);
-        }
+      console.log(`[IMAP Sync] Finished. Synced ${newRepliesCount} new replies.`);
+      return { success: true, syncedCount: newRepliesCount };
+    } catch (err: any) {
+      console.error(`[IMAP Sync] Sync error for mailbox ${mailboxId}:`, err);
+      if (socket) {
+        try {
+          (socket as any).destroy();
+        } catch {}
       }
+      return { success: false, error: err.message };
     }
-    
-    console.log(`[IMAP Sync] Finished. Synced ${newRepliesCount} new replies.`);
-    return { success: true, syncedCount: newRepliesCount };
-  } catch (err: any) {
-    console.error(`[IMAP Sync] Sync error for mailbox ${mailboxId}:`, err);
-    if (socket) {
-      try {
-        (socket as any).destroy();
-      } catch {}
-    }
-    return { success: false, error: err.message };
+  } finally {
+    activeSyncs.delete(mailboxId);
   }
+}
+
+interface HeaderInfo {
+  seq: string;
+  from: string;
+  subject: string;
+  date: Date;
+  messageId: string;
+  inReplyTo: string;
+  references: string;
+}
+
+export function parseHeaderResponse(fetchResp: string): HeaderInfo[] {
+  const result: HeaderInfo[] = [];
+  const msgBlocks = fetchResp.split(/\r\n\* /i);
+  
+  for (const block of msgBlocks) {
+    const trimmed = block.trim();
+    if (!trimmed) continue;
+    
+    const match = trimmed.match(/^(\d+)\s+FETCH\s+\(/i);
+    if (!match) continue;
+    
+    const seq = match[1];
+    
+    const fromMatch = trimmed.match(/From:\s*([^\r\n]+)/i);
+    const subjectMatch = trimmed.match(/Subject:\s*([^\r\n]+)/i);
+    const dateMatch = trimmed.match(/Date:\s*([^\r\n]+)/i);
+    const msgIdMatch = trimmed.match(/Message-ID:\s*([^\r\n]+)/i);
+    const inReplyToMatch = trimmed.match(/In-Reply-To:\s*([^\r\n]+)/i);
+    const refsMatch = trimmed.match(/References:\s*([^\r\n]+)/i);
+    
+    if (!fromMatch) continue;
+    
+    const rawFrom = fromMatch[1].trim();
+    const emailMatch = rawFrom.match(/<([^>]+)>/);
+    const fromEmail = emailMatch ? emailMatch[1].trim() : rawFrom;
+    
+    const subject = subjectMatch ? subjectMatch[1].trim() : '';
+    const dateStr = dateMatch ? dateMatch[1].trim() : '';
+    const date = dateStr ? new Date(dateStr) : new Date();
+    const messageId = msgIdMatch ? msgIdMatch[1].trim() : '';
+    const inReplyTo = inReplyToMatch ? inReplyToMatch[1].trim() : '';
+    const references = refsMatch ? refsMatch[1].trim() : '';
+    
+    result.push({
+      seq,
+      from: fromEmail.toLowerCase(),
+      subject,
+      date,
+      messageId,
+      inReplyTo,
+      references
+    });
+  }
+  
+  return result;
+}
+
+export function parseBodyResponse(fetchResp: string): string {
+  const bodyHeaderMatch = fetchResp.match(/BODY\[(?:TEXT)?\]\s*\{\d+\}\r\n/i);
+  let body = '';
+  
+  if (bodyHeaderMatch && bodyHeaderMatch.index !== undefined) {
+    const startIdx = bodyHeaderMatch.index + bodyHeaderMatch[0].length;
+    let rawBody = fetchResp.substring(startIdx).trim();
+    if (rawBody.endsWith(')')) {
+      rawBody = rawBody.slice(0, -1).trim();
+    }
+    body = rawBody;
+  } else {
+    const headerEndIdx = fetchResp.search(/\r\n\r\n/);
+    if (headerEndIdx !== -1) {
+      let rawBody = fetchResp.substring(headerEndIdx + 4).trim();
+      if (rawBody.endsWith(')')) {
+        rawBody = rawBody.slice(0, -1).trim();
+      }
+      body = rawBody;
+    } else {
+      body = fetchResp;
+    }
+  }
+  
+  return body;
 }
 
 function parseFetchResponse(fetchResp: string): ImapMessage[] {
@@ -382,7 +500,22 @@ export function cleanReplyHistory(text: string): string {
     if (/^---+\s*Original Message\s*---+/i.test(trimmed)) {
       break;
     }
+    if (/^_{3,}\s*$/.test(trimmed) && cleanLines.length > 0) {
+      break;
+    }
     if (/^From:\s+/i.test(trimmed) && cleanLines.length > 0) {
+      break;
+    }
+    if (/^Sent:\s+/i.test(trimmed) && cleanLines.length > 0) {
+      break;
+    }
+    if (/^Date:\s+/i.test(trimmed) && cleanLines.length > 0) {
+      break;
+    }
+    if (/^Subject:\s+/i.test(trimmed) && cleanLines.length > 0) {
+      break;
+    }
+    if (/^To:\s+\S+@/i.test(trimmed) && cleanLines.length > 0) {
       break;
     }
     if (trimmed.startsWith('>')) {
@@ -398,52 +531,204 @@ export function cleanReplyHistory(text: string): string {
 export function cleanMimeBody(body: string): string {
   if (!body) return '';
   
-  // Detect if body is multipart by searching for a line starting with "--"
-  const lines = body.split(/\r?\n/);
-  const boundaryLine = lines.find(line => line.trim().startsWith('--') && line.trim().length > 5);
+  // 1. Try to extract boundary from a Content-Type header within the body itself
+  //    (this handles cases where BODY[TEXT] includes the MIME structure)
+  let boundary = '';
   
-  if (boundaryLine) {
-    const boundary = boundaryLine.trim().slice(2).replace(/--$/, '');
-    
-    // Split body by the boundary
-    const parts = body.split('--' + boundary);
-    
-    let textPart = '';
-    for (const part of parts) {
-      const trimmedPart = part.trim();
-      if (!trimmedPart || trimmedPart === '--') continue;
-      
-      const match = trimmedPart.match(/\r?\n\r?\n/);
-      if (match && match.index !== undefined) {
-        const headers = trimmedPart.substring(0, match.index);
-        const partBody = trimmedPart.substring(match.index + match[0].length);
-        
-        const isPlain = /Content-Type:\s*text\/plain/i.test(headers) || !headers.includes('Content-Type');
-        
-        if (isPlain) {
-          const isQuotedPrintable = /Content-Transfer-Encoding:\s*quoted-printable/i.test(headers);
-          const isBase64 = /Content-Transfer-Encoding:\s*base64/i.test(headers);
-          
-          let decoded = partBody;
-          if (isQuotedPrintable) {
-            decoded = decodeQuotedPrintable(partBody);
-          } else if (isBase64) {
-            try {
-              decoded = Buffer.from(partBody.replace(/\s+/g, ''), 'base64').toString('utf8');
-            } catch {}
-          }
-          textPart = decoded;
-          break;
-        }
-      } else {
-        textPart = trimmedPart;
-      }
-    }
-    
-    if (textPart) {
-      return cleanReplyHistory(textPart);
+  const ctBoundaryMatch = body.match(/Content-Type:\s*multipart\/\w+;\s*boundary=["']?([^\s"';\r\n]+)["']?/i);
+  if (ctBoundaryMatch) {
+    boundary = ctBoundaryMatch[1];
+  }
+  
+  // 2. Fallback: detect boundary from a line starting with "--" that looks like a MIME boundary
+  if (!boundary) {
+    const lines = body.split(/\r?\n/);
+    const boundaryLine = lines.find(line => {
+      const t = line.trim();
+      // Must start with --, be longer than just --, and not be a text separator like "---"
+      return t.startsWith('--') && t.length > 10 && /^--[a-zA-Z0-9_=.+/-]+--?$/.test(t);
+    });
+    if (boundaryLine) {
+      boundary = boundaryLine.trim().slice(2).replace(/--$/, '');
     }
   }
   
+  if (boundary) {
+    return extractFromMultipart(body, boundary);
+  }
+  
+  // 3. Not multipart — check for single-part with Content-Type headers embedded
+  //    (e.g. BODY[TEXT] that starts with Content-Type: text/plain)
+  const singlePartMatch = body.match(/Content-Type:\s*text\/plain[^\r\n]*\r?\n(?:Content-Transfer-Encoding:\s*(\S+)\r?\n)?(?:[^\r\n]+\r?\n)*?\r?\n/i);
+  if (singlePartMatch && singlePartMatch.index !== undefined) {
+    const encoding = singlePartMatch[1] || '';
+    const contentStart = singlePartMatch.index + singlePartMatch[0].length;
+    let rawContent = body.substring(contentStart);
+    
+    // Trim trailing boundary or MIME artifacts
+    const trailingBoundary = rawContent.search(/\r?\n--[a-zA-Z0-9_=.+/-]+/);
+    if (trailingBoundary !== -1) {
+      rawContent = rawContent.substring(0, trailingBoundary);
+    }
+    
+    rawContent = decodeTransferEncoding(rawContent, encoding);
+    return cleanReplyHistory(rawContent);
+  }
+  
+  // 4. Check if entire body looks like raw MIME headers + content dump
+  //    (contains things like "Content-Type:", "From:", "Message-ID:" near the start)
+  const hasMimeHeaders = /^(Content-Type:|MIME-Version:|Content-Transfer-Encoding:|From:|Date:|Message-ID:|Subject:)/mi.test(body.substring(0, 500));
+  if (hasMimeHeaders) {
+    // Try to extract just the readable text by finding the first blank line separator
+    const headerEndIdx = body.search(/\r?\n\r?\n/);
+    if (headerEndIdx !== -1) {
+      let rawBody = body.substring(headerEndIdx + (body[headerEndIdx] === '\r' ? 4 : 2)).trim();
+      
+      // Check if after the blank line we hit another MIME part
+      const innerBoundaryMatch = rawBody.match(/Content-Type:\s*multipart\/\w+;\s*boundary=["']?([^\s"';\r\n]+)["']?/i);
+      if (innerBoundaryMatch) {
+        return extractFromMultipart(rawBody, innerBoundaryMatch[1]);
+      }
+      
+      // Check if it starts with another Content-Type
+      const innerCtMatch = rawBody.match(/^Content-Type:\s*text\/plain[^\r\n]*\r?\n(?:Content-Transfer-Encoding:\s*(\S+)\r?\n)?(?:[^\r\n]+\r?\n)*?\r?\n/i);
+      if (innerCtMatch) {
+        const encoding = innerCtMatch[1] || '';
+        rawBody = rawBody.substring(innerCtMatch[0].length);
+        rawBody = decodeTransferEncoding(rawBody, encoding);
+      }
+      
+      // Strip any remaining Content-Type / MIME lines that leaked through
+      rawBody = stripLeakedMimeHeaders(rawBody);
+      
+      if (rawBody.endsWith(')')) {
+        rawBody = rawBody.slice(0, -1).trim();
+      }
+      return cleanReplyHistory(rawBody);
+    }
+  }
+  
+  // 5. Final fallback: decode QP and clean reply chain
+  let result = decodeQuotedPrintable(body);
+  result = stripLeakedMimeHeaders(result);
+  return cleanReplyHistory(result);
+}
+
+function decodeTransferEncoding(content: string, encoding: string): string {
+  const enc = encoding.toLowerCase().trim();
+  if (enc === 'quoted-printable') {
+    return decodeQuotedPrintable(content);
+  }
+  if (enc === 'base64') {
+    try {
+      return Buffer.from(content.replace(/\s+/g, ''), 'base64').toString('utf8');
+    } catch {
+      return content;
+    }
+  }
+  return content;
+}
+
+function extractFromMultipart(body: string, boundary: string): string {
+  const parts = body.split('--' + boundary);
+  
+  let textPart = '';
+  let htmlPart = '';
+  
+  for (const part of parts) {
+    const trimmedPart = part.trim();
+    if (!trimmedPart || trimmedPart === '--') continue;
+    
+    // Find the blank line separator between headers and body
+    const blankLineMatch = trimmedPart.match(/\r?\n\r?\n/);
+    if (blankLineMatch && blankLineMatch.index !== undefined) {
+      const headers = trimmedPart.substring(0, blankLineMatch.index);
+      let partBody = trimmedPart.substring(blankLineMatch.index + blankLineMatch[0].length);
+      
+      // Clean trailing boundary/closing paren artifacts
+      if (partBody.endsWith(')')) {
+        partBody = partBody.slice(0, -1).trim();
+      }
+      
+      const isPlain = /Content-Type:\s*text\/plain/i.test(headers);
+      const isHtml = /Content-Type:\s*text\/html/i.test(headers);
+      
+      // Detect encoding
+      const encodingMatch = headers.match(/Content-Transfer-Encoding:\s*(\S+)/i);
+      const encoding = encodingMatch ? encodingMatch[1] : '';
+      
+      const decoded = decodeTransferEncoding(partBody, encoding);
+      
+      if (isPlain) {
+        textPart = decoded;
+        break; // Prefer text/plain, take first one
+      } else if (isHtml && !htmlPart) {
+        htmlPart = decoded;
+      } else if (!headers.includes('Content-Type') && !textPart) {
+        // No Content-Type header — treat as plain text
+        textPart = decoded;
+      }
+    }
+  }
+  
+  if (textPart) {
+    return cleanReplyHistory(textPart);
+  }
+  
+  // Fallback to HTML part, strip tags
+  if (htmlPart) {
+    return cleanReplyHistory(stripHtmlTags(htmlPart));
+  }
+  
+  // Nothing worked — try decoding raw body
   return cleanReplyHistory(decodeQuotedPrintable(body));
+}
+
+function stripHtmlTags(html: string): string {
+  let text = html;
+  // Convert common block elements to newlines
+  text = text.replace(/<br\s*\/?>/gi, '\n');
+  text = text.replace(/<\/?(p|div|tr|li|h[1-6])[^>]*>/gi, '\n');
+  text = text.replace(/<\/?(td|th)[^>]*>/gi, ' ');
+  // Remove blockquote content (reply chains in HTML)
+  text = text.replace(/<blockquote[^>]*>[\s\S]*?<\/blockquote>/gi, '');
+  // Remove all remaining tags
+  text = text.replace(/<[^>]+>/g, '');
+  // Decode HTML entities
+  text = text.replace(/&amp;/g, '&');
+  text = text.replace(/&lt;/g, '<');
+  text = text.replace(/&gt;/g, '>');
+  text = text.replace(/&quot;/g, '"');
+  text = text.replace(/&#39;/g, "'");
+  text = text.replace(/&nbsp;/g, ' ');
+  // Collapse whitespace
+  text = text.replace(/[ \t]+/g, ' ');
+  text = text.replace(/\n{3,}/g, '\n\n');
+  return text.trim();
+}
+
+function stripLeakedMimeHeaders(text: string): string {
+  // Remove lines that look like leaked MIME headers
+  const lines = text.split(/\r?\n/);
+  const cleaned: string[] = [];
+  
+  for (const line of lines) {
+    const t = line.trim();
+    // Skip lines that are clearly MIME headers
+    if (/^Content-Type:\s/i.test(t)) continue;
+    if (/^Content-Transfer-Encoding:\s/i.test(t)) continue;
+    if (/^MIME-Version:\s/i.test(t)) continue;
+    if (/^Content-Disposition:\s/i.test(t)) continue;
+    if (/^Message-ID:\s/i.test(t)) continue;
+    if (/^In-Reply-To:\s/i.test(t)) continue;
+    if (/^References:\s/i.test(t)) continue;
+    // Skip boundary markers
+    if (/^--[a-zA-Z0-9_=.+/-]{10,}--?$/.test(t)) continue;
+    // Skip IMAP fetch artifacts like "{530}" octet counts
+    if (/^\{\d+\}$/.test(t)) continue;
+    
+    cleaned.push(line);
+  }
+  
+  return cleaned.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }

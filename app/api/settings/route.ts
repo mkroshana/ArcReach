@@ -26,7 +26,7 @@ export async function GET() {
     if (!settings) {
       settings = await prisma.globalSettings.create({
         data: {
-          activeProvider: 'AZURE',
+          activeProvider: 'MOCK',
           smtpHost: 'smtp.mailgun.org',
           smtpPort: 587,
           smtpUser: 'postmaster@sandbox.arcreach.com',
@@ -34,11 +34,6 @@ export async function GET() {
           rateLimitMinute: 60,
           rateLimitHour: 1000
         }
-      });
-    } else if (settings.activeProvider !== 'AZURE') {
-      settings = await prisma.globalSettings.update({
-        where: { id: settings.id },
-        data: { activeProvider: 'AZURE' }
       });
     }
 
@@ -110,7 +105,12 @@ export async function PUT(req: NextRequest) {
     const settings = await prisma.globalSettings.findFirst();
     
     const settingsData: any = {};
-    if (activeProvider !== undefined) settingsData.activeProvider = activeProvider;
+    if (activeProvider !== undefined) {
+      if (activeProvider !== 'AZURE' && activeProvider !== 'MOCK') {
+        return NextResponse.json({ error: 'Only AZURE or MOCK delivery providers are supported.' }, { status: 400 });
+      }
+      settingsData.activeProvider = activeProvider;
+    }
     if (azureConnString !== undefined) settingsData.azureConnString = azureConnString;
     if (azureSenderDomain !== undefined) settingsData.azureSenderDomain = azureSenderDomain;
     if (smtpHost !== undefined) settingsData.smtpHost = smtpHost;
@@ -130,7 +130,6 @@ export async function PUT(req: NextRequest) {
 
     let updatedSettings;
     if (settings) {
-      settingsData.activeProvider = 'AZURE';
       updatedSettings = await prisma.globalSettings.update({
         where: { id: settings.id },
         data: settingsData
@@ -138,7 +137,7 @@ export async function PUT(req: NextRequest) {
     } else {
       updatedSettings = await prisma.globalSettings.create({
         data: {
-          activeProvider: 'AZURE',
+          activeProvider: activeProvider || 'MOCK',
           azureConnString: azureConnString || null,
           azureSenderDomain: azureSenderDomain || null,
           smtpHost: smtpHost || null,

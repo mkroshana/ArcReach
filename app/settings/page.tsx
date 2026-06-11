@@ -856,9 +856,9 @@ export default function SettingsPage() {
                   <select 
                     value={activeProvider}
                     onChange={(e) => handleProviderChange(e.target.value)}
-                    className="w-full bg-slate-100/60 dark:bg-slate-900/50 border border-slate-202 dark:border-[#1f2130] text-slate-400 dark:text-slate-400 text-xs rounded-lg px-3 py-2 cursor-not-allowed outline-none font-medium"
-                    disabled
+                    className="w-full bg-white dark:bg-slate-950 border border-slate-202 dark:border-slate-800 text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none font-medium focus:ring-2 focus:ring-blue-500/35 cursor-pointer"
                   >
+                    <option value="MOCK">Development Sandbox (MOCK)</option>
                     <option value="AZURE">Azure Communication Services</option>
                   </select>
                 </div>

@@ -92,6 +92,48 @@ describe('ArcReach Live API Integration Tests', () => {
       expect(confirmData.settings.rateLimitHour).toBe(2500);
     });
 
+    it('should allow toggling global active provider between MOCK and AZURE and reject invalid values', async () => {
+      // 1. Toggle active provider to MOCK
+      const mockRes = await testFetch(`${BASE_URL}/api/settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activeProvider: 'MOCK' })
+      });
+      expect(mockRes.status).toBe(200);
+      const mockData = await mockRes.json();
+      expect(mockData.success).toBe(true);
+      expect(mockData.settings.activeProvider).toBe('MOCK');
+
+      // Verify GET returns MOCK
+      const getMockRes = await testFetch(`${BASE_URL}/api/settings`);
+      expect((await getMockRes.json()).settings.activeProvider).toBe('MOCK');
+
+      // 2. Toggle active provider to AZURE
+      const azureRes = await testFetch(`${BASE_URL}/api/settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activeProvider: 'AZURE' })
+      });
+      expect(azureRes.status).toBe(200);
+      const azureData = await azureRes.json();
+      expect(azureData.success).toBe(true);
+      expect(azureData.settings.activeProvider).toBe('AZURE');
+
+      // Verify GET returns AZURE
+      const getAzureRes = await testFetch(`${BASE_URL}/api/settings`);
+      expect((await getAzureRes.json()).settings.activeProvider).toBe('AZURE');
+
+      // 3. Try setting an invalid active provider (should fail with 400)
+      const invalidRes = await testFetch(`${BASE_URL}/api/settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activeProvider: 'SMTP' })
+      });
+      expect(invalidRes.status).toBe(400);
+      const invalidData = await invalidRes.json();
+      expect(invalidData.error).toContain('Only AZURE or MOCK delivery providers are supported.');
+    });
+
     it('should test SMTP authentication logging', async () => {
       const payload = {
         smtpHost: 'smtp.sendgrid.net',

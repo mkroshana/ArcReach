@@ -34,7 +34,7 @@ export default function LeadsPage() {
 
   // New Lead form state
   const [showAddLead, setShowAddLead] = useState(false);
-  const [newLead, setNewLead] = useState({ name: '', email: '', company: '' });
+  const [newLead, setNewLead] = useState({ name: '', email: '', company: '', jobTitle: '' });
 
   const showToast = (message: string) => {
     setToastMessage(message);
@@ -138,6 +138,7 @@ export default function LeadsPage() {
           name: newLead.name,
           email: newLead.email,
           company: newLead.company || 'Self Employed',
+          jobTitle: newLead.jobTitle || null,
           status: 'Neutral',
           validationStatus: 'Unverified'
         })
@@ -146,7 +147,7 @@ export default function LeadsPage() {
       if (res.ok) {
         const created = await res.json();
         setLeads([created, ...leads]);
-        setNewLead({ name: '', email: '', company: '' });
+        setNewLead({ name: '', email: '', company: '', jobTitle: '' });
         setShowAddLead(false);
         showToast('Prospect added to CRM.');
       } else {
@@ -166,8 +167,8 @@ export default function LeadsPage() {
       return;
     }
     const csvContent = "data:text/csv;charset=utf-8," 
-      + ["Name,Email,Company,Verification"].join(",") + "\n"
-      + validLeads.map(e => `"${e.name || ''}","${e.email}","${e.company || ''}","${e.validationStatus}"`).join("\n");
+      + ["Name,Email,Company,Job Title,Verification"].join(",") + "\n"
+      + validLeads.map(e => `"${e.name || ''}","${e.email}","${e.company || ''}","${e.jobTitle || ''}","${e.validationStatus}"`).join("\n");
       
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
@@ -195,6 +196,7 @@ export default function LeadsPage() {
         const emailIdx = headers.indexOf('email');
         const nameIdx = headers.indexOf('name');
         const companyIdx = headers.indexOf('company');
+        const jobTitleIdx = headers.findIndex(h => h === 'job title' || h === 'jobtitle' || h === 'title');
 
         if (emailIdx === -1) {
           showToast('CSV must contain at least an "email" column.');
@@ -213,7 +215,8 @@ export default function LeadsPage() {
             parsedLeads.push({
               email,
               name: nameIdx !== -1 && cols[nameIdx] ? cols[nameIdx] : email.split('@')[0],
-              company: companyIdx !== -1 && cols[companyIdx] ? cols[companyIdx] : 'Unknown'
+              company: companyIdx !== -1 && cols[companyIdx] ? cols[companyIdx] : 'Unknown',
+              jobTitle: jobTitleIdx !== -1 && cols[jobTitleIdx] ? cols[jobTitleIdx] : null
             });
           }
         }
@@ -233,6 +236,7 @@ export default function LeadsPage() {
                 name: lead.name,
                 email: lead.email,
                 company: lead.company,
+                jobTitle: lead.jobTitle,
                 status: 'Neutral',
                 validationStatus: 'Unverified'
               })
@@ -338,15 +342,15 @@ export default function LeadsPage() {
       {/* Add Lead dialog */}
       {showAddLead && (
         <form onSubmit={handleAddCustomLead} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 rounded-xl space-y-4 animate-in slide-in-from-top-3 duration-200 shadow-xs">
-          <h3 className="text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">Add Lead Record</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <h3 className="text-xs font-semibold uppercase tracking-widest text-slate-550 dark:text-slate-400">Add Lead Record</h3>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
             <input 
               type="text" 
               placeholder="Name (e.g. John Doe) *"
               value={newLead.name}
               required
               onChange={e => setNewLead({...newLead, name: e.target.value})}
-              className="bg-slate-50 dark:bg-slate-950 border border-slate-202 dark:border-slate-805 p-2.5 rounded-lg text-xs placeholder:text-slate-400 text-slate-855 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/40"
+              className="bg-slate-50 dark:bg-slate-955 border border-slate-202 dark:border-slate-805 p-2.5 rounded-lg text-xs placeholder:text-slate-400 text-slate-855 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/40"
             />
             <input 
               type="email" 
@@ -354,14 +358,21 @@ export default function LeadsPage() {
               value={newLead.email}
               required
               onChange={e => setNewLead({...newLead, email: e.target.value})}
-              className="bg-slate-50 dark:bg-slate-950 border border-slate-202 dark:border-slate-805 p-2.5 rounded-lg text-xs placeholder:text-slate-400 text-slate-855 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/40"
+              className="bg-slate-50 dark:bg-slate-955 border border-slate-202 dark:border-slate-805 p-2.5 rounded-lg text-xs placeholder:text-slate-400 text-slate-855 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/40"
             />
             <input 
               type="text" 
               placeholder="Brand Company Name"
               value={newLead.company}
               onChange={e => setNewLead({...newLead, company: e.target.value})}
-              className="bg-slate-50 dark:bg-slate-950 border border-slate-202 dark:border-slate-805 p-2.5 rounded-lg text-xs placeholder:text-slate-400 text-slate-855 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/40"
+              className="bg-slate-50 dark:bg-slate-955 border border-slate-202 dark:border-slate-805 p-2.5 rounded-lg text-xs placeholder:text-slate-400 text-slate-855 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/40"
+            />
+            <input 
+              type="text" 
+              placeholder="Job Title (e.g. CEO)"
+              value={newLead.jobTitle}
+              onChange={e => setNewLead({...newLead, jobTitle: e.target.value})}
+              className="bg-slate-50 dark:bg-slate-955 border border-slate-202 dark:border-slate-805 p-2.5 rounded-lg text-xs placeholder:text-slate-400 text-slate-855 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/40"
             />
           </div>
           <div className="flex gap-2 justify-end">
@@ -476,7 +487,10 @@ export default function LeadsPage() {
               <tbody className="divide-y divide-slate-105 dark:divide-slate-800/50 text-slate-700 dark:text-slate-300">
                 {filteredLeads.map((lead) => (
                   <tr key={lead.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-850/20 transition-all group">
-                    <td className="px-5 py-3.5 font-semibold text-xs text-slate-909 dark:text-white">{lead.name || 'N/A'}</td>
+                    <td className="px-5 py-3.5">
+                      <div className="font-semibold text-xs text-slate-909 dark:text-white">{lead.name || 'N/A'}</div>
+                      {lead.jobTitle && <div className="text-[10px] text-slate-405 dark:text-slate-500 mt-0.5 font-medium">{lead.jobTitle}</div>}
+                    </td>
                     <td className="px-5 py-3.5 text-xs text-slate-500 dark:text-slate-405 font-mono flex items-center gap-2">
                       <FileType className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
                       {lead.email}
@@ -520,7 +534,7 @@ export default function LeadsPage() {
       </div>
 
       {toastMessage && (
-        <div className="fixed bottom-8 right-8 bg-slate-900 dark:bg-[#0c0d14] border border-slate-800 text-white px-4 py-3 rounded-lg shadow-2xl flex items-center gap-3 z-50 animate-in slide-in-from-bottom-5 text-xs">
+        <div className="fixed bottom-8 right-8 bg-[#0c0d14] border border-[#1b1c26] text-white px-4 py-3 rounded-lg shadow-2xl flex items-center gap-3 z-50 animate-in slide-in-from-bottom-5 text-xs">
           <span className="font-semibold">{toastMessage}</span>
           <button onClick={() => setToastMessage('')} className="text-slate-400 hover:text-white transition-colors">
             <X className="w-3.5 h-3.5" />

@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
   try {
     const session = await getSession();
     const data = await req.json();
-    const { name, email, company, status, validationStatus } = data;
+    const { name, email, company, jobTitle, status, validationStatus } = data;
 
     if (!email) {
       return NextResponse.json({ error: 'Email address is required.' }, { status: 400 });
@@ -41,6 +41,7 @@ export async function POST(req: NextRequest) {
         email,
         name: name || null,
         company: company || null,
+        jobTitle: jobTitle || null,
         status: status || 'Neutral',
         validationStatus: validationStatus || 'Unverified',
       }

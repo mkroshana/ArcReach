@@ -45,6 +45,22 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    const htmlBody = bodyText ? /<[a-z][\s\S]*>/i.test(bodyText) : false;
+    let finalBody = bodyText || '';
+    if (htmlBody && !finalBody.toLowerCase().includes('<html') && !finalBody.toLowerCase().includes('<body')) {
+      finalBody = `<html><head><meta charset="utf-8"></head><body>${finalBody}</body></html>`;
+    }
+    let trackOpens = true;
+    if (campaignId) {
+      const campaign = await prisma.campaign.findUnique({
+        where: { id: campaignId },
+        select: { trackOpens: true }
+      });
+      if (campaign) {
+        trackOpens = campaign.trackOpens;
+      }
+    }
+
     if (provider === 'AZURE') {
       const connString = settings?.azureConnString;
       const senderDomain = settings?.azureSenderDomain;
@@ -72,13 +88,13 @@ export async function POST(req: NextRequest) {
 
         const message = {
           senderAddress: fromAddress,
-          content: {
-            subject: subject || 'Outreach from ArcReach',
-            plainText: bodyText || '',
-          },
+          content: htmlBody 
+            ? { subject: subject || 'Outreach from ArcReach', html: finalBody }
+            : { subject: subject || 'Outreach from ArcReach', plainText: finalBody },
           recipients: {
             to: [{ address: leadData.email }],
           },
+          userEngagementTrackingDisabled: !trackOpens,
         };
 
         const poller = await emailClient.beginSend(message);
@@ -130,12 +146,19 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    const info = await transport.sendMail({
+    const mailOptions: any = {
       from: `"ArcReach Outreach" <${smtpUser}>`,
       to: leadData.email,
       subject: subject || 'Outreach from ArcReach',
-      text: bodyText || '',
-    });
+    };
+
+    if (htmlBody) {
+      mailOptions.html = finalBody;
+    } else {
+      mailOptions.text = finalBody;
+    }
+
+    const info = await transport.sendMail(mailOptions);
 
     console.log(`[SMTP Send Success] Message ID: ${info.messageId} sent to ${leadData.email} via ${smtpUser}`);
 

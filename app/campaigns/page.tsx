@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/set-state-in-effect, react/no-unescaped-entities, react-hooks/exhaustive-deps */
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Fragment } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { 
@@ -17,9 +17,14 @@ import {
   Mail,
   User,
   ChevronRight,
+  ChevronDown,
   Sparkles,
   Inbox,
-  Trash2
+  Trash2,
+  Play,
+  Pause,
+  Send,
+  Check
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -33,6 +38,21 @@ interface DbCampaign {
   };
   userId: string | null;
   createdAt: string;
+  steps?: {
+    id: string;
+    stepOrder: number;
+    waitDays: number;
+    subject: string;
+    body: string;
+  }[];
+  enrollments?: {
+    id: string;
+    leadId: string;
+    campaignId: string;
+    status: 'Active' | 'Completed' | 'Bounced' | 'Stopped';
+    currentSequenceStep: number;
+    nextActionDate: string | null;
+  }[];
 }
 
 export default function CampaignsPage() {
@@ -42,6 +62,48 @@ export default function CampaignsPage() {
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [expandedCampaignId, setExpandedCampaignId] = useState<string | null>(null);
+  const [executingId, setExecutingId] = useState<string | null>(null);
+
+  const handleToggleStatus = async (id: string, currentStatus: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const newStatus = currentStatus === 'Active' ? 'Paused' : 'Active';
+    try {
+      const res = await fetch('/api/campaigns', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, status: newStatus })
+      });
+      if (res.ok) {
+        showToast(`Sequence status updated to ${newStatus}`);
+        loadData();
+      } else {
+        showToast('Failed to update status.', 'error');
+      }
+    } catch {
+      showToast('Error updating status.', 'error');
+    }
+  };
+
+  const handleRunCampaign = async (id: string, stepOrder?: number) => {
+    const key = id + (stepOrder ? `-${stepOrder}` : '');
+    try {
+      setExecutingId(key);
+      const url = `/api/campaigns/${id}/run` + (stepOrder ? `?stepOrder=${stepOrder}` : '');
+      const res = await fetch(url, { method: 'POST' });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        showToast(`Manual cycle completed! Sent ${data.dispatchedCount} emails.`);
+        loadData();
+      } else {
+        showToast(data.error || 'Failed to dispatch manual cycle.', 'error');
+      }
+    } catch {
+      showToast('Failed to execute dispatch cycle.', 'error');
+    } finally {
+      setExecutingId(null);
+    }
+  };
 
   // Add campaign form
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -249,59 +311,237 @@ export default function CampaignsPage() {
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-[#1b1c26]/60 text-slate-750 dark:text-slate-300">
                 {filteredCampaigns.map((campaign) => (
-                  <tr 
-                    key={campaign.id} 
-                    onClick={() => router.push(`/campaigns/${campaign.id}`)}
-                    className="hover:bg-slate-50/50 dark:hover:bg-white/[0.01] transition-colors group cursor-pointer"
-                  >
-                    <td className="px-5 py-3.5">
-                      <div className="font-semibold text-slate-900 dark:text-white text-xs group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors flex items-center gap-2">
-                        <Layers className="w-4 h-4 text-slate-400 dark:text-slate-505 group-hover:text-blue-500 dark:group-hover:text-blue-400 transition-colors" />
-                        {campaign.name}
-                      </div>
-                      <div className="text-[10px] text-slate-400 dark:text-slate-505 font-mono mt-1">ID: {campaign.id} • Created {new Date(campaign.createdAt).toLocaleDateString()}</div>
-                    </td>
-                    <td className="px-5 py-3.5 text-xs text-slate-600 dark:text-slate-400 font-mono">
-                      <span className="flex items-center gap-1.5">
-                        <Mail className="w-3.5 h-3.5 text-slate-400" />
-                        {campaign.senderAccount?.emailAddress || 'N/A'}
-                      </span>
-                    </td>
-                    <td className="px-5 py-3.5 text-xs text-slate-655 dark:text-slate-400">
-                      <span className="flex items-center gap-1.5 font-medium">
-                        <User className="w-3.5 h-3.5 text-slate-400" />
-                        {campaign.userId === session?.id ? 'Me (' + session?.name + ')' : (campaign.userId || 'Company Admin')}
-                      </span>
-                    </td>
-                    <td className="px-5 py-3.5">
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wider
-                        ${campaign.status === 'Active' ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-450 border-emerald-200 dark:border-emerald-500/20' : ''}
-                        ${campaign.status === 'Draft' ? 'bg-slate-100 dark:bg-slate-900 text-slate-605 dark:text-slate-400 border-slate-205 dark:border-slate-800' : ''}
-                        ${campaign.status === 'Paused' ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-705 dark:text-amber-400 border-amber-205 dark:border-amber-500/20' : ''}
-                      `}>
-                        {campaign.status === 'Active' && <PlayCircle className="w-3 h-3 text-emerald-505" />}
-                        {campaign.status}
-                      </span>
-                    </td>
-                    <td className="px-5 py-3.5 text-right" onClick={e => e.stopPropagation()}>
-                      <div className="flex items-center justify-end gap-2">
-                        <button 
-                          onClick={(e) => handleDeleteCampaign(campaign.id, e)}
-                          className="p-1.5 hover:bg-rose-500/10 text-slate-400 hover:text-rose-600 rounded transition-colors"
-                          title="Delete Outbound Sequence"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                        <Link 
-                          href={`/campaigns/${campaign.id}`}
-                          className="text-slate-550 dark:text-slate-400 group-hover:text-slate-900 dark:group-hover:text-white p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-white/[0.02] transition-colors flex items-center gap-1 text-xs font-semibold"
-                        >
-                          Configure
-                          <ChevronRight className="w-4 h-4 text-slate-400" />
-                        </Link>
-                      </div>
-                    </td>
-                  </tr>
+                  <Fragment key={campaign.id}>
+                    <tr 
+                      onClick={() => setExpandedCampaignId(expandedCampaignId === campaign.id ? null : campaign.id)}
+                      className={`hover:bg-slate-50/50 dark:hover:bg-white/[0.01] transition-colors group cursor-pointer ${
+                        expandedCampaignId === campaign.id ? 'bg-slate-50/60 dark:bg-[#12141d]/40' : ''
+                      }`}
+                    >
+                      <td className="px-5 py-3.5">
+                        <div className="font-semibold text-slate-900 dark:text-white text-xs group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors flex items-center gap-2">
+                          {expandedCampaignId === campaign.id ? (
+                            <ChevronDown className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 shrink-0" />
+                          ) : (
+                            <ChevronRight className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 shrink-0" />
+                          )}
+                          <Layers className="w-4 h-4 text-slate-400 dark:text-slate-505 group-hover:text-blue-500 dark:group-hover:text-blue-400 transition-colors shrink-0" />
+                          {campaign.name}
+                        </div>
+                        <div className="text-[10px] text-slate-400 dark:text-slate-505 font-mono mt-1 pl-5">
+                          ID: {campaign.id} • Created {new Date(campaign.createdAt).toLocaleDateString()}
+                        </div>
+                      </td>
+                      <td className="px-5 py-3.5 text-xs text-slate-600 dark:text-slate-400 font-mono">
+                        <span className="flex items-center gap-1.5">
+                          <Mail className="w-3.5 h-3.5 text-slate-400" />
+                          {campaign.senderAccount?.emailAddress || 'N/A'}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3.5 text-xs text-slate-655 dark:text-slate-400">
+                        <span className="flex items-center gap-1.5 font-medium">
+                          <User className="w-3.5 h-3.5 text-slate-400" />
+                          {campaign.userId === session?.id ? 'Me (' + session?.name + ')' : (campaign.userId || 'Company Admin')}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3.5">
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wider
+                          ${campaign.status === 'Active' ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-450 border-emerald-200 dark:border-emerald-500/20' : ''}
+                          ${campaign.status === 'Draft' ? 'bg-slate-100 dark:bg-slate-900 text-slate-605 dark:text-slate-400 border-slate-205 dark:border-slate-800' : ''}
+                          ${campaign.status === 'Paused' ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-705 dark:text-amber-400 border-amber-205 dark:border-amber-500/20' : ''}
+                        `}>
+                          {campaign.status === 'Active' && <PlayCircle className="w-3 h-3 text-emerald-505" />}
+                          {campaign.status}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3.5 text-right" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center justify-end gap-2">
+                          <button 
+                            onClick={(e) => handleDeleteCampaign(campaign.id, e)}
+                            className="p-1.5 hover:bg-rose-500/10 text-slate-400 hover:text-rose-600 rounded transition-colors"
+                            title="Delete Outbound Sequence"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                          <Link 
+                            href={`/campaigns/${campaign.id}`}
+                            className="text-slate-550 dark:text-slate-400 group-hover:text-slate-900 dark:group-hover:text-white p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-white/[0.02] transition-colors flex items-center gap-1 text-xs font-semibold"
+                          >
+                            Configure
+                            <ChevronRight className="w-4 h-4 text-slate-400" />
+                          </Link>
+                        </div>
+                      </td>
+                    </tr>
+                    {expandedCampaignId === campaign.id && (
+                      <tr className="bg-slate-50/50 dark:bg-[#0c0d12]/35 border-t border-b border-slate-100 dark:border-[#1b1c26]/60">
+                        <td colSpan={5} className="px-6 py-5">
+                          <div className="space-y-5">
+                            
+                            {/* Summary row */}
+                            <div className="flex flex-wrap justify-between items-center gap-3 border-b border-slate-200 dark:border-slate-800/50 pb-3">
+                              <div>
+                                <span className="text-[10px] text-slate-450 dark:text-slate-500 font-extrabold uppercase tracking-widest">Sequence Tracking Overview</span>
+                                <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 mt-0.5">
+                                  {campaign.name} is currently in <span className="text-blue-600 dark:text-blue-400 font-extrabold">{campaign.status}</span> mode.
+                                </h4>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={(e) => handleToggleStatus(campaign.id, campaign.status, e)}
+                                  className="px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-202 dark:border-slate-800 text-[10px] font-bold text-slate-700 dark:text-slate-350 hover:bg-slate-50 dark:hover:bg-slate-850 rounded-lg flex items-center gap-1.5 transition-all shadow-3xs cursor-pointer"
+                                >
+                                  {campaign.status === 'Active' ? (
+                                    <>
+                                      <Pause className="w-3 h-3 text-amber-500" />
+                                      Pause Campaign
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Play className="w-3 h-3 text-emerald-500" />
+                                      Activate Campaign
+                                    </>
+                                  )}
+                                </button>
+                                {campaign.status === 'Active' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRunCampaign(campaign.id)}
+                                    disabled={executingId !== null}
+                                    className="px-3 py-1.5 bg-blue-600 text-white hover:bg-blue-500 text-[10px] font-bold rounded-lg flex items-center gap-1.5 transition-all shadow-3xs cursor-pointer disabled:opacity-50"
+                                  >
+                                    {executingId === campaign.id ? (
+                                      <RefreshCw className="w-3 h-3 animate-spin" />
+                                    ) : (
+                                      <PlayCircle className="w-3 h-3" />
+                                    )}
+                                    {executingId === campaign.id ? 'Running Cycle...' : 'Run Campaign Dispatch'}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Tracking Flow Bar */}
+                            {(!campaign.steps || campaign.steps.length === 0) ? (
+                              <div className="py-6 text-center text-slate-450 dark:text-slate-550 text-xs">
+                                No email steps configured yet. Please configure the campaign sequence to add dispatches.
+                              </div>
+                            ) : (
+                              <div className="py-2 flex items-center w-full min-w-[500px] overflow-x-auto">
+                                
+                                {campaign.steps.map((step, idx) => {
+                                  const stepLeads = campaign.enrollments?.filter(
+                                    e => e.status === 'Active' && e.currentSequenceStep === step.stepOrder
+                                  ) || [];
+                                  const activeLeadsCount = stepLeads.length;
+                                  const isActiveStep = activeLeadsCount > 0;
+
+                                  return (
+                                    <Fragment key={step.id}>
+                                      {/* Connecting Line */}
+                                      {idx > 0 && (
+                                        <div className="flex-1 min-w-[40px] px-2">
+                                          <div className={`h-[3px] rounded transition-all duration-500 ${
+                                            isActiveStep 
+                                              ? 'bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)] animate-pulse' 
+                                              : 'bg-slate-200 dark:bg-slate-800'
+                                          }`} />
+                                        </div>
+                                      )}
+
+                                      {/* Step Node Card */}
+                                      <div className="flex flex-col items-center text-center space-y-2 relative">
+                                        {/* Leads Badge above the node */}
+                                        <div className="h-5 flex items-center">
+                                          {activeLeadsCount > 0 ? (
+                                            <span className="bg-blue-50 dark:bg-blue-900/60 text-blue-600 dark:text-blue-300 text-[9px] font-extrabold px-1.5 py-0.5 rounded border border-blue-100 dark:border-blue-800 animate-bounce">
+                                              {activeLeadsCount} active
+                                            </span>
+                                          ) : (
+                                            <span className="text-slate-400 dark:text-slate-600 text-[9px] font-semibold">
+                                              0 active
+                                            </span>
+                                          )}
+                                        </div>
+
+                                        {/* Step Circle Node */}
+                                        <div className={`w-9 h-9 rounded-full flex items-center justify-center font-mono text-xs font-bold transition-all duration-300 ${
+                                          isActiveStep 
+                                            ? 'bg-blue-600 text-white border-2 border-blue-400 shadow-[0_0_12px_rgba(59,130,246,0.5)] scale-105' 
+                                            : 'bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 text-slate-700 dark:text-slate-400'
+                                        }`}>
+                                          {step.stepOrder}
+                                        </div>
+
+                                        {/* Step Info below the node */}
+                                        <div className="space-y-0.5 min-w-[100px] max-w-[130px]">
+                                          <span className="text-[10px] text-slate-900 dark:text-white font-bold block truncate" title={step.subject}>
+                                            {step.subject || '(No Subject)'}
+                                          </span>
+                                          {idx > 0 && (
+                                            <span className="text-[9px] text-slate-400 dark:text-slate-500 font-semibold block uppercase font-mono">
+                                              Wait: {step.waitDays} days
+                                            </span>
+                                          )}
+                                        </div>
+
+                                        {/* Manual Dispatch Trigger */}
+                                        {campaign.status === 'Active' && (
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleRunCampaign(campaign.id, step.stepOrder);
+                                            }}
+                                            disabled={executingId !== null}
+                                            className="text-[9px] text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/15 hover:bg-blue-100 hover:text-blue-705 dark:hover:bg-blue-900/35 px-2 py-0.8 rounded border border-blue-150 dark:border-blue-800 flex items-center gap-1 font-extrabold transition-all cursor-pointer shadow-3xs disabled:opacity-50 mt-1"
+                                            title={`Manually run dispatches for Step ${step.stepOrder}`}
+                                          >
+                                            <Send className="w-2.5 h-2.5" />
+                                            Send Step
+                                          </button>
+                                        )}
+                                      </div>
+                                    </Fragment>
+                                  );
+                                })}
+
+                                {/* Connection Line to Completed */}
+                                <div className="flex-1 min-w-[40px] px-2">
+                                  <div className="h-[3px] bg-slate-200 dark:bg-slate-800 rounded" />
+                                </div>
+
+                                {/* Final Completed Node */}
+                                <div className="flex flex-col items-center text-center space-y-2">
+                                  <div className="h-5 flex items-center">
+                                    <span className="text-slate-400 dark:text-slate-600 text-[9px] font-semibold">
+                                      End
+                                    </span>
+                                  </div>
+
+                                  <div className="w-9 h-9 rounded-full flex items-center justify-center bg-emerald-500 text-white shadow-[0_0_8px_rgba(16,185,129,0.2)]">
+                                    <Check className="w-4 h-4" />
+                                  </div>
+
+                                  <div className="space-y-0.5 min-w-[100px] max-w-[120px]">
+                                    <span className="text-[10px] text-slate-900 dark:text-white font-bold block">
+                                      Completed
+                                    </span>
+                                    <span className="text-[9px] text-emerald-600 dark:text-emerald-450 font-bold block uppercase font-mono">
+                                      {campaign.enrollments?.filter(e => e.status === 'Completed').length || 0} leads
+                                    </span>
+                                  </div>
+                                </div>
+
+                              </div>
+                            )}
+
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 ))}
                 {filteredCampaigns.length === 0 && (
                   <tr>

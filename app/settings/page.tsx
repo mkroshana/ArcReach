@@ -462,7 +462,7 @@ export default function SettingsPage() {
       
       {/* Toast */}
       {toastMessage && (
-        <div className="fixed bottom-8 right-8 bg-[#0c0d14] border border-slate-800 text-white px-4 py-3 rounded-lg shadow-2xl flex items-center gap-2.5 z-50 animate-in slide-in-from-bottom-5 text-xs font-medium">
+        <div className="fixed bottom-8 right-8 bg-[#0c0d14] border border-[#1b1c26] text-white px-4 py-3 rounded-lg shadow-2xl flex items-center gap-2.5 z-50 animate-in slide-in-from-bottom-5 text-xs font-medium">
           <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping"></div>
           <span>{toastMessage}</span>
           <button onClick={() => setToastMessage('')} className="ml-2 text-slate-400 hover:text-white">

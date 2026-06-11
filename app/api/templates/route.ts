@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
   try {
     const session = await getSession();
     const data = await req.json();
-    const { name, subject, body, category } = data;
+    const { name, subject, body, category, steps } = data;
 
     const created = await prisma.template.create({
       data: {
@@ -60,6 +60,7 @@ export async function POST(req: NextRequest) {
         subject: subject || '',
         body: body || '',
         category: category || 'Cold Outreach',
+        steps: steps || null,
       }
     });
 
@@ -73,7 +74,7 @@ export async function PUT(req: NextRequest) {
   try {
     const session = await getSession();
     const data = await req.json();
-    const { id, name, subject, body, category } = data;
+    const { id, name, subject, body, category, steps } = data;
 
     if (!id) {
       return NextResponse.json({ error: 'Template ID is required.' }, { status: 400 });
@@ -86,6 +87,7 @@ export async function PUT(req: NextRequest) {
         subject,
         body,
         category,
+        steps: steps || null,
       }
     });
 

@@ -93,13 +93,21 @@ export const db = {
     await ensureInit();
     if (role === 'ADMIN') {
       return prisma.campaign.findMany({
-        include: { senderAccount: true },
+        include: { 
+          senderAccount: true,
+          steps: { orderBy: { stepOrder: 'asc' } },
+          enrollments: true
+        },
         orderBy: { createdAt: 'desc' }
       });
     }
     return prisma.campaign.findMany({
       where: { userId },
-      include: { senderAccount: true },
+      include: { 
+        senderAccount: true,
+        steps: { orderBy: { stepOrder: 'asc' } },
+        enrollments: true
+      },
       orderBy: { createdAt: 'desc' }
     });
   },

@@ -6,63 +6,84 @@ export async function POST(req: NextRequest) {
     const events = await req.json();
 
     for (const event of events) {
-      // Azure Event Grid Validation Handshake
-      if (event.eventType === 'Microsoft.EventGrid.SubscriptionValidationEvent') {
-        return NextResponse.json({ validationResponse: event.data.validationCode });
-      }
+      try {
+        // Azure Event Grid Validation Handshake
+        if (event.eventType === 'Microsoft.EventGrid.SubscriptionValidationEvent') {
+          return NextResponse.json({ validationResponse: event.data.validationCode });
+        }
 
-      const data = event.data || {};
-      const messageId = data.messageId;
+        const data = event.data || {};
+        const rawMessageId = data.messageId || data.messageid;
 
-      if (!messageId) continue;
+        if (!rawMessageId) continue;
 
-      // Find the email dispatch linked to the messageId
-      const dispatch = await prisma.emailDispatch.findUnique({
-        where: { messageId }
-      });
+        // Clean message ID of any wrapping angle brackets and whitespace
+        let messageId = rawMessageId.trim();
+        if (messageId.startsWith('<') && messageId.endsWith('>')) {
+          messageId = messageId.slice(1, -1).trim();
+        }
 
-      if (!dispatch) {
-        console.log(`[Webhook] Dispatch log not found for Message ID: ${messageId}`);
-        continue;
-      }
+        // Find the email dispatch linked to the messageId (with case-insensitive fallback)
+        let dispatch = await prisma.emailDispatch.findUnique({
+          where: { messageId }
+        });
 
-      // Process Communication Services Events
-      switch (event.eventType) {
-        case 'Microsoft.Communication.EmailDeliveryReportReceived':
-          console.log('Delivery Report Received:', data);
-          const status = data.status; // "Delivered" or "Failed" (Bounce)
-          
-          if (status === 'Failed') {
-            // Update Lead validation status to Invalid
-            await prisma.lead.update({
-              where: { id: dispatch.leadId },
-              data: { validationStatus: 'Invalid' }
-            });
-            // Update active enrollments to Bounced
-            await prisma.campaignEnrollment.updateMany({
-              where: { leadId: dispatch.leadId },
-              data: { status: 'Bounced' }
-            });
-          }
-          break;
-
-        case 'Microsoft.Communication.EmailEngagementTrackingReportReceived':
-          console.log('Engagement Report Received:', data);
-          const rawType = data.engagementType; // "View" (Open) or "Click"
-          const eventType = rawType === 'View' ? 'open' : 'click';
-          
-          // Log click URL details if present
-          await prisma.emailEvent.create({
-            data: {
-              messageId,
-              eventType,
-              clickedUrl: data.linkUri || null
+        if (!dispatch) {
+          dispatch = await prisma.emailDispatch.findFirst({
+            where: {
+              messageId: {
+                equals: messageId,
+                mode: 'insensitive'
+              }
             }
           });
-          break;
+        }
 
-        default:
-          console.log('Unhandled event type:', event.eventType);
+        if (!dispatch) {
+          console.log(`[Webhook] Dispatch log not found for Message ID: ${messageId}`);
+          continue;
+        }
+
+        // Process Communication Services Events
+        switch (event.eventType) {
+          case 'Microsoft.Communication.EmailDeliveryReportReceived':
+            console.log('Delivery Report Received:', data);
+            const status = data.status; // "Delivered" or "Failed" (Bounce)
+            
+            if (status === 'Failed') {
+              // Update Lead validation status to Invalid
+              await prisma.lead.update({
+                where: { id: dispatch.leadId },
+                data: { validationStatus: 'Invalid' }
+              });
+              // Update active enrollments to Bounced
+              await prisma.campaignEnrollment.updateMany({
+                where: { leadId: dispatch.leadId },
+                data: { status: 'Bounced' }
+              });
+            }
+            break;
+
+          case 'Microsoft.Communication.EmailEngagementTrackingReportReceived':
+            console.log('Engagement Report Received:', data);
+            const rawType = data.engagementType || data.engagement; // "View" (Open) or "Click"
+            const eventType = (rawType && (rawType.toLowerCase() === 'view' || rawType.toLowerCase() === 'open')) ? 'open' : 'click';
+            
+            // Log click URL details if present
+            await prisma.emailEvent.create({
+              data: {
+                messageId: dispatch.messageId, // Use the matched case-sensitive messageId from the db
+                eventType,
+                clickedUrl: data.linkUri || data.engagementContext || null
+              }
+            });
+            break;
+
+          default:
+            console.log('Unhandled event type:', event.eventType);
+        }
+      } catch (err: any) {
+        console.error(`[Webhook] Error processing individual Event Grid event:`, err);
       }
     }
 

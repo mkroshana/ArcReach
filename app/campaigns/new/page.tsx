@@ -1,16 +1,100 @@
 'use client';
 
-import { ArrowLeft, Save, Send, Settings, Users, AlignLeft, Clock, ToggleLeft, Plus, Trash2, SplitSquareHorizontal } from 'lucide-react';
+import { ArrowLeft, Save, Send, Settings, Users, AlignLeft, Clock, ToggleLeft, Plus, Trash2, SplitSquareHorizontal, Sparkles } from 'lucide-react';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useTimezones } from '@/hooks/use-timezones';
 
 export default function NewCampaignPage() {
   const timezoneOptions = useTimezones();
   const [activeTab, setActiveTab] = useState('Sequence');
+  const [templates, setTemplates] = useState<any[]>([]);
   const [steps, setSteps] = useState([
     { id: 1, waitDays: 0, subject: '', body: '', isABTest: false }
   ]);
+  const [previewSteps, setPreviewSteps] = useState<Record<string, boolean>>({});
+
+  const toggleStepPreview = (stepIdOrIndex: string | number) => {
+    setPreviewSteps(prev => ({
+      ...prev,
+      [stepIdOrIndex]: !prev[stepIdOrIndex]
+    }));
+  };
+
+  const resolveTemplateText = (text: string) => {
+    if (!text) return '';
+    let result = text;
+    result = result.replace(/\{\{firstName\}\}/g, 'Emily');
+    result = result.replace(/\{\{company\}\}/g, 'Stark Industries');
+    result = result.replace(/\{\{\s*\$json\.name\s*\|\|\s*'[^']*'\s*\}\}/g, 'Emily');
+    result = result.replace(/\{\{\s*\$json\.name\s*\}\}/g, 'Emily');
+
+    const spintaxRegex = /\{([^{}]+)\}/g;
+    result = result.replace(spintaxRegex, (match, options) => {
+      const choices = options.split('|');
+      return choices[0] || '';
+    });
+
+    return result;
+  };
+
+  const isHtml = (text: string) => {
+    if (!text) return false;
+    const clean = text.trim().toLowerCase();
+    return clean.startsWith('<!doctype html') || clean.startsWith('<html') || clean.startsWith('<body') || clean.includes('<div') || clean.includes('<table');
+  };
+
+  const loadTemplates = async () => {
+    try {
+      const res = await fetch('/api/templates');
+      if (res.ok) {
+        const data = await res.json();
+        setTemplates(data);
+      }
+    } catch (err) {
+      console.error('Failed to load templates:', err);
+    }
+  };
+
+  useEffect(() => {
+    loadTemplates();
+  }, []);
+
+  const applyTemplate = (templateId: string) => {
+    if (!templateId) return;
+    const selected = templates.find(t => t.id === templateId);
+    if (!selected) return;
+
+    let parsedSteps: any[] = [];
+    if (selected.steps) {
+      try {
+        parsedSteps = typeof selected.steps === 'string' ? JSON.parse(selected.steps) : selected.steps;
+      } catch (e) {
+        console.error('Error parsing template steps:', e);
+      }
+    }
+
+    if (parsedSteps && parsedSteps.length > 0) {
+      const newSteps = parsedSteps.map((step, idx) => ({
+        id: Date.now() + idx,
+        waitDays: idx === 0 ? 0 : (step.waitDays || 3),
+        subject: step.subject || '',
+        body: step.body || '',
+        isABTest: false
+      }));
+      setSteps(newSteps);
+    } else {
+      setSteps([
+        {
+          id: Date.now(),
+          waitDays: 0,
+          subject: selected.subject || '',
+          body: selected.body || '',
+          isABTest: false
+        }
+      ]);
+    }
+  };
 
   const addStep = () => {
     setSteps([...steps, { id: Date.now(), waitDays: 3, subject: '', body: '', isABTest: false }]);
@@ -92,9 +176,29 @@ export default function NewCampaignPage() {
                   />
                 </section>
 
-                <div className="flex items-center gap-2 pb-1 border-b border-slate-200 dark:border-slate-800">
-                  <AlignLeft className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                  <h2 className="text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">Steps Setup</h2>
+                <div className="flex justify-between items-center pb-1 border-b border-slate-200 dark:border-slate-800">
+                  <div className="flex items-center gap-2">
+                    <AlignLeft className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                    <h2 className="text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">Steps Setup</h2>
+                  </div>
+                  {templates.length > 0 && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-bold text-slate-400 dark:text-slate-505 uppercase tracking-wider">Use Template:</span>
+                      <select
+                        onChange={(e) => {
+                          applyTemplate(e.target.value);
+                          e.target.value = "";
+                        }}
+                        defaultValue=""
+                        className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 text-xs rounded-lg px-2 py-1 outline-none font-medium"
+                      >
+                        <option value="" disabled>-- Select Template --</option>
+                        {templates.map(t => (
+                          <option key={t.id} value={t.id}>{t.name} ({t.category})</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                 </div>
 
                 {/* Automation Steps Stack */}
@@ -125,6 +229,17 @@ export default function NewCampaignPage() {
                       </div>
                       
                       <div className="flex gap-2">
+                        <button 
+                          type="button"
+                          onClick={() => toggleStepPreview(step.id || index)}
+                          className={`px-2.5 py-1.5 border rounded text-[10px] font-bold transition-colors flex items-center gap-1 cursor-pointer ${
+                            previewSteps[step.id || index] !== false
+                              ? 'bg-blue-50 dark:bg-blue-600/10 border-blue-200 dark:border-blue-500/20 text-blue-600 dark:text-blue-400' 
+                              : 'bg-slate-50 dark:bg-slate-955 dark:hover:bg-slate-805 border-slate-202 dark:border-slate-800 text-slate-700 dark:text-slate-300'
+                          }`}
+                        >
+                          {previewSteps[step.id || index] !== false ? 'Edit Mode' : 'Preview Mode'}
+                        </button>
                         <button className="px-2.5 py-1.5 bg-slate-50 hover:bg-slate-100 dark:bg-slate-950 dark:hover:bg-slate-805 border border-slate-205 dark:border-slate-800 rounded text-[10px] font-bold text-slate-700 dark:text-slate-300 transition-colors flex items-center gap-1">
                           <SplitSquareHorizontal className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
                           A/B TEST Variant
@@ -132,7 +247,7 @@ export default function NewCampaignPage() {
                         {steps.length > 1 && (
                           <button 
                             onClick={() => removeStep(step.id)} 
-                            className="p-1.5 bg-slate-50 border border-slate-200 hover:bg-rose-500/10 hover:text-rose-600 dark:bg-slate-950 dark:border-slate-800 dark:hover:bg-rose-500/10 dark:hover:text-rose-400 rounded text-slate-400 dark:text-slate-500 transition-colors"
+                            className="p-1.5 bg-slate-50 border border-slate-200 hover:bg-rose-500/10 hover:text-rose-600 dark:bg-slate-950 dark:border-slate-800 dark:hover:bg-rose-500/10 dark:hover:text-rose-455 rounded text-slate-400 dark:text-slate-500 transition-colors"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -140,33 +255,71 @@ export default function NewCampaignPage() {
                       </div>
                     </div>
 
-                    <div className="space-y-3">
-                      <input 
-                        type="text" 
-                        placeholder="Subject Line"
-                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-805 text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500/40 placeholder:text-slate-400 dark:placeholder:text-slate-500 shadow-xs"
-                      />
-                      
-                      <div className="border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden bg-slate-50 dark:bg-slate-950 flex flex-col">
-                        <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-3 py-1.5 flex items-center justify-between text-[11px]">
-                          <div className="flex items-center gap-1.5 font-mono">
-                            <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold tracking-widest mr-1">Variables list:</span>
-                            <button onClick={() => insertVariable('{{firstName}}', step.id)} className="text-[9px] text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-1.5 py-0.5 rounded cursor-pointer uppercase font-bold border border-blue-100 dark:border-blue-500/10">{'{{firstName}}'}</button>
-                            <button onClick={() => insertVariable('{{company}}', step.id)} className="text-[9px] text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-1.5 py-0.5 rounded cursor-pointer uppercase font-bold border border-blue-100 dark:border-blue-500/10">{'{{company}}'}</button>
-                            <button onClick={() => insertVariable('{Hi|Hello}', step.id)} className="text-[9px] text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-1.5 py-0.5 rounded cursor-pointer uppercase font-bold border border-blue-100 dark:border-blue-500/10">{'{{spintax}}'}</button>
+                    {previewSteps[step.id || index] !== false ? (
+                      /* Live Preview Representation */
+                      <div className="space-y-4 animate-in fade-in">
+                        <div className="bg-blue-50/50 dark:bg-blue-955/10 border border-blue-100 dark:border-blue-500/10 p-3 rounded-lg flex items-start gap-2.5">
+                          <div>
+                            <p className="text-[10px] text-blue-750 dark:text-blue-400 font-extrabold uppercase tracking-wider">Dynamic Resolve Preview</p>
+                            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Showing output resolved for contact: <strong className="text-slate-900 dark:text-white">Emily</strong> at <strong className="text-slate-900 dark:text-white">Stark Industries</strong>.</p>
                           </div>
                         </div>
-                        <textarea 
-                          className="w-full h-36 p-3 outline-none bg-transparent text-slate-800 dark:text-white text-xs placeholder:text-slate-400 dark:placeholder:text-slate-500 resize-none font-mono leading-relaxed"
-                          placeholder="Write your custom copy stream here..."
-                          value={step.body}
-                          onChange={(e) => {
-                             const updatedSteps = steps.map(s => s.id === step.id ? { ...s, body: e.target.value } : s);
-                             setSteps(updatedSteps);
-                          }}
-                        ></textarea>
+
+                        <div className="space-y-3 font-sans bg-slate-50 dark:bg-[#12141d] border border-slate-100 dark:border-[#1f2130] p-4 rounded-lg">
+                          <div className="border-b border-slate-200 dark:border-[#1b1c26] pb-2">
+                            <span className="text-[9px] text-slate-400 dark:text-slate-500 uppercase tracking-widest font-bold font-mono">Subject Outcome:</span>
+                            <p className="text-xs font-semibold text-slate-900 dark:text-white mt-1">{resolveTemplateText(step.subject || '')}</p>
+                          </div>
+                          <div>
+                            <span className="text-[9px] text-slate-400 dark:text-slate-500 uppercase tracking-widest font-bold font-mono mb-1.5 block">Message Outcome:</span>
+                            {isHtml(resolveTemplateText(step.body || '')) ? (
+                              <iframe 
+                                srcDoc={resolveTemplateText(step.body || '')}
+                                title="Email Preview"
+                                className="w-full h-[500px] border border-slate-200 dark:border-slate-800 rounded-lg bg-white"
+                                sandbox="allow-same-origin"
+                              />
+                            ) : (
+                              <p className="text-xs text-slate-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed font-sans">{resolveTemplateText(step.body || '')}</p>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                    </div>
+                    ) : (
+                      /* Main Editor Inputs */
+                      <div className="space-y-3">
+                        <input 
+                          type="text" 
+                          placeholder="Subject Line"
+                          value={step.subject || ''}
+                          onChange={(e) => {
+                            const updatedSteps = steps.map(s => s.id === step.id ? { ...s, subject: e.target.value } : s);
+                            setSteps(updatedSteps);
+                          }}
+                          className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-805 text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500/40 placeholder:text-slate-400 dark:placeholder:text-slate-500 shadow-xs"
+                        />
+                        
+                        <div className="border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden bg-slate-50 dark:bg-slate-950 flex flex-col">
+                          <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-3 py-1.5 flex items-center justify-between text-[11px]">
+                            <div className="flex items-center gap-1.5 font-mono">
+                              <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold tracking-widest mr-1">Variables list:</span>
+                              <button onClick={() => insertVariable('{{firstName}}', step.id)} className="text-[9px] text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-1.5 py-0.5 rounded cursor-pointer uppercase font-bold border border-blue-100 dark:border-blue-500/10">{'{{firstName}}'}</button>
+                              <button onClick={() => insertVariable('{{company}}', step.id)} className="text-[9px] text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-955/40 px-1.5 py-0.5 rounded cursor-pointer uppercase font-bold border border-blue-100 dark:border-blue-500/10">{'{{company}}'}</button>
+                              <button onClick={() => insertVariable('{Hi|Hello}', step.id)} className="text-[9px] text-blue-650 dark:text-blue-400 bg-blue-50 dark:bg-blue-955/40 px-1.5 py-0.5 rounded cursor-pointer uppercase font-bold border border-blue-100 dark:border-blue-550/10">{'{{spintax}}'}</button>
+                            </div>
+                          </div>
+                          <textarea 
+                            className="w-full h-36 p-3 outline-none bg-transparent text-slate-800 dark:text-white text-xs placeholder:text-slate-400 dark:placeholder:text-slate-500 resize-none font-mono leading-relaxed"
+                            placeholder="Write your custom copy stream here..."
+                            value={step.body}
+                            onChange={(e) => {
+                               const updatedSteps = steps.map(s => s.id === step.id ? { ...s, body: e.target.value } : s);
+                               setSteps(updatedSteps);
+                            }}
+                          ></textarea>
+                        </div>
+                      </div>
+                    )}
                   </section>
                 ))}
 

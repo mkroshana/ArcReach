@@ -164,11 +164,45 @@ function checkSendingWindow(timezone: string, schedule: any): boolean {
  * Replace variables like {{firstName}} and resolve {A|B} Spintax
  */
 function personalizeEmail(template: string, lead: any): string {
+    if (!template) return '';
     let result = template;
     
-    // Replace variables
-    result = result.replace(/\{\{firstName\}\}/g, lead.firstName || 'there');
+    const getFirstName = (fullName: string | null | undefined, fallback: string = 'there') => {
+        if (!fullName) return fallback;
+        return fullName.trim().split(/\s+/)[0] || fallback;
+    };
+
+    // Replace {{firstName}}
+    result = result.replace(/\{\{firstName\}\}/g, getFirstName(lead.name || lead.firstName, 'there'));
+
+    // Replace {{company}}
     result = result.replace(/\{\{company\}\}/g, lead.company || 'your company');
+
+    // Replace n8n/json style name variable with fallback: {{ $json.name || 'there' }}
+    result = result.replace(/\{\{\s*\$json\.name\s*\|\|\s*'([^']*)'\s*\}\}/g, (match, fallback) => {
+        return getFirstName(lead.name || lead.firstName, fallback || 'there');
+    });
+
+    // Replace n8n/json style name variable without fallback: {{ $json.name }}
+    result = result.replace(/\{\{\s*\$json\.name\s*\}\}/g, getFirstName(lead.name || lead.firstName, 'there'));
+
+    // Also support single braces versions just in case: { $json.name || 'there' }
+    result = result.replace(/\{\s*\$json\.name\s*\|\|\s*'([^']*)'\s*\}/g, (match, fallback) => {
+        return getFirstName(lead.name || lead.firstName, fallback || 'there');
+    });
+    result = result.replace(/\{\s*\$json\.name\s*\}/g, getFirstName(lead.name || lead.firstName, 'there'));
+
+    // Support n8n/json style company variable: {{ $json.company || 'your company' }}
+    result = result.replace(/\{\{\s*\$json\.company\s*\|\|\s*'([^']*)'\s*\}\}/g, (match, fallback) => {
+        return lead.company || fallback || 'your company';
+    });
+    result = result.replace(/\{\{\s*\$json\.company\s*\}\}/g, lead.company || 'your company');
+
+    // Single braces version: { $json.company || 'your company' }
+    result = result.replace(/\{\s*\$json\.company\s*\|\|\s*'([^']*)'\s*\}/g, (match, fallback) => {
+        return lead.company || fallback || 'your company';
+    });
+    result = result.replace(/\{\s*\$json\.company\s*\}/g, lead.company || 'your company');
 
     // Basic Spintax: {Hi|Hello|Hey}
     const spintaxRegex = /\{([^{}]+)\}/g;

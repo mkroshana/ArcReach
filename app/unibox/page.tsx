@@ -604,7 +604,7 @@ export default function UniboxPage() {
       </div>
 
       {toastMessage && (
-        <div className="fixed bottom-8 right-8 bg-slate-900 dark:bg-[#0c0d14] border border-slate-800 text-white px-4 py-3 rounded-lg shadow-2xl flex items-center gap-3 z-50 animate-in slide-in-from-bottom-5 text-xs">
+        <div className="fixed bottom-8 right-8 bg-[#0c0d14] border border-[#1b1c26] text-white px-4 py-3 rounded-lg shadow-2xl flex items-center gap-3 z-50 animate-in slide-in-from-bottom-5 text-xs">
           <span className="font-semibold">{toastMessage}</span>
           <button onClick={() => setToastMessage('')} className="text-slate-400 hover:text-white transition-colors">
             <X className="w-3.5 h-3.5" />

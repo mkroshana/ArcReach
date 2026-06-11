@@ -9,9 +9,10 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // 2. Allow auth APIs and login page without authentication
+  // 2. Allow auth APIs, webhook, and login page without authentication
   if (
     pathname.startsWith('/api/auth') ||
+    pathname === '/api/webhook' ||
     pathname === '/login'
   ) {
     return NextResponse.next();

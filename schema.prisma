@@ -122,6 +122,8 @@ model Campaign {
   
   steps           CampaignStep[]
   enrollments     CampaignEnrollment[]
+  dispatches      EmailDispatch[]
+  replies         InboundResponse[]
 }
 
 model CampaignStep {
@@ -159,6 +161,7 @@ model Lead {
   email            String               @unique
   name             String?              // Unified name field matching the UI
   company          String?              // Unified company field matching variables {{company}}
+  jobTitle         String?              // Job title of the lead
   status           LeadStatus           @default(Neutral) // Global CRM status values
   validationStatus LeadValidationStatus @default(Unverified) // Matches bulk verification categories
   customVariables  Json?                // Holds extra CSV metadata cols
@@ -191,14 +194,16 @@ model CampaignEnrollment {
 // 6. DISPATCH & EVENT TRACKING
 // ------------------------------------------------------
 model EmailDispatch {
-  id        String       @id @default(uuid())
-  leadId    String
-  lead      Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  messageId String       @unique
-  sentAt    DateTime     @default(now())
-  subject   String?
-  body      String?      @db.Text
-  events    EmailEvent[]
+  id         String        @id @default(uuid())
+  leadId     String
+  lead       Lead          @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  campaignId String?
+  campaign   Campaign?     @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  messageId  String        @unique
+  sentAt     DateTime      @default(now())
+  subject    String?
+  body       String?       @db.Text
+  events     EmailEvent[]
 }
 
 model EmailEvent {
@@ -217,6 +222,8 @@ model InboundResponse {
   id              String         @id @default(uuid())
   leadId          String
   lead            Lead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  campaignId      String?
+  campaign        Campaign?      @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   senderAccountId String?        // Captures which account received the inbound reply
   senderAccount   SenderAccount? @relation(fields: [senderAccountId], references: [id], onDelete: SetNull)
   subject         String
@@ -234,6 +241,7 @@ model Template {
   subject   String
   body      String   @db.Text
   category  String
+  steps     Json?    // Optional JSON array of steps: [{ id, waitDays, subject, body }]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }

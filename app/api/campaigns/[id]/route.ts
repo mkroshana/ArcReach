@@ -56,22 +56,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     }
 
     const sentCount = await prisma.emailDispatch.count({
-      where: {
-        lead: {
-          enrollments: {
-            some: { campaignId: id }
-          }
-        }
-      }
+      where: { campaignId: id }
     });
 
     const opensCount = await prisma.emailDispatch.count({
       where: {
-        lead: {
-          enrollments: {
-            some: { campaignId: id }
-          }
-        },
+        campaignId: id,
         events: {
           some: { eventType: 'open' }
         }
@@ -80,11 +70,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
     const clicksCount = await prisma.emailDispatch.count({
       where: {
-        lead: {
-          enrollments: {
-            some: { campaignId: id }
-          }
-        },
+        campaignId: id,
         events: {
           some: { eventType: 'click' }
         }
@@ -92,13 +78,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     });
 
     const repliesCount = await prisma.inboundResponse.count({
-      where: {
-        lead: {
-          enrollments: {
-            some: { campaignId: id }
-          }
-        }
-      }
+      where: { campaignId: id }
     });
 
     const validLeadsCount = await prisma.lead.count({

@@ -34,11 +34,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       }, { status: 400 });
     }
 
-    // 2. Fetch all active enrollments for this campaign
+    const { searchParams } = new URL(req.url);
+    const stepOrderParam = searchParams.get('stepOrder');
+    const stepOrderFilter = stepOrderParam ? parseInt(stepOrderParam) : null;
+
+    // 2. Fetch active enrollments for this campaign
     const enrollments = await prisma.campaignEnrollment.findMany({
       where: {
         campaignId: id,
-        status: 'Active'
+        status: 'Active',
+        ...(stepOrderFilter !== null ? { currentSequenceStep: stepOrderFilter } : {})
       },
       include: {
         lead: true
@@ -79,7 +84,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       // Personalize copy (Spintax, Lead variables)
       const subject = personalizeText(step.subject, lead);
       const bodyText = personalizeText(step.body, lead);
-      const messageId = `${campaign.id}-${lead.id}-${currentStepOrder}-${Date.now()}`;
+      const htmlBody = /<[a-z][\s\S]*>/i.test(bodyText);
+      let messageId = `${campaign.id}-${lead.id}-${currentStepOrder}-${Date.now()}`;
+
+      // Wrap HTML body to support Azure Tracking Pixel injection requirements
+      let finalBody = bodyText;
+      if (htmlBody && !bodyText.toLowerCase().includes('<html') && !bodyText.toLowerCase().includes('<body')) {
+        finalBody = `<html><head><meta charset="utf-8"></head><body>${bodyText}</body></html>`;
+      }
 
       try {
         // Send email based on active provider
@@ -100,18 +112,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
           const message = {
             senderAddress: fromAddress,
-            content: {
-              subject,
-              plainText: bodyText,
-            },
+            content: htmlBody 
+              ? { subject, html: finalBody }
+              : { subject, plainText: finalBody },
             recipients: {
               to: [{ address: lead.email }],
             },
+            userEngagementTrackingDisabled: !campaign.trackOpens,
           };
 
           const poller = await emailClient.beginSend(message);
-          await poller.pollUntilDone();
-          console.log(`[Campaign Run - Azure Success] From: ${fromAddress} → To: ${lead.email}`);
+          const result = await poller.pollUntilDone();
+          if (result && result.id) {
+            messageId = result.id;
+          }
+          console.log(`[Campaign Run - Azure Success] Message ID: ${messageId} | From: ${fromAddress} → To: ${lead.email}`);
         } else {
           // SMTP-based delivery (SMTP, GOOGLE, MICROSOFT fallback)
           let smtpHost = settings?.smtpHost;
@@ -138,22 +153,33 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             auth: { user: smtpUser, pass: smtpPass },
           });
 
-          await transport.sendMail({
+          const mailOptions: any = {
             from: `"${campaign.senderAccount.name || 'ArcReach Sender'}" <${smtpUser}>`,
             to: lead.email,
             subject,
-            text: bodyText,
-          });
-          console.log(`[Campaign Run - SMTP Success] To: ${lead.email}`);
+          };
+
+          if (htmlBody) {
+            mailOptions.html = finalBody;
+          } else {
+            mailOptions.text = finalBody;
+          }
+
+          const info = await transport.sendMail(mailOptions);
+          if (info && info.messageId) {
+            messageId = info.messageId;
+          }
+          console.log(`[Campaign Run - SMTP Success] Message ID: ${messageId} | To: ${lead.email}`);
         }
 
         // 5. Log successfully sent dispatch to database
         await prisma.emailDispatch.create({
           data: {
             leadId: lead.id,
+            campaignId: campaign.id,
             messageId,
             subject,
-            body: bodyText,
+            body: finalBody,
           }
         });
 
@@ -204,10 +230,47 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 }
 
 function personalizeText(template: string, lead: any): string {
+  if (!template) return '';
   let result = template;
-  result = result.replace(/\{\{firstName\}\}/g, lead.name || 'there');
+
+  const getFirstName = (fullName: string | null | undefined, fallback: string = 'there') => {
+    if (!fullName) return fallback;
+    return fullName.trim().split(/\s+/)[0] || fallback;
+  };
+
+  // Replace {{firstName}}
+  result = result.replace(/\{\{firstName\}\}/g, getFirstName(lead.name, 'there'));
+
+  // Replace {{company}}
   result = result.replace(/\{\{company\}\}/g, lead.company || 'your company');
 
+  // Replace n8n/json style name variable with fallback: {{ $json.name || 'there' }}
+  result = result.replace(/\{\{\s*\$json\.name\s*\|\|\s*'([^']*)'\s*\}\}/g, (match, fallback) => {
+    return getFirstName(lead.name, fallback || 'there');
+  });
+
+  // Replace n8n/json style name variable without fallback: {{ $json.name }}
+  result = result.replace(/\{\{\s*\$json\.name\s*\}\}/g, getFirstName(lead.name, 'there'));
+
+  // Also support single braces versions just in case: { $json.name || 'there' }
+  result = result.replace(/\{\s*\$json\.name\s*\|\|\s*'([^']*)'\s*\}/g, (match, fallback) => {
+    return getFirstName(lead.name, fallback || 'there');
+  });
+  result = result.replace(/\{\s*\$json\.name\s*\}/g, getFirstName(lead.name, 'there'));
+
+  // Support n8n/json style company variable: {{ $json.company || 'your company' }}
+  result = result.replace(/\{\{\s*\$json\.company\s*\|\|\s*'([^']*)'\s*\}\}/g, (match, fallback) => {
+    return lead.company || fallback || 'your company';
+  });
+  result = result.replace(/\{\{\s*\$json\.company\s*\}\}/g, lead.company || 'your company');
+
+  // Single braces version: { $json.company || 'your company' }
+  result = result.replace(/\{\s*\$json\.company\s*\|\|\s*'([^']*)'\s*\}/g, (match, fallback) => {
+    return lead.company || fallback || 'your company';
+  });
+  result = result.replace(/\{\s*\$json\.company\s*\}/g, lead.company || 'your company');
+
+  // Basic Spintax: {Hi|Hello|Hey}
   const spintaxRegex = /\{([^{}]+)\}/g;
   result = result.replace(spintaxRegex, (match, options) => {
     const choices = options.split('|');

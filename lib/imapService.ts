@@ -248,19 +248,7 @@ export async function syncMailboxReplies(mailboxId: string) {
         });
         
         if (existing) continue;
-        
-        await prisma.inboundResponse.create({
-          data: {
-            leadId: lead.id,
-            senderAccountId: mailbox.id,
-            subject: msg.subject || 'No Subject',
-            body: msg.body || '',
-            receivedAt: msg.date,
-            unread: true
-          }
-        });
-        newRepliesCount++;
-        
+
         const activeEnrollments = await prisma.campaignEnrollment.findMany({
           where: {
             leadId: lead.id,
@@ -270,6 +258,26 @@ export async function syncMailboxReplies(mailboxId: string) {
             campaign: true
           }
         });
+
+        // Resolve campaignId based on last sent campaign email or active enrollment
+        const lastDispatch = await prisma.emailDispatch.findFirst({
+          where: { leadId: lead.id, campaignId: { not: null } },
+          orderBy: { sentAt: 'desc' }
+        });
+        const campaignId = lastDispatch?.campaignId || activeEnrollments[0]?.campaignId || null;
+        
+        await prisma.inboundResponse.create({
+          data: {
+            leadId: lead.id,
+            campaignId,
+            senderAccountId: mailbox.id,
+            subject: msg.subject || 'No Subject',
+            body: msg.body || '',
+            receivedAt: msg.date,
+            unread: true
+          }
+        });
+        newRepliesCount++;
         
         for (const enrollment of activeEnrollments) {
           if (enrollment.campaign.stopOnReply) {

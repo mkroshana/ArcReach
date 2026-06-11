@@ -789,7 +789,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
              <h2 className="text-[10px] font-bold uppercase tracking-widest text-slate-550 dark:text-slate-400 mb-6">Funnel Over Time</h2>
              <div className="h-[200px] w-full">
                <ResponsiveContainer width="100%" height="100%">
-                 <AreaChart data={mockChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                 <AreaChart data={campaign?.telemetry?.trend || mockChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                    <defs>
                      <linearGradient id="colorO" x1="0" y1="0" x2="0" y2="1">
                        <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.2}/>

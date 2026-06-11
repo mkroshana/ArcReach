@@ -343,6 +343,12 @@ describe('ArcReach Live API Integration Tests', () => {
       const detail = await getRes.json();
       expect(detail).toHaveProperty('telemetry');
       expect(detail.telemetry).toHaveProperty('opens');
+      expect(detail.telemetry).toHaveProperty('trend');
+      expect(Array.isArray(detail.telemetry.trend)).toBe(true);
+      expect(detail.telemetry.trend.length).toBe(7);
+      expect(detail.telemetry.trend[0]).toHaveProperty('name');
+      expect(detail.telemetry.trend[0]).toHaveProperty('opens');
+      expect(detail.telemetry.trend[0]).toHaveProperty('clicks');
 
       // 3. Update campaign details and steps transactionally (PUT)
       const updatePayload = {

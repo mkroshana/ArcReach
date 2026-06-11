@@ -89,6 +89,44 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       where: { validationStatus: 'Unverified' }
     });
 
+    // Fetch daily trends for the last 7 days
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    sevenDaysAgo.setHours(0, 0, 0, 0);
+
+    const trendDispatches = await prisma.emailDispatch.findMany({
+      where: {
+        campaignId: id,
+        sentAt: { gte: sevenDaysAgo }
+      },
+      include: {
+        events: true
+      }
+    });
+
+    // Generate daily buckets
+    const dailyBuckets: Record<string, { name: string; opens: number; clicks: number }> = {};
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const label = d.toLocaleDateString('en-US', { day: '2-digit', month: 'short' });
+      dailyBuckets[label] = { name: label, opens: 0, clicks: 0 };
+    }
+
+    trendDispatches.forEach(dispatch => {
+      const label = new Date(dispatch.sentAt).toLocaleDateString('en-US', { day: '2-digit', month: 'short' });
+      if (dailyBuckets[label]) {
+        if (dispatch.events.some(e => e.eventType === 'open')) {
+          dailyBuckets[label].opens++;
+        }
+        if (dispatch.events.some(e => e.eventType === 'click')) {
+          dailyBuckets[label].clicks++;
+        }
+      }
+    });
+
+    const trend = Object.values(dailyBuckets);
+
     const telemetry = {
       enrollments: enrollmentsCount,
       validLeadsCount,
@@ -99,7 +137,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       replies: repliesCount,
       openRate: sentCount > 0 ? Number(((opensCount / sentCount) * 100).toFixed(1)) : 0,
       clickRate: sentCount > 0 ? Number(((clicksCount / sentCount) * 100).toFixed(1)) : 0,
-      replyRate: sentCount > 0 ? Number(((repliesCount / sentCount) * 100).toFixed(1)) : 0
+      replyRate: sentCount > 0 ? Number(((repliesCount / sentCount) * 100).toFixed(1)) : 0,
+      trend
     };
 
     return NextResponse.json({

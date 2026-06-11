@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
+import { checkGlobalRateLimits } from '@/lib/rateLimits';
 import nodemailer from 'nodemailer';
 
 export async function POST(req: NextRequest) {
@@ -11,6 +12,12 @@ export async function POST(req: NextRequest) {
 
     if (!leadId || !replyBody) {
       return NextResponse.json({ error: 'leadId and body copy are required.' }, { status: 400 });
+    }
+
+    // Check global outbound rate limits
+    const rateCheck = await checkGlobalRateLimits();
+    if (!rateCheck.allowed) {
+      return NextResponse.json({ error: rateCheck.reason }, { status: 429 });
     }
 
     // Fetch the lead's email address

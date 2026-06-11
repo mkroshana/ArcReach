@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { applyEmailTracking } from '@/lib/emailTracking';
+import { checkGlobalRateLimits } from '@/lib/rateLimits';
 import nodemailer from 'nodemailer';
 
 export async function POST(req: NextRequest) {
@@ -10,6 +11,12 @@ export async function POST(req: NextRequest) {
 
     if (!leadData || !leadData.email) {
       return NextResponse.json({ success: false, error: 'Recipient lead details are required.' }, { status: 400 });
+    }
+
+    // Check global outbound rate limits
+    const rateCheck = await checkGlobalRateLimits();
+    if (!rateCheck.allowed) {
+      return NextResponse.json({ success: false, error: rateCheck.reason }, { status: 429 });
     }
 
     // 1. Fetch global settings from the database

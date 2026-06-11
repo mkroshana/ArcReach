@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { applyEmailTracking } from '@/lib/emailTracking';
+import { checkGlobalRateLimits } from '@/lib/rateLimits';
 import nodemailer from 'nodemailer';
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -33,6 +34,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         success: false, 
         error: 'Campaign is not active. Please publish the sequence before executing a manual run.' 
       }, { status: 400 });
+    }
+
+    // Check global outbound rate limits before initiating the manual execution cycle
+    const rateCheck = await checkGlobalRateLimits();
+    if (!rateCheck.allowed) {
+      return NextResponse.json({ success: false, error: rateCheck.reason }, { status: 429 });
     }
 
     const { searchParams } = new URL(req.url);
@@ -70,6 +77,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     for (const enrollment of enrollments) {
       const lead = enrollment.lead;
       const currentStepOrder = enrollment.currentSequenceStep;
+
+      // Double check global rate limits dynamically for each email in the batch
+      const incrementalRateCheck = await checkGlobalRateLimits();
+      if (!incrementalRateCheck.allowed) {
+        return NextResponse.json({
+          success: false,
+          error: incrementalRateCheck.reason,
+          dispatchedCount,
+          errors
+        }, { status: 429 });
+      }
 
       // Find step matching the current step order
       const step = campaign.steps.find(s => s.stepOrder === currentStepOrder);

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { applyEmailTracking } from '@/lib/emailTracking';
 import nodemailer from 'nodemailer';
 
 export async function POST(req: NextRequest) {
@@ -45,21 +46,54 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const htmlBody = bodyText ? /<[a-z][\s\S]*>/i.test(bodyText) : false;
-    let finalBody = bodyText || '';
-    if (htmlBody && !finalBody.toLowerCase().includes('<html') && !finalBody.toLowerCase().includes('<body')) {
-      finalBody = `<html><head><meta charset="utf-8"></head><body>${finalBody}</body></html>`;
+    const isHtml = bodyText ? /<[a-z][\s\S]*>/i.test(bodyText) : false;
+    let baseBody = bodyText || '';
+    if (isHtml && !baseBody.toLowerCase().includes('<html') && !baseBody.toLowerCase().includes('<body')) {
+      baseBody = `<html><head><meta charset="utf-8"></head><body>${baseBody}</body></html>`;
     }
+
+    // Fetch tracking preferences from campaign if available
     let trackOpens = true;
+    let trackClicks = true;
     if (campaignId) {
       const campaign = await prisma.campaign.findUnique({
         where: { id: campaignId },
-        select: { trackOpens: true }
+        select: { trackOpens: true, trackClicks: true }
       });
       if (campaign) {
         trackOpens = campaign.trackOpens;
+        trackClicks = campaign.trackClicks;
       }
     }
+
+    // Find or create lead record for dispatch tracking
+    let lead = await prisma.lead.findUnique({
+      where: { email: leadData.email }
+    });
+    if (!lead) {
+      lead = await prisma.lead.create({
+        data: {
+          email: leadData.email,
+          name: leadData.name || null,
+          company: leadData.company || null,
+        }
+      });
+    }
+
+    // Create dispatch record FIRST to get dispatchId for tracking URLs
+    const syntheticMessageId = `manual-${lead.id}-${Date.now()}`;
+    const dispatch = await prisma.emailDispatch.create({
+      data: {
+        leadId: lead.id,
+        campaignId: campaignId || null,
+        messageId: syntheticMessageId,
+        subject: subject || 'Outreach from ArcReach',
+        body: baseBody,
+      }
+    });
+
+    // Apply self-hosted tracking (pixel + link rewriting)
+    const finalBody = applyEmailTracking(baseBody, dispatch.id, isHtml, trackOpens, trackClicks);
 
     if (provider === 'AZURE') {
       const connString = settings?.azureConnString;
@@ -88,7 +122,7 @@ export async function POST(req: NextRequest) {
 
         const message = {
           senderAddress: fromAddress,
-          content: htmlBody 
+          content: isHtml 
             ? { subject: subject || 'Outreach from ArcReach', html: finalBody }
             : { subject: subject || 'Outreach from ArcReach', plainText: finalBody },
           recipients: {
@@ -99,6 +133,15 @@ export async function POST(req: NextRequest) {
 
         const poller = await emailClient.beginSend(message);
         const result = await poller.pollUntilDone();
+
+        // Update dispatch with provider messageId and tracked body
+        await prisma.emailDispatch.update({
+          where: { id: dispatch.id },
+          data: {
+            messageId: result.id || syntheticMessageId,
+            body: finalBody,
+          }
+        });
 
         console.log(`[Azure Send Success] Message ID: ${result.id} | From: ${fromAddress} → To: ${leadData.email}`);
 
@@ -152,13 +195,22 @@ export async function POST(req: NextRequest) {
       subject: subject || 'Outreach from ArcReach',
     };
 
-    if (htmlBody) {
+    if (isHtml) {
       mailOptions.html = finalBody;
     } else {
       mailOptions.text = finalBody;
     }
 
     const info = await transport.sendMail(mailOptions);
+
+    // Update dispatch with provider messageId and tracked body
+    await prisma.emailDispatch.update({
+      where: { id: dispatch.id },
+      data: {
+        messageId: info.messageId || syntheticMessageId,
+        body: finalBody,
+      }
+    });
 
     console.log(`[SMTP Send Success] Message ID: ${info.messageId} sent to ${leadData.email} via ${smtpUser}`);
 

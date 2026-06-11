@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
+import { applyEmailTracking } from '@/lib/emailTracking';
 import nodemailer from 'nodemailer';
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -84,20 +85,41 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       // Personalize copy (Spintax, Lead variables)
       const subject = personalizeText(step.subject, lead);
       const bodyText = personalizeText(step.body, lead);
-      const htmlBody = /<[a-z][\s\S]*>/i.test(bodyText);
-      let messageId = `${campaign.id}-${lead.id}-${currentStepOrder}-${Date.now()}`;
+      const isHtml = /<[a-z][\s\S]*>/i.test(bodyText);
+      let syntheticMessageId = `${campaign.id}-${lead.id}-${currentStepOrder}-${Date.now()}`;
 
-      // Wrap HTML body to support Azure Tracking Pixel injection requirements
-      let finalBody = bodyText;
-      if (htmlBody && !bodyText.toLowerCase().includes('<html') && !bodyText.toLowerCase().includes('<body')) {
-        finalBody = `<html><head><meta charset="utf-8"></head><body>${bodyText}</body></html>`;
+      // Wrap HTML body to support tracking pixel injection requirements
+      let baseBody = bodyText;
+      if (isHtml && !bodyText.toLowerCase().includes('<html') && !bodyText.toLowerCase().includes('<body')) {
+        baseBody = `<html><head><meta charset="utf-8"></head><body>${bodyText}</body></html>`;
       }
 
       try {
-        // Send email based on active provider
+        // 5. Create dispatch record FIRST so we have a dispatchId for tracking URLs
+        const dispatch = await prisma.emailDispatch.create({
+          data: {
+            leadId: lead.id,
+            campaignId: campaign.id,
+            messageId: syntheticMessageId,
+            subject,
+            body: baseBody,
+          }
+        });
+
+        // 6. Apply self-hosted tracking (pixel + link rewriting)
+        const finalBody = applyEmailTracking(
+          baseBody,
+          dispatch.id,
+          isHtml,
+          campaign.trackOpens,
+          campaign.trackClicks
+        );
+
+        // 7. Send email based on active provider
+        let providerMessageId: string | null = null;
+
         if (provider === 'MOCK') {
           console.log(`[Campaign Run - Mock] To: ${lead.email} | Subject: ${subject}`);
-          // Simulated delay
         } else if (provider === 'AZURE') {
           const connString = settings?.azureConnString;
           const senderDomain = settings?.azureSenderDomain;
@@ -112,7 +134,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
           const message = {
             senderAddress: fromAddress,
-            content: htmlBody 
+            content: isHtml 
               ? { subject, html: finalBody }
               : { subject, plainText: finalBody },
             recipients: {
@@ -124,9 +146,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           const poller = await emailClient.beginSend(message);
           const result = await poller.pollUntilDone();
           if (result && result.id) {
-            messageId = result.id;
+            providerMessageId = result.id;
           }
-          console.log(`[Campaign Run - Azure Success] Message ID: ${messageId} | From: ${fromAddress} → To: ${lead.email}`);
+          console.log(`[Campaign Run - Azure Success] Message ID: ${providerMessageId || syntheticMessageId} | From: ${fromAddress} → To: ${lead.email}`);
         } else {
           // SMTP-based delivery (SMTP, GOOGLE, MICROSOFT fallback)
           let smtpHost = settings?.smtpHost;
@@ -159,7 +181,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             subject,
           };
 
-          if (htmlBody) {
+          if (isHtml) {
             mailOptions.html = finalBody;
           } else {
             mailOptions.text = finalBody;
@@ -167,23 +189,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
           const info = await transport.sendMail(mailOptions);
           if (info && info.messageId) {
-            messageId = info.messageId;
+            providerMessageId = info.messageId;
           }
-          console.log(`[Campaign Run - SMTP Success] Message ID: ${messageId} | To: ${lead.email}`);
+          console.log(`[Campaign Run - SMTP Success] Message ID: ${providerMessageId || syntheticMessageId} | To: ${lead.email}`);
         }
 
-        // 5. Log successfully sent dispatch to database
-        await prisma.emailDispatch.create({
-          data: {
-            leadId: lead.id,
-            campaignId: campaign.id,
-            messageId,
-            subject,
-            body: finalBody,
-          }
+        // 8. Update dispatch with provider messageId and final tracked body
+        const updateData: any = { body: finalBody };
+        if (providerMessageId) {
+          updateData.messageId = providerMessageId;
+        }
+        await prisma.emailDispatch.update({
+          where: { id: dispatch.id },
+          data: updateData,
         });
 
-        // 6. Advance enrollment to the next step
+        // 9. Advance enrollment to the next step
         const nextStepOrder = currentStepOrder + 1;
         const nextStep = campaign.steps.find(s => s.stepOrder === nextStepOrder);
 

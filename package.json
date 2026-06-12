@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "clean": "next clean",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "seed": "npx tsx scripts/seed-admin.ts"
   },
   "dependencies": {
     "@azure/communication-email": "^1.1.0",

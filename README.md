@@ -102,7 +102,14 @@ Azure Event Grid webhook events (delivery confirmations, opens, clicks) are capt
    npx prisma db push
    ```
 
-4. **Launch development server:**
+4. **Seed initial admin user:**
+   To seed a secure initial admin user in the database, configure the optional environment variables `ADMIN_EMAIL` and `ADMIN_PASSWORD` in your `.env` file, and execute:
+   ```bash
+   npm run seed
+   ```
+   If these variables are omitted, the script seeds `admin@arcreach.com` with password `securepassword123` by default.
+
+5. **Launch development server:**
    ```bash
    npm run dev
    ```

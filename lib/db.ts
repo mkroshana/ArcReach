@@ -20,7 +20,7 @@ async function ensureDefaultUsers() {
         id: 'admin-id-999',
         email: 'admin@arcreach.com',
         name: 'ArcReach Admin',
-        passwordHash: 'dummy-hash',
+        passwordHash: hashPassword(process.env.ADMIN_PASSWORD || 'securepassword123'),
         role: 'ADMIN'
       }
     });
@@ -36,7 +36,7 @@ async function ensureDefaultUsers() {
         id: 'user-id-111',
         email: 'mkroshana@gmail.com',
         name: 'Standard Marketer',
-        passwordHash: 'dummy-hash',
+        passwordHash: hashPassword(process.env.DEMO_USER_PASSWORD || 'securepassword123'),
         role: 'USER'
       }
     });
@@ -45,12 +45,15 @@ async function ensureDefaultUsers() {
 
 async function ensureInit() {
   if (initialized) return;
-  try {
-    await ensureDefaultUsers();
-    initialized = true;
-  } catch (error) {
-    console.error('Failed to initialize default users:', error);
+  // Automatic dev seeding is skipped in production
+  if (process.env.NODE_ENV !== 'production') {
+    try {
+      await ensureDefaultUsers();
+    } catch (error) {
+      console.error('Failed to initialize default users:', error);
+    }
   }
+  initialized = true;
 }
 
 export const db = {

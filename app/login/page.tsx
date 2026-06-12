@@ -46,13 +46,6 @@ export default function LoginPage() {
     }
   };
 
-  const loginDemoUser = (role: 'ADMIN' | 'USER') => {
-    if (role === 'ADMIN') {
-      handleLogin(null as any, { email: 'admin@arcreach.com', pass: 'dummy-hash' });
-    } else {
-      handleLogin(null as any, { email: 'mkroshana@gmail.com', pass: 'dummy-hash' });
-    }
-  };
 
   return (
     <div className="min-h-screen w-full flex items-center justify-center bg-slate-50 dark:bg-[#0c0d14] px-4 transition-colors duration-200">
@@ -120,28 +113,7 @@ export default function LoginPage() {
           </button>
         </form>
 
-        {/* Demo Shortcut Quick Logins */}
-        <div className="mt-8 pt-6 border-t border-slate-100 dark:border-slate-850">
-          <p className="text-[10px] text-slate-400 dark:text-slate-505 text-center uppercase tracking-widest font-bold mb-3.5">Reviewer Demo shortcuts</p>
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              onClick={() => loginDemoUser('ADMIN')}
-              disabled={loading}
-              className="flex items-center justify-center gap-1.5 py-2 px-3 border border-rose-150 dark:border-rose-500/20 bg-rose-500/5 dark:bg-rose-500/10 hover:bg-rose-500/10 text-rose-600 dark:text-rose-400 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer"
-            >
-              <ShieldCheck className="w-3.5 h-3.5" />
-              Admin Demo
-            </button>
-            <button
-              onClick={() => loginDemoUser('USER')}
-              disabled={loading}
-              className="flex items-center justify-center gap-1.5 py-2 px-3 border border-blue-150 dark:border-blue-500/20 bg-blue-500/5 dark:bg-blue-500/10 hover:bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer"
-            >
-              <UserCheck className="w-3.5 h-3.5" />
-              User Demo
-            </button>
-          </div>
-        </div>
+
 
       </div>
     </div>

@@ -165,10 +165,30 @@ model Lead {
   status           LeadStatus           @default(Neutral) // Global CRM status values
   validationStatus LeadValidationStatus @default(Unverified) // Matches bulk verification categories
   customVariables  Json?                // Holds extra CSV metadata cols
+  isArchived       Boolean              @default(false)   // Is the lead archived?
   
   enrollments      CampaignEnrollment[]
   dispatches       EmailDispatch[]
   replies          InboundResponse[]
+  groups           LeadGroupMembership[]
+}
+
+model LeadGroup {
+  id          String                  @id @default(uuid())
+  name        String                  @unique
+  description String?
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+  leads       LeadGroupMembership[]
+}
+
+model LeadGroupMembership {
+  leadId      String
+  groupId     String
+  lead        Lead                    @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  group       LeadGroup               @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@id([leadId, groupId])
 }
 
 // Junction table mapping leads globally to specific campaigns

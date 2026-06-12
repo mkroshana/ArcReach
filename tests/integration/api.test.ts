@@ -287,6 +287,17 @@ describe('ArcReach Live API Integration Tests', () => {
       expect(verification.success).toBe(true);
       expect(Array.isArray(verification.verifiedLeads)).toBe(true);
 
+      // Get single lead details
+      const getDetailRes = await testFetch(`${BASE_URL}/api/leads?id=${createdLeadId}`);
+      expect(getDetailRes.status).toBe(200);
+      const leadDetail = await getDetailRes.json();
+      expect(leadDetail.id).toBe(createdLeadId);
+      expect(leadDetail.name).toBe(payload.name);
+      expect(leadDetail).toHaveProperty('dispatches');
+      expect(leadDetail).toHaveProperty('replies');
+      expect(Array.isArray(leadDetail.dispatches)).toBe(true);
+      expect(Array.isArray(leadDetail.replies)).toBe(true);
+
       // Delete Lead
       const deleteRes = await testFetch(`${BASE_URL}/api/leads?id=${createdLeadId}`, {
         method: 'DELETE'
@@ -395,5 +406,100 @@ describe('ArcReach Live API Integration Tests', () => {
       const replies = await res.json();
       expect(Array.isArray(replies)).toBe(true);
     }, 60000);
+  });
+
+  describe('Lead Groups, Archiving & Deduplication API Lifecycle', () => {
+    let createdGroupId: string;
+    let createdLeadId: string;
+    const groupName = `Test Group ${Date.now()}`;
+    const testEmail = `overlap-lead-${Date.now()}@arcreach-test.io`;
+
+    it('should successfully manage lead groups and associations', async () => {
+      // 1. Create a Lead Group
+      const createGroupRes = await testFetch(`${BASE_URL}/api/leads/groups`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: groupName,
+          description: 'A group created during integration testing'
+        })
+      });
+      expect(createGroupRes.status).toBe(200);
+      const group = await createGroupRes.json();
+      expect(group).toHaveProperty('id');
+      expect(group.name).toBe(groupName);
+      createdGroupId = group.id;
+
+      // 2. Create a lead and assign it to the group
+      const leadPayload = {
+        name: 'Overlap Test Lead',
+        email: testEmail,
+        company: 'Overlap Corp',
+        groupIds: [createdGroupId]
+      };
+      const createLeadRes = await testFetch(`${BASE_URL}/api/leads`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(leadPayload)
+      });
+      expect(createLeadRes.status).toBe(200);
+      const lead = await createLeadRes.json();
+      expect(lead).toHaveProperty('id');
+      createdLeadId = lead.id;
+
+      // Verify lead belongs to the group on query
+      const getLeadRes = await testFetch(`${BASE_URL}/api/leads?id=${createdLeadId}`);
+      expect(getLeadRes.status).toBe(200);
+      const queriedLead = await getLeadRes.json();
+      expect(queriedLead.groups.length).toBe(1);
+      expect(queriedLead.groups[0].groupId).toBe(createdGroupId);
+
+      // 3. Mark the lead as archived
+      const archiveRes = await testFetch(`${BASE_URL}/api/leads`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: createdLeadId,
+          isArchived: true
+        })
+      });
+      expect(archiveRes.status).toBe(200);
+      const archivedLead = await archiveRes.json();
+      expect(archivedLead.isArchived).toBe(true);
+
+      // Restore it back
+      const restoreRes = await testFetch(`${BASE_URL}/api/leads`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: createdLeadId,
+          isArchived: false
+        })
+      });
+      expect(restoreRes.status).toBe(200);
+      expect((await restoreRes.json()).isArchived).toBe(false);
+
+      // 4. Remove lead from group
+      const removeRes = await testFetch(`${BASE_URL}/api/leads/groups/memberships?groupId=${createdGroupId}&leadId=${createdLeadId}`, {
+        method: 'DELETE'
+      });
+      expect(removeRes.status).toBe(200);
+
+      // Verify lead group memberships are empty
+      const leadAfterRemoveRes = await testFetch(`${BASE_URL}/api/leads?id=${createdLeadId}`);
+      const leadAfterRemove = await leadAfterRemoveRes.json();
+      expect(leadAfterRemove.groups.length).toBe(0);
+
+      // 5. Clean up Lead & Group
+      const deleteLeadRes = await testFetch(`${BASE_URL}/api/leads?id=${createdLeadId}`, {
+        method: 'DELETE'
+      });
+      expect(deleteLeadRes.status).toBe(200);
+
+      const deleteGroupRes = await testFetch(`${BASE_URL}/api/leads/groups?id=${createdGroupId}`, {
+        method: 'DELETE'
+      });
+      expect(deleteGroupRes.status).toBe(200);
+    });
   });
 });

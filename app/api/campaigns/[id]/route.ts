@@ -35,7 +35,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       const selectedCohort = campaign.audienceCohort || 'Valid';
       const eligibleLeads = await prisma.lead.findMany({
         where: {
-          validationStatus: selectedCohort === 'Unverified' ? 'Unverified' : 'Valid'
+          validationStatus: selectedCohort === 'Unverified' ? 'Unverified' : 'Valid',
+          isArchived: false
         }
       });
       if (eligibleLeads.length > 0) {

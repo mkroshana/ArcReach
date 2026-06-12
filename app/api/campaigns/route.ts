@@ -39,7 +39,8 @@ export async function POST(req: NextRequest) {
     const selectedCohort = audienceCohort || 'Valid';
     const eligibleLeads = await prisma.lead.findMany({
       where: {
-        validationStatus: selectedCohort === 'Unverified' ? 'Unverified' : 'Valid'
+        validationStatus: selectedCohort === 'Unverified' ? 'Unverified' : 'Valid',
+        isArchived: false
       }
     });
 

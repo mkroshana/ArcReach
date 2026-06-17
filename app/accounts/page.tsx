@@ -82,9 +82,13 @@ export default function AccountsPage() {
   const [dailyLimit, setDailyLimit] = useState(500);
   const [replyTo, setReplyTo] = useState('');
   const [editReplyTo, setEditReplyTo] = useState('');
-
   // Global settings active provider state
   const [globalActiveProvider, setGlobalActiveProvider] = useState('MOCK');
+
+  // Computed Network Capacity Telemetry
+  const totalSentToday = accounts.reduce((sum, a) => sum + (a.sentToday || 0), 0);
+  const totalDailyLimit = accounts.reduce((sum, a) => sum + (a.dailyLimit || 0), 0);
+  const remainingCapacity = Math.max(0, totalDailyLimit - totalSentToday);
 
   // Add Modal Individual credentials
   const [smtpHost, setSmtpHost] = useState('');
@@ -1341,6 +1345,61 @@ export default function AccountsPage() {
                       />
                     </div>
                   </div>
+
+                  {/* Real-Time Telemetry & Allocation Overview */}
+                  {accounts.length > 0 && (
+                    <div className="border-t border-slate-100 dark:border-[#1c1d29] pt-3 mt-3.5 space-y-3">
+                      <div className="flex justify-between items-center text-[10px] uppercase font-bold text-slate-400 dark:text-slate-500 tracking-wider">
+                        <span>Combined Network Capacity</span>
+                        <span className="text-blue-600 dark:text-blue-400 font-mono">
+                          {totalSentToday} / {totalDailyLimit} Sent Today
+                        </span>
+                      </div>
+                      
+                      {/* Progress bar */}
+                      <div className="w-full h-1.5 bg-slate-100 dark:bg-[#12141d] rounded-full overflow-hidden border border-slate-200/50 dark:border-[#1f2130]">
+                        <div 
+                          className="h-full bg-blue-500 rounded-full transition-all duration-500" 
+                          style={{ width: `${Math.min(100, totalDailyLimit > 0 ? (totalSentToday / totalDailyLimit) * 100 : 0)}%` }}
+                        />
+                      </div>
+
+                      {/* Summary Metrics */}
+                      <div className="grid grid-cols-3 gap-2.5 text-center bg-slate-50/50 dark:bg-[#12141d]/50 p-2.5 rounded-xl border border-slate-200/50 dark:border-[#1f2130] text-[10px]">
+                        <div className="space-y-0.5">
+                          <div className="text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider">Remaining Capacity</div>
+                          <div className="text-xs font-bold text-slate-800 dark:text-white font-mono">{remainingCapacity} / day</div>
+                        </div>
+                        <div className="space-y-0.5 border-x border-slate-200/60 dark:border-[#1f2130]">
+                          <div className="text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider">Connected Mailboxes</div>
+                          <div className="text-xs font-bold text-slate-800 dark:text-white font-mono">{accounts.length} Accounts</div>
+                        </div>
+                        <div className="space-y-0.5">
+                          <div className="text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider">Avg. Allocation</div>
+                          <div className="text-xs font-bold text-slate-800 dark:text-white font-mono">
+                            {accounts.length > 0 ? Math.round(totalDailyLimit / accounts.length) : 0} / account
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Individual Account Allocation Lists */}
+                      <div className="space-y-1.5 max-h-24 overflow-y-auto pr-1">
+                        <div className="text-[9px] uppercase font-bold text-slate-400 dark:text-slate-500 tracking-wider">Individual Allocation Breakdown</div>
+                        {accounts.map(acc => {
+                          const percent = Math.min(100, acc.dailyLimit > 0 ? ((acc.sentToday || 0) / acc.dailyLimit) * 100 : 0);
+                          return (
+                            <div key={acc.id} className="flex justify-between items-center text-[10px] bg-white dark:bg-[#0e1017] p-2 border border-slate-100 dark:border-[#1f2130] rounded-lg">
+                              <span className="font-mono text-slate-600 dark:text-slate-350 truncate max-w-[200px]">{acc.emailAddress}</span>
+                              <div className="flex items-center gap-2 font-mono text-right">
+                                <span className="text-[9px] text-slate-400 dark:text-slate-500">({percent.toFixed(0)}% used)</span>
+                                <span className="font-semibold text-slate-800 dark:text-white">{acc.sentToday || 0} / {acc.dailyLimit}</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                   
                   <p className="text-[9px] text-slate-400 dark:text-slate-500 leading-normal font-sans font-medium">
                     Limits are strictly audited in delivery buffers. Active warmed accounts shouldn't exceed 500 emails/day to maximize DMARC reputation health.

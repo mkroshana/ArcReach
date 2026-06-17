@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { db, prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 
 export async function GET() {
@@ -8,7 +8,32 @@ export async function GET() {
     
     // Fetch accounts with constraints. Admins see all, users only see theirs.
     const accounts = await db.getAccounts(session.id, session.role);
-    return NextResponse.json(accounts);
+    
+    // Calculate emails sent today (since midnight) for each account
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const accountsWithStats = await Promise.all(accounts.map(async (account) => {
+      const campaigns = await prisma.campaign.findMany({
+        where: { senderAccountId: account.id },
+        select: { id: true }
+      });
+      const campaignIds = campaigns.map(c => c.id);
+
+      const sentToday = await prisma.emailDispatch.count({
+        where: {
+          campaignId: { in: campaignIds },
+          sentAt: { gte: startOfToday }
+        }
+      });
+
+      return {
+        ...account,
+        sentToday
+      };
+    }));
+
+    return NextResponse.json(accountsWithStats);
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

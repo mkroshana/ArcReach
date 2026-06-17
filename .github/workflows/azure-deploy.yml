@@ -29,13 +29,13 @@ jobs:
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: 18
+        node-version: 22
         cache: 'npm'
 
     - name: Install Dependencies & Run Tests
       run: |
         npm ci
-        npm run test
+        npm run test:ci
 
     - name: Log in to Azure
       uses: azure/login@v2
@@ -73,6 +73,7 @@ jobs:
 
     # Dynamically whitelist the GitHub Runner IP to run database migrations
     - name: Deploy Database Schema (Prisma)
+      id: deploy-db
       run: |
         RUNNER_IP=$(curl -s https://api.ipify.org)
         echo "GitHub Runner IP: $RUNNER_IP"
@@ -102,9 +103,9 @@ jobs:
         export ADMIN_NAME="ArcReach Admin"
         npx tsx scripts/seed-admin.ts
 
-      # Always run cleanup even if migrations fail
+      # Always run cleanup even if migrations fail, provided the deployment step was executed
     - name: PostgreSQL Firewall Cleanup
-      if: always()
+      if: always() && steps.deploy-db.outcome != 'skipped'
       run: |
         echo "Removing temporary firewall rule from PostgreSQL Flexible Server..."
         SERVER_NAME=$(az postgres flexible-server list --resource-group ${{ env.RESOURCE_GROUP }} --query "[0].name" -o tsv)

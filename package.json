@@ -10,6 +10,7 @@
     "clean": "next clean",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:ci": "vitest run tests/unit",
     "seed": "npx tsx scripts/seed-admin.ts"
   },
   "dependencies": {

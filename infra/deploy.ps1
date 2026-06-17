@@ -11,8 +11,8 @@ Write-Host "==========================================" -ForegroundColor Cyan
 $location = Read-Host "Enter Azure Region [eastus]"
 if ([string]::IsNullOrWhiteSpace($location)) { $location = "eastus" }
 
-$resourceGroup = Read-Host "Enter Resource Group Name [arcreach-group]"
-if ([string]::IsNullOrWhiteSpace($resourceGroup)) { $resourceGroup = "arcreach-group" }
+$resourceGroup = Read-Host "Enter Resource Group Name [Self_Hosted-Apps]"
+if ([string]::IsNullOrWhiteSpace($resourceGroup)) { $resourceGroup = "Self_Hosted-Apps" }
 
 $dbAdminPassword = Read-Host "Enter PostgreSQL Admin Password [Secure password, min 8 chars]"
 if ([string]::IsNullOrWhiteSpace($dbAdminPassword)) {

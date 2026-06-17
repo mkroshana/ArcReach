@@ -9,11 +9,12 @@ permissions:
   contents: read
 
 jobs:
-  test-build-deploy:
+  build-and-deploy:
+    name: Build and Deploy ArcReach to Azure
     runs-on: ubuntu-latest
     
     env:
-      RESOURCE_GROUP: arcreach-group
+      RESOURCE_GROUP: Self_Hosted-Apps
       APP_NAME: arcreach
       AZURE_LOCATION: eastus
       # Database and Admin credentials stored securely in GitHub Secrets

@@ -1,5 +1,5 @@
 # Deploy ArcReach to Azure App Service
-# Oryx handles npm install + npm run build on the server (SCM_DO_BUILD_DURING_DEPLOYMENT=true)
+# Build happens in CI (fast GitHub runner), Azure just starts the app.
 
 name: Build and deploy Node.js app to Azure Web App - arcreach-app
 
@@ -25,14 +25,20 @@ jobs:
           node-version: '22.x'
           cache: 'npm'
 
-      - name: Install dependencies and run tests
+      - name: Install, build, and test
         run: |
           npm ci
+          npm run build
           npm run test:ci
 
       - name: Create deployment package
         run: |
-          zip -r deploy.zip . -x "node_modules/*" ".next/*" ".git/*" ".env*" "*.log"
+          zip -r deploy.zip . \
+            -x "node_modules/.cache/*" \
+            -x ".git/*" \
+            -x ".env*" \
+            -x "*.log" \
+            -x ".next/cache/*"
 
       - name: Login to Azure
         uses: azure/login@v2

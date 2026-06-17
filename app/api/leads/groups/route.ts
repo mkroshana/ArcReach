@@ -57,11 +57,39 @@ export async function DELETE(req: NextRequest) {
     const session = await getSession();
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
+    const leadAction = searchParams.get('leadAction') || 'KEEP'; // KEEP, DELETE, MOVE
+    const targetGroupId = searchParams.get('targetGroupId');
 
     if (!id) {
       return NextResponse.json({ error: 'Group ID is required.' }, { status: 400 });
     }
 
+    // Retrieve memberships to check which leads are associated with the group
+    const memberships = await prisma.leadGroupMembership.findMany({
+      where: { groupId: id },
+      select: { leadId: true }
+    });
+    const leadIds = memberships.map(m => m.leadId);
+
+    if (leadIds.length > 0) {
+      if (leadAction === 'DELETE') {
+        // Delete all leads associated with this group
+        await prisma.lead.deleteMany({
+          where: { id: { in: leadIds } }
+        });
+      } else if (leadAction === 'MOVE' && targetGroupId) {
+        // Transfer memberships to the target group, skipping duplicates
+        await prisma.leadGroupMembership.createMany({
+          data: leadIds.map(leadId => ({
+            leadId,
+            groupId: targetGroupId
+          })),
+          skipDuplicates: true
+        });
+      }
+    }
+
+    // Finally delete the group itself
     await prisma.leadGroup.delete({
       where: { id }
     });

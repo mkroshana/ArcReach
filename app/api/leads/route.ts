@@ -130,10 +130,37 @@ export async function PUT(req: NextRequest) {
   try {
     const session = await getSession();
     const data = await req.json();
-    const { id, groupIds, ...updates } = data;
+    const { id, ids, groupId, groupIds, ...updates } = data;
 
+    // 1. Bulk Update by Lead IDs
+    if (ids && Array.isArray(ids)) {
+      const result = await prisma.lead.updateMany({
+        where: { id: { in: ids } },
+        data: updates
+      });
+      return NextResponse.json({ success: true, count: result.count });
+    }
+
+    // 2. Bulk Update by Group ID
+    if (groupId) {
+      const memberships = await prisma.leadGroupMembership.findMany({
+        where: { groupId },
+        select: { leadId: true }
+      });
+      const leadIds = memberships.map(m => m.leadId);
+      if (leadIds.length > 0) {
+        const result = await prisma.lead.updateMany({
+          where: { id: { in: leadIds } },
+          data: updates
+        });
+        return NextResponse.json({ success: true, count: result.count });
+      }
+      return NextResponse.json({ success: true, count: 0 });
+    }
+
+    // 3. Fallback to Single Update
     if (!id) {
-      return NextResponse.json({ error: 'Lead ID is required.' }, { status: 400 });
+      return NextResponse.json({ error: 'Lead ID, ids array, or groupId is required.' }, { status: 400 });
     }
 
     const dataObj: any = { ...updates };
@@ -165,16 +192,34 @@ export async function DELETE(req: NextRequest) {
     const session = await getSession();
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
+    const all = searchParams.get('all');
 
-    if (!id) {
-      return NextResponse.json({ error: 'Lead ID is required.' }, { status: 400 });
+    // 1. Delete All Leads
+    if (all === 'true') {
+      await prisma.lead.deleteMany({});
+      return NextResponse.json({ success: true });
     }
 
-    await prisma.lead.delete({
-      where: { id }
-    });
+    // 2. Single Delete (via query parameter)
+    if (id) {
+      await prisma.lead.delete({
+        where: { id }
+      });
+      return NextResponse.json({ success: true });
+    }
 
-    return NextResponse.json({ success: true });
+    // 3. Bulk Delete (via request body list of ids)
+    const data = await req.json().catch(() => ({}));
+    const { ids } = data;
+
+    if (ids && Array.isArray(ids) && ids.length > 0) {
+      await prisma.lead.deleteMany({
+        where: { id: { in: ids } }
+      });
+      return NextResponse.json({ success: true });
+    }
+
+    return NextResponse.json({ error: 'Lead ID, ids array, or all parameter is required.' }, { status: 400 });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

@@ -304,6 +304,98 @@ describe('ArcReach Live API Integration Tests', () => {
       });
       expect(deleteRes.status).toBe(200);
     });
+
+    it('should successfully import leads in bulk and filter duplicates', async () => {
+      const uniqueSuffix = Date.now();
+      const bulkPayload = {
+        leads: [
+          { name: 'Bulk Lead 1', email: `bulk-1-${uniqueSuffix}@gmail.com`, company: 'Bulk Corp', jobTitle: 'Manager' },
+          { name: 'Bulk Lead 2', email: `bulk-2-${uniqueSuffix}@gmail.com`, company: 'Bulk LLC', jobTitle: 'VP' }
+        ],
+        groupIds: []
+      };
+
+      // 1. Bulk Ingest
+      const bulkRes = await testFetch(`${BASE_URL}/api/leads/bulk`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(bulkPayload)
+      });
+      expect(bulkRes.status).toBe(200);
+      const bulkResult = await bulkRes.json();
+      expect(bulkResult.success).toBe(true);
+      expect(bulkResult.count).toBe(2);
+
+      // 2. Re-ingest same payload to verify duplicate filtering (should return count: 0)
+      const duplicateRes = await testFetch(`${BASE_URL}/api/leads/bulk`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(bulkPayload)
+      });
+      expect(duplicateRes.status).toBe(200);
+      const duplicateResult = await duplicateRes.json();
+      expect(duplicateResult.success).toBe(true);
+      expect(duplicateResult.count).toBe(0);
+
+      // 3. Clean up created leads
+      const getLeadsRes = await testFetch(`${BASE_URL}/api/leads`);
+      const leads = await getLeadsRes.json();
+      const createdLeads = leads.filter((l: any) => l.email.includes(`-${uniqueSuffix}@gmail.com`));
+      expect(createdLeads.length).toBe(2);
+
+      for (const lead of createdLeads) {
+        const delRes = await testFetch(`${BASE_URL}/api/leads?id=${lead.id}`, {
+          method: 'DELETE'
+        });
+        expect(delRes.status).toBe(200);
+      }
+    });
+
+    it('should successfully support bulk updates and bulk deletes via array of IDs', async () => {
+      const uniqueSuffix = Date.now();
+      
+      const lead1Res = await testFetch(`${BASE_URL}/api/leads`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Lead 1', email: `bulk-a-${uniqueSuffix}@gmail.com`, company: 'Inc' })
+      });
+      const lead1 = await lead1Res.json();
+
+      const lead2Res = await testFetch(`${BASE_URL}/api/leads`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Lead 2', email: `bulk-b-${uniqueSuffix}@gmail.com`, company: 'LLC' })
+      });
+      const lead2 = await lead2Res.json();
+
+      const ids = [lead1.id, lead2.id];
+
+      // 1. Bulk Update (archive them)
+      const archiveRes = await testFetch(`${BASE_URL}/api/leads`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids, isArchived: true })
+      });
+      expect(archiveRes.status).toBe(200);
+
+      const check1 = await (await testFetch(`${BASE_URL}/api/leads?id=${lead1.id}`)).json();
+      const check2 = await (await testFetch(`${BASE_URL}/api/leads?id=${lead2.id}`)).json();
+      expect(check1.isArchived).toBe(true);
+      expect(check2.isArchived).toBe(true);
+
+      // 2. Bulk Delete
+      const deleteRes = await testFetch(`${BASE_URL}/api/leads`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids })
+      });
+      expect(deleteRes.status).toBe(200);
+
+      const check1Deleted = await testFetch(`${BASE_URL}/api/leads?id=${lead1.id}`);
+      const check2Deleted = await testFetch(`${BASE_URL}/api/leads?id=${lead2.id}`);
+      expect(check1Deleted.status).toBe(404);
+      expect(check2Deleted.status).toBe(404);
+    });
   });
 
   describe('Campaigns & Sequence Steps Lifecycle API', () => {
@@ -500,6 +592,77 @@ describe('ArcReach Live API Integration Tests', () => {
         method: 'DELETE'
       });
       expect(deleteGroupRes.status).toBe(200);
+    });
+
+    it('should successfully support group deletion disposal actions (KEEP, DELETE, MOVE)', async () => {
+      // Create two temporary groups: Group A and Group B
+      const uniqueSuffix = Date.now();
+      const groupARes = await testFetch(`${BASE_URL}/api/leads/groups`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: `Group A ${uniqueSuffix}` })
+      });
+      const groupA = await groupARes.json();
+
+      const groupBRes = await testFetch(`${BASE_URL}/api/leads/groups`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: `Group B ${uniqueSuffix}` })
+      });
+      const groupB = await groupBRes.json();
+
+      // Create a lead in Group A
+      const leadRes = await testFetch(`${BASE_URL}/api/leads`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: `Disposal Lead ${uniqueSuffix}`,
+          email: `disposal-${uniqueSuffix}@gmail.com`,
+          groupIds: [groupA.id]
+        })
+      });
+      const lead = await leadRes.json();
+
+      // 1. Verify bulk archiving by group ID
+      const archiveRes = await testFetch(`${BASE_URL}/api/leads`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ groupId: groupA.id, isArchived: true })
+      });
+      expect(archiveRes.status).toBe(200);
+
+      // Verify lead is archived
+      const checkArchivedRes = await testFetch(`${BASE_URL}/api/leads?id=${lead.id}`);
+      expect((await checkArchivedRes.json()).isArchived).toBe(true);
+
+      // Restore
+      await testFetch(`${BASE_URL}/api/leads`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ groupId: groupA.id, isArchived: false })
+      });
+
+      // 2. Test MOVE disposal action: Delete Group A and move leads to Group B
+      const moveRes = await testFetch(`${BASE_URL}/api/leads/groups?id=${groupA.id}&leadAction=MOVE&targetGroupId=${groupB.id}`, {
+        method: 'DELETE'
+      });
+      expect(moveRes.status).toBe(200);
+
+      // Verify lead is now in Group B
+      const checkMoveRes = await testFetch(`${BASE_URL}/api/leads?id=${lead.id}`);
+      const checkMoveLead = await checkMoveRes.json();
+      expect(checkMoveLead.groups.length).toBe(1);
+      expect(checkMoveLead.groups[0].groupId).toBe(groupB.id);
+
+      // 3. Test DELETE disposal action: Delete Group B and delete all leads inside it
+      const deleteActionRes = await testFetch(`${BASE_URL}/api/leads/groups?id=${groupB.id}&leadAction=DELETE`, {
+        method: 'DELETE'
+      });
+      expect(deleteActionRes.status).toBe(200);
+
+      // Verify lead is deleted
+      const checkDeletedRes = await testFetch(`${BASE_URL}/api/leads?id=${lead.id}`);
+      expect(checkDeletedRes.status).toBe(404);
     });
   });
 

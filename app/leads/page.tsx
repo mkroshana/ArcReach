@@ -79,6 +79,15 @@ export default function LeadsPage() {
     company: '',
     jobTitle: ''
   });
+  const [importProgress, setImportProgress] = useState<string>('');
+
+  // Bulk Actions & disposal states
+  const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
+  const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState<boolean>(false);
+  const [deleteAllConfirmText, setDeleteAllConfirmText] = useState<string>('');
+  const [groupToDelete, setGroupToDelete] = useState<any | null>(null);
+  const [leadDisposalAction, setLeadDisposalAction] = useState<'KEEP' | 'DELETE' | 'MOVE'>('KEEP');
+  const [disposalTargetGroupId, setDisposalTargetGroupId] = useState<string>('');
 
   const fetchLeadDetails = async (id: string) => {
     try {
@@ -165,16 +174,18 @@ export default function LeadsPage() {
   const handleBulkVerify = async () => {
     if (isVerifying) return;
     
-    const unverifiedLeads = leads.filter(l => l.validationStatus === 'Unverified' || l.validationStatus === 'Risky');
-    if (unverifiedLeads.length === 0) {
-      showToast('All leads are already verified.');
+    const targets = selectedLeadIds.length > 0
+      ? leads.filter(l => selectedLeadIds.includes(l.id) && (l.validationStatus === 'Unverified' || l.validationStatus === 'Risky'))
+      : leads.filter(l => l.validationStatus === 'Unverified' || l.validationStatus === 'Risky');
+
+    if (targets.length === 0) {
+      showToast(selectedLeadIds.length > 0 ? 'Selected leads are already verified.' : 'All leads are already verified.');
       return;
     }
 
     setIsVerifying(true);
     setVerifyProgress(10);
     
-    // Animate progress smoothly while making the network request
     const progressInterval = setInterval(() => {
       setVerifyProgress(prev => {
         if (prev >= 90) {
@@ -189,7 +200,7 @@ export default function LeadsPage() {
       const res = await fetch('/api/leads/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: unverifiedLeads.map(l => l.id) })
+        body: JSON.stringify({ ids: targets.map(l => l.id) })
       });
 
       clearInterval(progressInterval);
@@ -253,26 +264,190 @@ export default function LeadsPage() {
     }
   };
 
-  const handleDeleteGroup = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this group? The prospects themselves will not be deleted.')) return;
+  const handleDeleteGroup = (group: any) => {
+    setGroupToDelete(group);
+    setLeadDisposalAction('KEEP');
+    setDisposalTargetGroupId('');
+  };
+
+  const handleExecuteDeleteGroup = async () => {
+    if (!groupToDelete) return;
+    
+    if (leadDisposalAction === 'MOVE' && !disposalTargetGroupId) {
+      showToast('Please select a target group to move prospects to.');
+      return;
+    }
+
     try {
-      const res = await fetch(`/api/leads/groups?id=${id}`, {
+      let url = `/api/leads/groups?id=${groupToDelete.id}&leadAction=${leadDisposalAction}`;
+      if (leadDisposalAction === 'MOVE') {
+        url += `&targetGroupId=${disposalTargetGroupId}`;
+      }
+
+      const res = await fetch(url, {
         method: 'DELETE'
       });
+
       if (res.ok) {
-        setGroups(groups.filter(g => g.id !== id));
-        const updatedLeads = leads.map(l => ({
-          ...l,
-          groups: (l.groups || []).filter((g: any) => g.groupId !== id)
-        }));
-        setLeads(updatedLeads);
-        showToast('Lead group deleted.');
+        // Reflect deletion locally
+        setGroups(groups.filter(g => g.id !== groupToDelete.id));
+
+        if (leadDisposalAction === 'DELETE') {
+          // Find leads associated with this group
+          const leadsToDelete = leads
+            .filter(l => (l.groups || []).some((g: any) => g.groupId === groupToDelete.id))
+            .map(l => l.id);
+          setLeads(leads.filter(l => !leadsToDelete.includes(l.id)));
+        } else if (leadDisposalAction === 'MOVE') {
+          // Update local leads' memberships
+          const updatedLeads = leads.map(l => {
+            const hasMembership = (l.groups || []).some((g: any) => g.groupId === groupToDelete.id);
+            if (hasMembership) {
+              const targetGroup = groups.find(g => g.id === disposalTargetGroupId);
+              const otherMemberships = (l.groups || []).filter((g: any) => g.groupId !== groupToDelete.id);
+              const alreadyHasTarget = otherMemberships.some((g: any) => g.groupId === disposalTargetGroupId);
+              
+              if (!alreadyHasTarget && targetGroup) {
+                otherMemberships.push({
+                  groupId: disposalTargetGroupId,
+                  group: { id: disposalTargetGroupId, name: targetGroup.name }
+                });
+              }
+              return { ...l, groups: otherMemberships };
+            }
+            return l;
+          });
+          setLeads(updatedLeads);
+        } else {
+          // KEEP: just remove association
+          const updatedLeads = leads.map(l => ({
+            ...l,
+            groups: (l.groups || []).filter((g: any) => g.groupId !== groupToDelete.id)
+          }));
+          setLeads(updatedLeads);
+        }
+
+        setGroupToDelete(null);
+        setLeadDisposalAction('KEEP');
+        setDisposalTargetGroupId('');
+        await fetchGroups(); // refresh group counts
+        showToast('Lead group deleted successfully.');
       } else {
-        showToast('Failed to delete group.');
+        showToast('Failed to delete lead group.');
       }
     } catch (err) {
       console.error(err);
-      showToast('Error deleting group.');
+      showToast('Error deleting lead group.');
+    }
+  };
+
+  const handleBulkDeleteLeads = async () => {
+    if (selectedLeadIds.length === 0) return;
+    if (!confirm(`Are you sure you want to delete the ${selectedLeadIds.length} selected leads?`)) return;
+
+    try {
+      const res = await fetch('/api/leads', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: selectedLeadIds })
+      });
+
+      if (res.ok) {
+        setLeads(leads.filter(l => !selectedLeadIds.includes(l.id)));
+        setSelectedLeadIds([]);
+        showToast('Selected leads deleted successfully.');
+      } else {
+        showToast('Failed to delete selected leads.');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Error deleting selected leads.');
+    }
+  };
+
+  const handleBulkArchiveLeads = async (archiveState: boolean) => {
+    if (selectedLeadIds.length === 0) return;
+    try {
+      const res = await fetch('/api/leads', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: selectedLeadIds, isArchived: archiveState })
+      });
+
+      if (res.ok) {
+        const updatedLeads = leads.map(l => {
+          if (selectedLeadIds.includes(l.id)) {
+            return { ...l, isArchived: archiveState };
+          }
+          return l;
+        });
+        setLeads(updatedLeads);
+        setSelectedLeadIds([]);
+        showToast(archiveState ? 'Selected leads archived.' : 'Selected leads unarchived.');
+      } else {
+        showToast('Failed to update selected leads.');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Error updating selected leads.');
+    }
+  };
+
+  const handleDeleteAllLeads = async () => {
+    if (deleteAllConfirmText !== 'DELETE') {
+      showToast('Please type DELETE to confirm.');
+      return;
+    }
+    try {
+      const res = await fetch('/api/leads?all=true', {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        setLeads([]);
+        setSelectedLeadIds([]);
+        setShowDeleteAllConfirm(false);
+        setDeleteAllConfirmText('');
+        showToast('All CRM leads deleted successfully.');
+      } else {
+        showToast('Failed to wipe database.');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Error deleting all leads.');
+    }
+  };
+
+  const handleArchiveGroupLeads = async (groupId: string, archiveState: boolean) => {
+    const groupName = groups.find(g => g.id === groupId)?.name || 'this group';
+    if (!confirm(`Are you sure you want to ${archiveState ? 'archive' : 'unarchive'} all leads associated with ${groupName}?`)) return;
+
+    try {
+      const res = await fetch('/api/leads', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ groupId, isArchived: archiveState })
+      });
+
+      if (res.ok) {
+        // Find which lead IDs are members of this group
+        const groupMemberships = leads
+          .filter(l => (l.groups || []).some((g: any) => g.groupId === groupId))
+          .map(l => l.id);
+        
+        const updatedLeads = leads.map(l => {
+          if (groupMemberships.includes(l.id)) {
+            return { ...l, isArchived: archiveState };
+          }
+          return l;
+        });
+        setLeads(updatedLeads);
+        showToast(`All leads in group ${archiveState ? 'archived' : 'unarchived'} successfully.`);
+      } else {
+        showToast('Failed to archive group leads.');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Error archiving group leads.');
     }
   };
 
@@ -439,8 +614,8 @@ export default function LeadsPage() {
       return;
     }
 
-    showToast(`Importing ${csvRows.length} contacts...`);
     setLoading(true);
+    setImportProgress('Preparing import payload...');
 
     let targetGroupId = selectedGroupForImport;
     if (newGroupNameForImport.trim()) {
@@ -460,31 +635,50 @@ export default function LeadsPage() {
     }
 
     const groupIds = targetGroupId ? [targetGroupId] : [];
-    let count = 0;
 
+    // Filter valid rows and map them
+    const mappedLeads = [];
     for (const row of csvRows) {
       const email = row[emailIdx];
       if (email && email.includes('@')) {
         const name = nameIdx !== -1 && row[nameIdx] ? row[nameIdx] : email.split('@')[0];
         const company = companyIdx !== -1 && row[companyIdx] ? row[companyIdx] : 'Unknown';
         const jobTitle = jobTitleIdx !== -1 && row[jobTitleIdx] ? row[jobTitleIdx] : null;
+        mappedLeads.push({ email, name, company, jobTitle });
+      }
+    }
 
-        try {
-          const res = await fetch('/api/leads', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              name,
-              email,
-              company,
-              jobTitle,
-              status: 'Neutral',
-              validationStatus: 'Unverified',
-              groupIds
-            })
-          });
-          if (res.ok) count++;
-        } catch (e) {}
+    if (mappedLeads.length === 0) {
+      showToast('No valid leads found (missing email or invalid format).');
+      setLoading(false);
+      setImportProgress('');
+      return;
+    }
+
+    // Process in batches of 1,000
+    const batchSize = 1000;
+    let totalImported = 0;
+
+    for (let i = 0; i < mappedLeads.length; i += batchSize) {
+      const batch = mappedLeads.slice(i, i + batchSize);
+      const progressText = `Importing leads ${i + 1} to ${Math.min(i + batchSize, mappedLeads.length)} of ${mappedLeads.length}...`;
+      setImportProgress(progressText);
+
+      try {
+        const res = await fetch('/api/leads/bulk', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ leads: batch, groupIds })
+        });
+
+        if (res.ok) {
+          const result = await res.json();
+          totalImported += (result.count || 0);
+        } else {
+          console.error(`Failed to import batch starting at index ${i}`);
+        }
+      } catch (err) {
+        console.error(`Error importing batch starting at index ${i}:`, err);
       }
     }
 
@@ -495,9 +689,10 @@ export default function LeadsPage() {
     setCsvRows([]);
     setCsvFileName('');
     setShowMapping(false);
+    setImportProgress('');
     
     await fetchGroups(); // refresh group counts
-    showToast(`Spreadsheet imported! Added ${count} new contacts to CRM.`);
+    showToast(`Spreadsheet imported! Added ${totalImported} new contacts to CRM.`);
     fetchLeads();
   };
 
@@ -592,6 +787,18 @@ export default function LeadsPage() {
           >
             <Play className={`w-3.5 h-3.5 ${isVerifying ? 'animate-spin' : ''}`} />
             {isVerifying ? `Verifying (${verifyProgress}%)` : 'Verify Deliverability'}
+          </button>
+          
+          <button 
+            onClick={() => {
+              setDeleteAllConfirmText('');
+              setShowDeleteAllConfirm(true);
+            }}
+            disabled={loading || leads.length === 0}
+            className="bg-rose-600 hover:bg-rose-500 disabled:bg-rose-800/40 text-white px-3.5 py-1.8 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            Delete All Leads
           </button>
         </div>
       </header>
@@ -842,16 +1049,18 @@ export default function LeadsPage() {
               <div className="flex gap-3 justify-end pt-4 border-t border-slate-100 dark:border-slate-800/60">
                 <button
                   onClick={handleCancelImport}
-                  className="px-4 py-2 text-xs text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white font-semibold transition-colors"
+                  disabled={loading}
+                  className="px-4 py-2 text-xs text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white font-semibold transition-colors disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleExecuteImport}
-                  disabled={!mappings.email}
-                  className="bg-blue-650 hover:bg-blue-500 disabled:bg-slate-200 dark:disabled:bg-slate-800 text-white disabled:text-slate-450 dark:disabled:text-slate-600 px-5 py-2 rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer"
+                  disabled={!mappings.email || loading}
+                  className="bg-blue-650 hover:bg-blue-500 disabled:bg-slate-200 dark:disabled:bg-slate-800 text-white disabled:text-slate-450 dark:disabled:text-slate-600 px-5 py-2 rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer flex items-center gap-2"
                 >
-                  Confirm & Import
+                  {loading && <RefreshCw className="w-3 h-3 animate-spin" />}
+                  {loading ? (importProgress || 'Importing...') : 'Confirm & Import'}
                 </button>
               </div>
             </div>
@@ -1000,6 +1209,23 @@ export default function LeadsPage() {
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="border-b border-slate-202 dark:border-slate-800/80 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest bg-slate-50/20 dark:bg-slate-955/10">
+                      <th className="px-5 py-3 w-10">
+                        <input
+                          type="checkbox"
+                          checked={filteredLeads.length > 0 && filteredLeads.every(l => selectedLeadIds.includes(l.id))}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              const newSelections = Array.from(new Set([...selectedLeadIds, ...filteredLeads.map(l => l.id)]));
+                              setSelectedLeadIds(newSelections);
+                            } else {
+                              const filteredIds = filteredLeads.map(l => l.id);
+                              setSelectedLeadIds(selectedLeadIds.filter(id => !filteredIds.includes(id)));
+                            }
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          className="w-3.5 h-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500/40 cursor-pointer"
+                        />
+                      </th>
                       <th className="px-5 py-3">Lead Target Name</th>
                       <th className="px-5 py-3">Outreach Address</th>
                       <th className="px-5 py-3">Assigned Brand</th>
@@ -1016,8 +1242,24 @@ export default function LeadsPage() {
                           setSelectedLeadId(lead.id);
                           fetchLeadDetails(lead.id);
                         }}
-                        className="hover:bg-slate-50/50 dark:hover:bg-slate-850/20 transition-all group cursor-pointer"
+                        className={`hover:bg-slate-50/50 dark:hover:bg-slate-850/20 transition-all group cursor-pointer ${
+                          selectedLeadIds.includes(lead.id) ? 'bg-blue-50/20 dark:bg-blue-950/10' : ''
+                        }`}
                       >
+                        <td className="px-5 py-3.5 w-10" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={selectedLeadIds.includes(lead.id)}
+                            onChange={() => {
+                              if (selectedLeadIds.includes(lead.id)) {
+                                setSelectedLeadIds(selectedLeadIds.filter(id => id !== lead.id));
+                              } else {
+                                setSelectedLeadIds([...selectedLeadIds, lead.id]);
+                              }
+                            }}
+                            className="w-3.5 h-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500/40 cursor-pointer"
+                          />
+                        </td>
                         <td className="px-5 py-3.5">
                           <div className="font-semibold text-xs text-slate-909 dark:text-white">{lead.name || 'N/A'}</div>
                           {lead.jobTitle && <div className="text-[10px] text-slate-405 dark:text-slate-500 mt-0.5 font-medium">{lead.jobTitle}</div>}
@@ -1099,7 +1341,7 @@ export default function LeadsPage() {
                     ))}
                     {filteredLeads.length === 0 && (
                       <tr>
-                        <td colSpan={activeTab === 'leads' ? 6 : 5} className="text-center py-10 text-slate-400 dark:text-slate-500 text-xs">
+                        <td colSpan={activeTab === 'leads' ? 7 : 6} className="text-center py-10 text-slate-400 dark:text-slate-500 text-xs">
                           No lead records match your search filters.
                         </td>
                       </tr>
@@ -1127,12 +1369,20 @@ export default function LeadsPage() {
                       {groups.find(g => g.id === selectedGroupIdForView)?.description || 'No description provided.'}
                     </p>
                   </div>
-                  <button
-                    onClick={() => setSelectedGroupIdForView(null)}
-                    className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-white hover:bg-slate-50 dark:bg-slate-950 dark:hover:bg-slate-850 border border-slate-205 dark:border-slate-800 text-slate-700 dark:text-slate-300 transition-all cursor-pointer shadow-xs"
-                  >
-                    Back to Groups list
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleArchiveGroupLeads(selectedGroupIdForView!, true)}
+                      className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-450 transition-all cursor-pointer shadow-xs"
+                    >
+                      Archive All Leads
+                    </button>
+                    <button
+                      onClick={() => setSelectedGroupIdForView(null)}
+                      className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-white hover:bg-slate-50 dark:bg-slate-950 dark:hover:bg-slate-850 border border-slate-205 dark:border-slate-800 text-slate-700 dark:text-slate-300 transition-all cursor-pointer shadow-xs"
+                    >
+                      Back to Groups list
+                    </button>
+                  </div>
                 </div>
 
                 <div className="border border-slate-200 dark:border-slate-850 rounded-xl overflow-hidden bg-white dark:bg-slate-900">
@@ -1279,7 +1529,13 @@ export default function LeadsPage() {
                             View Members
                           </button>
                           <button
-                            onClick={() => handleDeleteGroup(group.id)}
+                            onClick={() => handleArchiveGroupLeads(group.id, true)}
+                            className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-450 transition-all cursor-pointer"
+                          >
+                            Archive Leads
+                          </button>
+                          <button
+                            onClick={() => handleDeleteGroup(group)}
                             className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-450 transition-all cursor-pointer"
                           >
                             Delete
@@ -1703,6 +1959,218 @@ export default function LeadsPage() {
                 ) : (
                   <p className="text-center text-slate-400 py-10 text-xs">Error loading lead data.</p>
                 )}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Floating Bulk Actions Bar */}
+      <AnimatePresence>
+        {selectedLeadIds.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 50, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 50, scale: 0.95 }}
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 dark:bg-slate-950 border border-slate-800 text-white px-5 py-3 rounded-full shadow-2xl flex items-center gap-4.5 z-45 max-w-lg w-auto"
+          >
+            <span className="text-xs font-bold text-slate-300 pr-3 border-r border-slate-800">
+              {selectedLeadIds.length} selected
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleBulkVerify}
+                disabled={isVerifying}
+                className="bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1 transition-colors cursor-pointer"
+              >
+                <Play className="w-3 h-3" />
+                Verify
+              </button>
+              <button
+                onClick={() => handleBulkArchiveLeads(activeTab !== 'archived')}
+                className="bg-slate-800 hover:bg-slate-700 text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1 transition-colors cursor-pointer border border-slate-700"
+              >
+                <Archive className="w-3 h-3 text-slate-400" />
+                {activeTab === 'archived' ? 'Unarchive' : 'Archive'}
+              </button>
+              <button
+                onClick={handleBulkDeleteLeads}
+                className="bg-rose-950/60 hover:bg-rose-900 text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1 transition-colors cursor-pointer border border-rose-800/40 text-rose-200"
+              >
+                <Trash2 className="w-3 h-3" />
+                Delete
+              </button>
+            </div>
+            <button
+              onClick={() => setSelectedLeadIds([])}
+              className="text-slate-400 hover:text-white transition-colors text-xs font-semibold pl-1"
+            >
+              Clear
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Delete All Leads Confirmation Modal */}
+      <AnimatePresence>
+        {showDeleteAllConfirm && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.5 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowDeleteAllConfirm(false)}
+              className="fixed inset-0 bg-black z-50 backdrop-blur-xs"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl p-6 z-55 w-full max-w-md"
+            >
+              <h3 className="text-base font-bold text-slate-900 dark:text-white mb-2 uppercase tracking-wide flex items-center gap-2">
+                <AlertCircle className="w-5 h-5 text-rose-600" />
+                DANGER: Delete All Leads
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed mb-4">
+                This action will permanently delete all leads, including their activity history, replies, and group memberships. This cannot be undone.
+              </p>
+              <div className="space-y-3">
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
+                  Type <span className="font-mono text-rose-500">DELETE</span> to confirm:
+                </label>
+                <input
+                  type="text"
+                  placeholder="DELETE"
+                  value={deleteAllConfirmText}
+                  onChange={(e) => setDeleteAllConfirmText(e.target.value)}
+                  className="w-full bg-slate-50 dark:bg-slate-955 border border-slate-202 dark:border-slate-805 rounded-lg p-2.5 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-rose-500/40"
+                />
+              </div>
+              <div className="flex gap-3 justify-end mt-6 pt-4 border-t border-slate-100 dark:border-slate-800/80">
+                <button
+                  onClick={() => setShowDeleteAllConfirm(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-500 hover:text-slate-800 dark:text-slate-400 hover:text-white bg-transparent border-0 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDeleteAllLeads}
+                  disabled={deleteAllConfirmText !== 'DELETE'}
+                  className="bg-rose-600 hover:bg-rose-500 disabled:bg-rose-950/25 disabled:text-rose-500/50 text-white px-5 py-2 rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer"
+                >
+                  Confirm Delete All
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Group Deletion Option Modal */}
+      <AnimatePresence>
+        {groupToDelete && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.5 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setGroupToDelete(null)}
+              className="fixed inset-0 bg-black z-50 backdrop-blur-xs"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl p-6 z-55 w-full max-w-md"
+            >
+              <h3 className="text-base font-bold text-slate-900 dark:text-white mb-2 uppercase tracking-wide flex items-center gap-2">
+                <Folder className="w-5 h-5 text-blue-650 dark:text-blue-400" />
+                Delete Group: {groupToDelete.name}
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed mb-5">
+                Decide what to do with the prospects currently assigned to this group:
+              </p>
+              
+              <div className="space-y-3.5">
+                {/* KEEP option */}
+                <label className="flex items-start gap-3 p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200/60 dark:border-slate-805 rounded-xl cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-900/50 transition-colors">
+                  <input
+                    type="radio"
+                    name="disposalAction"
+                    value="KEEP"
+                    checked={leadDisposalAction === 'KEEP'}
+                    onChange={() => setLeadDisposalAction('KEEP')}
+                    className="mt-0.5 text-blue-600 focus:ring-blue-500/40 cursor-pointer"
+                  />
+                  <div>
+                    <span className="block text-xs font-bold text-slate-800 dark:text-white">Keep leads in CRM</span>
+                    <span className="block text-[10px] text-slate-500 dark:text-slate-450 mt-0.5">Retains leads in the database and removes them from this group only.</span>
+                  </div>
+                </label>
+
+                {/* DELETE option */}
+                <label className="flex items-start gap-3 p-3 bg-slate-50 dark:bg-slate-955 border border-slate-200/60 dark:border-slate-805 rounded-xl cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-900/50 transition-colors">
+                  <input
+                    type="radio"
+                    name="disposalAction"
+                    value="DELETE"
+                    checked={leadDisposalAction === 'DELETE'}
+                    onChange={() => setLeadDisposalAction('DELETE')}
+                    className="mt-0.5 text-rose-600 focus:ring-rose-500/40 cursor-pointer"
+                  />
+                  <div>
+                    <span className="block text-xs font-bold text-rose-600 dark:text-rose-400">Delete associated leads</span>
+                    <span className="block text-[10px] text-slate-500 dark:text-slate-450 mt-0.5">Permanently deletes all leads in this group from the CRM database.</span>
+                  </div>
+                </label>
+
+                {/* MOVE option */}
+                <label className="flex items-start gap-3 p-3 bg-slate-50 dark:bg-slate-955 border border-slate-200/60 dark:border-slate-805 rounded-xl cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-900/50 transition-colors">
+                  <input
+                    type="radio"
+                    name="disposalAction"
+                    value="MOVE"
+                    checked={leadDisposalAction === 'MOVE'}
+                    onChange={() => setLeadDisposalAction('MOVE')}
+                    className="mt-0.5 text-blue-600 focus:ring-blue-500/40 cursor-pointer"
+                  />
+                  <div className="w-full">
+                    <span className="block text-xs font-bold text-slate-800 dark:text-white">Move leads to another group</span>
+                    <span className="block text-[10px] text-slate-500 dark:text-slate-450 mt-0.5">Transfer all leads to a different existing group.</span>
+                    
+                    {leadDisposalAction === 'MOVE' && (
+                      <div className="mt-2.5" onClick={(e) => e.stopPropagation()}>
+                        <select
+                          value={disposalTargetGroupId}
+                          onChange={(e) => setDisposalTargetGroupId(e.target.value)}
+                          className="w-full bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-805 rounded-lg p-2 text-xs text-slate-800 dark:text-white cursor-pointer outline-none"
+                        >
+                          <option value="">-- Choose Target Group --</option>
+                          {groups.filter(g => g.id !== groupToDelete.id).map(g => (
+                            <option key={g.id} value={g.id}>{g.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                </label>
+              </div>
+
+              <div className="flex gap-3 justify-end mt-6 pt-4 border-t border-slate-100 dark:border-slate-800/80">
+                <button
+                  onClick={() => setGroupToDelete(null)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-500 hover:text-slate-800 dark:text-slate-400 hover:text-white bg-transparent border-0 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleExecuteDeleteGroup}
+                  disabled={leadDisposalAction === 'MOVE' && !disposalTargetGroupId}
+                  className="bg-blue-650 hover:bg-blue-500 disabled:bg-slate-200 dark:disabled:bg-slate-800 text-white disabled:text-slate-450 dark:disabled:text-slate-600 px-5 py-2 rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer"
+                >
+                  Confirm Delete Group
+                </button>
               </div>
             </motion.div>
           </>

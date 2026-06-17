@@ -51,15 +51,25 @@ export async function POST(req: NextRequest) {
             const status = data.status; // "Delivered" or "Failed" (Bounce)
             
             if (status === 'Failed') {
-              // Update Lead validation status to Invalid
+              // Update Lead: mark as Bounced + Invalid deliverability
               await prisma.lead.update({
                 where: { id: dispatch.leadId },
-                data: { validationStatus: 'Invalid' }
+                data: {
+                  status: 'Bounced',
+                  validationStatus: 'Invalid',
+                }
               });
               // Update active enrollments to Bounced
               await prisma.campaignEnrollment.updateMany({
-                where: { leadId: dispatch.leadId },
-                data: { status: 'Bounced' }
+                where: { leadId: dispatch.leadId, status: 'Active' },
+                data: { status: 'Bounced', nextActionDate: null }
+              });
+              // Create an audit trail EmailEvent for the bounce
+              await prisma.emailEvent.create({
+                data: {
+                  messageId: dispatch.messageId,
+                  eventType: 'bounce',
+                }
               });
             }
             break;

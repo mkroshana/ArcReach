@@ -51,7 +51,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       where: {
         campaignId: id,
         status: 'Active',
-        ...(stepOrderFilter !== null ? { currentSequenceStep: stepOrderFilter } : {})
+        ...(stepOrderFilter !== null ? { currentSequenceStep: stepOrderFilter } : {}),
+        // Send guards: skip leads that should not receive emails
+        lead: {
+          isArchived: false,
+          status: { notIn: ['Bounced', 'Unsubscribed'] },
+          validationStatus: { notIn: ['Invalid'] },
+        },
       },
       include: {
         lead: true
@@ -124,13 +130,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           }
         });
 
-        // 6. Apply self-hosted tracking (pixel + link rewriting)
+        // 6. Apply self-hosted tracking (pixel + link rewriting + unsubscribe link)
         const finalBody = applyEmailTracking(
           baseBody,
           dispatch.id,
           isHtml,
           campaign.trackOpens,
-          campaign.trackClicks
+          campaign.trackClicks,
+          lead.id
         );
 
         // 7. Send email based on active provider
@@ -252,6 +259,25 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       } catch (err: any) {
         console.error(`[Campaign Run Error] Failed to process lead ${lead.email}:`, err);
         errors.push({ email: lead.email, error: err.message || err });
+
+        // Mark enrollment as Failed to prevent retry loops
+        try {
+          await prisma.campaignEnrollment.update({
+            where: { id: enrollment.id },
+            data: { status: 'Failed', nextActionDate: null }
+          });
+
+          // Mark lead as Bounced + Invalid
+          await prisma.lead.update({
+            where: { id: lead.id },
+            data: {
+              status: 'Bounced',
+              validationStatus: 'Invalid',
+            }
+          });
+        } catch (updateErr: any) {
+          console.error(`[Campaign Run] Failed to update failure status for ${lead.email}:`, updateErr.message);
+        }
       }
     }
 

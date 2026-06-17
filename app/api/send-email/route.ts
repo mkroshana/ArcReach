@@ -99,8 +99,8 @@ export async function POST(req: NextRequest) {
       }
     });
 
-    // Apply self-hosted tracking (pixel + link rewriting)
-    const finalBody = applyEmailTracking(baseBody, dispatch.id, isHtml, trackOpens, trackClicks);
+    // Apply self-hosted tracking (pixel + link rewriting + unsubscribe link)
+    const finalBody = applyEmailTracking(baseBody, dispatch.id, isHtml, trackOpens, trackClicks, lead.id);
 
     if (provider === 'AZURE') {
       const connString = settings?.azureConnString;

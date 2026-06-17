@@ -396,6 +396,37 @@ describe('ArcReach Live API Integration Tests', () => {
       expect(check1Deleted.status).toBe(404);
       expect(check2Deleted.status).toBe(404);
     });
+
+    it('should successfully unsubscribe a lead via GET /api/unsubscribe', async () => {
+      const uniqueSuffix = Date.now();
+
+      // Create a lead
+      const createRes = await testFetch(`${BASE_URL}/api/leads`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Unsub Lead', email: `unsub-${uniqueSuffix}@gmail.com`, company: 'Corp' })
+      });
+      const lead = await createRes.json();
+      expect(lead.status).toBe('Neutral');
+
+      // Hit the unsubscribe endpoint
+      const unsubRes = await testFetch(`${BASE_URL}/api/unsubscribe?id=${lead.id}`);
+      expect(unsubRes.status).toBe(200);
+      const html = await unsubRes.text();
+      expect(html).toContain('Unsubscribed Successfully');
+
+      // Verify lead status changed to Unsubscribed
+      const checkRes = await testFetch(`${BASE_URL}/api/leads?id=${lead.id}`);
+      const updatedLead = await checkRes.json();
+      expect(updatedLead.status).toBe('Unsubscribed');
+
+      // Calling again should be idempotent
+      const resubRes = await testFetch(`${BASE_URL}/api/unsubscribe?id=${lead.id}`);
+      expect(resubRes.status).toBe(200);
+
+      // Clean up
+      await testFetch(`${BASE_URL}/api/leads?id=${lead.id}`, { method: 'DELETE' });
+    });
   });
 
   describe('Campaigns & Sequence Steps Lifecycle API', () => {

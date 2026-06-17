@@ -25,7 +25,9 @@ import {
   Folder,
   Copy,
   Archive,
-  FolderPlus
+  FolderPlus,
+  Ban,
+  MailX
 } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -752,7 +754,10 @@ export default function LeadsPage() {
     const matchesSearch = nameStr.toLowerCase().includes(search.toLowerCase()) || 
                           emailStr.toLowerCase().includes(search.toLowerCase()) ||
                           companyStr.toLowerCase().includes(search.toLowerCase());
-    const matchesStatus = filterStatus === 'All' || lead.validationStatus === filterStatus;
+    const matchesStatus = filterStatus === 'All' 
+      || (filterStatus === 'Bounced' && lead.status === 'Bounced')
+      || (filterStatus === 'Unsubscribed' && lead.status === 'Unsubscribed')
+      || (!['Bounced', 'Unsubscribed'].includes(filterStatus) && lead.validationStatus === filterStatus);
     return matchesSearch && matchesStatus;
   });
 
@@ -1173,13 +1178,15 @@ export default function LeadsPage() {
                 </div>
                 
                 <div className="flex items-center gap-1 p-1 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xs">
-                  {['All', 'Valid', 'Risky', 'Invalid', 'Unverified'].map(statusOption => (
+                  {['All', 'Valid', 'Risky', 'Invalid', 'Unverified', 'Bounced', 'Unsubscribed'].map(statusOption => (
                     <button
                       key={statusOption}
                       onClick={() => setFilterStatus(statusOption)}
                       className={`px-3 py-1 rounded-md text-[10px] font-bold transition-all uppercase tracking-wider cursor-pointer ${
                         filterStatus === statusOption 
-                          ? 'bg-blue-650 dark:bg-blue-600 text-white shadow-xs' 
+                          ? statusOption === 'Bounced' ? 'bg-red-600 text-white shadow-xs'
+                          : statusOption === 'Unsubscribed' ? 'bg-orange-600 text-white shadow-xs'
+                          : 'bg-blue-650 dark:bg-blue-600 text-white shadow-xs' 
                           : 'text-slate-550 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                       }`}
                     >
@@ -1230,6 +1237,7 @@ export default function LeadsPage() {
                       <th className="px-5 py-3">Outreach Address</th>
                       <th className="px-5 py-3">Assigned Brand</th>
                       <th className="px-5 py-3">Deliverability Validation</th>
+                      <th className="px-5 py-3">Lead Status</th>
                       {activeTab === 'leads' && <th className="px-5 py-3">Groups</th>}
                       <th className="px-5 py-3 text-right">Clear</th>
                     </tr>
@@ -1282,6 +1290,23 @@ export default function LeadsPage() {
                             {lead.validationStatus === 'Unverified' && <span className="w-1.5 h-1.5 rounded-full bg-slate-400 dark:bg-slate-500 animate-pulse"></span>}
                             {lead.validationStatus}
                           </span>
+                        </td>
+                        <td className="px-5 py-3.5">
+                          {lead.status === 'Bounced' && (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wider bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400 border-red-200 dark:border-red-900/30">
+                              <Ban className="w-3.5 h-3.5" />
+                              Bounced
+                            </span>
+                          )}
+                          {lead.status === 'Unsubscribed' && (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wider bg-orange-50 dark:bg-orange-950/30 text-orange-700 dark:text-orange-400 border-orange-200 dark:border-orange-900/30">
+                              <MailX className="w-3.5 h-3.5" />
+                              Unsubscribed
+                            </span>
+                          )}
+                          {lead.status !== 'Bounced' && lead.status !== 'Unsubscribed' && (
+                            <span className="text-[10px] text-slate-400 dark:text-slate-500">Active</span>
+                          )}
                         </td>
                         {activeTab === 'leads' && (
                           <td className="px-5 py-3.5">

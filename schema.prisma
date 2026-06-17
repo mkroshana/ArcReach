@@ -148,6 +148,7 @@ enum LeadStatus {
   Meeting_Booked
   Out_of_Office
   Bounced
+  Unsubscribed
 }
 
 enum LeadValidationStatus {

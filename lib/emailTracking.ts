@@ -38,12 +38,13 @@ export function rewriteLinksForTracking(htmlBody: string, dispatchId: string): s
     (fullMatch, prefix, quote, originalUrl) => {
       const trimmedUrl = originalUrl.trim();
 
-      // Skip mailto:, tel:, anchor links, and already-tracked URLs
+      // Skip mailto:, tel:, anchor links, unsubscribe links, and already-tracked URLs
       if (
         trimmedUrl.startsWith('mailto:') ||
         trimmedUrl.startsWith('tel:') ||
         trimmedUrl.startsWith('#') ||
-        trimmedUrl.includes('/api/track/')
+        trimmedUrl.includes('/api/track/') ||
+        trimmedUrl.includes('/api/unsubscribe')
       ) {
         return fullMatch;
       }
@@ -55,8 +56,25 @@ export function rewriteLinksForTracking(htmlBody: string, dispatchId: string): s
 }
 
 /**
- * Applies both open-tracking pixel injection and click-tracking link
- * rewriting to an HTML email body based on campaign tracking settings.
+ * Injects an unsubscribe footer link into the HTML email body.
+ * The link points to GET /api/unsubscribe?id=<leadId>.
+ */
+export function injectUnsubscribeLink(htmlBody: string, leadId: string): string {
+  const unsubUrl = `${APP_URL}/api/unsubscribe?id=${leadId}`;
+  const footer = `<div style="margin-top:32px;padding-top:16px;border-top:1px solid #e5e5e5;text-align:center;font-size:11px;color:#999;font-family:Arial,sans-serif;">If you no longer wish to receive these emails, <a href="${unsubUrl}" style="color:#999;text-decoration:underline;">click here to unsubscribe</a>.</div>`;
+
+  // Insert before </body> if present, otherwise append at the end
+  if (htmlBody.toLowerCase().includes('</body>')) {
+    return htmlBody.replace(/<\/body>/i, `${footer}</body>`);
+  }
+
+  return htmlBody + footer;
+}
+
+/**
+ * Applies open-tracking pixel injection, click-tracking link rewriting,
+ * and unsubscribe link injection to an HTML email body based on campaign
+ * tracking settings.
  * 
  * For non-HTML (plain text) bodies, returns the body unchanged.
  */
@@ -65,11 +83,17 @@ export function applyEmailTracking(
   dispatchId: string,
   isHtml: boolean,
   trackOpens: boolean,
-  trackClicks: boolean
+  trackClicks: boolean,
+  leadId?: string
 ): string {
   if (!isHtml) return body;
 
   let result = body;
+
+  // Inject unsubscribe link first (before link rewriting so it doesn't get tracked)
+  if (leadId) {
+    result = injectUnsubscribeLink(result, leadId);
+  }
 
   if (trackClicks) {
     result = rewriteLinksForTracking(result, dispatchId);

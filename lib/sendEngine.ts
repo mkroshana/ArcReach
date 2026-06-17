@@ -43,6 +43,12 @@ export async function processDueEmails() {
         nextActionDate: {
           lte: now,
         },
+        // Send guards: skip leads that should not receive emails
+        lead: {
+          isArchived: false,
+          status: { notIn: ['Bounced', 'Unsubscribed'] },
+          validationStatus: { notIn: ['Invalid'] },
+        },
       },
       include: {
         lead: true,
@@ -128,13 +134,14 @@ export async function processDueEmails() {
           }
         });
 
-        // Apply self-hosted tracking (pixel + link rewriting)
+        // Apply self-hosted tracking (pixel + link rewriting + unsubscribe link)
         const finalBody = applyEmailTracking(
           baseBody,
           dispatch.id,
           isHtml,
           campaign.trackOpens,
-          campaign.trackClicks
+          campaign.trackClicks,
+          lead.id
         );
 
         // Send Email
@@ -258,8 +265,39 @@ export async function processDueEmails() {
 
       } catch (err: any) {
         console.error(`[SendEngine Failure] Could not send to ${lead.email}:`, err.message || err);
-        // Do NOT update enrollment nextActionDate or step.
-        // It remains in the past, causing it to be retried in the next background loop.
+
+        // Mark enrollment as Failed to stop infinite retry loops
+        try {
+          await prisma.campaignEnrollment.update({
+            where: { id: enrollment.id },
+            data: { status: 'Failed', nextActionDate: null }
+          });
+
+          // Mark lead as Bounced + Invalid
+          await prisma.lead.update({
+            where: { id: lead.id },
+            data: {
+              status: 'Bounced',
+              validationStatus: 'Invalid',
+            }
+          });
+
+          // Create audit trail event
+          const existingDispatch = await prisma.emailDispatch.findFirst({
+            where: { leadId: lead.id },
+            orderBy: { sentAt: 'desc' },
+          });
+          if (existingDispatch) {
+            await prisma.emailEvent.create({
+              data: {
+                messageId: existingDispatch.messageId,
+                eventType: 'send_failed',
+              }
+            });
+          }
+        } catch (updateErr: any) {
+          console.error(`[SendEngine] Failed to update status for ${lead.email}:`, updateErr.message);
+        }
       }
     }
 

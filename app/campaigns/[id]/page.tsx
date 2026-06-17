@@ -30,6 +30,7 @@ import { use, useState, useEffect } from 'react';
 import { useTimezones } from '@/hooks/use-timezones';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
+import VariableToolbar from '@/components/VariableToolbar';
 
 export default function CampaignDetailsPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
@@ -55,6 +56,9 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
     let result = text;
     result = result.replace(/\{\{firstName\}\}/g, 'Emily');
     result = result.replace(/\{\{company\}\}/g, 'Stark Industries');
+    result = result.replace(/\{\{name\}\}/g, 'Emily Carter');
+    result = result.replace(/\{\{jobTitle\}\}/g, 'VP of Marketing');
+    result = result.replace(/\{\{email\}\}/g, 'emily@starkindustries.com');
     result = result.replace(/\{\{\s*\$json\.name\s*\|\|\s*'[^']*'\s*\}\}/g, 'Emily');
     result = result.replace(/\{\{\s*\$json\.name\s*\}\}/g, 'Emily');
 
@@ -574,22 +578,20 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                     ) : (
                       /* Main Editor Inputs */
                       <div className="space-y-3">
-                        <input 
-                          type="text" 
-                          placeholder="Subject Line"
-                          value={step.subject}
-                          onChange={(e) => updateStepField(index, 'subject', e.target.value)}
-                          className="w-full bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500/40 placeholder:text-slate-400 dark:placeholder:text-slate-500 shadow-xs"
-                        />
+                        <div className="space-y-1.5">
+                          <VariableToolbar compact onInsert={(v) => updateStepField(index, 'subject', (step.subject || '') + ' ' + v)} />
+                          <input 
+                            type="text" 
+                            placeholder="Subject Line"
+                            value={step.subject}
+                            onChange={(e) => updateStepField(index, 'subject', e.target.value)}
+                            className="w-full bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500/40 placeholder:text-slate-400 dark:placeholder:text-slate-500 shadow-xs"
+                          />
+                        </div>
                         
                         <div className="border border-slate-202 dark:border-slate-800 rounded-lg overflow-hidden bg-slate-50 dark:bg-slate-950 flex flex-col">
-                          <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-3 py-1.5 flex items-center justify-between text-[11px]">
-                            <div className="flex items-center gap-1.5 font-mono">
-                              <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold tracking-widest mr-1">Variables:</span>
-                              <button type="button" onClick={() => insertVariable('{{firstName}}', index)} className="text-[9px] text-blue-650 dark:text-blue-400 bg-blue-50 dark:bg-blue-955/40 px-1.5 py-0.5 rounded cursor-pointer uppercase font-bold border border-blue-100 dark:border-blue-550/10">{'{{firstName}}'}</button>
-                              <button type="button" onClick={() => insertVariable('{{company}}', index)} className="text-[9px] text-blue-650 dark:text-blue-400 bg-blue-50 dark:bg-blue-955/40 px-1.5 py-0.5 rounded cursor-pointer uppercase font-bold border border-blue-100 dark:border-blue-550/10">{'{{company}}'}</button>
-                              <button type="button" onClick={() => insertVariable('{Hi|Hello}', index)} className="text-[9px] text-blue-650 dark:text-blue-400 bg-blue-50 dark:bg-blue-955/40 px-1.5 py-0.5 rounded cursor-pointer uppercase font-bold border border-blue-100 dark:border-blue-550/10">{'{{spintax}}'}</button>
-                            </div>
+                          <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-3 py-1.5 flex items-center text-[11px]">
+                            <VariableToolbar onInsert={(v) => insertVariable(v, index)} />
                           </div>
                           <textarea 
                             className="w-full h-36 p-3 outline-none bg-transparent text-slate-800 dark:text-white text-xs placeholder:text-slate-400 dark:placeholder:text-slate-500 resize-none font-mono leading-relaxed"

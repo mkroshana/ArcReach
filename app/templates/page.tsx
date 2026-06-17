@@ -3,6 +3,7 @@
 
 import { useState, useEffect } from 'react';
 import { FileText, Search, Plus, Eye, Sparkles, Copy, Check, Trash2, ArrowRight, X } from 'lucide-react';
+import VariableToolbar from '@/components/VariableToolbar';
 
 export default function TemplatesPage() {
   const [templates, setTemplates] = useState<any[]>([]);
@@ -74,6 +75,9 @@ export default function TemplatesPage() {
     // Replace variables with mock values
     result = result.replace(/\{\{firstName\}\}/g, 'Emily');
     result = result.replace(/\{\{company\}\}/g, 'Stark Industries');
+    result = result.replace(/\{\{name\}\}/g, 'Emily Carter');
+    result = result.replace(/\{\{jobTitle\}\}/g, 'VP of Marketing');
+    result = result.replace(/\{\{email\}\}/g, 'emily@starkindustries.com');
     result = result.replace(/\{\{\s*\$json\.name\s*\|\|\s*'[^']*'\s*\}\}/g, 'Emily');
     result = result.replace(/\{\{\s*\$json\.name\s*\}\}/g, 'Emily');
 
@@ -475,7 +479,10 @@ export default function TemplatesPage() {
                   )}
 
                   <div className="space-y-1.5">
-                    <label className="text-[10px] text-slate-400 dark:text-slate-505 font-bold uppercase tracking-wider">Email Subject line</label>
+                    <div className="flex justify-between items-center">
+                      <label className="text-[10px] text-slate-400 dark:text-slate-505 font-bold uppercase tracking-wider">Email Subject line</label>
+                      <VariableToolbar compact onInsert={(v) => updateStepField(activeStepIndex, 'subject', (editingTemplate.steps?.[activeStepIndex]?.subject || '') + ' ' + v)} />
+                    </div>
                     <input 
                       type="text" 
                       value={editingTemplate.steps?.[activeStepIndex]?.subject || ''}
@@ -487,26 +494,7 @@ export default function TemplatesPage() {
                   <div className="space-y-1.5">
                     <div className="flex justify-between items-center mb-1">
                       <label className="text-[10px] text-slate-400 dark:text-slate-505 font-bold uppercase tracking-wider">Body copy & variables (Supports HTML/Text)</label>
-                      <div className="flex gap-1">
-                        <button 
-                          onClick={() => updateStepField(activeStepIndex, 'body', (editingTemplate.steps?.[activeStepIndex]?.body || '') + ' {{firstName}}')}
-                          className="text-[9px] text-blue-700 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-500/10 bg-blue-50 dark:bg-[#1e1b4b] px-2 py-0.5 rounded border border-blue-150 dark:border-blue-500/15 uppercase font-bold transition-colors cursor-pointer"
-                        >
-                          + Name
-                        </button>
-                        <button 
-                          onClick={() => updateStepField(activeStepIndex, 'body', (editingTemplate.steps?.[activeStepIndex]?.body || '') + ' {{company}}')}
-                          className="text-[9px] text-blue-700 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-500/10 bg-blue-50 dark:bg-[#1e1b4b] px-2 py-0.5 rounded border border-blue-150 dark:border-blue-500/15 uppercase font-bold transition-colors cursor-pointer"
-                        >
-                          + Company
-                        </button>
-                        <button 
-                          onClick={() => updateStepField(activeStepIndex, 'body', (editingTemplate.steps?.[activeStepIndex]?.body || '') + ' {Hi|Hey}')}
-                          className="text-[9px] text-blue-700 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-500/10 bg-blue-50 dark:bg-[#1e1b4b] px-2 py-0.5 rounded border border-blue-150 dark:border-blue-500/15 uppercase font-bold transition-colors cursor-pointer"
-                        >
-                          + Spintax
-                        </button>
-                      </div>
+                      <VariableToolbar onInsert={(v) => updateStepField(activeStepIndex, 'body', (editingTemplate.steps?.[activeStepIndex]?.body || '') + ' ' + v)} />
                     </div>
                     <textarea 
                       value={editingTemplate.steps?.[activeStepIndex]?.body || ''}

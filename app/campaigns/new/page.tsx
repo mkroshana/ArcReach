@@ -5,6 +5,7 @@ import { ArrowLeft, Save, Send, Settings, Users, AlignLeft, Clock, ToggleLeft, P
 import Link from 'next/link';
 import { useState, useEffect } from 'react';
 import { useTimezones } from '@/hooks/use-timezones';
+import VariableToolbar from '@/components/VariableToolbar';
 
 export default function NewCampaignPage() {
   const timezoneOptions = useTimezones();
@@ -27,6 +28,9 @@ export default function NewCampaignPage() {
     let result = text;
     result = result.replace(/\{\{firstName\}\}/g, 'Emily');
     result = result.replace(/\{\{company\}\}/g, 'Stark Industries');
+    result = result.replace(/\{\{name\}\}/g, 'Emily Carter');
+    result = result.replace(/\{\{jobTitle\}\}/g, 'VP of Marketing');
+    result = result.replace(/\{\{email\}\}/g, 'emily@starkindustries.com');
     result = result.replace(/\{\{\s*\$json\.name\s*\|\|\s*'[^']*'\s*\}\}/g, 'Emily');
     result = result.replace(/\{\{\s*\$json\.name\s*\}\}/g, 'Emily');
 
@@ -289,25 +293,26 @@ export default function NewCampaignPage() {
                     ) : (
                       /* Main Editor Inputs */
                       <div className="space-y-3">
-                        <input 
-                          type="text" 
-                          placeholder="Subject Line"
-                          value={step.subject || ''}
-                          onChange={(e) => {
-                            const updatedSteps = steps.map(s => s.id === step.id ? { ...s, subject: e.target.value } : s);
+                        <div className="space-y-1.5">
+                          <VariableToolbar compact onInsert={(v) => {
+                            const updatedSteps = steps.map(s => s.id === step.id ? { ...s, subject: (s.subject || '') + ' ' + v } : s);
                             setSteps(updatedSteps);
-                          }}
-                          className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-805 text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500/40 placeholder:text-slate-400 dark:placeholder:text-slate-500 shadow-xs"
-                        />
+                          }} />
+                          <input 
+                            type="text" 
+                            placeholder="Subject Line"
+                            value={step.subject || ''}
+                            onChange={(e) => {
+                              const updatedSteps = steps.map(s => s.id === step.id ? { ...s, subject: e.target.value } : s);
+                              setSteps(updatedSteps);
+                            }}
+                            className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-805 text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500/40 placeholder:text-slate-400 dark:placeholder:text-slate-500 shadow-xs"
+                          />
+                        </div>
                         
                         <div className="border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden bg-slate-50 dark:bg-slate-950 flex flex-col">
-                          <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-3 py-1.5 flex items-center justify-between text-[11px]">
-                            <div className="flex items-center gap-1.5 font-mono">
-                              <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold tracking-widest mr-1">Variables list:</span>
-                              <button onClick={() => insertVariable('{{firstName}}', step.id)} className="text-[9px] text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-1.5 py-0.5 rounded cursor-pointer uppercase font-bold border border-blue-100 dark:border-blue-500/10">{'{{firstName}}'}</button>
-                              <button onClick={() => insertVariable('{{company}}', step.id)} className="text-[9px] text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-955/40 px-1.5 py-0.5 rounded cursor-pointer uppercase font-bold border border-blue-100 dark:border-blue-500/10">{'{{company}}'}</button>
-                              <button onClick={() => insertVariable('{Hi|Hello}', step.id)} className="text-[9px] text-blue-650 dark:text-blue-400 bg-blue-50 dark:bg-blue-955/40 px-1.5 py-0.5 rounded cursor-pointer uppercase font-bold border border-blue-100 dark:border-blue-550/10">{'{{spintax}}'}</button>
-                            </div>
+                          <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-3 py-1.5 flex items-center text-[11px]">
+                            <VariableToolbar onInsert={(v) => insertVariable(v, step.id)} />
                           </div>
                           <textarea 
                             className="w-full h-36 p-3 outline-none bg-transparent text-slate-800 dark:text-white text-xs placeholder:text-slate-400 dark:placeholder:text-slate-500 resize-none font-mono leading-relaxed"

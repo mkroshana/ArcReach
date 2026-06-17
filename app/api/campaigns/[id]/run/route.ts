@@ -309,6 +309,15 @@ function personalizeText(template: string, lead: any): string {
   // Replace {{company}}
   result = result.replace(/\{\{company\}\}/g, lead.company || 'your company');
 
+  // Replace {{name}} (full name)
+  result = result.replace(/\{\{name\}\}/g, lead.name || 'there');
+
+  // Replace {{jobTitle}}
+  result = result.replace(/\{\{jobTitle\}\}/g, lead.jobTitle || 'professional');
+
+  // Replace {{email}}
+  result = result.replace(/\{\{email\}\}/g, lead.email || '');
+
   // Replace n8n/json style name variable with fallback: {{ $json.name || 'there' }}
   result = result.replace(/\{\{\s*\$json\.name\s*\|\|\s*'([^']*)'\s*\}\}/g, (match, fallback) => {
     return getFirstName(lead.name, fallback || 'there');

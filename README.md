@@ -117,6 +117,92 @@ Azure Event Grid webhook events (delivery confirmations, opens, clicks) are capt
 
 ---
 
+## ☁️ Azure Deployment (App Service + Git)
+
+ArcReach deploys to **Azure App Service** using **GitHub integration**. Pushing to the `azure` branch triggers an automatic deployment.
+
+### Step 1: Create the Database Manually
+
+Create an **Azure Database for PostgreSQL Flexible Server** via the Azure Portal:
+
+1. Go to **Azure Portal** → **Create a resource** → **Azure Database for PostgreSQL Flexible Server**.
+2. Configure:
+   - **Server name**: e.g. `arcreach-db`
+   - **Region**: Choose your preferred region (e.g. `East US`)
+   - **PostgreSQL version**: `15` or `16`
+   - **Compute tier**: `Burstable` → `Standard_B1ms` (cheapest)
+   - **Storage**: `32 GB`
+   - **Admin username**: e.g. `arcadmin`
+   - **Admin password**: Choose a strong password
+3. Under **Networking**, enable **Allow public access from any Azure service** and add your local IP if you need direct access.
+4. After creation, go to **Databases** → **Add** → create a database named `arcreach`.
+5. Note down the connection string:
+   ```
+   postgresql://arcadmin:<password>@arcreach-db.postgres.database.azure.com:5432/arcreach?sslmode=require
+   ```
+
+### Step 2: Run Database Migrations
+
+From your local machine (ensure your IP is whitelisted in the server firewall):
+
+```bash
+# Set the Azure DATABASE_URL temporarily
+export DATABASE_URL="postgresql://arcadmin:<password>@arcreach-db.postgres.database.azure.com:5432/arcreach?sslmode=require"
+
+# Push schema
+npx prisma db push
+
+# Seed admin user
+npm run seed
+```
+
+### Step 3: Create the Azure App Service
+
+1. Go to **Azure Portal** → **Create a resource** → **Web App**.
+2. Configure:
+   - **Name**: e.g. `arcreach-app` (will be `arcreach-app.azurewebsites.net`)
+   - **Runtime stack**: `Node 22 LTS`
+   - **Operating System**: `Linux`
+   - **Region**: Same region as your database
+   - **Pricing plan**: `Basic B1` or higher
+3. After creation, go to **Settings** → **Environment variables** and add:
+   ```
+   DATABASE_URL = postgresql://arcadmin:<password>@arcreach-db.postgres.database.azure.com:5432/arcreach?sslmode=require
+   APP_URL = https://arcreach-app.azurewebsites.net
+   NEXT_PUBLIC_RELAY_API_KEY = <your key>
+   NEXT_PUBLIC_SANDBOX_API_KEY = <your key>
+   NEXT_PUBLIC_CRM_WEBHOOK_SECRET = <your secret>
+   ```
+4. Under **Settings** → **Configuration** → **General settings**, set the **Startup Command**:
+   ```
+   npm run build && npm run start
+   ```
+
+### Step 4: Connect GitHub for Auto-Deployment
+
+1. In the App Service, go to **Deployment Center**.
+2. Choose **Source**: `GitHub`.
+3. Authorize and select:
+   - **Organization**: `mkroshana`
+   - **Repository**: `ArcReach`
+   - **Branch**: `azure`
+4. Save. Azure will configure a GitHub Actions workflow or Kudu-based deployment that triggers on every push to the `azure` branch.
+
+### Deploying Updates
+
+```bash
+# Switch to the azure branch
+git checkout azure
+
+# Merge latest changes from main
+git merge main
+
+# Push to trigger deployment
+git push origin azure
+```
+
+---
+
 ## 🧪 Running Automated Tests
 
 ArcReach features an automated testing architecture to validate both core logic and live endpoints. We use **Vitest** to run our TypeScript test suites.
@@ -137,3 +223,4 @@ To run the tests:
    ```bash
    npm run test:watch
    ```
+

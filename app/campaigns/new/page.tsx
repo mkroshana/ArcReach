@@ -236,12 +236,12 @@ export default function NewCampaignPage() {
                           className={`px-2.5 py-1.5 border rounded text-[10px] font-bold transition-colors flex items-center gap-1 cursor-pointer ${
                             previewSteps[step.id || index] !== false
                               ? 'bg-blue-50 dark:bg-blue-600/10 border-blue-200 dark:border-blue-500/20 text-blue-600 dark:text-blue-400' 
-                              : 'bg-slate-50 dark:bg-slate-955 dark:hover:bg-slate-805 border-slate-202 dark:border-slate-800 text-slate-700 dark:text-slate-300'
+                              : 'bg-slate-50 dark:bg-slate-905 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'
                           }`}
                         >
                           {previewSteps[step.id || index] !== false ? 'Edit Mode' : 'Preview Mode'}
                         </button>
-                        <button className="px-2.5 py-1.5 bg-slate-50 hover:bg-slate-100 dark:bg-slate-950 dark:hover:bg-slate-805 border border-slate-205 dark:border-slate-800 rounded text-[10px] font-bold text-slate-700 dark:text-slate-300 transition-colors flex items-center gap-1">
+                        <button className="px-2.5 py-1.5 bg-slate-50 hover:bg-slate-100 dark:bg-slate-950 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 rounded text-[10px] font-bold text-slate-700 dark:text-slate-300 transition-colors flex items-center gap-1">
                           <SplitSquareHorizontal className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
                           A/B TEST Variant
                         </button>

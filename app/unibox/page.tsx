@@ -5,12 +5,12 @@ import { Search, MoreVertical, CornerUpLeft, Send, Trash2, MailOpen, Pause, File
 import { useState, useEffect } from 'react';
 
 const statusColors: Record<string, string> = {
-  'Interested': 'bg-emerald-50 dark:bg-emerald-955/30 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900/30',
+  'Interested': 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900/30',
   'Not_Interested': 'bg-rose-50 dark:bg-rose-955/30 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-900/30',
-  'Meeting_Booked': 'bg-blue-50 dark:bg-blue-955/30 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-900/30',
-  'Out_of_Office': 'bg-amber-50 dark:bg-amber-955/30 text-amber-705 dark:text-amber-500 border-amber-205 dark:border-amber-900/30',
-  'Bounced': 'bg-slate-100 dark:bg-slate-805 text-slate-600 dark:text-slate-400 border-slate-202 dark:border-slate-700',
-  'Neutral': 'bg-sky-50 dark:bg-sky-955/30 text-sky-700 dark:text-sky-300 border-sky-205 dark:border-sky-900/30'
+  'Meeting_Booked': 'bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-900/30',
+  'Out_of_Office': 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-500 border-amber-200 dark:border-amber-900/30',
+  'Bounced': 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700',
+  'Neutral': 'bg-sky-50 dark:bg-sky-950/30 text-sky-700 dark:text-sky-300 border-sky-200 dark:border-sky-900/30'
 };
 
 const readableStatus: Record<string, string> = {

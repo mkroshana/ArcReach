@@ -448,7 +448,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                     placeholder="e.g. Q4 Inactive Leads Engagement"
                     value={campaignName}
                     onChange={(e) => setCampaignName(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-202 dark:border-slate-805 text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-blue-500/40 placeholder:text-slate-400 dark:placeholder:text-slate-500 shadow-xs"
+                    className="w-full bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-blue-500/40 placeholder:text-slate-400 dark:placeholder:text-slate-500 shadow-xs"
                   />
                 </section>
 
@@ -512,7 +512,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                           className={`px-2.5 py-1.5 border rounded text-[10px] font-bold transition-colors flex items-center gap-1 cursor-pointer ${
                             previewSteps[step.id || index] !== false
                               ? 'bg-blue-50 dark:bg-blue-600/10 border-blue-200 dark:border-blue-500/20 text-blue-600 dark:text-blue-400' 
-                              : 'bg-slate-50 dark:bg-slate-955 dark:hover:bg-slate-805 border-slate-202 dark:border-slate-800 text-slate-700 dark:text-slate-300'
+                              : 'bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'
                           }`}
                         >
                           {previewSteps[step.id || index] !== false ? 'Edit Mode' : 'Preview Mode'}
@@ -523,7 +523,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                           className={`px-2.5 py-1.5 border rounded text-[10px] font-bold transition-colors flex items-center gap-1 cursor-pointer ${
                             step.isABTest 
                               ? 'bg-blue-50 dark:bg-blue-600/10 border-blue-200 dark:border-blue-500/20 text-blue-600 dark:text-blue-400' 
-                              : 'bg-slate-50 dark:bg-slate-955 dark:hover:bg-slate-805 border-slate-202 dark:border-slate-800 text-slate-700 dark:text-slate-300'
+                              : 'bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'
                           }`}
                         >
                           <SplitSquareHorizontal className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
@@ -533,7 +533,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                           <button 
                             type="button"
                             onClick={() => removeStep(index)} 
-                            className="p-1.5 bg-slate-50 border border-slate-202 hover:bg-rose-500/10 hover:text-rose-600 dark:bg-slate-950 dark:border-slate-800 dark:hover:bg-rose-500/10 dark:hover:text-rose-455 rounded text-slate-400 dark:text-slate-500 transition-colors cursor-pointer"
+                            className="p-1.5 bg-slate-50 border border-slate-200 hover:bg-rose-500/10 hover:text-rose-600 dark:bg-slate-955 dark:border-slate-800 dark:hover:bg-rose-500/10 dark:hover:text-rose-400 rounded text-slate-400 dark:text-slate-500 transition-colors cursor-pointer"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -579,7 +579,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                           placeholder="Subject Line"
                           value={step.subject}
                           onChange={(e) => updateStepField(index, 'subject', e.target.value)}
-                          className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-202 dark:border-slate-805 text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500/40 placeholder:text-slate-400 dark:placeholder:text-slate-500 shadow-xs"
+                          className="w-full bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500/40 placeholder:text-slate-400 dark:placeholder:text-slate-500 shadow-xs"
                         />
                         
                         <div className="border border-slate-202 dark:border-slate-800 rounded-lg overflow-hidden bg-slate-50 dark:bg-slate-950 flex flex-col">
@@ -606,7 +606,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                 <button 
                   type="button"
                   onClick={addStep}
-                  className="w-full py-3.5 bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-850 border border-slate-202 border-dashed rounded-lg text-xs font-bold uppercase text-slate-550 dark:text-slate-405 transition-colors flex items-center justify-center gap-1.5 cursor-pointer dark:border-slate-800"
+                  className="w-full py-3.5 bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200 border-dashed rounded-lg text-xs font-bold uppercase text-slate-500 dark:text-slate-400 transition-colors flex items-center justify-center gap-1.5 cursor-pointer dark:border-slate-800"
                 >
                   <Plus className="w-4 h-4" />
                   Add Journey Step
@@ -617,7 +617,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
           {activeTab === 'Schedule' && (
              <div className="space-y-6 animate-in fade-in duration-200">
                 <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 shadow-xs">
-                  <h2 className="text-xs font-semibold uppercase tracking-widest text-slate-550 dark:text-slate-400 mb-5 flex items-center gap-2 border-b border-slate-200 dark:border-slate-805 pb-2">
+                  <h2 className="text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400 mb-5 flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
                     <Clock className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                     Target Cadence Window
                   </h2>

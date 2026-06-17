@@ -135,6 +135,9 @@ export async function POST(req: NextRequest) {
           recipients: {
             to: [{ address: leadData.email }],
           },
+          replyTo: [
+            { address: activeSenderAccount.replyTo || activeSenderAccount.emailAddress }
+          ],
           userEngagementTrackingDisabled: !trackOpens,
         };
 
@@ -201,6 +204,9 @@ export async function POST(req: NextRequest) {
       to: leadData.email,
       subject: subject || 'Outreach from ArcReach',
     };
+    if (activeSenderAccount) {
+      mailOptions.replyTo = activeSenderAccount.replyTo || activeSenderAccount.emailAddress;
+    }
 
     if (isHtml) {
       mailOptions.html = finalBody;

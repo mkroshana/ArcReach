@@ -92,6 +92,9 @@ export async function POST(req: NextRequest) {
           recipients: {
             to: [{ address: recipientEmail }],
           },
+          replyTo: [
+            { address: senderAccount.replyTo || senderAccount.emailAddress }
+          ],
         };
 
         const poller = await emailClient.beginSend(message);
@@ -149,6 +152,7 @@ export async function POST(req: NextRequest) {
     const info = await transport.sendMail({
       from: `"${senderDisplayName}" <${smtpUser}>`,
       to: recipientEmail,
+      replyTo: senderAccount.replyTo || senderAccount.emailAddress,
       subject,
       text: bodyText,
     });

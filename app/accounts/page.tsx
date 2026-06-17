@@ -80,6 +80,8 @@ export default function AccountsPage() {
   const [minuteLimit, setMinuteLimit] = useState(5);
   const [hourlyLimit, setHourlyLimit] = useState(100);
   const [dailyLimit, setDailyLimit] = useState(500);
+  const [replyTo, setReplyTo] = useState('');
+  const [editReplyTo, setEditReplyTo] = useState('');
 
   // Global settings active provider state
   const [globalActiveProvider, setGlobalActiveProvider] = useState('MOCK');
@@ -130,6 +132,7 @@ export default function AccountsPage() {
       setEditImapPort(selectedWarmupAccount.imapPort ? String(selectedWarmupAccount.imapPort) : '');
       setEditImapUser(selectedWarmupAccount.imapUser || '');
       setEditImapPass(selectedWarmupAccount.imapPass || '');
+      setEditReplyTo(selectedWarmupAccount.replyTo || '');
     } else {
       setEditSmtpHost('');
       setEditSmtpPort('');
@@ -139,6 +142,7 @@ export default function AccountsPage() {
       setEditImapPort('');
       setEditImapUser('');
       setEditImapPass('');
+      setEditReplyTo('');
     }
   }, [selectedWarmupAccount]);
 
@@ -349,6 +353,7 @@ export default function AccountsPage() {
         body: JSON.stringify({
           emailAddress,
           name: senderName,
+          replyTo: replyTo || null,
           provider,
           userId: assignedUserId,
           minuteLimit: Number(minuteLimit),
@@ -374,6 +379,7 @@ export default function AccountsPage() {
       setIsAddOpen(false);
       setEmailAddress('');
       setSenderName('');
+      setReplyTo('');
       setProvider('Google Workspace');
       setMinuteLimit(5);
       setHourlyLimit(100);
@@ -404,6 +410,7 @@ export default function AccountsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           id: selectedWarmupAccount.id,
+          replyTo: editReplyTo || null,
           smtpHost: editSmtpHost || null,
           smtpPort: editSmtpPort ? Number(editSmtpPort) : null,
           smtpUser: editSmtpUser || null,
@@ -575,7 +582,7 @@ export default function AccountsPage() {
               <div className="w-full overflow-x-auto animate-in fade-in duration-300">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="border-b border-slate-205 dark:border-[#1b1c26] text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest bg-slate-50/20 dark:bg-slate-950/10">
+                    <tr className="border-b border-slate-200 dark:border-[#1b1c26] text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest bg-slate-50/20 dark:bg-slate-950/10">
                       <th className="px-5 py-3">Sender Mailbox</th>
                       <th className="px-5 py-3">Warmup Autopilot</th>
                       <th className="px-5 py-3">Daily Throttling Limit</th>
@@ -896,6 +903,17 @@ export default function AccountsPage() {
                 </h2>
                 
                 <form onSubmit={handleSaveAccountCredentials} className="space-y-4">
+                  <div className="space-y-1.5 max-w-xs">
+                    <label className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-widest font-bold">Reply-To Address (Optional)</label>
+                    <input 
+                      type="email" 
+                      placeholder="e.g., replies@mycompany.com"
+                      value={editReplyTo}
+                      onChange={(e) => setEditReplyTo(e.target.value)}
+                      className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-3 py-2 outline-none text-xs font-mono"
+                    />
+                  </div>
+
                   {!isSmtpDisabled(globalActiveProvider) && (
                     <div className="p-3.5 rounded-xl border border-slate-200 dark:border-[#1e202d] bg-slate-50/30 dark:bg-[#10121a]/50 space-y-3">
                       <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
@@ -905,49 +923,49 @@ export default function AccountsPage() {
                       </h4>
                       <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-1">
-                          <label className="text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-widest leading-none">SMTP Host</label>
+                          <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">SMTP Host</label>
                           <input 
                             type="text" 
                             disabled={isSmtpDisabled(globalActiveProvider)}
                             placeholder="smtp.example.com"
                             value={editSmtpHost}
                             onChange={(e) => setEditSmtpHost(e.target.value)}
-                            className="w-full bg-white dark:bg-[#0e1017] border border-slate-205 dark:border-[#1f2130] text-slate-805 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono disabled:opacity-50"
+                            className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono disabled:opacity-50"
                           />
                         </div>
                         <div className="space-y-1">
-                          <label className="text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-widest leading-none">SMTP Port</label>
+                          <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">SMTP Port</label>
                           <input 
                             type="text" 
                             disabled={isSmtpDisabled(globalActiveProvider)}
                             placeholder="587"
                             value={editSmtpPort}
                             onChange={(e) => setEditSmtpPort(e.target.value)}
-                            className="w-full bg-white dark:bg-[#0e1017] border border-slate-205 dark:border-[#1f2130] text-slate-805 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono disabled:opacity-50"
+                            className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono disabled:opacity-50"
                           />
                         </div>
                       </div>
                       <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-1">
-                          <label className="text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-widest leading-none">SMTP Username</label>
+                          <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">SMTP Username</label>
                           <input 
                             type="text" 
                             disabled={isSmtpDisabled(globalActiveProvider)}
                             placeholder="user@domain.com"
                             value={editSmtpUser}
                             onChange={(e) => setEditSmtpUser(e.target.value)}
-                            className="w-full bg-white dark:bg-[#0e1017] border border-slate-205 dark:border-[#1f2130] text-slate-805 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono disabled:opacity-50"
+                            className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono disabled:opacity-50"
                           />
                         </div>
                         <div className="space-y-1">
-                          <label className="text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-widest leading-none">SMTP Password</label>
+                          <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">SMTP Password</label>
                           <input 
                             type="password" 
                             disabled={isSmtpDisabled(globalActiveProvider)}
                             placeholder="Password or App Key"
                             value={editSmtpPass}
                             onChange={(e) => setEditSmtpPass(e.target.value)}
-                            className="w-full bg-white dark:bg-[#0e1017] border border-slate-205 dark:border-[#1f2130] text-slate-805 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono disabled:opacity-50"
+                            className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono disabled:opacity-50"
                           />
                         </div>
                       </div>
@@ -963,45 +981,45 @@ export default function AccountsPage() {
                       </h4>
                       <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-1">
-                          <label className="text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-widest leading-none">IMAP Host</label>
+                          <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">IMAP Host</label>
                           <input 
                             type="text" 
                             placeholder="imap.example.com"
                             value={editImapHost}
                             onChange={(e) => setEditImapHost(e.target.value)}
-                            className="w-full bg-white dark:bg-[#0e1017] border border-slate-205 dark:border-[#1f2130] text-slate-805 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono"
+                            className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono"
                           />
                         </div>
                         <div className="space-y-1">
-                          <label className="text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-widest leading-none">IMAP Port</label>
+                          <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">IMAP Port</label>
                           <input 
                             type="text" 
                             placeholder="993"
                             value={editImapPort}
                             onChange={(e) => setEditImapPort(e.target.value)}
-                            className="w-full bg-white dark:bg-[#0e1017] border border-slate-205 dark:border-[#1f2130] text-slate-805 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono"
+                            className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono"
                           />
                         </div>
                       </div>
                       <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-1">
-                          <label className="text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-widest leading-none">IMAP Username</label>
+                          <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">IMAP Username</label>
                           <input 
                             type="text" 
                             placeholder="user@domain.com"
                             value={editImapUser}
                             onChange={(e) => setEditImapUser(e.target.value)}
-                            className="w-full bg-white dark:bg-[#0e1017] border border-slate-205 dark:border-[#1f2130] text-slate-850 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono"
+                            className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono"
                           />
                         </div>
                         <div className="space-y-1">
-                          <label className="text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-widest leading-none">IMAP Password</label>
+                          <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">IMAP Password</label>
                           <input 
                             type="password" 
                             placeholder="Password or App Key"
                             value={editImapPass}
                             onChange={(e) => setEditImapPass(e.target.value)}
-                            className="w-full bg-white dark:bg-[#0e1017] border border-slate-205 dark:border-[#1f2130] text-slate-805 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono"
+                            className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono"
                           />
                         </div>
                       </div>
@@ -1076,7 +1094,7 @@ export default function AccountsPage() {
               initial={{ opacity: 0, scale: 0.95, y: 15 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] w-full max-w-lg rounded-2xl p-6 shadow-2xl relative z-10 overflow-hidden"
+              className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] w-full max-w-2xl rounded-2xl p-6 shadow-2xl relative z-10 overflow-hidden"
             >
               <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500/5 rounded-full blur-xl pointer-events-none" />
 
@@ -1087,45 +1105,55 @@ export default function AccountsPage() {
                 </div>
                 <button
                   onClick={() => setIsAddOpen(false)}
-                  className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800/50 rounded-lg text-slate-400 dark:text-slate-505 transition-colors cursor-pointer"
+                  className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800/50 rounded-lg text-slate-400 dark:text-slate-500 transition-colors cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </header>
 
               <form onSubmit={handleAddAccount} className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] text-slate-450 dark:text-slate-500 uppercase tracking-widest font-bold">Sender Email Address</label>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="md:col-span-2 space-y-1.5">
+                    <label className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-widest font-bold">Sender Email Address</label>
                     <input
                       type="email"
                       required
                       placeholder="e.g., outreach@mycompany.com"
                       value={emailAddress}
                       onChange={(e) => setEmailAddress(e.target.value)}
-                      className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] text-slate-850 dark:text-white rounded-lg px-3 py-2 outline-none text-xs font-mono"
+                      className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-3 py-2 outline-none text-xs font-mono"
                     />
                   </div>
 
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] text-slate-450 dark:text-slate-500 uppercase tracking-widest font-bold">Display Name (From)</label>
+                  <div className="md:col-span-1 space-y-1.5">
+                    <label className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-widest font-bold">Display Name (From)</label>
                     <input
                       type="text"
                       required
                       placeholder="e.g., Michael Scott"
                       value={senderName}
                       onChange={(e) => setSenderName(e.target.value)}
-                      className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] text-slate-850 dark:text-white rounded-lg px-3 py-2 outline-none text-xs font-semibold"
+                      className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-3 py-2 outline-none text-xs font-semibold"
                     />
                   </div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] text-slate-450 dark:text-slate-500 uppercase tracking-widest font-bold">Connection Tech Provider</label>
+
+                  <div className="md:col-span-2 space-y-1.5">
+                    <label className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-widest font-bold">Reply-To Address (Optional)</label>
+                    <input
+                      type="email"
+                      placeholder="e.g., replies@mycompany.com"
+                      value={replyTo}
+                      onChange={(e) => setReplyTo(e.target.value)}
+                      className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-3 py-2 outline-none text-xs font-mono"
+                    />
+                  </div>
+
+                  <div className="md:col-span-1 space-y-1.5">
+                    <label className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-widest font-bold">Connection Tech Provider</label>
                     <select
                       value={provider}
                       onChange={(e) => handleProviderChange(e.target.value)}
-                      className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] text-slate-805 dark:text-white rounded-lg px-3 py-2 outline-none text-xs font-medium cursor-pointer"
+                      className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-3 py-2 outline-none text-xs font-medium cursor-pointer"
                     >
                       <option>Google Workspace</option>
                       <option>Microsoft 365</option>
@@ -1134,30 +1162,29 @@ export default function AccountsPage() {
                       <option>Azure Relay Node</option>
                     </select>
                   </div>
+                </div>
 
-                  {/* ADMIN Assignment select field: Only active/available if role is ADMIN */}
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] text-slate-450 dark:text-slate-500 uppercase tracking-widest font-bold flex items-center gap-1">
-                      <User className="w-3 h-3" />
-                      Assign Mailbox Owner
-                    </label>
-                    <select
-                      disabled={session?.role !== 'ADMIN'}
-                      value={assignedUserId}
-                      onChange={(e) => setAssignedUserId(e.target.value)}
-                      className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] text-slate-805 dark:text-white rounded-lg px-3 py-2 outline-none text-xs font-medium disabled:opacity-65 disabled:cursor-not-allowed cursor-pointer"
-                    >
-                      {session?.role !== 'ADMIN' ? (
-                        <option value={session?.id}>Me ({session?.name})</option>
-                      ) : (
-                        users.map((u) => (
-                          <option key={u.id} value={u.id}>
-                            {u.name} ({u.role})
-                          </option>
-                        ))
-                      )}
-                    </select>
-                  </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-widest font-bold flex items-center gap-1">
+                    <User className="w-3 h-3" />
+                    Assign Mailbox Owner
+                  </label>
+                  <select
+                    disabled={session?.role !== 'ADMIN'}
+                    value={assignedUserId}
+                    onChange={(e) => setAssignedUserId(e.target.value)}
+                    className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-3 py-2 outline-none text-xs font-medium disabled:opacity-65 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    {session?.role !== 'ADMIN' ? (
+                      <option value={session?.id}>Me ({session?.name})</option>
+                    ) : (
+                      users.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.name} ({u.role})
+                        </option>
+                      ))
+                    )}
+                  </select>
                 </div>
 
                 {!isSmtpDisabled(globalActiveProvider) && (
@@ -1169,49 +1196,49 @@ export default function AccountsPage() {
                     </h4>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-widest leading-none">SMTP Host</label>
+                        <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">SMTP Host</label>
                         <input 
                           type="text" 
                           disabled={isSmtpDisabled(globalActiveProvider)}
                           placeholder="smtp.example.com"
                           value={smtpHost}
                           onChange={(e) => setSmtpHost(e.target.value)}
-                          className="w-full bg-white dark:bg-[#0e1017] border border-slate-205 dark:border-[#1f2130] text-slate-805 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono disabled:opacity-50"
+                          className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono disabled:opacity-50"
                         />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-widest leading-none">SMTP Port</label>
+                        <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">SMTP Port</label>
                         <input 
                           type="text" 
                           disabled={isSmtpDisabled(globalActiveProvider)}
                           placeholder="587"
                           value={smtpPort}
                           onChange={(e) => setSmtpPort(e.target.value)}
-                          className="w-full bg-white dark:bg-[#0e1017] border border-slate-205 dark:border-[#1f2130] text-slate-805 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono disabled:opacity-50"
+                          className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono disabled:opacity-50"
                         />
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-widest leading-none">SMTP Username</label>
+                        <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">SMTP Username</label>
                         <input 
                           type="text" 
                           disabled={isSmtpDisabled(globalActiveProvider)}
                           placeholder="user@domain.com"
                           value={smtpUser}
                           onChange={(e) => setSmtpUser(e.target.value)}
-                          className="w-full bg-white dark:bg-[#0e1017] border border-slate-205 dark:border-[#1f2130] text-slate-805 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono disabled:opacity-50"
+                          className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono disabled:opacity-50"
                         />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-widest leading-none">SMTP Password</label>
+                        <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">SMTP Password</label>
                         <input 
                           type="password" 
                           disabled={isSmtpDisabled(globalActiveProvider)}
                           placeholder="Password or App Key"
                           value={smtpPass}
                           onChange={(e) => setSmtpPass(e.target.value)}
-                          className="w-full bg-white dark:bg-[#0e1017] border border-slate-205 dark:border-[#1f2130] text-slate-805 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono disabled:opacity-50"
+                          className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono disabled:opacity-50"
                         />
                       </div>
                     </div>
@@ -1228,45 +1255,45 @@ export default function AccountsPage() {
                     </h4>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-widest leading-none">IMAP Host</label>
+                        <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">IMAP Host</label>
                         <input 
                           type="text" 
                           placeholder="imap.example.com"
                           value={imapHost}
                           onChange={(e) => setImapHost(e.target.value)}
-                          className="w-full bg-white dark:bg-[#0e1017] border border-slate-205 dark:border-[#1f2130] text-slate-805 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono"
+                          className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono"
                         />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-widest leading-none">IMAP Port</label>
+                        <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">IMAP Port</label>
                         <input 
                           type="text" 
                           placeholder="993"
                           value={imapPort}
                           onChange={(e) => setImapPort(e.target.value)}
-                          className="w-full bg-white dark:bg-[#0e1017] border border-slate-205 dark:border-[#1f2130] text-slate-805 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono"
+                          className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono"
                         />
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-widest leading-none">IMAP Username</label>
+                        <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">IMAP Username</label>
                         <input 
                           type="text" 
                           placeholder="user@domain.com"
                           value={imapUser}
                           onChange={(e) => setImapUser(e.target.value)}
-                          className="w-full bg-white dark:bg-[#0e1017] border border-slate-205 dark:border-[#1f2130] text-slate-850 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono"
+                          className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono"
                         />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-widest leading-none">IMAP Password</label>
+                        <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">IMAP Password</label>
                         <input 
                           type="password" 
                           placeholder="Password or App Key"
                           value={imapPass}
                           onChange={(e) => setImapPass(e.target.value)}
-                          className="w-full bg-white dark:bg-[#0e1017] border border-slate-205 dark:border-[#1f2130] text-slate-805 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono"
+                          className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono"
                         />
                       </div>
                     </div>
@@ -1282,35 +1309,35 @@ export default function AccountsPage() {
                   
                   <div className="grid grid-cols-3 gap-3">
                     <div className="space-y-1">
-                      <label className="text-[9px] font-bold text-slate-450 uppercase tracking-widest leading-none">Max / Minute</label>
+                      <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest leading-none">Max / Minute</label>
                       <input
                         type="number"
                         min="1"
                         value={minuteLimit}
                         onChange={(e) => setMinuteLimit(parseInt(e.target.value) || 1)}
-                        className="w-full bg-white dark:bg-[#0e1017] border border-slate-205 dark:border-[#1f2130] text-slate-805 dark:text-white rounded-lg px-2.5 py-2 text-xs font-mono"
+                        className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-2 text-xs font-mono"
                       />
                     </div>
 
                     <div className="space-y-1">
-                      <label className="text-[9px] font-bold text-slate-455 uppercase tracking-widest leading-none">Max / Hour</label>
+                      <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest leading-none">Max / Hour</label>
                       <input
                         type="number"
                         min="1"
                         value={hourlyLimit}
                         onChange={(e) => setHourlyLimit(parseInt(e.target.value) || 1)}
-                        className="w-full bg-white dark:bg-[#0e1017] border border-slate-205 dark:border-[#1f2130] text-slate-805 dark:text-white rounded-lg px-2.5 py-2 text-xs font-mono"
+                        className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-2 text-xs font-mono"
                       />
                     </div>
 
                     <div className="space-y-1">
-                      <label className="text-[9px] font-bold text-slate-455 uppercase tracking-widest leading-none">Max / Day</label>
+                      <label className="text-[9px] font-bold text-slate-500 uppercase tracking-widest leading-none">Max / Day</label>
                       <input
                         type="number"
                         min="10"
                         value={dailyLimit}
                         onChange={(e) => setDailyLimit(parseInt(e.target.value) || 10)}
-                        className="w-full bg-white dark:bg-[#0e1017] border border-slate-205 dark:border-[#1f2130] text-slate-805 dark:text-white rounded-lg px-2.5 py-2 text-xs font-mono"
+                        className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-2 text-xs font-mono"
                       />
                     </div>
                   </div>
@@ -1324,7 +1351,7 @@ export default function AccountsPage() {
                   <button
                     type="button"
                     onClick={() => setIsAddOpen(false)}
-                    className="px-4 py-2 bg-slate-50 hover:bg-slate-100 dark:bg-[#12141d] dark:hover:bg-[#1b1d28] border border-slate-202 dark:border-slate-800 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                    className="px-4 py-2 bg-slate-50 hover:bg-slate-100 dark:bg-[#12141d] dark:hover:bg-[#1b1d28] border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
                   >
                     Cancel
                   </button>

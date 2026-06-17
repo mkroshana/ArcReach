@@ -969,7 +969,7 @@ export default function LeadsPage() {
                   <h3 className="text-xs font-semibold uppercase tracking-widest text-slate-550 dark:text-slate-405">Manage Segments</h3>
                   <button
                     onClick={() => setShowCreateGroup(!showCreateGroup)}
-                    className="bg-white hover:bg-slate-55 dark:bg-slate-950 dark:hover:bg-slate-850 border border-slate-205 dark:border-slate-800 text-slate-805 dark:text-white px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
+                    className="bg-white hover:bg-slate-50 dark:bg-slate-950 dark:hover:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-white px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
                   >
                     <FolderPlus className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
                     Create Lead Group

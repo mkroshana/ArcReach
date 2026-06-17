@@ -74,6 +74,9 @@ export async function POST(req: NextRequest) {
         recipients: {
           to: [{ address: lead.email }],
         },
+        replyTo: [
+          { address: senderAccount?.replyTo || senderEmail }
+        ],
       };
 
       console.log(`[Unibox Reply - Azure Sending] From: ${fromAddress} → To: ${lead.email} | Subject: ${subject}`);
@@ -116,6 +119,7 @@ export async function POST(req: NextRequest) {
       const info = await transport.sendMail({
         from: `"${senderName}" <${smtpUser}>`,
         to: lead.email,
+        replyTo: senderAccount?.replyTo || senderEmail,
         subject: subject || 'Re: Outreach',
         text: replyBody,
       });

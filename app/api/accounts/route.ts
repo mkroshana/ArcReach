@@ -22,6 +22,7 @@ export async function POST(req: NextRequest) {
     const { 
       emailAddress, 
       name, 
+      replyTo,
       provider, 
       status, 
       minuteLimit, 
@@ -51,6 +52,7 @@ export async function POST(req: NextRequest) {
     const newAccount = await db.createAccount({
       emailAddress,
       name: name || '',
+      replyTo: replyTo || null,
       provider,
       status: status || 'Active',
       minuteLimit: Number(minuteLimit) || 1,

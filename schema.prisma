@@ -58,6 +58,7 @@ model SenderAccount {
   id              String            @id @default(uuid())
   emailAddress    String            @unique
   name            String?           // Matches UI displayed sender name
+  replyTo         String?
   provider        String
   status          String            @default("Active")
   

@@ -239,7 +239,7 @@ export default function CampaignsPage() {
       </AnimatePresence>
 
       {/* Header */}
-      <header className="flex justify-between items-center pb-4 border-b border-slate-205 dark:border-slate-800">
+      <header className="flex justify-between items-center pb-4 border-b border-slate-200 dark:border-slate-800">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white mb-0.5">Campaign Sequences</h1>
           <p className="text-slate-500 dark:text-slate-400 text-xs">Establish cold sequences, attach sender nodes, and orchestrate automated client follow-ups.</p>
@@ -347,8 +347,8 @@ export default function CampaignsPage() {
                       <td className="px-5 py-3.5">
                         <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wider
                           ${campaign.status === 'Active' ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-450 border-emerald-200 dark:border-emerald-500/20' : ''}
-                          ${campaign.status === 'Draft' ? 'bg-slate-100 dark:bg-slate-900 text-slate-605 dark:text-slate-400 border-slate-205 dark:border-slate-800' : ''}
-                          ${campaign.status === 'Paused' ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-705 dark:text-amber-400 border-amber-205 dark:border-amber-500/20' : ''}
+                          ${campaign.status === 'Draft' ? 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800' : ''}
+                          ${campaign.status === 'Paused' ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-500/20' : ''}
                         `}>
                           {campaign.status === 'Active' && <PlayCircle className="w-3 h-3 text-emerald-505" />}
                           {campaign.status}

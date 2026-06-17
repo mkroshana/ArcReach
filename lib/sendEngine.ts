@@ -162,6 +162,9 @@ export async function processDueEmails() {
             recipients: {
               to: [{ address: lead.email }],
             },
+            replyTo: [
+              { address: campaign.senderAccount.replyTo || campaign.senderAccount.emailAddress }
+            ],
             userEngagementTrackingDisabled: !campaign.trackOpens,
           };
 
@@ -200,6 +203,7 @@ export async function processDueEmails() {
           const mailOptions: any = {
             from: `"${campaign.senderAccount.name || 'ArcReach Sender'}" <${smtpUser}>`,
             to: lead.email,
+            replyTo: campaign.senderAccount.replyTo || campaign.senderAccount.emailAddress,
             subject,
           };
 

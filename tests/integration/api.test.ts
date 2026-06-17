@@ -502,4 +502,91 @@ describe('ArcReach Live API Integration Tests', () => {
       expect(deleteGroupRes.status).toBe(200);
     });
   });
+
+  describe('User Roster API (/api/users)', () => {
+    it('should retrieve corporate user roster', async () => {
+      const res = await testFetch(`${BASE_URL}/api/users`);
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(Array.isArray(data)).toBe(true);
+      expect(data.length).toBeGreaterThan(0);
+    });
+
+    it('should prevent deleting the default super admin', async () => {
+      const res = await testFetch(`${BASE_URL}/api/users?id=admin-id-999`, {
+        method: 'DELETE',
+      });
+      expect(res.status).toBe(400);
+      const data = await res.json();
+      expect(data.error).toContain('Default super admin can not be deleted');
+    });
+
+    it('should prevent deleting the currently logged-in admin user via cookie session', async () => {
+      // Create a mock session cookie for a temporary admin "temp-admin-123"
+      const mockSession = {
+        id: 'temp-admin-123',
+        name: 'Temporary Admin',
+        email: 'temp@arcreach.com',
+        role: 'ADMIN',
+      };
+      
+      const res = await fetch(`${BASE_URL}/api/users?id=temp-admin-123`, {
+        method: 'DELETE',
+        headers: {
+          'Cookie': `user_session=${JSON.stringify(mockSession)}`,
+        },
+      });
+      expect(res.status).toBe(400);
+      const data = await res.json();
+      expect(data.error).toContain('Cannot delete your own active session');
+    });
+
+    it('should successfully create, toggle role, and delete a temporary user', async () => {
+      // 1. Create a user
+      const createRes = await testFetch(`${BASE_URL}/api/users`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Integration Test User',
+          email: 'test-user-api@arcreach.com',
+          role: 'USER',
+        }),
+      });
+      expect(createRes.status).toBe(200);
+      const createdUser = await createRes.json();
+      expect(createdUser.name).toBe('Integration Test User');
+      expect(createdUser.role).toBe('USER');
+
+      // 2. Toggle role to ADMIN
+      const toggleAdminRes = await testFetch(`${BASE_URL}/api/users`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: createdUser.id,
+          role: 'ADMIN',
+        }),
+      });
+      expect(toggleAdminRes.status).toBe(200);
+      expect((await toggleAdminRes.json()).role).toBe('ADMIN');
+
+      // 3. Toggle role back to USER
+      const toggleUserRes = await testFetch(`${BASE_URL}/api/users`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: createdUser.id,
+          role: 'USER',
+        }),
+      });
+      expect(toggleUserRes.status).toBe(200);
+      expect((await toggleUserRes.json()).role).toBe('USER');
+
+      // 4. Delete the user
+      const deleteRes = await testFetch(`${BASE_URL}/api/users?id=${createdUser.id}`, {
+        method: 'DELETE',
+      });
+      expect(deleteRes.status).toBe(200);
+      expect((await deleteRes.json()).success).toBe(true);
+    });
+  });
 });

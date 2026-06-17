@@ -81,6 +81,11 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Default super admin can not be deleted.' }, { status: 400 });
     }
 
+    // Protect currently logged in admin from deletion
+    if (id === session.id) {
+      return NextResponse.json({ error: 'Cannot delete your own active session.' }, { status: 400 });
+    }
+
     const deleted = await db.deleteUser(id);
     if (!deleted) {
       return NextResponse.json({ error: 'Failed to delete user or user not found' }, { status: 404 });

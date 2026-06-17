@@ -27,6 +27,7 @@ interface DbUser {
 
 export default function UsersAdminPage() {
   const [users, setUsers] = useState<DbUser[]>([]);
+  const [currentSession, setCurrentSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -58,6 +59,10 @@ export default function UsersAdminPage() {
 
   useEffect(() => {
     fetchUsers();
+    fetch('/api/session')
+      .then(res => res.json())
+      .then(data => setCurrentSession(data))
+      .catch(() => {});
   }, []);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
@@ -97,7 +102,7 @@ export default function UsersAdminPage() {
       setNewEmail('');
       setNewName('');
       setNewRole('USER');
-      showToast('Successfully added user to corporate roster');
+      showToast('User added');
     } catch (err: any) {
       showToast(err.message || 'Error occurred', 'error');
     } finally {
@@ -137,6 +142,10 @@ export default function UsersAdminPage() {
       showToast('Cannot delete root super administrative profile.', 'error');
       return;
     }
+    if (currentSession && userId === currentSession.id) {
+      showToast('Cannot delete your own active session.', 'error');
+      return;
+    }
 
     if (!confirm('Are you absolute sure you want to remove this user from ArcReach? All assigned mailboxes and campaigns will lock.')) {
       return;
@@ -152,16 +161,12 @@ export default function UsersAdminPage() {
         throw new Error(errObj.error || 'Failed to revoke permissions.');
       }
 
-      showToast('Successfully revoked credentials and terminated session');
+      showToast('User deleted');
       await fetchUsers();
     } catch (err: any) {
       showToast(err.message || 'Failed to delete user', 'error');
     }
   };
-
-  // Stats Helpers
-  const adminCount = users.filter(u => u.role === 'ADMIN').length;
-  const userCount = users.filter(u => u.role === 'USER').length;
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 max-w-5xl mx-auto pb-10">
@@ -187,8 +192,8 @@ export default function UsersAdminPage() {
       {/* Header */}
       <header className="flex justify-between items-center pb-4 border-b border-slate-200 dark:border-slate-800">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white mb-0.5">Corporate Directory</h1>
-          <p className="text-slate-500 dark:text-slate-400 text-xs">Establish team members, assign specific permissions (RBAC), and manage organizational roles.</p>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white mb-0.5">Team Directory</h1>
+          <p className="text-slate-500 dark:text-slate-400 text-xs">Manage team members and their roles.</p>
         </div>
         <button
           onClick={() => setIsAddOpen(true)}
@@ -198,28 +203,6 @@ export default function UsersAdminPage() {
           Add User
         </button>
       </header>
-
-      {/* Stats Deck */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white dark:bg-[#0e1017] border border-slate-201 dark:border-[#1b1c26] rounded-xl p-4 shadow-2xs">
-          <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-widest">Total Directory Members</p>
-          <h3 className="text-xl font-bold mt-1 text-slate-905 dark:text-white">{loading ? '...' : users.length} Profiles</h3>
-        </div>
-        <div className="bg-white dark:bg-[#0e1017] border border-slate-201 dark:border-[#1b1c26] rounded-xl p-4 shadow-2xs">
-          <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-widest flex items-center gap-1.5">
-            System Administrators
-            <Shield className="w-3.5 h-3.5 text-rose-500" />
-          </p>
-          <h3 className="text-xl font-bold mt-1 text-rose-600 dark:text-rose-455 font-mono">{loading ? '...' : adminCount} Privileged</h3>
-        </div>
-        <div className="bg-white dark:bg-[#0e1017] border border-slate-201 dark:border-[#1b1c26] rounded-xl p-4 shadow-2xs">
-          <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-widest flex items-center gap-1.5">
-            Standard Marketers
-            <UserCheck className="w-3.5 h-3.5 text-blue-500" />
-          </p>
-          <h3 className="text-xl font-bold mt-1 text-blue-600 dark:text-blue-455 font-mono">{loading ? '...' : userCount} Seats</h3>
-        </div>
-      </div>
 
       {/* Main Glassmorphism Data Table */}
       {error ? (
@@ -239,18 +222,18 @@ export default function UsersAdminPage() {
       ) : (
         <div className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1b1c26] rounded-xl overflow-hidden shadow-xs">
           <div className="p-4 border-b border-slate-200 dark:border-[#1b1c26] flex items-center justify-between bg-slate-50/40 dark:bg-slate-950/20">
-            <h2 className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-widest">Active Accounts Registry</h2>
-            <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-2.5 py-0.5 rounded border border-emerald-150 dark:border-emerald-500/15 uppercase tracking-widest font-mono">RBAC Security active</span>
+            <h2 className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-widest">All Users</h2>
+            <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-2.5 py-0.5 rounded border border-emerald-150 dark:border-emerald-500/15 uppercase tracking-widest font-mono">RBAC Active</span>
           </div>
 
           <div className="w-full overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-slate-201 dark:border-[#1b1c26] text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest bg-slate-50/20 dark:bg-slate-950/10">
-                  <th className="px-5 py-3">Team Member</th>
-                  <th className="px-5 py-3">Email Address</th>
-                  <th className="px-5 py-3">Assigned Role</th>
-                  <th className="px-5 py-3">Date Enrolled</th>
+                  <th className="px-5 py-3">Name</th>
+                  <th className="px-5 py-3">Email</th>
+                  <th className="px-5 py-3">Role</th>
+                  <th className="px-5 py-3">Joined</th>
                   <th className="px-5 py-3 text-right">Actions</th>
                 </tr>
               </thead>
@@ -285,16 +268,16 @@ export default function UsersAdminPage() {
                           : 'border-slate-201 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60 cursor-pointer text-slate-700 dark:text-slate-300'
                           }`}
                       >
-                        Demote to {item.role === 'ADMIN' ? 'User' : 'Admin'}
+                        {item.role === 'ADMIN' ? 'Demote to User' : 'Promote to Admin'}
                       </button>
                       <button
                         onClick={() => handleDeleteUser(item.id)}
-                        disabled={item.id === 'admin-id-999'}
-                        className={`p-1.5 rounded-lg border transition-colors inline-flex items-center justify-center ${item.id === 'admin-id-999'
+                        disabled={item.id === 'admin-id-999' || item.id === currentSession?.id}
+                        className={`p-1.5 rounded-lg border transition-colors inline-flex items-center justify-center ${item.id === 'admin-id-999' || item.id === currentSession?.id
                           ? 'opacity-30 cursor-not-allowed border-slate-200 dark:border-slate-800 text-slate-400'
                           : 'border-rose-150 dark:border-[#961747]/30 text-rose-500 dark:text-rose-455 hover:bg-rose-500/10 cursor-pointer'
                           }`}
-                        title="Deauthorize Member"
+                        title={item.id === currentSession?.id ? "Cannot delete yourself" : "Deauthorize Member"}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -333,7 +316,7 @@ export default function UsersAdminPage() {
               <header className="flex justify-between items-center pb-4 border-b border-slate-100 dark:border-[#1c1d29] mb-4">
                 <div className="flex items-center gap-2">
                   <UserPlus className="w-5 h-5 text-blue-500" />
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">Enroll Corporate User</h3>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">Add User</h3>
                 </div>
                 <button
                   onClick={() => setIsAddOpen(false)}
@@ -385,7 +368,7 @@ export default function UsersAdminPage() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-[10px] text-slate-450 dark:text-slate-500 uppercase tracking-widest font-bold">Organizational Session Role</label>
+                  <label className="text-[10px] text-slate-450 dark:text-slate-500 uppercase tracking-widest font-bold">Role</label>
                   <div className="grid grid-cols-2 gap-3 pt-0.5">
                     <button
                       type="button"
@@ -423,7 +406,7 @@ export default function UsersAdminPage() {
                     disabled={submitting}
                     className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-600/55 rounded-lg text-white font-semibold text-xs transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
                   >
-                    {submitting ? 'Enrolling...' : 'Enroll Member'}
+                    {submitting ? 'Adding...' : 'Add User'}
                   </button>
                 </div>
               </form>

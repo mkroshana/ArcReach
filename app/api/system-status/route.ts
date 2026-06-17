@@ -32,7 +32,35 @@ export async function GET() {
     const globalSettings = await prisma.globalSettings.findFirst();
     const smtpConfigured = !!(globalSettings?.smtpHost && globalSettings?.smtpUser);
 
-    // 2. Computed dynamic status
+    // 2. Compute Azure API status
+    let azureStatus = 'NOT_ACTIVE';
+    const activeProvider = globalSettings?.activeProvider || 'MOCK';
+    if (activeProvider === 'AZURE') {
+      const connString = globalSettings?.azureConnString;
+      const senderDomain = globalSettings?.azureSenderDomain;
+      if (!connString || !senderDomain) {
+        azureStatus = 'UNCONFIGURED';
+      } else {
+        azureStatus = 'OPERATIONAL';
+        const parts = connString.split(';');
+        const endpointPart = parts.find(p => p.trim().startsWith('endpoint='));
+        if (endpointPart) {
+          const endpointUrl = endpointPart.split('=')[1]?.trim();
+          if (endpointUrl) {
+            try {
+              const controller = new AbortController();
+              const timeoutId = setTimeout(() => controller.abort(), 2500);
+              await fetch(endpointUrl, { method: 'HEAD', signal: controller.signal });
+              clearTimeout(timeoutId);
+            } catch (e: any) {
+              azureStatus = 'UNREACHABLE';
+            }
+          }
+        }
+      }
+    }
+
+    // 3. Computed dynamic status
     let deliveryStatus = 'INACTIVE'; // No sender accounts and no SMTP
     if (accountsCount > 0 || smtpConfigured) {
       if (activeCampaignsCount > 0) {
@@ -44,20 +72,24 @@ export async function GET() {
 
     return NextResponse.json({
       database: 'OPERATIONAL',
+      azureStatus,
       deliveryStatus,
       smtpConfigured,
       accountsCount,
       activeCampaignsCount,
-      leadsCount
+      leadsCount,
+      activeProvider
     });
   } catch (error: any) {
     return NextResponse.json({
       database: 'DOWN',
+      azureStatus: 'UNCONFIGURED',
       deliveryStatus: 'INACTIVE',
       smtpConfigured: false,
       accountsCount: 0,
       activeCampaignsCount: 0,
       leadsCount: 0,
+      activeProvider: 'MOCK',
       error: error.message
     }, { status: 500 });
   }

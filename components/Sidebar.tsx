@@ -1,4 +1,4 @@
-/* eslint-disable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
+/* eslint-disable react-hooks/set-state-in-effect */
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -165,24 +165,54 @@ export function Sidebar() {
         </Link>
         
         {/* Systems Status Plate */}
-        <div className="bg-slate-50 dark:bg-slate-950/40 border border-slate-100 dark:border-slate-850 rounded-xl p-3 shadow-xs">
-          <p className="text-[9px] uppercase tracking-wider text-slate-400 dark:text-slate-500 font-bold mb-1.5">Azure Delivery Network</p>
+        <div className="bg-slate-50 dark:bg-slate-950/40 border border-slate-100 dark:border-slate-850 rounded-xl p-3 shadow-xs space-y-2">
+          <p className="text-[9px] uppercase tracking-wider text-slate-405 dark:text-slate-500 font-bold mb-1">System Status</p>
+          
+          {/* Database */}
           <div className="flex items-center justify-between">
-            <span className="text-xs text-slate-700 dark:text-slate-350 font-medium">ArcReach API</span>
+            <span className="text-xs text-slate-650 dark:text-slate-400 font-medium">Database</span>
             <div className="flex items-center gap-1.5">
               <span className={cn(
                 "w-1.5 h-1.5 rounded-full",
-                systemStatus?.deliveryStatus === 'OPERATIONAL' && "bg-emerald-500",
-                systemStatus?.deliveryStatus === 'STANDBY' && "bg-amber-500",
-                (systemStatus?.deliveryStatus === 'INACTIVE' || !systemStatus?.deliveryStatus) && "bg-slate-400 dark:bg-slate-600"
+                systemStatus?.database === 'OPERATIONAL' ? "bg-emerald-500" : "bg-rose-500"
               )}></span>
               <span className={cn(
                 "text-[10px] font-bold font-mono uppercase",
-                systemStatus?.deliveryStatus === 'OPERATIONAL' && "text-emerald-600 dark:text-emerald-400",
-                systemStatus?.deliveryStatus === 'STANDBY' && "text-amber-600 dark:text-amber-400",
-                (systemStatus?.deliveryStatus === 'INACTIVE' || !systemStatus?.deliveryStatus) && "text-slate-550 dark:text-slate-400"
+                systemStatus?.database === 'OPERATIONAL' ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
               )}>
-                {systemStatus?.deliveryStatus || 'LOADING...'}
+                {systemStatus ? (systemStatus.database === 'OPERATIONAL' ? 'ONLINE' : 'OFFLINE') : 'LOADING...'}
+              </span>
+            </div>
+          </div>
+
+          {/* Azure API */}
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-slate-650 dark:text-slate-400 font-medium">Azure API</span>
+            <div className="flex items-center gap-1.5">
+              <span className={cn(
+                "w-1.5 h-1.5 rounded-full",
+                systemStatus ? (
+                  systemStatus.activeProvider === 'AZURE' ? (
+                    systemStatus.azureStatus === 'OPERATIONAL' ? "bg-emerald-500" :
+                    systemStatus.azureStatus === 'UNCONFIGURED' ? "bg-amber-500" : "bg-rose-500"
+                  ) : "bg-blue-500"
+                ) : "bg-slate-400 dark:bg-slate-600"
+              )}></span>
+              <span className={cn(
+                "text-[10px] font-bold font-mono uppercase",
+                systemStatus ? (
+                  systemStatus.activeProvider === 'AZURE' ? (
+                    systemStatus.azureStatus === 'OPERATIONAL' ? "text-emerald-600 dark:text-emerald-400" :
+                    systemStatus.azureStatus === 'UNCONFIGURED' ? "text-amber-600 dark:text-amber-400" : "text-rose-600 dark:text-rose-400"
+                  ) : "text-blue-600 dark:text-blue-405"
+                ) : "text-slate-550 dark:text-slate-400"
+              )}>
+                {systemStatus ? (
+                  systemStatus.activeProvider === 'AZURE' ? (
+                    systemStatus.azureStatus === 'OPERATIONAL' ? 'ONLINE' :
+                    systemStatus.azureStatus === 'UNCONFIGURED' ? 'NOT SETUP' : 'OFFLINE'
+                  ) : 'SANDBOX'
+                ) : 'LOADING...'}
               </span>
             </div>
           </div>

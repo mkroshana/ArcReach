@@ -6,7 +6,7 @@ param dbAdminLogin string
 @secure()
 param dbAdminPassword string
 
-resource pgServer 'Microsoft.DBforPostgreSQL/flexibleServers@2023-06-01-preview' = {
+resource pgServer 'Microsoft.DBforPostgreSQL/flexibleServers@2023-12-01' = {
   name: pgServerName
   location: location
   sku: {
@@ -27,13 +27,13 @@ resource pgServer 'Microsoft.DBforPostgreSQL/flexibleServers@2023-06-01-preview'
   }
 }
 
-resource pgDb 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2023-06-01-preview' = {
+resource pgDb 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2023-12-01' = {
   parent: pgServer
   name: dbName
 }
 
 // Allow connections from Azure internal services (e.g. Container Apps)
-resource pgFirewall 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2023-06-01-preview' = {
+resource pgFirewall 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2023-12-01' = {
   parent: pgServer
   name: 'AllowAzureServices'
   properties: {

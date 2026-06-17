@@ -68,6 +68,18 @@ export default function LeadsPage() {
   const [selectedGroupIdForView, setSelectedGroupIdForView] = useState<string | null>(null);
   const [selectedGroupsForCrossCheck, setSelectedGroupsForCrossCheck] = useState<string[]>([]);
 
+  // CSV Column Mapping states
+  const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
+  const [csvRows, setCsvRows] = useState<string[][]>([]);
+  const [csvFileName, setCsvFileName] = useState<string>('');
+  const [showMapping, setShowMapping] = useState<boolean>(false);
+  const [mappings, setMappings] = useState({
+    email: '',
+    name: '',
+    company: '',
+    jobTitle: ''
+  });
+
   const fetchLeadDetails = async (id: string) => {
     try {
       setLoadingDetails(true);
@@ -347,105 +359,155 @@ export default function LeadsPage() {
     document.body.removeChild(link);
   };
 
+  const parseCSVLine = (line: string): string[] => {
+    const result: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      if (char === '"' || char === "'") {
+        inQuotes = !inQuotes;
+      } else if (char === ',' && !inQuotes) {
+        result.push(current.trim().replace(/^["']|["']$/g, ''));
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+    result.push(current.trim().replace(/^["']|["']$/g, ''));
+    return result;
+  };
+
+  const findBestHeaderMatch = (headers: string[], keywords: string[]): string => {
+    return headers.find(h => {
+      const lower = h.toLowerCase();
+      return keywords.some(k => lower.includes(k));
+    }) || '';
+  };
+
   const processCSVFile = async (file: File) => {
-    showToast('Importing CSV contacts data...');
     const reader = new FileReader();
     reader.onload = async (event) => {
       const text = event.target?.result as string;
       try {
-        const parsedLeads = [];
-        const lines = text.split(/\r?\n/);
+        const lines = text.split(/\r?\n/).filter(line => line.trim().length > 0);
         if (lines.length < 2) {
-          showToast('Invalid CSV format. Header row required.');
+          showToast('Invalid CSV format. Header row and data required.');
           return;
         }
 
-        const headers = lines[0].split(',').map(h => h.replace(/^["']|["']$/g, '').trim().toLowerCase());
-        const emailIdx = headers.indexOf('email');
-        const nameIdx = headers.indexOf('name');
-        const companyIdx = headers.indexOf('company');
-        const jobTitleIdx = headers.findIndex(h => h === 'job title' || h === 'jobtitle' || h === 'title');
+        const headers = parseCSVLine(lines[0]);
+        const rows = lines.slice(1).map(line => parseCSVLine(line));
 
-        if (emailIdx === -1) {
-          showToast('CSV must contain at least an "email" column.');
-          return;
-        }
+        const matchedEmail = findBestHeaderMatch(headers, ['email', 'mail', 'addr']);
+        const matchedName = findBestHeaderMatch(headers, ['name', 'contact', 'person']);
+        const matchedCompany = findBestHeaderMatch(headers, ['company', 'org', 'brand', 'business']);
+        const matchedJobTitle = findBestHeaderMatch(headers, ['title', 'job', 'role', 'position']);
 
-        for (let i = 1; i < lines.length; i++) {
-          const line = lines[i].trim();
-          if (!line) continue;
-          
-          // Simple CSV column parser
-          const cols = line.split(',').map(c => c.replace(/^["']|["']$/g, '').trim());
-          const email = cols[emailIdx];
-          
-          if (email && email.includes('@')) {
-            parsedLeads.push({
-              email,
-              name: nameIdx !== -1 && cols[nameIdx] ? cols[nameIdx] : email.split('@')[0],
-              company: companyIdx !== -1 && cols[companyIdx] ? cols[companyIdx] : 'Unknown',
-              jobTitle: jobTitleIdx !== -1 && cols[jobTitleIdx] ? cols[jobTitleIdx] : null
-            });
-          }
-        }
-
-        if (parsedLeads.length === 0) {
-          showToast('No valid contacts found in CSV.');
-          return;
-        }
-
-        let targetGroupId = selectedGroupForImport;
-        if (newGroupNameForImport.trim()) {
-          try {
-            const groupRes = await fetch('/api/leads/groups', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ name: newGroupNameForImport.trim() })
-            });
-            if (groupRes.ok) {
-              const newG = await groupRes.json();
-              targetGroupId = newG.id;
-            }
-          } catch (err) {
-            console.error('Failed to create group during CSV import:', err);
-          }
-        }
-
-        const groupIds = targetGroupId ? [targetGroupId] : [];
-
-        let count = 0;
-        for (const lead of parsedLeads) {
-          try {
-            const res = await fetch('/api/leads', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                name: lead.name,
-                email: lead.email,
-                company: lead.company,
-                jobTitle: lead.jobTitle,
-                status: 'Neutral',
-                validationStatus: 'Unverified',
-                groupIds
-              })
-            });
-            if (res.ok) count++;
-          } catch (e) {}
-        }
-
-        // Reset import states
-        setSelectedGroupForImport('');
-        setNewGroupNameForImport('');
-        await fetchGroups(); // refresh group counts
-
-        showToast(`Spreadsheet imported! Added ${count} new contacts to CRM.`);
-        fetchLeads();
+        setCsvHeaders(headers);
+        setCsvRows(rows);
+        setCsvFileName(file.name);
+        setMappings({
+          email: matchedEmail,
+          name: matchedName,
+          company: matchedCompany,
+          jobTitle: matchedJobTitle
+        });
+        setShowMapping(true);
+        showToast('CSV parsed. Please map your columns.');
       } catch (err) {
         showToast('Error parsing CSV file.');
         console.error(err);
       }
     };
     reader.readAsText(file);
+  };
+
+  const handleExecuteImport = async () => {
+    if (!mappings.email) {
+      showToast('You must select a column for the Email field.');
+      return;
+    }
+
+    const emailIdx = csvHeaders.indexOf(mappings.email);
+    const nameIdx = mappings.name ? csvHeaders.indexOf(mappings.name) : -1;
+    const companyIdx = mappings.company ? csvHeaders.indexOf(mappings.company) : -1;
+    const jobTitleIdx = mappings.jobTitle ? csvHeaders.indexOf(mappings.jobTitle) : -1;
+
+    if (emailIdx === -1) {
+      showToast('Selected Email column not found.');
+      return;
+    }
+
+    showToast(`Importing ${csvRows.length} contacts...`);
+    setLoading(true);
+
+    let targetGroupId = selectedGroupForImport;
+    if (newGroupNameForImport.trim()) {
+      try {
+        const groupRes = await fetch('/api/leads/groups', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: newGroupNameForImport.trim() })
+        });
+        if (groupRes.ok) {
+          const newG = await groupRes.json();
+          targetGroupId = newG.id;
+        }
+      } catch (err) {
+        console.error('Failed to create group during CSV import:', err);
+      }
+    }
+
+    const groupIds = targetGroupId ? [targetGroupId] : [];
+    let count = 0;
+
+    for (const row of csvRows) {
+      const email = row[emailIdx];
+      if (email && email.includes('@')) {
+        const name = nameIdx !== -1 && row[nameIdx] ? row[nameIdx] : email.split('@')[0];
+        const company = companyIdx !== -1 && row[companyIdx] ? row[companyIdx] : 'Unknown';
+        const jobTitle = jobTitleIdx !== -1 && row[jobTitleIdx] ? row[jobTitleIdx] : null;
+
+        try {
+          const res = await fetch('/api/leads', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name,
+              email,
+              company,
+              jobTitle,
+              status: 'Neutral',
+              validationStatus: 'Unverified',
+              groupIds
+            })
+          });
+          if (res.ok) count++;
+        } catch (e) {}
+      }
+    }
+
+    // Reset import states
+    setSelectedGroupForImport('');
+    setNewGroupNameForImport('');
+    setCsvHeaders([]);
+    setCsvRows([]);
+    setCsvFileName('');
+    setShowMapping(false);
+    
+    await fetchGroups(); // refresh group counts
+    showToast(`Spreadsheet imported! Added ${count} new contacts to CRM.`);
+    fetchLeads();
+  };
+
+  const handleCancelImport = () => {
+    setCsvHeaders([]);
+    setCsvRows([]);
+    setCsvFileName('');
+    setShowMapping(false);
+    setSelectedGroupForImport('');
+    setNewGroupNameForImport('');
   };
 
   const handleDropUpload = async (e: any) => {
@@ -628,60 +690,229 @@ export default function LeadsPage() {
         accept=".csv" 
         className="hidden" 
       />
-      <div 
-        className={`relative overflow-hidden rounded-xl border border-dashed transition-all duration-200 ${
-          isDragging 
-            ? 'border-blue-500 bg-blue-50 dark:bg-blue-955/20' 
-            : 'border-slate-355 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50/50 dark:hover:bg-slate-850/45'
-        } p-8 flex flex-col items-center justify-center cursor-pointer shadow-xs`}
-        onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-        onDragLeave={() => setIsDragging(false)}
-        onDrop={handleDropUpload}
-        onClick={() => fileInputRef.current?.click()}
-      >
-        <div className="w-10 h-10 mb-3 rounded-lg bg-slate-50 dark:bg-slate-955 flex items-center justify-center border border-slate-202 dark:border-slate-805">
-          <UploadCloud className="w-4.5 h-4.5 text-blue-650 dark:text-blue-400" />
-        </div>
-        <h3 className="text-sm font-semibold text-slate-805 dark:text-white uppercase tracking-widest mb-1">Import bulk list CSV</h3>
-        <p className="text-slate-500 dark:text-slate-400 text-center max-w-md text-xs mb-3 font-medium">
-          Drag and drop contacts list, or click to select and import custom CSV spreadsheets.
-        </p>
-        <button className="bg-white dark:bg-slate-950 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-205 dark:border-slate-800 text-slate-700 dark:text-slate-300 px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors shadow-xs mb-2">
-          Browse Files (.csv)
-        </button>
-
-        <div className="mt-4 flex flex-col sm:flex-row gap-3 w-full max-w-md bg-slate-50/50 dark:bg-[#12141c]/50 p-4 rounded-xl border border-slate-200/50 dark:border-slate-800/40" onClick={(e) => e.stopPropagation()}>
-          <div className="flex-1 col-span-1">
-            <label className="block text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-wider mb-1">Add Imported to Group</label>
-            <select
-              value={selectedGroupForImport}
-              onChange={e => {
-                setSelectedGroupForImport(e.target.value);
-                setNewGroupNameForImport('');
-              }}
-              className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-805 rounded-lg p-2 text-xs text-slate-855 dark:text-white cursor-pointer"
+      {showMapping ? (
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-xl space-y-6 animate-in slide-in-from-top-3 duration-250 shadow-xs">
+          <div className="flex justify-between items-start border-b border-slate-100 dark:border-slate-800/80 pb-4">
+            <div>
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
+                <FileType className="w-4.5 h-4.5 text-blue-650 dark:text-blue-400" />
+                Map CSV Columns — {csvFileName}
+              </h3>
+              <p className="text-slate-500 dark:text-slate-400 text-xs mt-1 font-medium">
+                {csvRows.length} prospects found. Match your CSV header columns to the corresponding CRM prospect fields.
+              </p>
+            </div>
+            <button
+              onClick={handleCancelImport}
+              className="text-slate-450 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 p-1 rounded-lg"
             >
-              <option value="">-- No Group (General CRM) --</option>
-              {groups.map(g => (
-                <option key={g.id} value={g.id}>{g.name}</option>
-              ))}
-            </select>
+              <X className="w-4 h-4" />
+            </button>
           </div>
-          <div className="flex-1 col-span-1">
-            <label className="block text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-wider mb-1">Or Create New Group</label>
-            <input
-              type="text"
-              placeholder="e.g. Cold Leads June"
-              value={newGroupNameForImport}
-              onChange={e => {
-                setNewGroupNameForImport(e.target.value);
-                setSelectedGroupForImport('');
-              }}
-              className="w-full bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-805 rounded-lg p-2 text-xs text-slate-855 dark:text-white placeholder:text-slate-400"
-            />
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-4">
+              <h4 className="text-[10px] font-bold uppercase tracking-widest text-slate-450 dark:text-slate-500">Field Matching</h4>
+              
+              {/* Email Mapping (Required) */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-800 dark:text-slate-300">
+                  Email Address <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  value={mappings.email}
+                  onChange={e => setMappings({ ...mappings, email: e.target.value })}
+                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-805 rounded-lg p-2.5 text-xs text-slate-800 dark:text-white cursor-pointer outline-none focus:ring-2 focus:ring-blue-500/40"
+                >
+                  <option value="" disabled>-- Select Column --</option>
+                  {csvHeaders.map(h => (
+                    <option key={h} value={h}>{h}</option>
+                  ))}
+                </select>
+                {mappings.email && csvRows.length > 0 && (
+                  <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-850 text-slate-500 dark:text-slate-400 border border-slate-200/50 dark:border-slate-800/40 mt-1">
+                    Preview: {csvRows[0][csvHeaders.indexOf(mappings.email)] || <em className="text-slate-400">Empty</em>}
+                  </div>
+                )}
+              </div>
+
+              {/* Name Mapping (Optional) */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-800 dark:text-slate-300">
+                  Full Name
+                </label>
+                <select
+                  value={mappings.name}
+                  onChange={e => setMappings({ ...mappings, name: e.target.value })}
+                  className="w-full bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-805 rounded-lg p-2.5 text-xs text-slate-800 dark:text-white cursor-pointer outline-none focus:ring-2 focus:ring-blue-500/40"
+                >
+                  <option value="">{"[Don't Map - Autogenerate]"}</option>
+                  {csvHeaders.map(h => (
+                    <option key={h} value={h}>{h}</option>
+                  ))}
+                </select>
+                {mappings.name && csvRows.length > 0 && (
+                  <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-855 text-slate-500 dark:text-slate-400 border border-slate-200/50 dark:border-slate-800/40 mt-1">
+                    Preview: {csvRows[0][csvHeaders.indexOf(mappings.name)] || <em className="text-slate-400">Empty</em>}
+                  </div>
+                )}
+              </div>
+
+              {/* Company Mapping (Optional) */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-800 dark:text-slate-300">
+                  Company Name
+                </label>
+                <select
+                  value={mappings.company}
+                  onChange={e => setMappings({ ...mappings, company: e.target.value })}
+                  className="w-full bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-805 rounded-lg p-2.5 text-xs text-slate-800 dark:text-white cursor-pointer outline-none focus:ring-2 focus:ring-blue-500/40"
+                >
+                  <option value="">{"[Don't Map - Use 'Unknown']"}</option>
+                  {csvHeaders.map(h => (
+                    <option key={h} value={h}>{h}</option>
+                  ))}
+                </select>
+                {mappings.company && csvRows.length > 0 && (
+                  <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-855 text-slate-500 dark:text-slate-400 border border-slate-200/50 dark:border-slate-800/40 mt-1">
+                    Preview: {csvRows[0][csvHeaders.indexOf(mappings.company)] || <em className="text-slate-400">Empty</em>}
+                  </div>
+                )}
+              </div>
+
+              {/* Job Title Mapping (Optional) */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-800 dark:text-slate-300">
+                  Job Title
+                </label>
+                <select
+                  value={mappings.jobTitle}
+                  onChange={e => setMappings({ ...mappings, jobTitle: e.target.value })}
+                  className="w-full bg-slate-50 dark:bg-slate-955 border border-slate-202 dark:border-slate-805 rounded-lg p-2.5 text-xs text-slate-800 dark:text-white cursor-pointer outline-none focus:ring-2 focus:ring-blue-500/40"
+                >
+                  <option value="">{"[Don't Map - Use Empty]"}</option>
+                  {csvHeaders.map(h => (
+                    <option key={h} value={h}>{h}</option>
+                  ))}
+                </select>
+                {mappings.jobTitle && csvRows.length > 0 && (
+                  <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-855 text-slate-500 dark:text-slate-400 border border-slate-200/50 dark:border-slate-800/40 mt-1">
+                    Preview: {csvRows[0][csvHeaders.indexOf(mappings.jobTitle)] || <em className="text-slate-400">Empty</em>}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-5 flex flex-col justify-between">
+              <div className="space-y-4">
+                <h4 className="text-[10px] font-bold uppercase tracking-widest text-slate-450 dark:text-slate-500">Destination Settings</h4>
+                <div className="space-y-3 bg-slate-50/50 dark:bg-[#12141c]/50 p-4 rounded-xl border border-slate-200/50 dark:border-slate-800/40">
+                  <div>
+                    <label className="block text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-wider mb-1">Add Imported to Group</label>
+                    <select
+                      value={selectedGroupForImport}
+                      onChange={e => {
+                        setSelectedGroupForImport(e.target.value);
+                        setNewGroupNameForImport('');
+                      }}
+                      className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-805 rounded-lg p-2 text-xs text-slate-855 dark:text-white cursor-pointer"
+                    >
+                      <option value="">-- No Group (General CRM) --</option>
+                      {groups.map(g => (
+                        <option key={g.id} value={g.id}>{g.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-wider mb-1">Or Create New Group</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Cold Leads June"
+                      value={newGroupNameForImport}
+                      onChange={e => {
+                        setNewGroupNameForImport(e.target.value);
+                        setSelectedGroupForImport('');
+                      }}
+                      className="w-full bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-805 rounded-lg p-2 text-xs text-slate-855 dark:text-white placeholder:text-slate-400"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-3 justify-end pt-4 border-t border-slate-100 dark:border-slate-800/60">
+                <button
+                  onClick={handleCancelImport}
+                  className="px-4 py-2 text-xs text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white font-semibold transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleExecuteImport}
+                  disabled={!mappings.email}
+                  className="bg-blue-650 hover:bg-blue-500 disabled:bg-slate-200 dark:disabled:bg-slate-800 text-white disabled:text-slate-450 dark:disabled:text-slate-600 px-5 py-2 rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer"
+                >
+                  Confirm & Import
+                </button>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
+      ) : (
+        <div 
+          className={`relative overflow-hidden rounded-xl border border-dashed transition-all duration-200 ${
+            isDragging 
+              ? 'border-blue-500 bg-blue-50 dark:bg-blue-955/20' 
+              : 'border-slate-355 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50/50 dark:hover:bg-slate-850/45'
+          } p-8 flex flex-col items-center justify-center cursor-pointer shadow-xs`}
+          onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+          onDragLeave={() => setIsDragging(false)}
+          onDrop={handleDropUpload}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          <div className="w-10 h-10 mb-3 rounded-lg bg-slate-50 dark:bg-slate-955 flex items-center justify-center border border-slate-202 dark:border-slate-805">
+            <UploadCloud className="w-4.5 h-4.5 text-blue-650 dark:text-blue-400" />
+          </div>
+          <h3 className="text-sm font-semibold text-slate-805 dark:text-white uppercase tracking-widest mb-1">Import bulk list CSV</h3>
+          <p className="text-slate-500 dark:text-slate-400 text-center max-w-md text-xs mb-3 font-medium">
+            Drag and drop contacts list, or click to select and import custom CSV spreadsheets.
+          </p>
+          <button className="bg-white dark:bg-slate-955 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-205 dark:border-slate-800 text-slate-700 dark:text-slate-300 px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors shadow-xs mb-2">
+            Browse Files (.csv)
+          </button>
+
+          <div className="mt-4 flex flex-col sm:flex-row gap-3 w-full max-w-md bg-slate-50/50 dark:bg-[#12141c]/50 p-4 rounded-xl border border-slate-200/50 dark:border-slate-800/40" onClick={(e) => e.stopPropagation()}>
+            <div className="flex-1 col-span-1">
+              <label className="block text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-wider mb-1">Add Imported to Group</label>
+              <select
+                value={selectedGroupForImport}
+                onChange={e => {
+                  setSelectedGroupForImport(e.target.value);
+                  setNewGroupNameForImport('');
+                }}
+                className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-805 rounded-lg p-2 text-xs text-slate-855 dark:text-white cursor-pointer"
+              >
+                <option value="">-- No Group (General CRM) --</option>
+                {groups.map(g => (
+                  <option key={g.id} value={g.id}>{g.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex-1 col-span-1">
+              <label className="block text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-wider mb-1">Or Create New Group</label>
+              <input
+                type="text"
+                placeholder="e.g. Cold Leads June"
+                value={newGroupNameForImport}
+                onChange={e => {
+                  setNewGroupNameForImport(e.target.value);
+                  setSelectedGroupForImport('');
+                }}
+                className="w-full bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-805 rounded-lg p-2 text-xs text-slate-855 dark:text-white placeholder:text-slate-400"
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Navigation Tabs */}
       <div className="flex border-b border-slate-200 dark:border-slate-800 gap-4 mt-2">

@@ -111,7 +111,7 @@ export async function GET(req: NextRequest) {
     
     const threads = Object.entries(threadsMap).map(([key, group]) => {
       const parts = key.split('-');
-      const leadId = parts[0];
+      const leadId = parts.slice(0, 5).join('-');
       
       const { leadReplies, leadDispatches } = group;
       
@@ -195,8 +195,8 @@ export async function PUT(req: NextRequest) {
     // 1. Update unread status on InboundResponse (could be lead level, threadKey level, or specific response level)
     if (responseId && unread !== undefined) {
       const parts = responseId.split('-');
-      const lId = parts[0];
-      const normalizedSub = parts.slice(1).join('-');
+      const lId = parts.slice(0, 5).join('-');
+      const normalizedSub = parts.slice(5).join('-');
       
       const isLead = await prisma.lead.count({ where: { id: lId } });
       if (isLead > 0 && normalizedSub) {

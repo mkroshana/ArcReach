@@ -226,7 +226,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       
       const eligibleLeads = await tx.lead.findMany({
         where: {
-          validationStatus: selectedCohort === 'Unverified' ? 'Unverified' : 'Valid'
+          validationStatus: selectedCohort === 'Unverified' ? 'Unverified' : 'Valid',
+          isArchived: false
         }
       });
 

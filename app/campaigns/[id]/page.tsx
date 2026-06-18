@@ -46,13 +46,15 @@ import {
   Cell,
   Legend
 } from 'recharts';
-import { motion, AnimatePresence } from 'motion/react';
+import { useToast } from '@/components/Toast';
 import VariableToolbar from '@/components/VariableToolbar';
+import { CardSkeleton, Skeleton } from '@/components/Skeleton';
 
 export default function CampaignDetailsPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
   const campaignId = resolvedParams.id;
   const timezoneOptions = useTimezones();
+  const { toast: showToast } = useToast();
 
   const [campaign, setCampaign] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -115,13 +117,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
   const [startTime, setStartTime] = useState('09:00');
   const [endTime, setEndTime] = useState('17:00');
 
-  // Toast state
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
-  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
-  };
 
   const loadTemplates = async () => {
     try {
@@ -359,9 +355,36 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
 
   if (loading) {
     return (
-      <div className="py-40 text-center text-slate-450 dark:text-slate-500 text-xs space-y-3">
-        <div className="w-6 h-6 border-2 border-slate-305 dark:border-slate-700 border-t-blue-500 animate-spin rounded-full mx-auto" />
-        <p className="font-medium tracking-wide">Syncing sequence builder configuration...</p>
+      <div className="space-y-6 max-w-5xl mx-auto pb-16 animate-in fade-in">
+        <header className="flex justify-between items-center pb-4 border-b border-slate-200 dark:border-slate-800">
+          <div className="flex gap-4 items-center">
+            <Skeleton className="w-9 h-9" />
+            <div className="space-y-2">
+              <Skeleton className="h-6 w-48" />
+              <Skeleton className="h-4 w-32" />
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Skeleton className="h-9 w-24" />
+            <Skeleton className="h-9 w-24" />
+          </div>
+        </header>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <CardSkeleton />
+          <CardSkeleton />
+          <CardSkeleton />
+          <CardSkeleton />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="col-span-2 space-y-6">
+            <div className="border border-slate-200 dark:border-slate-800 rounded-xl p-5 bg-white dark:bg-slate-900 h-64 animate-pulse" />
+            <div className="border border-slate-200 dark:border-slate-800 rounded-xl p-5 bg-white dark:bg-slate-900 h-64 animate-pulse" />
+          </div>
+          <div className="space-y-6">
+            <div className="border border-slate-200 dark:border-slate-800 rounded-xl p-5 bg-white dark:bg-slate-900 h-40 animate-pulse" />
+            <div className="border border-slate-200 dark:border-slate-800 rounded-xl p-5 bg-white dark:bg-slate-900 h-64 animate-pulse" />
+          </div>
+        </div>
       </div>
     );
   }
@@ -369,24 +392,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 max-w-5xl mx-auto pb-16">
       
-      {/* Toast Alert */}
-      <AnimatePresence>
-        {toast && (
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.95, y: -20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            className={`fixed top-4 right-4 z-50 flex items-center gap-3 px-4 py-3 rounded-xl border backdrop-blur-md shadow-2xl min-w-[280px] ${
-              toast.type === 'success' 
-                ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-450' 
-                : 'bg-rose-500/10 border-rose-500/20 text-rose-600 dark:text-rose-455'
-            }`}
-          >
-            <CheckCircle2 className="w-5 h-5 flex-shrink-0" />
-            <p className="text-xs font-semibold leading-normal">{toast.message}</p>
-          </motion.div>
-        )}
-      </AnimatePresence>
+
 
       {/* Header */}
       <header className="flex justify-between items-start pb-4 border-b border-slate-205 dark:border-slate-800">

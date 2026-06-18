@@ -57,18 +57,7 @@ export async function GET(req: NextRequest) {
     startOfPriorPeriod.setDate(now.getDate() - (rangeDays * 2));
     startOfPriorPeriod.setHours(0, 0, 0, 0);
 
-    // Filter enrollments by period (using enrolledAt)
-    const enrollmentWhere = session.role !== 'ADMIN' ? {
-      lead: {
-        enrollments: {
-          some: {
-            campaign: {
-              userId: session.id
-            }
-          }
-        }
-      }
-    } : {};
+
 
     // 1. Get current period stats
     const totalSent = await prisma.emailDispatch.count({
@@ -215,6 +204,8 @@ export async function GET(req: NextRequest) {
         }
       }
     });
+
+    const trends = Object.values(dailyBuckets);
 
     // 4. Funnel and Sentiment breakdown
     const meetingBookedCount = await prisma.lead.count({

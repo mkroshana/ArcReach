@@ -29,6 +29,9 @@ import {
   EyeOff
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { TableSkeleton } from '@/components/Skeleton';
+import { useToast } from '@/components/Toast';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 
 
 
@@ -102,15 +105,8 @@ export default function AccountsPage() {
 
   // Deletion state
   const [deleting, setDeleting] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
-
-  // Success message toast
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-
-  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
-  };
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const { toast: showToast } = useToast();
 
   useEffect(() => {
     if (selectedWarmupAccount) {
@@ -384,11 +380,7 @@ export default function AccountsPage() {
 
   const handleDeleteAccount = async () => {
     if (!selectedWarmupAccount || deleting) return;
-    if (!confirmDelete) {
-      setConfirmDelete(true);
-      setTimeout(() => setConfirmDelete(false), 4000); // Reset after 4 seconds
-      return;
-    }
+    setConfirmOpen(false);
 
     try {
       setDeleting(true);
@@ -408,7 +400,6 @@ export default function AccountsPage() {
       showToast(err.message || 'Error occurred deleting mailbox', 'error');
     } finally {
       setDeleting(false);
-      setConfirmDelete(false);
     }
   };
 
@@ -424,24 +415,7 @@ export default function AccountsPage() {
   return (
     <div className="space-y-6 animate-in fade-in duration-501 max-w-5xl mx-auto pb-10">
 
-      {/* Floating Status Toast */}
-      <AnimatePresence>
-        {toast && (
-          <motion.div 
-            initial={{ opacity: 0, y: -20, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -20 }}
-            className={`fixed top-4 right-4 z-50 flex items-center gap-3 px-4 py-3 rounded-xl shadow-xl border backdrop-blur-md min-w-[300px] ${
-              toast.type === 'success' 
-                ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400' 
-                : 'bg-rose-500/10 border-rose-500/20 text-rose-600 dark:text-rose-450'
-            }`}
-          >
-            <CheckCircle2 className="w-5 h-5 flex-shrink-0" />
-            <p className="text-xs font-semibold leading-normal">{toast.message}</p>
-          </motion.div>
-        )}
-      </AnimatePresence>
+
 
       {currentActiveTab === 'accounts' ? (
         <>
@@ -485,9 +459,8 @@ export default function AccountsPage() {
 
           {/* Table Directory */}
           {loading ? (
-            <div className="py-20 text-center text-slate-400 dark:text-slate-500 text-xs mt-6 space-y-3">
-              <div className="w-6 h-6 border-2 border-slate-300 dark:border-slate-700 border-t-blue-500 animate-spin rounded-full mx-auto" />
-              <p className="font-medium tracking-wide">Syncing sender nodes with delivery matrix...</p>
+            <div className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1b1c26] rounded-xl p-6 mt-6">
+              <TableSkeleton rows={4} cols={5} />
             </div>
           ) : (
             <div className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1b1c26] rounded-xl overflow-hidden shadow-xs mt-6">
@@ -613,20 +586,16 @@ export default function AccountsPage() {
                 {sendingTestEmail ? 'Sending...' : 'Send Test Email'}
               </button>
               <button
-                onClick={handleDeleteAccount}
+                onClick={() => setConfirmOpen(true)}
                 disabled={deleting}
-                className={`flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg transition-all shadow-xs cursor-pointer ${
-                  confirmDelete 
-                    ? 'bg-rose-600 hover:bg-rose-700 text-white' 
-                    : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/40 dark:hover:bg-slate-800 text-rose-600 dark:text-rose-450 border border-slate-200 dark:border-slate-800'
-                }`}
+                className="flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/40 dark:hover:bg-slate-800 text-rose-600 dark:text-rose-450 border border-slate-200 dark:border-slate-800 transition-all shadow-xs cursor-pointer"
               >
                 {deleting ? (
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 ) : (
                   <Trash2 className="w-3.5 h-3.5" />
                 )}
-                {deleting ? 'Deleting...' : confirmDelete ? 'Confirm Delete' : 'Delete Mailbox'}
+                {deleting ? 'Deleting...' : 'Delete Mailbox'}
               </button>
             </div>
           </div>
@@ -1222,6 +1191,16 @@ export default function AccountsPage() {
         )}
       </AnimatePresence>
 
+      <ConfirmDialog
+        isOpen={confirmOpen}
+        title="Delete Mailbox Connection"
+        message={`Are you sure you want to delete the mailbox connection for ${selectedWarmupAccount?.email || 'this account'}? All campaign records using this sender will remain, but you won't be able to send new emails from it.`}
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        onConfirm={handleDeleteAccount}
+        onCancel={() => setConfirmOpen(false)}
+        isDestructive={true}
+      />
     </div>
   );
 }

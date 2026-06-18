@@ -19,6 +19,7 @@ import {
   Legend
 } from 'recharts';
 import { Mail, MousePointerClick, Reply, SendHorizontal, RefreshCw, XCircle, AlertTriangle, UserMinus } from 'lucide-react';
+import { CardSkeleton } from '@/components/Skeleton';
 
 function StatCard({ title, value, change, icon: Icon, accentColor, accentBg }: any) {
   const numericChange = Number(change) || 0;
@@ -246,9 +247,19 @@ export default function Dashboard() {
       )}
 
       {loading ? (
-        <div className="py-20 text-center text-slate-400 dark:text-slate-500 text-xs mt-6 space-y-3">
-          <div className="w-6 h-6 border-2 border-slate-300 dark:border-slate-700 border-t-blue-500 animate-spin rounded-full mx-auto" />
-          <p className="font-medium tracking-wide">Retrieving outbound logs aggregates...</p>
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-in fade-in">
+            <CardSkeleton />
+            <CardSkeleton />
+            <CardSkeleton />
+            <CardSkeleton />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="border border-slate-200 dark:border-slate-800 rounded-xl p-5 bg-white dark:bg-slate-900 h-28 animate-pulse" />
+            <div className="border border-slate-200 dark:border-slate-800 rounded-xl p-5 bg-white dark:bg-slate-900 h-28 animate-pulse" />
+            <div className="border border-slate-200 dark:border-slate-800 rounded-xl p-5 bg-white dark:bg-slate-900 h-28 animate-pulse" />
+          </div>
+          <div className="border border-slate-200 dark:border-slate-800 rounded-xl p-5 bg-white dark:bg-slate-900 h-[350px] animate-pulse" />
         </div>
       ) : (
                {/* Structured Stats Section */}

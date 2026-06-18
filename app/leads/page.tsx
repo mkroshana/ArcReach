@@ -35,12 +35,24 @@ import {
 } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { TableSkeleton } from '@/components/Skeleton';
+import { useToast } from '@/components/Toast';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 
 export default function LeadsPage() {
   const [leads, setLeads] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isDragging, setIsDragging] = useState(false);
-  const [toastMessage, setToastMessage] = useState('');
+  const { toast: showToast } = useToast();
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    confirmLabel?: string;
+    cancelLabel?: string;
+    onConfirm: () => void;
+    isDestructive?: boolean;
+  } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   // Search and Filter states
@@ -138,10 +150,7 @@ export default function LeadsPage() {
     return [...dispatches, ...replies].sort((a, b) => b.date.getTime() - a.date.getTime());
   };
 
-  const showToast = (message: string) => {
-    setToastMessage(message);
-    setTimeout(() => setToastMessage(''), 3500);
-  };
+
 
   const fetchGroups = async () => {
     try {
@@ -228,22 +237,31 @@ export default function LeadsPage() {
     }
   };
 
-  const handleDeleteLead = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this lead?')) return;
-    try {
-      const res = await fetch(`/api/leads?id=${id}`, {
-        method: 'DELETE'
-      });
-      if (res.ok) {
-        setLeads(leads.filter(l => l.id !== id));
-        showToast('Lead record deleted successfully.');
-      } else {
-        showToast('Failed to delete lead.');
+  const handleDeleteLead = (id: string) => {
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Delete Lead',
+      message: 'Are you sure you want to delete this lead? This action cannot be undone.',
+      confirmLabel: 'Delete',
+      isDestructive: true,
+      onConfirm: async () => {
+        setConfirmDialog(null);
+        try {
+          const res = await fetch(`/api/leads?id=${id}`, {
+            method: 'DELETE'
+          });
+          if (res.ok) {
+            setLeads(leads.filter(l => l.id !== id));
+            showToast('Lead record deleted successfully.');
+          } else {
+            showToast('Failed to delete lead.');
+          }
+        } catch (error) {
+          showToast('Error occurred deleting lead.');
+          console.error(error);
+        }
       }
-    } catch (error) {
-      showToast('Error occurred deleting lead.');
-      console.error(error);
-    }
+    });
   };
 
   const handleCreateGroup = async (e: React.FormEvent) => {
@@ -348,66 +366,82 @@ export default function LeadsPage() {
     }
   };
 
-  const handleBulkDeleteLeads = async () => {
+  const handleBulkDeleteLeads = () => {
     if (selectedLeadIds.length === 0) return;
-    if (!confirm(`Are you sure you want to delete the ${selectedLeadIds.length} selected leads?`)) return;
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Delete Selected Leads',
+      message: `Are you sure you want to delete the ${selectedLeadIds.length} selected leads? This action cannot be undone.`,
+      confirmLabel: 'Delete',
+      isDestructive: true,
+      onConfirm: async () => {
+        setConfirmDialog(null);
+        try {
+          const res = await fetch('/api/leads', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids: selectedLeadIds })
+          });
 
-    try {
-      const res = await fetch('/api/leads', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: selectedLeadIds })
-      });
-
-      if (res.ok) {
-        setLeads(leads.filter(l => !selectedLeadIds.includes(l.id)));
-        setSelectedLeadIds([]);
-        showToast('Selected leads deleted successfully.');
-      } else {
-        showToast('Failed to delete selected leads.');
+          if (res.ok) {
+            setLeads(leads.filter(l => !selectedLeadIds.includes(l.id)));
+            setSelectedLeadIds([]);
+            showToast('Selected leads deleted successfully.');
+          } else {
+            showToast('Failed to delete selected leads.');
+          }
+        } catch (err) {
+          console.error(err);
+          showToast('Error deleting selected leads.');
+        }
       }
-    } catch (err) {
-      console.error(err);
-      showToast('Error deleting selected leads.');
-    }
+    });
   };
 
-  const handleBulkReactivateLeads = async () => {
+  const handleBulkReactivateLeads = () => {
     if (selectedLeadIds.length === 0) return;
-    if (!confirm(`Are you sure you want to re-activate the ${selectedLeadIds.length} selected suppressed leads?`)) return;
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Re-activate Leads',
+      message: `Are you sure you want to re-activate the ${selectedLeadIds.length} selected suppressed leads? This will reset their campaign sequences to step 1.`,
+      confirmLabel: 'Re-activate',
+      isDestructive: false,
+      onConfirm: async () => {
+        setConfirmDialog(null);
+        try {
+          setLoading(true);
+          const res = await fetch('/api/leads', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ids: selectedLeadIds,
+              status: 'Neutral',
+              validationStatus: 'Valid'
+            })
+          });
 
-    try {
-      setLoading(true);
-      const res = await fetch('/api/leads', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ids: selectedLeadIds,
-          status: 'Neutral',
-          validationStatus: 'Valid'
-        })
-      });
-
-      if (res.ok) {
-        // Update local leads status
-        const updatedLeads = leads.map(l => {
-          if (selectedLeadIds.includes(l.id)) {
-            return { ...l, status: 'Neutral', validationStatus: 'Valid' };
+          if (res.ok) {
+            // Update local leads status
+            const updatedLeads = leads.map(l => {
+              if (selectedLeadIds.includes(l.id)) {
+                return { ...l, status: 'Neutral', validationStatus: 'Valid' };
+              }
+              return l;
+            });
+            setLeads(updatedLeads);
+            setSelectedLeadIds([]);
+            showToast('Selected leads re-activated and sequences reset to step 1.');
+          } else {
+            showToast('Failed to re-activate selected leads.');
           }
-          return l;
-        });
-        setLeads(updatedLeads);
-        setSelectedLeadIds([]);
-        showToast('Selected leads re-activated and sequences reset to step 1.');
-      } else {
-        showToast('Failed to re-activate selected leads.');
+        } catch (err) {
+          console.error(err);
+          showToast('Error re-activating selected leads.');
+        } finally {
+          setLoading(false);
+        }
       }
-    } catch (err) {
-      console.error(err);
-      showToast('Error re-activating selected leads.');
-    } finally {
-      setLoading(false);
-    }
+    });
   };
 
   const handleBulkArchiveLeads = async (archiveState: boolean) => {
@@ -462,38 +496,46 @@ export default function LeadsPage() {
     }
   };
 
-  const handleArchiveGroupLeads = async (groupId: string, archiveState: boolean) => {
+  const handleArchiveGroupLeads = (groupId: string, archiveState: boolean) => {
     const groupName = groups.find(g => g.id === groupId)?.name || 'this group';
-    if (!confirm(`Are you sure you want to ${archiveState ? 'archive' : 'unarchive'} all leads associated with ${groupName}?`)) return;
+    setConfirmDialog({
+      isOpen: true,
+      title: archiveState ? 'Archive Group Leads' : 'Unarchive Group Leads',
+      message: `Are you sure you want to ${archiveState ? 'archive' : 'unarchive'} all leads associated with ${groupName}?`,
+      confirmLabel: archiveState ? 'Archive' : 'Unarchive',
+      isDestructive: archiveState,
+      onConfirm: async () => {
+        setConfirmDialog(null);
+        try {
+          const res = await fetch('/api/leads', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ groupId, isArchived: archiveState })
+          });
 
-    try {
-      const res = await fetch('/api/leads', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ groupId, isArchived: archiveState })
-      });
-
-      if (res.ok) {
-        // Find which lead IDs are members of this group
-        const groupMemberships = leads
-          .filter(l => (l.groups || []).some((g: any) => g.groupId === groupId))
-          .map(l => l.id);
-        
-        const updatedLeads = leads.map(l => {
-          if (groupMemberships.includes(l.id)) {
-            return { ...l, isArchived: archiveState };
+          if (res.ok) {
+            // Find which lead IDs are members of this group
+            const groupMemberships = leads
+              .filter(l => (l.groups || []).some((g: any) => g.groupId === groupId))
+              .map(l => l.id);
+            
+            const updatedLeads = leads.map(l => {
+              if (groupMemberships.includes(l.id)) {
+                return { ...l, isArchived: archiveState };
+              }
+              return l;
+            });
+            setLeads(updatedLeads);
+            showToast(`All leads in group ${archiveState ? 'archived' : 'unarchived'} successfully.`);
+          } else {
+            showToast('Failed to archive group leads.');
           }
-          return l;
-        });
-        setLeads(updatedLeads);
-        showToast(`All leads in group ${archiveState ? 'archived' : 'unarchived'} successfully.`);
-      } else {
-        showToast('Failed to archive group leads.');
+        } catch (err) {
+          console.error(err);
+          showToast('Error archiving group leads.');
+        }
       }
-    } catch (err) {
-      console.error(err);
-      showToast('Error archiving group leads.');
-    }
+    });
   };
 
   const handleRemoveFromGroup = async (leadId: string, groupId: string) => {
@@ -1267,9 +1309,8 @@ export default function LeadsPage() {
 
             {/* Lead Rows list */}
             {loading && !isVerifying ? (
-              <div className="py-20 text-center text-slate-400 dark:text-slate-500 text-xs space-y-3">
-                <div className="w-6 h-6 border-2 border-slate-300 dark:border-slate-700 border-t-blue-500 animate-spin rounded-full mx-auto" />
-                <p className="font-medium tracking-wide">Syncing CRM records...</p>
+              <div className="p-6">
+                <TableSkeleton rows={7} cols={6} />
               </div>
             ) : (
               <>
@@ -1846,14 +1887,7 @@ export default function LeadsPage() {
 
       </div>
 
-      {toastMessage && (
-        <div className="fixed bottom-8 right-8 bg-[#0c0d14] border border-[#1b1c26] text-white px-4 py-3 rounded-lg shadow-2xl flex items-center gap-3 z-50 animate-in slide-in-from-bottom-5 text-xs">
-          <span className="font-semibold">{toastMessage}</span>
-          <button onClick={() => setToastMessage('')} className="text-slate-400 hover:text-white transition-colors">
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
+
 
       {/* Slide-over Activity Timeline Drawer */}
       <AnimatePresence>
@@ -2345,6 +2379,19 @@ export default function LeadsPage() {
           </>
         )}
       </AnimatePresence>
+
+      {confirmDialog && (
+        <ConfirmDialog
+          isOpen={confirmDialog.isOpen}
+          title={confirmDialog.title}
+          message={confirmDialog.message}
+          confirmLabel={confirmDialog.confirmLabel}
+          cancelLabel={confirmDialog.cancelLabel}
+          onConfirm={confirmDialog.onConfirm}
+          onCancel={() => setConfirmDialog(null)}
+          isDestructive={confirmDialog.isDestructive}
+        />
+      )}
     </div>
   );
 }

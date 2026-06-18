@@ -15,6 +15,22 @@ export async function GET(
     return NextResponse.redirect(fallbackUrl);
   }
 
+  let isSafe = false;
+
+  // 1. Check if it's a relative URL or matches the application's domain
+  try {
+    const parsedAppUrl = new URL(fallbackUrl);
+    const parsedTargetUrl = new URL(targetUrl);
+    if (parsedTargetUrl.hostname === parsedAppUrl.hostname) {
+      isSafe = true;
+    }
+  } catch (e) {
+    // If it's a relative path starting with '/' and not '//'
+    if (targetUrl.startsWith('/') && !targetUrl.startsWith('//')) {
+      isSafe = true;
+    }
+  }
+
   try {
     const { dispatchId } = await params;
 
@@ -24,6 +40,13 @@ export async function GET(
     });
 
     if (dispatch) {
+      // 2. If it's an external URL, verify that it was actually part of the email body sent
+      if (!isSafe && dispatch.body) {
+        if (dispatch.body.includes(targetUrl) || dispatch.body.includes(encodeURIComponent(targetUrl))) {
+          isSafe = true;
+        }
+      }
+
       // A click implies the email was opened — record an implicit open
       // if one hasn't been recorded yet for this dispatch.
       // Many email clients block remote images (the tracking pixel),
@@ -63,6 +86,18 @@ export async function GET(
     console.error('[Track Click] Error:', err);
   }
 
-  // Always redirect to the target URL, even if recording failed
-  return NextResponse.redirect(targetUrl);
+  // Ensure targetUrl doesn't use unsafe protocols (e.g. javascript:)
+  if (isSafe) {
+    try {
+      const parsed = new URL(targetUrl);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        isSafe = false;
+      }
+    } catch (e) {
+      // Relative path is fine
+    }
+  }
+
+  // Always redirect to the target URL if safe, otherwise to fallback
+  return NextResponse.redirect(isSafe ? targetUrl : fallbackUrl);
 }

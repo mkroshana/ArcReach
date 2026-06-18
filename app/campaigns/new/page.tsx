@@ -293,26 +293,26 @@ export default function NewCampaignPage() {
                     ) : (
                       /* Main Editor Inputs */
                       <div className="space-y-3">
-                        <div className="space-y-1.5">
-                          <VariableToolbar compact onInsert={(v) => {
-                            const updatedSteps = steps.map(s => s.id === step.id ? { ...s, subject: (s.subject || '') + ' ' + v } : s);
+                        <input 
+                          type="text" 
+                          placeholder="Subject Line"
+                          value={step.subject || ''}
+                          onChange={(e) => {
+                            const updatedSteps = steps.map(s => s.id === step.id ? { ...s, subject: e.target.value } : s);
                             setSteps(updatedSteps);
-                          }} />
-                          <input 
-                            type="text" 
-                            placeholder="Subject Line"
-                            value={step.subject || ''}
-                            onChange={(e) => {
-                              const updatedSteps = steps.map(s => s.id === step.id ? { ...s, subject: e.target.value } : s);
-                              setSteps(updatedSteps);
-                            }}
-                            className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-805 text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500/40 placeholder:text-slate-400 dark:placeholder:text-slate-500 shadow-xs"
-                          />
-                        </div>
+                          }}
+                          className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-805 text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500/40 placeholder:text-slate-400 dark:placeholder:text-slate-500 shadow-xs"
+                        />
                         
                         <div className="border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden bg-slate-50 dark:bg-slate-950 flex flex-col">
                           <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-3 py-1.5 flex items-center text-[11px]">
-                            <VariableToolbar onInsert={(v) => insertVariable(v, step.id)} />
+                            <VariableToolbar
+                              onInsert={(v) => insertVariable(v, step.id)}
+                              onInsertSubject={(v) => {
+                                const updatedSteps = steps.map(s => s.id === step.id ? { ...s, subject: (s.subject || '') + ' ' + v } : s);
+                                setSteps(updatedSteps);
+                              }}
+                            />
                           </div>
                           <textarea 
                             className="w-full h-36 p-3 outline-none bg-transparent text-slate-800 dark:text-white text-xs placeholder:text-slate-400 dark:placeholder:text-slate-500 resize-none font-mono leading-relaxed"

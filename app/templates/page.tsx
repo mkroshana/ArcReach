@@ -479,10 +479,7 @@ export default function TemplatesPage() {
                   )}
 
                   <div className="space-y-1.5">
-                    <div className="flex justify-between items-center">
-                      <label className="text-[10px] text-slate-400 dark:text-slate-505 font-bold uppercase tracking-wider">Email Subject line</label>
-                      <VariableToolbar compact onInsert={(v) => updateStepField(activeStepIndex, 'subject', (editingTemplate.steps?.[activeStepIndex]?.subject || '') + ' ' + v)} />
-                    </div>
+                    <label className="text-[10px] text-slate-400 dark:text-slate-505 font-bold uppercase tracking-wider">Email Subject line</label>
                     <input 
                       type="text" 
                       value={editingTemplate.steps?.[activeStepIndex]?.subject || ''}
@@ -491,11 +488,15 @@ export default function TemplatesPage() {
                     />
                   </div>
 
+                  <div className="bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] rounded-lg px-3 py-2">
+                    <VariableToolbar
+                      onInsert={(v) => updateStepField(activeStepIndex, 'body', (editingTemplate.steps?.[activeStepIndex]?.body || '') + ' ' + v)}
+                      onInsertSubject={(v) => updateStepField(activeStepIndex, 'subject', (editingTemplate.steps?.[activeStepIndex]?.subject || '') + ' ' + v)}
+                    />
+                  </div>
+
                   <div className="space-y-1.5">
-                    <div className="flex justify-between items-center mb-1">
-                      <label className="text-[10px] text-slate-400 dark:text-slate-505 font-bold uppercase tracking-wider">Body copy & variables (Supports HTML/Text)</label>
-                      <VariableToolbar onInsert={(v) => updateStepField(activeStepIndex, 'body', (editingTemplate.steps?.[activeStepIndex]?.body || '') + ' ' + v)} />
-                    </div>
+                    <label className="text-[10px] text-slate-400 dark:text-slate-505 font-bold uppercase tracking-wider">Body copy & variables (Supports HTML/Text)</label>
                     <textarea 
                       value={editingTemplate.steps?.[activeStepIndex]?.body || ''}
                       onChange={(e) => updateStepField(activeStepIndex, 'body', e.target.value)}

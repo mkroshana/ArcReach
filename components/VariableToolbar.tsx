@@ -1,20 +1,21 @@
 'use client';
 
-import { useRef, useState } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { useState } from 'react';
+import { ChevronDown, Type, FileText } from 'lucide-react';
 
 /**
  * VariableToolbar — Reusable toolbar for inserting personalization variables
  * into subject line and body fields across templates and campaign editors.
  *
- * Supports cursor-position insertion and includes all available template variables.
+ * Features a field target selector (Subject/Body) when onInsertSubject is provided,
+ * quick-access buttons for common variables, and a "More" dropdown for all options.
  */
 
 interface Variable {
   label: string;
   value: string;
   description: string;
-  category: 'personalization' | 'spintax' | 'advanced';
+  category: 'personalization' | 'spintax';
 }
 
 const VARIABLES: Variable[] = [
@@ -50,13 +51,25 @@ const CATEGORY_COLORS: Record<string, { bg: string; text: string; border: string
 };
 
 interface VariableToolbarProps {
+  /** Insert variable into the body field (default target) */
   onInsert: (value: string) => void;
+  /** Insert variable into the subject field (enables target selector) */
+  onInsertSubject?: (value: string) => void;
+  /** Unused — kept for backwards compatibility */
   compact?: boolean;
 }
 
-export default function VariableToolbar({ onInsert, compact = false }: VariableToolbarProps) {
+export default function VariableToolbar({ onInsert, onInsertSubject }: VariableToolbarProps) {
   const [showDropdown, setShowDropdown] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  const [target, setTarget] = useState<'body' | 'subject'>('body');
+
+  const handleInsert = (value: string) => {
+    if (target === 'subject' && onInsertSubject) {
+      onInsertSubject(value);
+    } else {
+      onInsert(value);
+    }
+  };
 
   // Primary quick-access variables (always visible as buttons)
   const quickVars = VARIABLES.filter(v =>
@@ -76,9 +89,37 @@ export default function VariableToolbar({ onInsert, compact = false }: VariableT
 
   return (
     <div className="flex items-center gap-1.5 flex-wrap relative">
-      <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase font-bold tracking-widest mr-0.5 select-none">
-        {compact ? 'Vars:' : 'Variables:'}
-      </span>
+      {/* Target selector — only show when both handlers are provided */}
+      {onInsertSubject && (
+        <div className="flex items-center bg-slate-100 dark:bg-slate-800 rounded-md p-0.5 mr-1">
+          <button
+            type="button"
+            onClick={() => setTarget('subject')}
+            title="Insert into Subject Line"
+            className={`flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
+              target === 'subject'
+                ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-xs'
+                : 'text-slate-450 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+            }`}
+          >
+            <Type className="w-2.5 h-2.5" />
+            Subject
+          </button>
+          <button
+            type="button"
+            onClick={() => setTarget('body')}
+            title="Insert into Body"
+            className={`flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
+              target === 'body'
+                ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-xs'
+                : 'text-slate-450 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+            }`}
+          >
+            <FileText className="w-2.5 h-2.5" />
+            Body
+          </button>
+        </div>
+      )}
 
       {/* Quick-access buttons */}
       {quickVars.map((v) => {
@@ -87,7 +128,7 @@ export default function VariableToolbar({ onInsert, compact = false }: VariableT
           <button
             key={v.label}
             type="button"
-            onClick={() => onInsert(v.value)}
+            onClick={() => handleInsert(v.value)}
             title={`Insert ${v.value} — ${v.description}`}
             className={`text-[9px] ${colors.bg} ${colors.text} ${colors.border} ${colors.hoverBg} px-2 py-0.5 rounded border uppercase font-bold transition-colors cursor-pointer active:scale-95`}
           >
@@ -97,7 +138,7 @@ export default function VariableToolbar({ onInsert, compact = false }: VariableT
       })}
 
       {/* More dropdown toggle */}
-      <div className="relative" ref={dropdownRef}>
+      <div className="relative">
         <button
           type="button"
           onClick={() => setShowDropdown(!showDropdown)}
@@ -128,7 +169,7 @@ export default function VariableToolbar({ onInsert, compact = false }: VariableT
                         key={v.label}
                         type="button"
                         onClick={() => {
-                          onInsert(v.value);
+                          handleInsert(v.value);
                           setShowDropdown(false);
                         }}
                         className="w-full text-left px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors flex items-center justify-between gap-2 group"

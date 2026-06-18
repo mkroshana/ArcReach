@@ -1,4 +1,5 @@
-import { cookies, headers } from 'next/headers';
+import * as jose from 'jose';
+import { cookies } from 'next/headers';
 
 export interface UserSession {
   id: string;
@@ -21,25 +22,31 @@ export const DEFAULT_USER: UserSession = {
   role: 'USER',
 };
 
+const SESSION_SECRET = process.env.SESSION_SECRET || 'dev_session_secret_jwt_32_chars_long_placeholder';
+if (process.env.NODE_ENV === 'production' && (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32)) {
+  throw new Error('SESSION_SECRET environment variable must be set and at least 32 characters long in production.');
+}
+const secretKey = new TextEncoder().encode(SESSION_SECRET);
+
 /**
  * Server-side helper to fetch the current active session from the cookies.
- * Defaults to ADMIN if no session cookie exists so that the reviewer has full access initially.
  */
 export async function getSession(): Promise<UserSession> {
-  const reqHeaders = await headers();
-  if (reqHeaders.get('x-integration-test') === 'true') {
-    return DEFAULT_ADMIN;
-  }
-
   const cookieStore = await cookies();
   const sessionCookie = cookieStore.get('user_session');
 
-  if (!sessionCookie) {
+  if (!sessionCookie || !sessionCookie.value) {
     throw new Error('Unauthorized');
   }
 
   try {
-    return JSON.parse(sessionCookie.value) as UserSession;
+    const { payload } = await jose.jwtVerify(sessionCookie.value, secretKey);
+    return {
+      id: payload.id as string,
+      name: payload.name as string,
+      email: payload.email as string,
+      role: payload.role as 'ADMIN' | 'USER',
+    };
   } catch {
     throw new Error('Unauthorized');
   }
@@ -49,10 +56,29 @@ export async function getSession(): Promise<UserSession> {
  * Server-side helper to write the session object into the cookie store.
  */
 export async function setSession(session: UserSession) {
+  const jwt = await new jose.SignJWT({ ...session })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime('7d')
+    .sign(secretKey);
+
   const cookieStore = await cookies();
-  cookieStore.set('user_session', JSON.stringify(session), {
+  cookieStore.set('user_session', jwt, {
     path: '/',
-    httpOnly: false, // Accessible by client side scripts for easy UI updates
+    httpOnly: true, // Hardened
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
     maxAge: 60 * 60 * 24 * 7, // 1 week
   });
+}
+
+/**
+ * Generates a signed JWT session cookie for testing purposes.
+ */
+export async function signSession(session: UserSession): Promise<string> {
+  return new jose.SignJWT({ ...session })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime('7d')
+    .sign(secretKey);
 }

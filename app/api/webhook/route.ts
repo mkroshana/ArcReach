@@ -7,14 +7,20 @@ export async function POST(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const key = searchParams.get('key');
 
-    const expectedSecret = process.env.WEBHOOK_SECRET || 'whsec_e9a182c38d4f7281';
+    const expectedSecret = process.env.WEBHOOK_SECRET;
+    if (!expectedSecret && process.env.NODE_ENV === 'production') {
+      console.error('[Webhook] WEBHOOK_SECRET is not configured in production. Rejecting request.');
+      return NextResponse.json({ error: 'Webhook secret is not configured.' }, { status: 500 });
+    }
+    // Dev-only fallback so local testing works without extra setup.
+    const resolvedSecret = expectedSecret || 'whsec_e9a182c38d4f7281';
 
     if (!key) {
       return NextResponse.json({ error: 'Unauthorized: Webhook key missing.' }, { status: 401 });
     }
 
     const keyBuf = Buffer.from(key);
-    const secretBuf = Buffer.from(expectedSecret);
+    const secretBuf = Buffer.from(resolvedSecret);
 
     let isValid = false;
     if (keyBuf.length === secretBuf.length) {

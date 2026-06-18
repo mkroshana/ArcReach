@@ -10,7 +10,14 @@ const DEV_FALLBACK_SECRET = 'dev_session_secret_jwt_32_chars_long_placeholder';
 
 const SESSION_SECRET = process.env.SESSION_SECRET || DEV_FALLBACK_SECRET;
 
+// `next build` evaluates route modules during the "Collecting page data" phase with
+// NODE_ENV=production but no runtime secrets available. Skip the guard during that
+// phase; it still fires at runtime (NEXT_PHASE unset or 'phase-production-server'),
+// which is where a missing/short secret actually matters.
+const isBuildPhase = process.env.NEXT_PHASE === 'phase-production-build';
+
 if (
+  !isBuildPhase &&
   process.env.NODE_ENV === 'production' &&
   (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32)
 ) {

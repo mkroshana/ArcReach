@@ -61,6 +61,10 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
     result = result.replace(/\{\{email\}\}/g, 'emily@starkindustries.com');
     result = result.replace(/\{\{\s*\$json\.name\s*\|\|\s*'[^']*'\s*\}\}/g, 'Emily');
     result = result.replace(/\{\{\s*\$json\.name\s*\}\}/g, 'Emily');
+    
+    // Replace custom unsubscribe placeholders for live preview
+    result = result.replace(/\[\[\s*unsubscribe_url\s*\]\]/gi, '#unsubscribe');
+    result = result.replace(/\{\{\s*unsubscribe_url\s*\}\}/gi, '#unsubscribe');
 
     const spintaxRegex = /\{([^{}]+)\}/g;
     result = result.replace(spintaxRegex, (match, options) => {

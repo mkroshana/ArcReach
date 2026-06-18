@@ -90,8 +90,19 @@ export function applyEmailTracking(
 
   let result = body;
 
-  // Inject unsubscribe link first (before link rewriting so it doesn't get tracked)
-  if (leadId) {
+  // Check if the body contains a custom unsubscribe placeholder
+  const hasCustomUnsub = /\[\[\s*unsubscribe_url\s*\]\]/i.test(body) || /\{\{\s*unsubscribe_url\s*\}\}/i.test(body);
+
+  // Replace custom unsubscribe placeholders [[unsubscribe_url]] or {{unsubscribe_url}}
+  const unsubUrl = leadId 
+    ? `${APP_URL}/api/unsubscribe?id=${leadId}` 
+    : `${APP_URL}/api/unsubscribe`;
+  
+  result = result.replace(/\[\[\s*unsubscribe_url\s*\]\]/gi, unsubUrl);
+  result = result.replace(/\{\{\s*unsubscribe_url\s*\}\}/gi, unsubUrl);
+
+  // Inject default unsubscribe link if leadId is present and no custom unsubscribe link was provided
+  if (leadId && !hasCustomUnsub) {
     result = injectUnsubscribeLink(result, leadId);
   }
 

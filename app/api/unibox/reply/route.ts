@@ -83,6 +83,10 @@ export async function POST(req: NextRequest) {
       const poller = await emailClient.beginSend(message);
       const result = await poller.pollUntilDone();
       
+      if (result.status === 'Failed') {
+        throw new Error(result.error?.message || 'Azure Communication Services reported send status: Failed.');
+      }
+
       messageId = result.id || messageId;
       console.log(`[Unibox Reply - Azure Success] Message ID: ${messageId} | From: ${fromAddress} → To: ${lead.email}`);
     } else {

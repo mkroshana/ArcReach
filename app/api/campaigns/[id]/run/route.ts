@@ -176,6 +176,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           if (result && result.id) {
             providerMessageId = result.id;
           }
+          if (result && result.status === 'Failed') {
+            throw new Error(result.error?.message || 'Azure Communication Services reported send status: Failed.');
+          }
           console.log(`[Campaign Run - Azure Success] Message ID: ${providerMessageId || syntheticMessageId} | From: ${fromAddress} → To: ${lead.email}`);
         } else {
           // SMTP-based delivery (SMTP, GOOGLE, MICROSOFT fallback)

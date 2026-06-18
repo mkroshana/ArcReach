@@ -3,6 +3,9 @@ import { checkGlobalRateLimits } from './rateLimits';
 import { applyEmailTracking } from './emailTracking';
 import nodemailer from 'nodemailer';
 
+// Memory store for campaigns paused due to quota limits
+export const quotaPausedCampaigns = new Map<string, Date>();
+
 /**
  * Custom validation helper to ensure send limits (minuteLimit, hourlyLimit, dailyLimit) are not exceeded
  * before triggering automated outgoing emails.
@@ -32,6 +35,26 @@ export function validateSendingFrequency(senderAccount: {
  */
 export async function processDueEmails() {
   console.log('[SendEngine] Starting processing cycle...');
+
+  // Auto-resume campaigns paused due to quota limits after their reset time has passed
+  const nowTime = new Date();
+  for (const [campaignId, resumeAt] of quotaPausedCampaigns.entries()) {
+    if (nowTime >= resumeAt) {
+      try {
+        const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
+        if (campaign && campaign.status === 'Paused') {
+          await prisma.campaign.update({
+            where: { id: campaignId },
+            data: { status: 'Active' }
+          });
+          console.log(`[SendEngine] Auto-resumed campaign "${campaign.name}" (${campaignId}) after quota reset.`);
+        }
+      } catch (err) {
+        console.error(`[SendEngine] Failed to auto-resume campaign ${campaignId}:`, err);
+      }
+      quotaPausedCampaigns.delete(campaignId);
+    }
+  }
   
   try {
     const now = new Date();
@@ -188,6 +211,9 @@ export async function processDueEmails() {
           if (result && result.id) {
             providerMessageId = result.id;
           }
+          if (result && result.status === 'Failed') {
+            throw new Error(result.error?.message || 'Azure Communication Services reported send status: Failed.');
+          }
           console.log(`[SendEngine - Azure Success] Message ID: ${providerMessageId || syntheticMessageId} | To: ${lead.email}`);
         } else {
           // SMTP Fallback
@@ -274,6 +300,36 @@ export async function processDueEmails() {
       } catch (err: any) {
         console.error(`[SendEngine Failure] Could not send to ${lead.email}:`, err.message || err);
 
+        const errStr = (err.message || String(err)).toLowerCase();
+        const isQuotaError = errStr.includes('quota') || errStr.includes('limit') || errStr.includes('rate') || errStr.includes('exceeded');
+
+        if (isQuotaError) {
+          try {
+            console.log(`[SendEngine] Quota limit hit. Pausing campaign "${campaign.name}" (${campaign.id}) for 1 hour.`);
+            
+            // 1. Pause the campaign in database
+            await prisma.campaign.update({
+              where: { id: campaign.id },
+              data: { status: 'Paused' }
+            });
+
+            // 2. Schedule auto-resume
+            const resumeTime = new Date();
+            resumeTime.setHours(resumeTime.getHours() + 1);
+            quotaPausedCampaigns.set(campaign.id, resumeTime);
+
+            // 3. Postpone next action date of the enrollment so it retries later
+            await prisma.campaignEnrollment.update({
+              where: { id: enrollment.id },
+              data: { nextActionDate: resumeTime }
+            });
+          } catch (pauseErr: any) {
+            console.error('[SendEngine] Failed to pause campaign on quota limit:', pauseErr.message);
+          }
+          // Break the loop since any further sends in the current cycle will fail
+          break;
+        }
+
         // Mark enrollment as Failed to stop infinite retry loops
         try {
           await prisma.campaignEnrollment.update({
@@ -281,14 +337,27 @@ export async function processDueEmails() {
             data: { status: 'Failed', nextActionDate: null }
           });
 
-          // Mark lead as Bounced + Invalid
-          await prisma.lead.update({
-            where: { id: lead.id },
-            data: {
-              status: 'Bounced',
-              validationStatus: 'Invalid',
-            }
-          });
+          // Only mark lead as Bounced + Invalid if the error is not a sender-side or system-level error
+          const isSenderOrSystemError = 
+            errStr.includes('auth') || 
+            errStr.includes('credentials') || 
+            errStr.includes('login') || 
+            errStr.includes('timeout') || 
+            errStr.includes('connect') || 
+            errStr.includes('dns') || 
+            errStr.includes('unauthorized') || 
+            errStr.includes('forbidden') || 
+            errStr.includes('configured');
+
+          if (!isSenderOrSystemError) {
+            await prisma.lead.update({
+              where: { id: lead.id },
+              data: {
+                status: 'Bounced',
+                validationStatus: 'Invalid',
+              }
+            });
+          }
 
           // Create audit trail event
           const existingDispatch = await prisma.emailDispatch.findFirst({

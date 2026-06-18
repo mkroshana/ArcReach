@@ -144,6 +144,10 @@ export async function POST(req: NextRequest) {
         const poller = await emailClient.beginSend(message);
         const result = await poller.pollUntilDone();
 
+        if (result.status === 'Failed') {
+          throw new Error(result.error?.message || 'Azure Communication Services reported send status: Failed.');
+        }
+
         // Update dispatch with provider messageId and tracked body
         await prisma.emailDispatch.update({
           where: { id: dispatch.id },

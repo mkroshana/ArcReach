@@ -100,6 +100,10 @@ export async function POST(req: NextRequest) {
         const poller = await emailClient.beginSend(message);
         const result = await poller.pollUntilDone();
 
+        if (result.status === 'Failed') {
+          throw new Error(result.error?.message || 'Azure Communication Services reported send status: Failed.');
+        }
+
         console.log(`[Test Email - Azure Success] Message ID: ${result.id} | From: ${fromAddress} → To: ${recipientEmail}`);
 
         return NextResponse.json({

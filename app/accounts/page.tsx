@@ -86,6 +86,8 @@ export default function AccountsPage() {
   const [editReplyTo, setEditReplyTo] = useState('');
   // Global settings active provider state
   const [globalActiveProvider, setGlobalActiveProvider] = useState('MOCK');
+  const [globalRateLimitMinute, setGlobalRateLimitMinute] = useState(5);
+  const [globalRateLimitHour, setGlobalRateLimitHour] = useState(100);
 
   // Computed Network Capacity Telemetry
   const totalSentToday = accounts.reduce((sum, a) => sum + (a.sentToday || 0), 0);
@@ -165,6 +167,9 @@ export default function AccountsPage() {
     setSmtpPort('587');
     setImapHost('imap.gmail.com');
     setImapPort('993');
+    setMinuteLimit(globalRateLimitMinute);
+    setHourlyLimit(globalRateLimitHour);
+    setDailyLimit(500);
   };
 
   const handleProviderChange = (selectedProvider: string) => {
@@ -217,6 +222,14 @@ export default function AccountsPage() {
       if (settingsRes.ok) {
         const settingsData = await settingsRes.json();
         setGlobalActiveProvider(settingsData.settings?.activeProvider || 'MOCK');
+        if (settingsData.settings) {
+          const gMin = settingsData.settings.rateLimitMinute ?? 5;
+          const gHour = settingsData.settings.rateLimitHour ?? 100;
+          setGlobalRateLimitMinute(gMin);
+          setGlobalRateLimitHour(gHour);
+          setMinuteLimit(gMin);
+          setHourlyLimit(gHour);
+        }
       }
 
       // Fetch users list only if corporate Administrator

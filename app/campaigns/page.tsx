@@ -339,14 +339,14 @@ export default function CampaignsPage() {
           <div className="flex gap-2 w-full sm:w-auto justify-end">
             <button 
               onClick={() => showToast('Campaign criteria filters loaded')}
-              className="px-3 py-1.8 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-350 transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer"
+              className="px-3 py-1.8 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-400 transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer"
             >
               <Filter className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
               Filter
             </button>
             <button 
               onClick={() => showToast('Campaign stats CSV report ready for download')}
-              className="px-3 py-1.8 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-350 transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer"
+              className="px-3 py-1.8 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-400 transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer"
             >
               <FileSpreadsheet className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
               Export Directory CSV
@@ -372,7 +372,7 @@ export default function CampaignsPage() {
                   <th className="px-5 py-3 text-right">Configure</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-[#1b1c26]/60 text-slate-750 dark:text-slate-300">
+              <tbody className="divide-y divide-slate-100 dark:divide-[#1b1c26]/60 text-slate-700 dark:text-slate-300">
                 {filteredCampaigns.map((campaign) => (
                   <Fragment key={campaign.id}>
                     <tr 
@@ -453,7 +453,7 @@ export default function CampaignsPage() {
                                 <button
                                   type="button"
                                   onClick={(e) => handleToggleStatus(campaign.id, campaign.status, e)}
-                                  className="px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[10px] font-bold text-slate-700 dark:text-slate-350 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center gap-1.5 transition-all shadow-3xs cursor-pointer"
+                                  className="px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[10px] font-bold text-slate-700 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center gap-1.5 transition-all shadow-3xs cursor-pointer"
                                 >
                                   {campaign.status === 'Active' ? (
                                     <>
@@ -557,14 +557,14 @@ export default function CampaignsPage() {
                                           )}
                                           
                                           {/* Step Metrics */}
-                                          <div className="mt-1.5 pt-1.5 border-t border-slate-105 dark:border-slate-800 text-[9px] space-y-0.5 text-left">
+                                          <div className="mt-1.5 pt-1.5 border-t border-slate-100 dark:border-slate-800 text-[9px] space-y-0.5 text-left">
                                             <div className="flex justify-between px-0.5">
                                               <span className="text-slate-400 dark:text-slate-500">To Send:</span>
-                                              <span className="font-extrabold text-slate-700 dark:text-slate-350">{activeLeadsCount}</span>
+                                              <span className="font-extrabold text-slate-700 dark:text-slate-400">{activeLeadsCount}</span>
                                             </div>
                                             <div className="flex justify-between px-0.5">
                                               <span className="text-slate-400 dark:text-slate-500">Sent:</span>
-                                              <span className="font-extrabold text-slate-700 dark:text-slate-350">{sentCount}</span>
+                                              <span className="font-extrabold text-slate-700 dark:text-slate-400">{sentCount}</span>
                                             </div>
                                             {sentCount > 0 && (
                                               <div className="flex justify-between px-0.5">
@@ -584,7 +584,7 @@ export default function CampaignsPage() {
                                               handleRunCampaign(campaign.id, step.stepOrder);
                                             }}
                                             disabled={executingId !== null}
-                                            className="text-[9px] text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/15 hover:bg-blue-100 hover:text-blue-700 dark:hover:bg-blue-900/35 px-2 py-0.8 rounded border border-blue-150 dark:border-blue-800 flex items-center gap-1 font-extrabold transition-all cursor-pointer shadow-3xs disabled:opacity-50 mt-1"
+                                            className="text-[9px] text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/15 hover:bg-blue-100 hover:text-blue-700 dark:hover:bg-blue-900/35 px-2 py-0.8 rounded border border-blue-200 dark:border-blue-800 flex items-center gap-1 font-extrabold transition-all cursor-pointer shadow-3xs disabled:opacity-50 mt-1"
                                             title={`Manually run dispatches for Step ${step.stepOrder}`}
                                           >
                                             <Send className="w-2.5 h-2.5" />
@@ -712,7 +712,7 @@ export default function CampaignsPage() {
                   </select>
                 </div>
 
-                <div className="p-3 bg-blue-50/80 dark:bg-blue-950/10 border border-blue-150 dark:border-blue-500/10 rounded-lg flex gap-3 text-[11px] leading-relaxed text-blue-750 dark:text-blue-300">
+                <div className="p-3 bg-blue-50/80 dark:bg-blue-950/10 border border-blue-200 dark:border-blue-500/10 rounded-lg flex gap-3 text-[11px] leading-relaxed text-blue-700 dark:text-blue-300">
                   <Sparkles className="w-4 h-4 flex-shrink-0 text-blue-600 dark:text-blue-400" />
                   <p className="font-sans font-medium">
                     This sequence will follow sending frequencies and throttling limits associated with the connected mailbox.

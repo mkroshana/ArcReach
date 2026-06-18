@@ -317,7 +317,7 @@ export default function TemplatesPage() {
                             {t.steps.length} Steps
                           </span>
                         )}
-                        <span className="text-[8px] bg-blue-50 dark:bg-blue-500/15 border border-blue-150 dark:border-blue-500/15 text-blue-750 dark:text-blue-400 font-bold px-1.5 py-0.5 rounded uppercase tracking-widest font-mono">
+                        <span className="text-[8px] bg-blue-50 dark:bg-blue-500/15 border border-blue-200 dark:border-blue-500/15 text-blue-700 dark:text-blue-400 font-bold px-1.5 py-0.5 rounded uppercase tracking-widest font-mono">
                           {t.category}
                         </span>
                       </div>
@@ -352,7 +352,7 @@ export default function TemplatesPage() {
                     className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all flex items-center gap-1.5 border uppercase shadow-xs cursor-pointer ${
                       previewResolved 
                         ? 'bg-blue-50 dark:bg-blue-600/10 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-500/15' 
-                        : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-210 dark:border-[#1f2130] hover:text-slate-900 dark:hover:text-white'
+                        : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-[#1f2130] hover:text-slate-900 dark:hover:text-white'
                     }`}
                   >
                     <Eye className="w-3.5 h-3.5" />
@@ -397,7 +397,7 @@ export default function TemplatesPage() {
                 <button
                   type="button"
                   onClick={addStep}
-                  className="px-3 py-1 rounded-lg border border-dashed border-slate-350 dark:border-slate-800 text-[10px] font-bold text-slate-500 hover:text-slate-800 dark:hover:text-white transition-colors cursor-pointer"
+                  className="px-3 py-1 rounded-lg border border-dashed border-slate-400 dark:border-slate-800 text-[10px] font-bold text-slate-500 hover:text-slate-800 dark:hover:text-white transition-colors cursor-pointer"
                 >
                   + Add Step
                 </button>
@@ -406,7 +406,7 @@ export default function TemplatesPage() {
               {previewResolved ? (
                 /* Dynamic Preview Window */
                 <div className="space-y-4 animate-in fade-in">
-                  <div className="bg-blue-50 dark:bg-blue-950/15 border border-blue-150 dark:border-blue-500/15 p-4 rounded-lg flex items-start gap-3">
+                  <div className="bg-blue-50 dark:bg-blue-950/15 border border-blue-200 dark:border-blue-500/15 p-4 rounded-lg flex items-start gap-3">
                     <Sparkles className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
                     <div>
                       <p className="text-[10px] text-blue-700 dark:text-blue-400 font-bold uppercase tracking-wider">Dynamic Resolve Active (Step {activeStepIndex + 1})</p>
@@ -429,7 +429,7 @@ export default function TemplatesPage() {
                           sandbox="allow-same-origin"
                         />
                       ) : (
-                        <p className="text-xs text-slate-700 dark:text-gray-350 whitespace-pre-wrap leading-relaxed font-sans">{resolveTemplateText(editingTemplate.steps?.[activeStepIndex]?.body || '')}</p>
+                        <p className="text-xs text-slate-700 dark:text-gray-400 whitespace-pre-wrap leading-relaxed font-sans">{resolveTemplateText(editingTemplate.steps?.[activeStepIndex]?.body || '')}</p>
                       )}
                     </div>
                   </div>

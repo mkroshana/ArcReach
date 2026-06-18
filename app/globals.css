@@ -15,7 +15,7 @@
   --border-card: #1b1c26;
   --border-input: #1f2130;
   --text-white: #ffffff;
-  --text-gray-350: #cbd5e1;
+  --text-gray-400: #cbd5e1;
   --text-gray-300: #d1d5db;
   --text-gray-400: #94a3b8;
   --text-gray-500: #64748b;
@@ -31,7 +31,7 @@
   --border-card: #e2e8f0;
   --border-input: #cbd5e1;
   --text-white: #0f172a;
-  --text-gray-350: #334155;
+  --text-gray-400: #334155;
   --text-gray-300: #1e293b;
   --text-gray-400: #475569;
   --text-gray-500: #64748b;
@@ -116,9 +116,8 @@
   color: var(--text-white) !important;
 }
 .light .text-gray-200,
-.light .text-gray-250,
 .light .text-gray-300,
-.light .text-gray-350 {
+.light .text-gray-400 {
   color: var(--text-gray-300) !important;
 }
 .light .text-gray-400 {
@@ -144,12 +143,8 @@
 }
 
 /* Ensure text remains pure white on dark rich core components like premium buttons so they stay modern */
-.light .bg-blue-750,
 .light .bg-blue-700,
-.light .bg-blue-650,
 .light .bg-blue-600,
-.light .bg-blue-550,
-.light .bg-blue-505,
 .light .bg-blue-500,
 .light .bg-rose-500,
 .light .bg-rose-600,
@@ -159,12 +154,8 @@
 .light button.bg-rose-500,
 .light a.bg-blue-600,
 .light a.bg-rose-500,
-.light .bg-blue-750 *,
 .light .bg-blue-700 *,
-.light .bg-blue-650 *,
 .light .bg-blue-600 *,
-.light .bg-blue-550 *,
-.light .bg-blue-505 *,
 .light .bg-blue-500 *,
 .light .bg-rose-500 *,
 .light .bg-rose-600 *,
@@ -231,20 +222,17 @@
 
 /* Special element overrides (e.g., active items in navigation) */
 .light .bg-blue-600\/10,
-.light .bg-blue-505\/10,
-.light .bg-blue-505\/15,
-.light .bg-blue-500\/10 {
+.light .bg-blue-500\/10,
+.light .bg-blue-500\/15 {
   background-color: var(--accent-blue-bg) !important;
 }
 .light .border-blue-500\/10,
-.light .border-blue-550\/15,
 .light .border-blue-500\/15 {
   border-color: var(--accent-blue-border) !important;
 }
 .light .text-blue-400,
-.light .text-blue-305,
 .light .text-blue-300,
-.light .text-blue-250 {
+.light .text-blue-200 {
   color: var(--accent-blue-text) !important;
 }
 

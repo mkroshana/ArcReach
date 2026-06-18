@@ -63,7 +63,7 @@ export function ConfirmDialog({
                   <AlertTriangle className="w-5 h-5 flex-shrink-0" />
                 </div>
                 <div className="flex-1 space-y-1.5">
-                  <h3 className="text-sm font-bold text-slate-150 leading-none">{title}</h3>
+                  <h3 className="text-sm font-bold text-slate-200 leading-none">{title}</h3>
                   <p className="text-xs text-slate-400 leading-relaxed font-medium">{message}</p>
                 </div>
               </div>

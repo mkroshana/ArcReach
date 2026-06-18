@@ -466,7 +466,7 @@ export default function AccountsPage() {
             <div className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1b1c26] rounded-xl overflow-hidden shadow-xs mt-6">
               <div className="p-4 border-b border-slate-200 dark:border-[#1b1c26] flex items-center justify-between bg-slate-50/40 dark:bg-slate-950/20">
                 <h2 className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-widest">Connected Outreach Senders</h2>
-                <span className="text-[10px] font-bold text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 px-2.5 py-0.5 rounded border border-blue-150 dark:border-blue-500/15 uppercase tracking-widest font-mono">SMTP/IMAP protocol ready</span>
+                <span className="text-[10px] font-bold text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 px-2.5 py-0.5 rounded border border-blue-200 dark:border-blue-500/15 uppercase tracking-widest font-mono">SMTP/IMAP protocol ready</span>
               </div>
               
               <div className="w-full overflow-x-auto animate-in fade-in duration-300">
@@ -508,10 +508,10 @@ export default function AccountsPage() {
                               </div>
                               <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{account.name} • {account.provider}</div>
                               <div className="text-[9px] text-slate-400 dark:text-slate-500 mt-1 flex items-center gap-2 font-mono">
-                                <span>Sent: <strong className="text-slate-700 dark:text-slate-350">{account.sentTotal ?? 0}</strong></span>
-                                <span>Opens: <strong className="text-slate-700 dark:text-slate-350">{account.opens ?? 0}</strong></span>
-                                <span>Clicks: <strong className="text-slate-700 dark:text-slate-350">{account.clicks ?? 0}</strong></span>
-                                <span>Replies: <strong className="text-slate-700 dark:text-slate-350">{account.replies ?? 0}</strong></span>
+                                <span>Sent: <strong className="text-slate-700 dark:text-slate-400">{account.sentTotal ?? 0}</strong></span>
+                                <span>Opens: <strong className="text-slate-700 dark:text-slate-400">{account.opens ?? 0}</strong></span>
+                                <span>Clicks: <strong className="text-slate-700 dark:text-slate-400">{account.clicks ?? 0}</strong></span>
+                                <span>Replies: <strong className="text-slate-700 dark:text-slate-400">{account.replies ?? 0}</strong></span>
                                 <span>Bounces: <strong className="text-rose-600 dark:text-rose-500">{account.bounced ?? 0}</strong></span>
                               </div>
                             </div>
@@ -580,7 +580,7 @@ export default function AccountsPage() {
             <div className="flex-1">
               <div className="flex items-center gap-3">
                 <h1 className="text-lg font-bold text-slate-900 dark:text-white mb-0.5">{selectedWarmupAccount.emailAddress}</h1>
-                <span className="bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 text-[10px] font-bold px-2.5 py-0.5 border border-blue-150 dark:border-blue-500/20 rounded uppercase tracking-wider flex items-center gap-1 font-mono">
+                <span className="bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 text-[10px] font-bold px-2.5 py-0.5 border border-blue-200 dark:border-blue-500/20 rounded uppercase tracking-wider flex items-center gap-1 font-mono">
                   <Sliders className="w-3 h-3" />
                   {selectedWarmupAccount.provider}
                 </span>
@@ -784,7 +784,7 @@ export default function AccountsPage() {
                             placeholder="Password or App Key"
                             value={editImapPass}
                             onChange={(e) => setEditImapPass(e.target.value)}
-                            className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-888 dark:text-white rounded-lg px-2.5 py-1.5 pr-8 text-xs font-mono"
+                            className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-900 dark:text-white rounded-lg px-2.5 py-1.5 pr-8 text-xs font-mono"
                           />
                           <button 
                             type="button"
@@ -854,7 +854,7 @@ export default function AccountsPage() {
                     </div>
                   </div>
 
-                  <div className="p-3 bg-blue-50/80 dark:bg-blue-950/10 border border-blue-150 dark:border-blue-500/10 rounded-lg flex gap-3 text-[11px] leading-relaxed text-blue-750 dark:text-blue-300">
+                  <div className="p-3 bg-blue-50/80 dark:bg-blue-950/10 border border-blue-200 dark:border-blue-500/10 rounded-lg flex gap-3 text-[11px] leading-relaxed text-blue-700 dark:text-blue-300">
                     <Sparkles className="w-4 h-4 flex-shrink-0 text-blue-600 dark:text-blue-400" />
                     <p className="font-sans font-medium">
                       <strong>Throttling Advice:</strong> To protect domain DNS records, we randomize interval spaces heavily. A minute limit of 5 is recommended for new mailboxes.
@@ -881,7 +881,7 @@ export default function AccountsPage() {
                       type="button"
                       onClick={() => handleUpdateWarmupSettings('warmupEnabled', !selectedWarmupAccount.warmupEnabled)}
                       className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out outline-none focus:ring-2 focus:ring-blue-500/35
-                        ${selectedWarmupAccount.warmupEnabled ? 'bg-orange-500' : 'bg-slate-200 dark:bg-slate-850'}
+                        ${selectedWarmupAccount.warmupEnabled ? 'bg-orange-500' : 'bg-slate-200 dark:bg-slate-800'}
                       `}
                     >
                       <span
@@ -1264,7 +1264,7 @@ export default function AccountsPage() {
                           const percent = Math.min(100, acc.dailyLimit > 0 ? ((acc.sentToday || 0) / acc.dailyLimit) * 100 : 0);
                           return (
                             <div key={acc.id} className="flex justify-between items-center text-[10px] bg-white dark:bg-[#0e1017] p-2 border border-slate-100 dark:border-[#1f2130] rounded-lg">
-                              <span className="font-mono text-slate-600 dark:text-slate-350 truncate max-w-[200px]">{acc.emailAddress}</span>
+                              <span className="font-mono text-slate-600 dark:text-slate-400 truncate max-w-[200px]">{acc.emailAddress}</span>
                               <div className="flex items-center gap-2 font-mono text-right">
                                 <span className="text-[9px] text-slate-400 dark:text-slate-500">({percent.toFixed(0)}% used)</span>
                                 <span className="font-semibold text-slate-800 dark:text-white">{acc.sentToday || 0} / {acc.dailyLimit}</span>

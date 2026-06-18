@@ -924,7 +924,7 @@ export default function LeadsPage() {
               <span className="text-blue-600 dark:text-blue-400">SMTP Progress</span>
               <span className="text-slate-500 dark:text-slate-400">{verifyProgress}%</span>
             </div>
-            <div className="w-full bg-slate-150 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
+            <div className="w-full bg-slate-200 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
               <div className="bg-blue-600 dark:bg-blue-500 h-full rounded-full transition-all duration-300" style={{ width: `${verifyProgress}%` }}></div>
             </div>
           </div>
@@ -1177,7 +1177,7 @@ export default function LeadsPage() {
           className={`relative overflow-hidden rounded-xl border border-dashed transition-all duration-200 ${
             isDragging 
               ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/20' 
-              : 'border-slate-355 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50/50 dark:hover:bg-slate-800/45'
+              : 'border-slate-400 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50/50 dark:hover:bg-slate-800/45'
           } p-8 flex flex-col items-center justify-center cursor-pointer shadow-xs`}
           onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
           onDragLeave={() => setIsDragging(false)}
@@ -1249,7 +1249,7 @@ export default function LeadsPage() {
               className={`pb-3 text-xs font-bold uppercase tracking-wider border-b-2 flex items-center gap-2 transition-all cursor-pointer ${
                 activeTab === tab.id
                   ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
-                  : 'border-transparent text-slate-400 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-350'
+                  : 'border-transparent text-slate-400 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-400'
               }`}
             >
               <Icon className="w-3.5 h-3.5" />
@@ -1344,7 +1344,7 @@ export default function LeadsPage() {
                       <th className="px-5 py-3 text-right">Clear</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-105 dark:divide-slate-800/50 text-slate-700 dark:text-slate-350">
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50 text-slate-700 dark:text-slate-400">
                     {paginatedLeads.map((lead) => (
                       <tr 
                         key={lead.id} 
@@ -1595,7 +1595,7 @@ export default function LeadsPage() {
                         <th className="px-5 py-3 text-right">Clear / Remove</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-105 dark:divide-slate-800/50 text-slate-700 dark:text-slate-305">
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50 text-slate-700 dark:text-slate-300">
                       {filteredLeads.map(lead => (
                         <tr 
                           key={lead.id} 
@@ -1802,7 +1802,7 @@ export default function LeadsPage() {
                     <th className="px-5 py-3 text-right">Clear / Resolve</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-105 dark:divide-slate-800/50 text-slate-700 dark:text-slate-350">
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50 text-slate-700 dark:text-slate-400">
                   {getOverlappingLeads().map(lead => (
                     <tr 
                       key={lead.id}
@@ -1825,7 +1825,7 @@ export default function LeadsPage() {
                           {(lead.groups || []).map((g: any) => (
                             <span 
                               key={g.groupId}
-                              className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[8px] font-bold bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-500/10 text-blue-750 dark:text-blue-400 uppercase tracking-wider"
+                              className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[8px] font-bold bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-500/10 text-blue-700 dark:text-blue-400 uppercase tracking-wider"
                             >
                               {g.group?.name}
                               <button
@@ -1955,11 +1955,11 @@ export default function LeadsPage() {
                       <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-200/60 dark:border-slate-800/40 text-[11px]">
                         <div>
                           <span className="text-slate-400 dark:text-slate-500 font-medium uppercase tracking-wider text-[9px]">Email Address</span>
-                          <p className="font-mono text-slate-700 dark:text-slate-350 mt-0.5 break-all">{leadDetails.email}</p>
+                          <p className="font-mono text-slate-700 dark:text-slate-400 mt-0.5 break-all">{leadDetails.email}</p>
                         </div>
                         <div>
                           <span className="text-slate-400 dark:text-slate-500 font-medium uppercase tracking-wider text-[9px]">Company Brand</span>
-                          <p className="text-slate-700 dark:text-slate-350 mt-0.5 font-semibold">{leadDetails.company || 'N/A'}</p>
+                          <p className="text-slate-700 dark:text-slate-400 mt-0.5 font-semibold">{leadDetails.company || 'N/A'}</p>
                         </div>
                       </div>
 
@@ -2039,7 +2039,7 @@ export default function LeadsPage() {
                           className={`px-2.5 py-1 text-[10px] font-bold rounded-lg border uppercase tracking-wider transition-all cursor-pointer ${
                             leadDetails.isArchived
                               ? 'bg-emerald-600 hover:bg-emerald-500 text-white border-transparent'
-                              : 'bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-350'
+                              : 'bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-400'
                           }`}
                         >
                           {leadDetails.isArchived ? 'Restore Prospect' : 'Archive Prospect'}
@@ -2080,7 +2080,7 @@ export default function LeadsPage() {
                                 </span>
 
                                 {/* Event Card */}
-                                <div className="bg-slate-50/50 dark:bg-[#12141c]/45 border border-slate-150 dark:border-[#1a1c27] rounded-xl p-3.5 space-y-2 hover:border-slate-300 dark:hover:border-[#2b2e40] transition-colors">
+                                <div className="bg-slate-50/50 dark:bg-[#12141c]/45 border border-slate-200 dark:border-[#1a1c27] rounded-xl p-3.5 space-y-2 hover:border-slate-300 dark:hover:border-[#2b2e40] transition-colors">
                                   {/* Header */}
                                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[10px] text-slate-400 dark:text-slate-500">
                                     <span className="font-bold uppercase tracking-wider">
@@ -2119,7 +2119,7 @@ export default function LeadsPage() {
                                   {/* Body Toggle Button */}
                                   <button
                                     onClick={() => setExpandedEmailId(isExpanded ? null : event.id)}
-                                    className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-blue-600 hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-350 cursor-pointer pt-1 border-0 bg-transparent"
+                                    className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-blue-600 hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-400 cursor-pointer pt-1 border-0 bg-transparent"
                                   >
                                     {isExpanded ? (
                                       <>
@@ -2137,7 +2137,7 @@ export default function LeadsPage() {
                                   {/* Body copy container */}
                                   {isExpanded && (
                                     <div 
-                                      className="text-xs mt-2.5 p-3 rounded-lg bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-350 font-mono whitespace-pre-wrap max-h-56 overflow-y-auto break-words leading-relaxed"
+                                      className="text-xs mt-2.5 p-3 rounded-lg bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 font-mono whitespace-pre-wrap max-h-56 overflow-y-auto break-words leading-relaxed"
                                       dangerouslySetInnerHTML={{ __html: event.body }}
                                     />
                                   )}

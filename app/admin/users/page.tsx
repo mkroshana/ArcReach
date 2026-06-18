@@ -216,7 +216,7 @@ export default function UsersAdminPage() {
         </div>
       ) : loading ? (
         <div className="py-20 text-center text-slate-400 dark:text-slate-500 text-xs space-y-3">
-          <div className="w-6 h-6 border-2 border-slate-350 dark:border-slate-700 border-t-blue-500 animate-spin rounded-full mx-auto" />
+          <div className="w-6 h-6 border-2 border-slate-400 dark:border-slate-700 border-t-blue-500 animate-spin rounded-full mx-auto" />
           <p className="font-medium tracking-wide">Querying corporate user directory secure nodes...</p>
         </div>
       ) : (
@@ -237,7 +237,7 @@ export default function UsersAdminPage() {
                   <th className="px-5 py-3 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-[#1b1c26]/60 text-slate-750 dark:text-slate-300">
+              <tbody className="divide-y divide-slate-100 dark:divide-[#1b1c26]/60 text-slate-700 dark:text-slate-300">
                 {users.map((item) => (
                   <tr key={item.id} className="hover:bg-slate-50/50 dark:hover:bg-white/[0.01] transition-all group">
                     <td className="px-5 py-3.5">
@@ -275,7 +275,7 @@ export default function UsersAdminPage() {
                         disabled={item.id === 'admin-id-999' || item.id === currentSession?.id}
                         className={`p-1.5 rounded-lg border transition-colors inline-flex items-center justify-center ${item.id === 'admin-id-999' || item.id === currentSession?.id
                           ? 'opacity-30 cursor-not-allowed border-slate-200 dark:border-slate-800 text-slate-400'
-                          : 'border-rose-150 dark:border-[#961747]/30 text-rose-500 dark:text-rose-500 hover:bg-rose-500/10 cursor-pointer'
+                          : 'border-rose-200 dark:border-[#961747]/30 text-rose-500 dark:text-rose-500 hover:bg-rose-500/10 cursor-pointer'
                           }`}
                         title={item.id === currentSession?.id ? "Cannot delete yourself" : "Deauthorize Member"}
                       >

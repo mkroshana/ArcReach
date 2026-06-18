@@ -223,7 +223,7 @@ export default function NewCampaignPage() {
                           {index + 1}
                         </div>
                         {index > 0 ? (
-                          <div className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-350">
+                          <div className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-400">
                             Wait for
                             <input 
                               type="number" 
@@ -269,7 +269,7 @@ export default function NewCampaignPage() {
                       <div className="space-y-4 animate-in fade-in">
                         <div className="bg-blue-50/50 dark:bg-blue-950/10 border border-blue-100 dark:border-blue-500/10 p-3 rounded-lg flex items-start gap-2.5">
                           <div>
-                            <p className="text-[10px] text-blue-750 dark:text-blue-400 font-extrabold uppercase tracking-wider">Dynamic Resolve Preview</p>
+                            <p className="text-[10px] text-blue-700 dark:text-blue-400 font-extrabold uppercase tracking-wider">Dynamic Resolve Preview</p>
                             <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Showing output resolved for contact: <strong className="text-slate-900 dark:text-white">Emily</strong> at <strong className="text-slate-900 dark:text-white">Stark Industries</strong>.</p>
                           </div>
                         </div>
@@ -405,7 +405,7 @@ export default function NewCampaignPage() {
                           <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Stop further emails once a customer expresses interest.</div>
                        </div>
                        <input type="checkbox" defaultChecked className="toggle-checkbox sr-only peer" />
-                       <div className="w-10 h-6 bg-slate-200 dark:bg-slate-800 rounded-full peer peer-checked:bg-blue-600 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all relative border border-slate-300 dark:border-slate-750"></div>
+                       <div className="w-10 h-6 bg-slate-200 dark:bg-slate-800 rounded-full peer peer-checked:bg-blue-600 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all relative border border-slate-300 dark:border-slate-700"></div>
                     </label>
 
                     <label className="flex items-center justify-between p-3.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-800/30 transition-colors">
@@ -414,7 +414,7 @@ export default function NewCampaignPage() {
                           <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Embed standard safe tracking pixel mechanisms.</div>
                        </div>
                        <input type="checkbox" defaultChecked className="toggle-checkbox sr-only peer" />
-                       <div className="w-10 h-6 bg-slate-200 dark:bg-slate-800 rounded-full peer peer-checked:bg-blue-600 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all relative border border-slate-300 dark:border-slate-750"></div>
+                       <div className="w-10 h-6 bg-slate-200 dark:bg-slate-800 rounded-full peer peer-checked:bg-blue-600 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all relative border border-slate-300 dark:border-slate-700"></div>
                     </label>
 
                     <label className="flex items-center justify-between p-3.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-800/30 transition-colors">
@@ -423,7 +423,7 @@ export default function NewCampaignPage() {
                           <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Wrap static body content links using custom domains.</div>
                        </div>
                        <input type="checkbox" defaultChecked className="toggle-checkbox sr-only peer" />
-                       <div className="w-10 h-6 bg-slate-200 dark:bg-slate-800 rounded-full peer peer-checked:bg-blue-600 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all relative border border-slate-300 dark:border-slate-750"></div>
+                       <div className="w-10 h-6 bg-slate-200 dark:bg-slate-800 rounded-full peer peer-checked:bg-blue-600 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all relative border border-slate-300 dark:border-slate-700"></div>
                     </label>
                   </div>
                 </section>

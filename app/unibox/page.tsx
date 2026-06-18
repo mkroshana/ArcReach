@@ -398,7 +398,7 @@ export default function UniboxPage() {
                   }`}
                 >
                   <div className="flex justify-between items-start mb-1">
-                    <span className={`text-xs font-bold ${item.unread ? 'text-slate-900 dark:text-white' : 'text-slate-700 dark:text-slate-350'}`}>
+                    <span className={`text-xs font-bold ${item.unread ? 'text-slate-900 dark:text-white' : 'text-slate-700 dark:text-slate-400'}`}>
                       {item.lead?.name || item.lead?.email || 'Prospect'}
                     </span>
                     <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 font-medium">{dateStr}</span>
@@ -439,7 +439,7 @@ export default function UniboxPage() {
               <div>
                 <h2 className="text-base font-bold text-slate-900 dark:text-white mb-2 leading-tight">{selectedEmail.subject}</h2>
                 <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-slate-105 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex items-center justify-center text-blue-600 dark:text-blue-400 font-bold text-xs shadow-xs">
+                  <div className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex items-center justify-center text-blue-600 dark:text-blue-400 font-bold text-xs shadow-xs">
                     {(selectedEmail.lead?.name || 'P').charAt(0)}
                   </div>
                   <div>
@@ -499,7 +499,7 @@ export default function UniboxPage() {
                 if (msg.type === 'outbound') {
                   return (
                     <div key={msg.id} className="flex gap-3 justify-end">
-                      <div className="bg-blue-50/70 dark:bg-blue-950/20 border border-blue-150 dark:border-blue-500/10 p-4 rounded-lg rounded-tr-sm text-xs text-slate-800 dark:text-white leading-relaxed font-sans shadow-xs max-w-[80%]">
+                      <div className="bg-blue-50/70 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-500/10 p-4 rounded-lg rounded-tr-sm text-xs text-slate-800 dark:text-white leading-relaxed font-sans shadow-xs max-w-[80%]">
                         <div className="whitespace-pre-line">{msg.body}</div>
                         <div className="text-[9px] text-slate-400 dark:text-slate-500 mt-2 text-right font-mono font-medium">
                           {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -513,10 +513,10 @@ export default function UniboxPage() {
                 } else {
                   return (
                     <div key={msg.id} className="flex gap-3">
-                      <div className="w-7 h-7 rounded-md bg-white dark:bg-slate-950 border border-slate-220 dark:border-slate-800 flex items-center justify-center text-blue-600 dark:text-blue-400 text-[10px] font-bold shrink-0 shadow-xs">
+                      <div className="w-7 h-7 rounded-md bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex items-center justify-center text-blue-600 dark:text-blue-400 text-[10px] font-bold shrink-0 shadow-xs">
                         {(selectedEmail.lead?.name || 'P').charAt(0)}
                       </div>
-                      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-750 p-4 rounded-lg rounded-tl-sm text-xs text-slate-800 dark:text-white leading-relaxed font-sans shadow-xs whitespace-pre-line">
+                      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 p-4 rounded-lg rounded-tl-sm text-xs text-slate-800 dark:text-white leading-relaxed font-sans shadow-xs whitespace-pre-line">
                         {sanitizeEmailBody(msg.body)}
                         <div className="text-[9px] text-slate-400 dark:text-slate-500 mt-2 font-mono font-medium">
                           {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -530,7 +530,7 @@ export default function UniboxPage() {
               {/* Local Sent Replies stack (simulates real-time thread updating) */}
               {(sentRepliesLocal[selectedEmail.id] || []).map((sent, index) => (
                 <div key={`local-${index}`} className="flex gap-3 justify-end animate-in fade-in slide-in-from-bottom-2 duration-200">
-                  <div className="bg-blue-50/70 dark:bg-blue-950/20 border border-blue-150 dark:border-blue-500/10 p-4 rounded-lg rounded-tr-sm text-xs text-slate-800 dark:text-white leading-relaxed font-sans shadow-xs max-w-[80%]">
+                  <div className="bg-blue-50/70 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-500/10 p-4 rounded-lg rounded-tr-sm text-xs text-slate-800 dark:text-white leading-relaxed font-sans shadow-xs max-w-[80%]">
                     {sent.body}
                     <div className="text-[9px] text-slate-400 dark:text-slate-500 mt-2 text-right font-mono font-medium">{sent.sentAt}</div>
                   </div>
@@ -544,7 +544,7 @@ export default function UniboxPage() {
             {/* Reply Editor */}
             <div className="p-4 bg-slate-50/50 dark:bg-slate-950/20 border-t border-slate-200 dark:border-slate-800 bg-white">
               <div className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800/80 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-blue-500/20 transition-all shadow-xs">
-                <div className="px-3.5 py-2 bg-slate-105 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800/80 flex items-center gap-1.5 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest font-mono">
+                <div className="px-3.5 py-2 bg-slate-100 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800/80 flex items-center gap-1.5 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest font-mono">
                   <CornerUpLeft className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
                   Reply to {selectedEmail.lead?.name?.split(' ')[0] || 'Prospect'}
                 </div>
@@ -559,7 +559,7 @@ export default function UniboxPage() {
                   <div className="relative">
                     <button 
                       onClick={() => setShowTemplateMenu(!showTemplateMenu)}
-                      className="hover:text-blue-700 dark:hover:text-white text-blue-600 dark:text-blue-400 font-bold flex items-center gap-1.5 bg-blue-50 dark:bg-blue-500/10 px-3 py-1.5 rounded-lg text-[10px] uppercase border border-blue-150 dark:border-blue-500/20 transition-all shadow-2xs font-sans cursor-pointer"
+                      className="hover:text-blue-700 dark:hover:text-white text-blue-600 dark:text-blue-400 font-bold flex items-center gap-1.5 bg-blue-50 dark:bg-blue-500/10 px-3 py-1.5 rounded-lg text-[10px] uppercase border border-blue-200 dark:border-blue-500/20 transition-all shadow-2xs font-sans cursor-pointer"
                     >
                         <FileText className="w-3.5 h-3.5" />
                         Templates
@@ -573,7 +573,7 @@ export default function UniboxPage() {
                             <button 
                               key={template.name}
                               onClick={() => handleInsertTemplate(template.text)}
-                              className="w-full text-left p-2 rounded-md hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-350 transition-colors block border border-transparent hover:border-slate-200 dark:hover:border-slate-800 cursor-pointer"
+                              className="w-full text-left p-2 rounded-md hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-400 transition-colors block border border-transparent hover:border-slate-200 dark:hover:border-slate-800 cursor-pointer"
                             >
                               <div className="font-bold text-xs text-slate-900 dark:text-white">{template.name}</div>
                               <div className="text-[10px] text-slate-400 dark:text-slate-500 truncate mt-0.5 font-mono">{template.text}</div>

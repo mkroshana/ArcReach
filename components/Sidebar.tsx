@@ -98,7 +98,7 @@ export function Sidebar() {
         </div>
         <button
           onClick={handleLogout}
-          className="w-full py-1.5 rounded-lg text-[9px] font-bold text-center border cursor-pointer border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-350 hover:bg-slate-100 dark:hover:bg-slate-800/40 transition-colors uppercase tracking-wider"
+          className="w-full py-1.5 rounded-lg text-[9px] font-bold text-center border cursor-pointer border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/40 transition-colors uppercase tracking-wider"
         >
           Log Out
         </button>

@@ -18,6 +18,10 @@ import {
   MousePointerClick,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
   Mail,
   MessageSquare,
   Clock,
@@ -42,6 +46,7 @@ export default function LeadsPage() {
   // Search and Filter states
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('All');
+  const [currentPage, setCurrentPage] = useState(1);
   
   // Verification progress states
   const [isVerifying, setIsVerifying] = useState(false);
@@ -761,6 +766,17 @@ export default function LeadsPage() {
     return matchesSearch && matchesStatus;
   });
 
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, filterStatus, activeTab, selectedGroupIdForView]);
+
+  const itemsPerPage = 10;
+  const totalPages = Math.ceil(filteredLeads.length / itemsPerPage);
+  const paginatedLeads = filteredLeads.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+  const totalLeads = filteredLeads.length;
+  const startIndex = totalLeads === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1;
+  const endIndex = Math.min(currentPage * itemsPerPage, totalLeads);
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500 max-w-5xl mx-auto">
       {/* Header */}
@@ -1212,21 +1228,22 @@ export default function LeadsPage() {
                 <p className="font-medium tracking-wide">Syncing CRM records...</p>
               </div>
             ) : (
-              <div className="w-full overflow-x-auto">
+              <>
+                <div className="w-full overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="border-b border-slate-202 dark:border-slate-800/80 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest bg-slate-50/20 dark:bg-slate-955/10">
                       <th className="px-5 py-3 w-10">
                         <input
                           type="checkbox"
-                          checked={filteredLeads.length > 0 && filteredLeads.every(l => selectedLeadIds.includes(l.id))}
+                          checked={paginatedLeads.length > 0 && paginatedLeads.every(l => selectedLeadIds.includes(l.id))}
                           onChange={(e) => {
                             if (e.target.checked) {
-                              const newSelections = Array.from(new Set([...selectedLeadIds, ...filteredLeads.map(l => l.id)]));
+                              const newSelections = Array.from(new Set([...selectedLeadIds, ...paginatedLeads.map(l => l.id)]));
                               setSelectedLeadIds(newSelections);
                             } else {
-                              const filteredIds = filteredLeads.map(l => l.id);
-                              setSelectedLeadIds(selectedLeadIds.filter(id => !filteredIds.includes(id)));
+                              const paginatedIds = paginatedLeads.map(l => l.id);
+                              setSelectedLeadIds(selectedLeadIds.filter(id => !paginatedIds.includes(id)));
                             }
                           }}
                           onClick={(e) => e.stopPropagation()}
@@ -1243,7 +1260,7 @@ export default function LeadsPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-105 dark:divide-slate-800/50 text-slate-700 dark:text-slate-350">
-                    {filteredLeads.map((lead) => (
+                    {paginatedLeads.map((lead) => (
                       <tr 
                         key={lead.id} 
                         onClick={() => {
@@ -1374,7 +1391,80 @@ export default function LeadsPage() {
                   </tbody>
                 </table>
               </div>
-            )}
+
+              {/* Pagination Controls */}
+              {totalLeads > 0 && (
+                <div className="px-5 py-4 border-t border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row justify-between items-center gap-4 bg-slate-50/20 dark:bg-slate-955/10">
+                  <div className="text-xs text-slate-500 dark:text-slate-400">
+                    Showing <span className="font-semibold text-slate-700 dark:text-white">{startIndex}</span> to{' '}
+                    <span className="font-semibold text-slate-700 dark:text-white">{endIndex}</span> of{' '}
+                    <span className="font-semibold text-slate-700 dark:text-white">{totalLeads}</span> leads
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      disabled={currentPage === 1}
+                      onClick={() => setCurrentPage(1)}
+                      className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                      title="First Page"
+                    >
+                      <ChevronsLeft className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      disabled={currentPage === 1}
+                      onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                      className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                      title="Previous Page"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                    </button>
+                    
+                    {/* Page numbers */}
+                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                      let pageNum = currentPage;
+                      if (currentPage <= 3) {
+                        pageNum = i + 1;
+                      } else if (currentPage >= totalPages - 2) {
+                        pageNum = totalPages - 4 + i;
+                      } else {
+                        pageNum = currentPage - 2 + i;
+                      }
+                      if (pageNum < 1 || pageNum > totalPages) return null;
+                      return (
+                        <button
+                          key={pageNum}
+                          onClick={() => setCurrentPage(pageNum)}
+                          className={`px-3 py-1 rounded-md text-xs font-semibold border transition-all cursor-pointer ${
+                            currentPage === pageNum
+                              ? 'bg-blue-600 border-blue-600 text-white shadow-xs'
+                              : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
+                          }`}
+                        >
+                          {pageNum}
+                        </button>
+                      );
+                    })}
+
+                    <button
+                      disabled={currentPage === totalPages}
+                      onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                      className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                      title="Next Page"
+                    >
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      disabled={currentPage === totalPages}
+                      onClick={() => setCurrentPage(totalPages)}
+                      className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                      title="Last Page"
+                    >
+                      <ChevronsRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
           </>
         )}
 

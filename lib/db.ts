@@ -100,7 +100,12 @@ export const db = {
           senderAccount: true,
           steps: { orderBy: { stepOrder: 'asc' } },
           enrollments: true,
-          dispatches: true
+          dispatches: {
+            select: {
+              id: true,
+              subject: true
+            }
+          }
         },
         orderBy: { createdAt: 'desc' }
       });
@@ -111,7 +116,12 @@ export const db = {
         senderAccount: true,
         steps: { orderBy: { stepOrder: 'asc' } },
         enrollments: true,
-        dispatches: true
+        dispatches: {
+          select: {
+            id: true,
+            subject: true
+          }
+        }
       },
       orderBy: { createdAt: 'desc' }
     });

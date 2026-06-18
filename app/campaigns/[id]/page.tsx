@@ -173,7 +173,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
   const loadCampaign = async () => {
     try {
       setLoading(true);
-      const res = await fetch(`/api/campaigns/${campaignId}`);
+      const res = await fetch(`/api/campaigns/${campaignId}?t=${Date.now()}`);
       if (res.ok) {
         const data = await res.json();
         setCampaign(data);
@@ -211,6 +211,35 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
       setLoading(false);
     }
   };
+
+  const refreshCampaignTelemetry = async () => {
+    try {
+      const res = await fetch(`/api/campaigns/${campaignId}?t=${Date.now()}`);
+      if (res.ok) {
+        const data = await res.json();
+        setCampaign(data);
+        if (data.status !== status) {
+          setStatus(data.status);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to auto-refresh campaign telemetry:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (!campaign) return;
+    const isCampaignActive = status === 'Active';
+    const isCampaignRunning = runningCampaign;
+
+    if (!isCampaignActive && !isCampaignRunning) return;
+
+    const interval = setInterval(() => {
+      refreshCampaignTelemetry();
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [campaignId, status, runningCampaign, !!campaign]);
 
   useEffect(() => {
     loadCampaign();

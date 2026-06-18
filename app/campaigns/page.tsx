@@ -175,7 +175,7 @@ export default function CampaignsPage() {
       }
 
       // Load campaigns with constraints
-      const cmpRes = await fetch('/api/campaigns');
+      const cmpRes = await fetch(`/api/campaigns?t=${Date.now()}`);
       if (cmpRes.ok) {
         const cmpData = await cmpRes.json();
         setCampaigns(cmpData);
@@ -187,9 +187,34 @@ export default function CampaignsPage() {
     }
   };
 
+  const refreshCampaigns = async () => {
+    try {
+      const cmpRes = await fetch(`/api/campaigns?t=${Date.now()}`);
+      if (cmpRes.ok) {
+        const cmpData = await cmpRes.json();
+        setCampaigns(cmpData);
+      }
+    } catch (err) {
+      console.error('Failed to auto-refresh campaigns:', err);
+    }
+  };
+
   useEffect(() => {
     loadData();
   }, []);
+
+  const anyCampaignActive = campaigns.some(c => c.status === 'Active');
+  const isRunning = executingId !== null;
+
+  useEffect(() => {
+    if (!anyCampaignActive && !isRunning) return;
+
+    const interval = setInterval(() => {
+      refreshCampaigns();
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [anyCampaignActive, isRunning]);
 
   const handleCreateCampaign = async (e: React.FormEvent) => {
     e.preventDefault();

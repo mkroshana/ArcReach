@@ -27,8 +27,14 @@ export async function GET(req: NextRequest) {
         }
       };
       inboundWhere = {
-        senderAccount: {
-          userId: session.id
+        lead: {
+          enrollments: {
+            some: {
+              campaign: {
+                userId: session.id
+              }
+            }
+          }
         }
       };
     }

@@ -30,31 +30,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
-const mockLogsPool = [
-  'Dispatched automated daily warmup outbound email to target-rec-12@warmup-space.io',
-  'Received reply from warm-client-88@reputation.net (Topic: Scheduling discussion)',
-  'Saved inbound email from Spam folder and marked as Important (sender: partner-warmup-3@arcreach.net)',
-  'Moved automated newsletter email from Promotions list to primary Inbox (sender: agency-warm-12@outreach-pool.org)',
-  'Simulated natural user reading speed on inbound thread from partner-node-442@warmup.network',
-  'Successfully replied to pending warmup discussion thread: "Re: Quick Sync Q4"'
-];
 
-const getSmtpStatusLabel = (provider: string) => {
-  switch (provider) {
-    case 'AZURE':
-      return '[Inactive - Routed via Azure Communication Services]';
-    case 'MOCK':
-      return '[Inactive - Simulated via Development Sandbox]';
-    case 'GOOGLE':
-      return '[Active - Fallback to global Google Workspace]';
-    case 'MICROSOFT':
-      return '[Active - Fallback to global Microsoft 365]';
-    case 'SMTP':
-      return '[Active - Fallback to global SMTP]';
-    default:
-      return '';
-  }
-};
 
 const isSmtpDisabled = (provider: string) => {
   return provider === 'AZURE' || provider === 'MOCK';
@@ -68,7 +44,7 @@ export default function AccountsPage() {
 
   const [selectedWarmupAccount, setSelectedWarmupAccount] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<'accounts' | 'warmup'>('accounts');
-  const [liveLogs, setLiveLogs] = useState<string[]>([]);
+
 
   // Modal States
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -251,89 +227,7 @@ export default function AccountsPage() {
     loadData();
   }, []);
 
-  // Warmup live feed logs simulation & database state updates
-  useEffect(() => {
-    if (selectedWarmupAccount && selectedWarmupAccount.warmupEnabled) {
-      const interval = setInterval(async () => {
-        const logIndex = Math.floor(Math.random() * mockLogsPool.length);
-        const logMessage = mockLogsPool[logIndex];
-        const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        const newLog = `[${time}] - ${logMessage}`;
-        setLiveLogs(prev => [newLog, ...prev.slice(0, 9)]);
 
-        // 1. Calculate incremental warmup stats
-        const updates: any = {
-          id: selectedWarmupAccount.id,
-          warmupSent: (selectedWarmupAccount.warmupSent || 0) + 1,
-        };
-
-        if (logMessage.includes('Spam folder')) {
-          updates.savedSpam = (selectedWarmupAccount.savedSpam || 0) + 1;
-        } else if (logMessage.includes('Promotions list')) {
-          updates.savedPromo = (selectedWarmupAccount.savedPromo || 0) + 1;
-        } else if (logMessage.includes('reply') || logMessage.includes('replied')) {
-          updates.warmupReplies = (selectedWarmupAccount.warmupReplies || 0) + 1;
-        }
-
-        // Slightly float reputation score up towards 100.00
-        const currentRep = Number(selectedWarmupAccount.reputationScore) || 98.0;
-        if (currentRep < 100) {
-          updates.reputationScore = Math.min(100, currentRep + 0.05);
-        }
-
-        // 2. Sync updates to PostgreSQL database
-        try {
-          const res = await fetch('/api/accounts', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(updates),
-          });
-          if (res.ok) {
-            const updatedAccount = await res.json();
-            setAccounts(prev => prev.map(acc => acc.id === selectedWarmupAccount.id ? updatedAccount : acc));
-            setSelectedWarmupAccount(updatedAccount);
-          }
-        } catch (e) {
-          console.error('Failed to sync warmup autopilot database metrics:', e);
-        }
-      }, 7000);
-
-      return () => clearInterval(interval);
-    }
-  }, [selectedWarmupAccount]);
-
-  const handleToggleWarmup = async (accountId: string, e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
-    
-    const targetAccount = accounts.find(a => a.id === accountId);
-    if (!targetAccount) return;
-
-    const nextWarmupState = !targetAccount.warmupEnabled;
-
-    try {
-      const res = await fetch('/api/accounts', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: accountId,
-          warmupEnabled: nextWarmupState,
-        }),
-      });
-
-      if (!res.ok) {
-        throw new Error('Failed to toggle warmup autopilot');
-      }
-
-      const updated = await res.json();
-      setAccounts(prev => prev.map(acc => acc.id === accountId ? updated : acc));
-      if (selectedWarmupAccount?.id === accountId) {
-        setSelectedWarmupAccount(updated);
-      }
-      showToast(nextWarmupState ? 'Autopilot exchange loop enabled' : 'Autopilot sleep triggered');
-    } catch {
-      showToast('Error syncing warmup status', 'error');
-    }
-  };
 
   const handleUpdateWarmupSettings = async (field: string, value: any) => {
     if (!selectedWarmupAccount) return;
@@ -555,7 +449,7 @@ export default function AccountsPage() {
           <header className="flex justify-between items-center pb-4 border-b border-slate-200 dark:border-slate-800 mb-4">
             <div>
               <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white mb-0.5">Email Senders</h1>
-              <p className="text-slate-500 dark:text-slate-400 text-xs">Connect domains, configure throttling frequencies, and monitor safety reputation metrics.</p>
+              <p className="text-slate-500 dark:text-slate-400 text-xs">Configure domains, configure throttling frequencies, and monitor network delivery limits.</p>
             </div>
             <button 
               onClick={handleOpenAddModal}
@@ -569,24 +463,22 @@ export default function AccountsPage() {
           {/* Key Indicators Panel */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
             <div className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1b1c26] rounded-xl p-4 shadow-xs">
-              <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-widest">Total Air-Gap Mailboxes</p>
-              <h3 className="text-xl font-bold mt-1 text-slate-905 dark:text-white">{loading ? '...' : accounts.length} Profiles</h3>
+              <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-widest">Total Senders</p>
+              <h3 className="text-xl font-bold mt-1 text-slate-905 dark:text-white">{loading ? '...' : accounts.length} Senders</h3>
             </div>
             <div className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1b1c26] rounded-xl p-4 shadow-xs">
               <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-widest flex items-center gap-1.5 font-sans">
-                Average reputation
+                Active Senders
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
               </p>
               <h3 className="text-xl font-bold mt-1 text-emerald-600 dark:text-emerald-400 font-mono">
-                {accounts.length > 0 
-                  ? (accounts.reduce((sum, a) => sum + (a.reputationScore || 100), 0) / accounts.length).toFixed(1) + '%' 
-                  : '100%'}
+                {accounts.filter(a => a.status === 'Active').length} Active
               </h3>
             </div>
             <div className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1b1c26] rounded-xl p-4 shadow-xs">
-              <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-widest">Warmups Transferred</p>
+              <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-widest">Combined Daily Limit</p>
               <h3 className="text-xl font-bold mt-1 text-blue-600 dark:text-blue-400 font-mono">
-                {accounts.reduce((sum, a) => sum + (a.warmupSent || 0), 0).toLocaleString()} Outbound
+                {accounts.reduce((sum, a) => sum + (a.dailyLimit || 0), 0).toLocaleString()} Emails
               </h3>
             </div>
           </div>
@@ -607,12 +499,12 @@ export default function AccountsPage() {
               <div className="w-full overflow-x-auto animate-in fade-in duration-300">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="border-b border-slate-200 dark:border-[#1b1c26] text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest bg-slate-50/20 dark:bg-slate-950/10">
+                    <tr className="border-b border-slate-200 dark:border-[#1b1c26] text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest bg-slate-50/20 dark:bg-slate-955/10">
                       <th className="px-5 py-3">Sender Mailbox</th>
-                      <th className="px-5 py-3">Warmup Autopilot</th>
+                      <th className="px-5 py-3">Connection Mode</th>
                       <th className="px-5 py-3">Daily Throttling Limit</th>
                       <th className="px-5 py-3">Assigned Owner</th>
-                      <th className="px-5 py-3">Deliverability Health</th>
+                      <th className="px-5 py-3">Status</th>
                       <th className="px-5 py-3 text-right">Configure</th>
                     </tr>
                   </thead>
@@ -623,13 +515,6 @@ export default function AccountsPage() {
                         onClick={() => {
                           setSelectedWarmupAccount(account);
                           setActiveTab('warmup');
-                          // Populate initial live logs
-                          const initialLogs = Array.from({ length: 4 }).map(() => {
-                            const index = Math.floor(Math.random() * mockLogsPool.length);
-                            const time = new Date(Date.now() - Math.random() * 3600000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                            return `[${time}] - ${mockLogsPool[index]}`;
-                          });
-                          setLiveLogs(initialLogs);
                         }}
                         className="hover:bg-slate-50/50 dark:hover:bg-white/[0.01] transition-all group cursor-pointer"
                       >
@@ -644,22 +529,14 @@ export default function AccountsPage() {
                             </div>
                           </div>
                         </td>
-                        <td className="px-5 py-3.5" onClick={(e) => e.stopPropagation()}>
-                          <div className="flex items-center gap-2">
-                            <button 
-                              onClick={(e) => handleToggleWarmup(account.id, e)}
-                              className={`p-1.5 rounded-lg border flex items-center justify-center transition-colors shadow-2xs cursor-pointer ${
-                                account.warmupEnabled 
-                                  ? 'bg-rose-50 dark:bg-[#9d174d]/10 border-rose-200 dark:border-[#9d174d]/40 text-rose-600 dark:text-rose-450' 
-                                  : 'bg-slate-100 dark:bg-[#1b1c26] border-slate-200 dark:border-[#20222f] text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                              }`}
-                            >
-                              <Flame className="w-3.5 h-3.5 animate-pulse" />
-                            </button>
-                            <span className={`text-[10px] font-bold uppercase tracking-wider ${account.warmupEnabled ? 'text-rose-600 dark:text-rose-400 animate-pulse' : 'text-slate-400 dark:text-slate-500'}`}>
-                              {account.warmupEnabled ? 'AUTOPILOT' : 'OFF'}
-                            </span>
-                          </div>
+                        <td className="px-5 py-3.5">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[9px] font-bold border uppercase tracking-wider font-mono
+                            ${(account.provider === 'SendGrid Relay Node' || account.provider === 'Azure Relay Node') 
+                              ? 'bg-amber-50 dark:bg-amber-505/10 text-amber-700 dark:text-amber-450 border-amber-200 dark:border-amber-500/20' 
+                              : 'bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-450 border-blue-200 dark:border-blue-500/20'}
+                          `}>
+                            {(account.provider === 'SendGrid Relay Node' || account.provider === 'Azure Relay Node') ? 'Send-Only Relay' : 'SMTP & IMAP'}
+                          </span>
                         </td>
                         <td className="px-5 py-3.5 font-mono text-[11px]">
                           <div>{account.dailyLimit} daily max</div>
@@ -675,11 +552,10 @@ export default function AccountsPage() {
                         </td>
                         <td className="px-5 py-3.5">
                           <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wider
-                            ${account.status === 'Active' ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-450 border-emerald-200 dark:border-emerald-500/20' : ''}
-                            ${account.status === 'Warning' ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-450 border-amber-200 dark:border-amber-500/20' : ''}
+                            ${account.status === 'Active' ? 'bg-emerald-50 dark:bg-emerald-505/10 text-emerald-700 dark:text-emerald-450 border-emerald-200 dark:border-emerald-500/20' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700'}
                           `}>
-                            {account.status === 'Active' ? <CheckCircle2 className="w-3 h-3 text-emerald-500" /> : <AlertCircle className="w-3 h-3 text-amber-500" />}
-                            {account.reputationScore}% Rating
+                            {account.status === 'Active' ? <CheckCircle2 className="w-3 h-3 text-emerald-500" /> : <AlertCircle className="w-3 h-3 text-slate-400" />}
+                            {account.status}
                           </span>
                         </td>
                         <td className="px-5 py-3.5 text-right">
@@ -709,12 +585,12 @@ export default function AccountsPage() {
             <div className="flex-1">
               <div className="flex items-center gap-3">
                 <h1 className="text-lg font-bold text-slate-900 dark:text-white mb-0.5">{selectedWarmupAccount.emailAddress}</h1>
-                <span className="bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 text-[10px] font-bold px-2.5 py-0.5 border border-rose-150 dark:border-[#961747]/30 rounded uppercase tracking-wider flex items-center gap-1 font-mono">
-                  <Flame className="w-3 h-3 animate-pulse" />
-                  Deliverability loops
+                <span className="bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 text-[10px] font-bold px-2.5 py-0.5 border border-blue-150 dark:border-blue-500/20 rounded uppercase tracking-wider flex items-center gap-1 font-mono">
+                  <Sliders className="w-3 h-3" />
+                  {selectedWarmupAccount.provider}
                 </span>
               </div>
-              <p className="text-slate-500 dark:text-slate-400 text-xs font-medium">Automate peer exchanges across secure clean IP addresses to lift domain safety scores.</p>
+              <p className="text-slate-500 dark:text-slate-400 text-xs font-medium">Configure sending rate limits, connection details, and credentials for this mailbox.</p>
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -748,167 +624,203 @@ export default function AccountsPage() {
             </div>
           </div>
 
-          {/* Quick Metrics */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1b1c26] rounded-xl p-4 shadow-xs">
-              <div className="flex justify-between items-start">
-                <div>
-                  <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-widest">Warmup Dispatched</p>
-                  <h3 className="text-xl font-bold mt-1 text-slate-900 dark:text-white font-mono">{selectedWarmupAccount.warmupSent}</h3>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 animate-in fade-in duration-300">
+            {/* Column 1: Connection Credentials */}
+            <div className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1b1c26] rounded-xl p-5 space-y-4 shadow-xs h-fit">
+              <h2 className="text-xs font-bold uppercase tracking-widest text-slate-700 dark:text-slate-400 flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-2.5">
+                <Sliders className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                Mailbox Connection Credentials
+              </h2>
+              
+              <form onSubmit={handleSaveAccountCredentials} className="space-y-4">
+                <div className="space-y-1.5 max-w-xs">
+                  <label className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-widest font-bold">Reply-To Address (Optional)</label>
+                  <input 
+                    type="email" 
+                    placeholder="e.g., replies@mycompany.com"
+                    value={editReplyTo}
+                    onChange={(e) => setEditReplyTo(e.target.value)}
+                    className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-3 py-2 outline-none text-xs font-mono"
+                  />
                 </div>
-                <div className="w-8 h-8 bg-rose-50 dark:bg-rose-500/10 rounded-lg flex items-center justify-center text-rose-600 dark:text-rose-400 border border-rose-150 dark:border-rose-500/20">
-                  <Flame className="w-4 h-4" />
-                </div>
-              </div>
-              <p className="text-[10px] text-rose-650 dark:text-rose-400 mt-2 flex items-center gap-1 font-bold">
-                <TrendingUp className="w-3 h-3" />
-                Auto-ramping actively
-              </p>
-            </div>
 
-            <div className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1b1c26] rounded-xl p-4 shadow-xs">
-              <div className="flex justify-between items-start">
-                <div>
-                  <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-widest">Saved from Spam</p>
-                  <h2 className="text-xl font-bold mt-1 text-emerald-600 dark:text-emerald-400 font-mono">+{selectedWarmupAccount.savedSpam}</h2>
-                </div>
-                <div className="w-8 h-8 bg-emerald-50 dark:bg-emerald-500/10 rounded-lg flex items-center justify-center text-emerald-600 dark:text-emerald-400 border border-emerald-150 dark:border-emerald-500/20">
-                  <ShieldAlert className="w-4 h-4" />
-                </div>
-              </div>
-              <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-2 font-medium">Auto-moved to Primary Folders</p>
-            </div>
-
-            <div className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1b1c26] rounded-xl p-4 shadow-xs">
-              <div className="flex justify-between items-start">
-                <div>
-                  <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-widest">Saved from Promo</p>
-                  <h2 className="text-xl font-bold mt-1 text-blue-600 dark:text-blue-400 font-mono">+{selectedWarmupAccount.savedPromo}</h2>
-                </div>
-                <div className="w-8 h-8 bg-blue-50 dark:bg-blue-500/10 rounded-lg flex items-center justify-center text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-500/20">
-                  <Inbox className="w-4 h-4" />
-                </div>
-              </div>
-              <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-2 font-medium">Re-routed into Primary mailbox</p>
-            </div>
-
-            <div className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1b1c26] rounded-xl p-4 shadow-xs">
-              <div className="flex justify-between items-start">
-                <div>
-                  <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-widest">Reply Goal Target</p>
-                  <h2 className="text-xl font-bold mt-1 text-blue-600 dark:text-blue-400 font-mono">{selectedWarmupAccount.warmupReplies}%</h2>
-                </div>
-                <div className="w-8 h-8 bg-blue-50 dark:bg-blue-500/10 rounded-lg flex items-center justify-center text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-500/20">
-                  <MessageSquare className="w-4 h-4" />
-                </div>
-              </div>
-              <p className="text-[10px] text-blue-600 dark:text-blue-300 mt-2 font-medium">Automatic conversation trigger</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 animate-in fade-in duration-300">
-            {/* Left Column: Settings Stack */}
-            <div className="space-y-4">
-              {/* Controls */}
-              <div className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1b1c26] rounded-xl p-5 space-y-5 shadow-xs">
-                <h2 className="text-xs font-bold uppercase tracking-widest text-slate-700 dark:text-slate-400 flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-2.5">
-                  <Sliders className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                  Warmup Autopilot controls
-                </h2>
-
-                <div className="space-y-4">
-                  <label className="flex items-center justify-between p-3.5 bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] rounded-xl cursor-pointer hover:bg-slate-100/50 dark:hover:bg-white/[0.01] transition-colors shadow-2xs">
-                     <div>
-                        <div className="text-xs font-bold text-slate-850 dark:text-white uppercase tracking-wider">Reputation Warmup algorithm</div>
-                        <div className="text-[11px] text-slate-500 dark:text-slate-550 mt-0.5 leading-normal font-medium">Allow this domain to participate in peer deliverability loops.</div>
-                     </div>
-                     <input 
-                       type="checkbox" 
-                       checked={selectedWarmupAccount.warmupEnabled}
-                       onChange={() => handleToggleWarmup(selectedWarmupAccount.id)}
-                       className="toggle-checkbox sr-only peer" 
-                     />
-                     <div className="w-10 h-5.5 bg-slate-200 dark:bg-gray-800 rounded-full peer peer-checked:bg-rose-500 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4.5 after:w-4.5 after:transition-all relative border border-slate-300 dark:border-[#1b1c26]"></div>
-                   </label>
-
-                  <div className="space-y-2.5 mt-2">
-                     <div className="flex justify-between text-xs">
-                        <span className="text-slate-550 dark:text-slate-400 font-semibold uppercase tracking-wider text-[10px]">Daily Maximum Outbound cap</span>
-                        <span className="font-bold text-rose-600 dark:text-rose-450 font-mono">{selectedWarmupAccount.warmupLimit} emails/day</span>
-                     </div>
-                     <input 
-                        type="range" 
-                        min="10" 
-                        max="100" 
-                        value={selectedWarmupAccount.warmupLimit}
-                        onChange={(e) => handleUpdateWarmupSettings('warmupLimit', parseInt(e.target.value))}
-                        className="w-full accent-rose-500 h-1 bg-slate-200 dark:bg-gray-800 rounded-lg cursor-pointer"
-                     />
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] text-slate-405 dark:text-slate-500 uppercase tracking-widest font-bold">Ramp-Up Slope / Day</label>
-                      <input 
-                        type="number" 
-                        min="1"
-                        max="10"
-                        value={selectedWarmupAccount.warmupRamp}
-                        onChange={(e) => handleUpdateWarmupSettings('warmupRamp', parseInt(e.target.value))}
-                        className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-3 py-2 outline-none text-xs font-mono"
-                      />
+                {selectedWarmupAccount.provider !== 'Azure Relay Node' && (
+                  <div className="p-3.5 rounded-xl border border-slate-200 dark:border-[#1e202d] bg-slate-50/30 dark:bg-[#10121a]/50 space-y-3">
+                    <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                      {selectedWarmupAccount.provider === 'Google Workspace'
+                        ? 'Outbound Mail Delivery [Google App Password Method]'
+                        : 'Outbound Mail Delivery [SMTP]'}
+                    </h4>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">SMTP Host</label>
+                        <input 
+                          type="text" 
+                          placeholder="smtp.example.com"
+                          value={editSmtpHost}
+                          onChange={(e) => setEditSmtpHost(e.target.value)}
+                          className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">SMTP Port</label>
+                        <input 
+                          type="text" 
+                          placeholder="587"
+                          value={editSmtpPort}
+                          onChange={(e) => setEditSmtpPort(e.target.value)}
+                          className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono"
+                        />
+                      </div>
                     </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] text-slate-405 dark:text-slate-500 uppercase tracking-widest font-bold">Simulated Dialog Reply (%)</label>
-                      <input 
-                        type="number" 
-                        min="5" 
-                        max="100"
-                        value={selectedWarmupAccount.warmupReplies}
-                        onChange={(e) => handleUpdateWarmupSettings('warmupReplies', parseInt(e.target.value))}
-                        className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-202 dark:border-[#1f2130] text-slate-805 dark:text-white rounded-lg px-3 py-2 outline-none text-xs font-mono"
-                      />
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-slate-550 dark:text-slate-400 uppercase tracking-widest leading-none">SMTP Username</label>
+                        <input 
+                          type="text" 
+                          placeholder="user@domain.com"
+                          value={editSmtpUser}
+                          onChange={(e) => setEditSmtpUser(e.target.value)}
+                          className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-slate-550 dark:text-slate-400 uppercase tracking-widest leading-none">SMTP Password</label>
+                        <div className="relative">
+                          <input 
+                            type={showEditSmtpPass ? "text" : "password"} 
+                            placeholder="Password or App Key"
+                            value={editSmtpPass}
+                            onChange={(e) => setEditSmtpPass(e.target.value)}
+                            className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 pr-8 text-xs font-mono"
+                          />
+                          <button 
+                            type="button"
+                            onClick={() => setShowEditSmtpPass(!showEditSmtpPass)}
+                            className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-605 dark:hover:text-slate-300 cursor-pointer"
+                          >
+                            {showEditSmtpPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </div>
+                )}
 
-                  {/* Granular Frequencies & Throttling Section in config */}
-                  <div className="border-t border-slate-100 dark:border-slate-800 pt-4 space-y-3">
-                    <h3 className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
-                      <Gauge className="w-3.5 h-3.5" />
-                      Throttling & sending frequency
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {selectedWarmupAccount.provider !== 'SendGrid Relay Node' && selectedWarmupAccount.provider !== 'Azure Relay Node' && (
+                  <div className="p-3.5 rounded-xl border border-slate-200 dark:border-[#1e202d] bg-slate-50/30 dark:bg-[#10121a]/50 space-y-3">
+                    <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                      {selectedWarmupAccount.provider === 'Google Workspace'
+                        ? 'Inbound Reply Sync [Google App Password Method]'
+                        : 'Inbound Reply Sync [IMAP]'}
+                    </h4>
+                    <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Per Minute</label>
+                        <label className="text-[9px] font-bold text-slate-550 dark:text-slate-400 uppercase tracking-widest leading-none">IMAP Host</label>
                         <input 
-                          type="number" 
-                          min="1"
-                          value={selectedWarmupAccount.minuteLimit}
-                          onChange={(e) => handleUpdateWarmupSettings('minuteLimit', parseInt(e.target.value))}
-                          className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-202 dark:border-[#1f2130] text-slate-805 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono rounded"
+                          type="text" 
+                          placeholder="imap.example.com"
+                          value={editImapHost}
+                          onChange={(e) => setEditImapHost(e.target.value)}
+                          className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono"
                         />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Per Hour</label>
+                        <label className="text-[9px] font-bold text-slate-550 dark:text-slate-400 uppercase tracking-widest leading-none">IMAP Port</label>
                         <input 
-                          type="number" 
-                          min="1"
-                          value={selectedWarmupAccount.hourlyLimit}
-                          onChange={(e) => handleUpdateWarmupSettings('hourlyLimit', parseInt(e.target.value))}
-                          className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-202 dark:border-[#1f2130] text-slate-805 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono rounded"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Per Day</label>
-                        <input 
-                          type="number" 
-                          min="10"
-                          value={selectedWarmupAccount.dailyLimit}
-                          onChange={(e) => handleUpdateWarmupSettings('dailyLimit', parseInt(e.target.value))}
-                          className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-202 dark:border-[#1f2130] text-slate-805 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono rounded"
+                          type="text" 
+                          placeholder="993"
+                          value={editImapPort}
+                          onChange={(e) => setEditImapPort(e.target.value)}
+                          className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono"
                         />
                       </div>
                     </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-slate-555 dark:text-slate-400 uppercase tracking-widest leading-none">IMAP Username</label>
+                        <input 
+                          type="text" 
+                          placeholder="user@domain.com"
+                          value={editImapUser}
+                          onChange={(e) => setEditImapUser(e.target.value)}
+                          className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-808 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-bold text-slate-555 dark:text-slate-404 uppercase tracking-widest leading-none">IMAP Password</label>
+                        <div className="relative">
+                          <input 
+                            type={showEditImapPass ? "text" : "password"} 
+                            placeholder="Password or App Key"
+                            value={editImapPass}
+                            onChange={(e) => setEditImapPass(e.target.value)}
+                            className="w-full bg-white dark:bg-[#0e1017] border border-slate-202 dark:border-[#1f2130] text-slate-888 dark:text-white rounded-lg px-2.5 py-1.5 pr-8 text-xs font-mono"
+                          />
+                          <button 
+                            type="button"
+                            onClick={() => setShowEditImapPass(!showEditImapPass)}
+                            className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer"
+                          >
+                            {showEditImapPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex justify-end pt-2">
+                  <button 
+                    type="submit" 
+                    disabled={savingCredentials}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-600/50 text-white font-semibold rounded-lg text-xs transition-colors shadow-2xs cursor-pointer flex items-center gap-1.5 font-sans"
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    {savingCredentials ? 'Saving...' : 'Save Connection Credentials'}
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            {/* Column 2: Throttling & sending frequency */}
+            <div className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1b1c26] rounded-xl p-5 space-y-4 shadow-xs h-fit">
+              <h2 className="text-xs font-bold uppercase tracking-widest text-slate-700 dark:text-slate-400 flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-2.5">
+                <Gauge className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                Throttling & sending frequency
+              </h2>
+              
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Per Minute</label>
+                    <input 
+                      type="number" 
+                      min="1"
+                      value={selectedWarmupAccount.minuteLimit}
+                      onChange={(e) => handleUpdateWarmupSettings('minuteLimit', parseInt(e.target.value))}
+                      className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Per Hour</label>
+                    <input 
+                      type="number" 
+                      min="1"
+                      value={selectedWarmupAccount.hourlyLimit}
+                      onChange={(e) => handleUpdateWarmupSettings('hourlyLimit', parseInt(e.target.value))}
+                      className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Per Day</label>
+                    <input 
+                      type="number" 
+                      min="10"
+                      value={selectedWarmupAccount.dailyLimit}
+                      onChange={(e) => handleUpdateWarmupSettings('dailyLimit', parseInt(e.target.value))}
+                      className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono"
+                    />
                   </div>
                 </div>
 
@@ -918,203 +830,6 @@ export default function AccountsPage() {
                     <strong>Throttling Advice:</strong> To protect domain DNS records, we randomize interval spaces heavily. A minute limit of 5 is recommended for new mailboxes.
                   </p>
                 </div>
-              </div>
-
-              {/* Connection Credentials Card */}
-              <div className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1b1c26] rounded-xl p-5 space-y-4 shadow-xs">
-                <h2 className="text-xs font-bold uppercase tracking-widest text-slate-700 dark:text-slate-400 flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-2.5">
-                  <Sliders className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                  Mailbox Connection Credentials
-                </h2>
-                
-                <form onSubmit={handleSaveAccountCredentials} className="space-y-4">
-                  <div className="space-y-1.5 max-w-xs">
-                    <label className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-widest font-bold">Reply-To Address (Optional)</label>
-                    <input 
-                      type="email" 
-                      placeholder="e.g., replies@mycompany.com"
-                      value={editReplyTo}
-                      onChange={(e) => setEditReplyTo(e.target.value)}
-                      className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-3 py-2 outline-none text-xs font-mono"
-                    />
-                  </div>
-
-                  {!isSmtpDisabled(globalActiveProvider) && (
-                    <div className="p-3.5 rounded-xl border border-slate-200 dark:border-[#1e202d] bg-slate-50/30 dark:bg-[#10121a]/50 space-y-3">
-                      <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                        {selectedWarmupAccount.provider === 'Google Workspace'
-                          ? `Outbound Mail Delivery [Google App Password Method] ${getSmtpStatusLabel(globalActiveProvider)}`
-                          : `Outbound Mail Delivery [SMTP] ${getSmtpStatusLabel(globalActiveProvider)}`}
-                      </h4>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-1">
-                          <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">SMTP Host</label>
-                          <input 
-                            type="text" 
-                            disabled={isSmtpDisabled(globalActiveProvider)}
-                            placeholder="smtp.example.com"
-                            value={editSmtpHost}
-                            onChange={(e) => setEditSmtpHost(e.target.value)}
-                            className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono disabled:opacity-50"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">SMTP Port</label>
-                          <input 
-                            type="text" 
-                            disabled={isSmtpDisabled(globalActiveProvider)}
-                            placeholder="587"
-                            value={editSmtpPort}
-                            onChange={(e) => setEditSmtpPort(e.target.value)}
-                            className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono disabled:opacity-50"
-                          />
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-1">
-                          <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">SMTP Username</label>
-                          <input 
-                            type="text" 
-                            disabled={isSmtpDisabled(globalActiveProvider)}
-                            placeholder="user@domain.com"
-                            value={editSmtpUser}
-                            onChange={(e) => setEditSmtpUser(e.target.value)}
-                            className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono disabled:opacity-50"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">SMTP Password</label>
-                          <div className="relative">
-                            <input 
-                              type={showEditSmtpPass ? "text" : "password"} 
-                              disabled={isSmtpDisabled(globalActiveProvider)}
-                              placeholder="Password or App Key"
-                              value={editSmtpPass}
-                              onChange={(e) => setEditSmtpPass(e.target.value)}
-                              className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 pr-8 text-xs font-mono disabled:opacity-50"
-                            />
-                            {!isSmtpDisabled(globalActiveProvider) && (
-                              <button 
-                                type="button"
-                                onClick={() => setShowEditSmtpPass(!showEditSmtpPass)}
-                                className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer"
-                              >
-                                {showEditSmtpPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {selectedWarmupAccount.provider !== 'SendGrid Relay Node' && selectedWarmupAccount.provider !== 'Azure Relay Node' && (
-                    <div className="p-3.5 rounded-xl border border-slate-200 dark:border-[#1e202d] bg-slate-50/30 dark:bg-[#10121a]/50 space-y-3">
-                      <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                        {selectedWarmupAccount.provider === 'Google Workspace'
-                          ? 'Inbound Reply Sync [Google App Password Method]'
-                          : 'Inbound Reply Sync [IMAP]'}
-                      </h4>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-1">
-                          <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">IMAP Host</label>
-                          <input 
-                            type="text" 
-                            placeholder="imap.example.com"
-                            value={editImapHost}
-                            onChange={(e) => setEditImapHost(e.target.value)}
-                            className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">IMAP Port</label>
-                          <input 
-                            type="text" 
-                            placeholder="993"
-                            value={editImapPort}
-                            onChange={(e) => setEditImapPort(e.target.value)}
-                            className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono"
-                          />
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-1">
-                          <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">IMAP Username</label>
-                          <input 
-                            type="text" 
-                            placeholder="user@domain.com"
-                            value={editImapUser}
-                            onChange={(e) => setEditImapUser(e.target.value)}
-                            className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">IMAP Password</label>
-                          <div className="relative">
-                            <input 
-                              type={showEditImapPass ? "text" : "password"} 
-                              placeholder="Password or App Key"
-                              value={editImapPass}
-                              onChange={(e) => setEditImapPass(e.target.value)}
-                              className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 pr-8 text-xs font-mono"
-                            />
-                            <button 
-                              type="button"
-                              onClick={() => setShowEditImapPass(!showEditImapPass)}
-                              className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer"
-                            >
-                              {showEditImapPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="flex justify-end">
-                    <button 
-                      type="submit" 
-                      disabled={savingCredentials}
-                      className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-600/50 text-white font-semibold rounded-lg text-xs transition-colors shadow-2xs cursor-pointer flex items-center gap-1.5 font-sans"
-                    >
-                      <Save className="w-3.5 h-3.5" />
-                      {savingCredentials ? 'Saving...' : 'Save Connection Credentials'}
-                    </button>
-                  </div>
-                </form>
-              </div>
-              </div>
-
-            {/* Live Logs */}
-            <div className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1b1c26] rounded-xl p-5 flex flex-col h-[420px] shadow-xs">
-              <div className="flex justify-between items-center border-b border-slate-200 dark:border-[#1b1c26] pb-2.5 mb-3">
-                <h2 className="text-xs font-bold uppercase tracking-widest text-slate-600 dark:text-slate-400 flex items-center gap-2">
-                  <RefreshCw className="w-3.5 h-3.5 text-rose-500 animate-spin" style={{ animationDuration: '6s' }} />
-                  Live delivery exchange log
-                </h2>
-                <span className="text-[9px] font-bold text-rose-600 dark:text-rose-450 bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/15 px-2 py-0.5 rounded uppercase tracking-wider font-mono">AUTOPILOT EXCISE</span>
-              </div>
-
-              <div className="flex-1 overflow-y-auto space-y-2.5 font-mono text-[11px] pr-1">
-                {selectedWarmupAccount.warmupEnabled ? (
-                  liveLogs.map((log, index) => (
-                    <div 
-                      key={index} 
-                      className={`p-2.5 rounded-lg border leading-relaxed ${
-                        index === 0 
-                          ? 'bg-rose-50 dark:bg-rose-500/5 border-rose-220 dark:border-rose-500/15 text-rose-650 dark:text-rose-300' 
-                          : 'bg-slate-50/75 dark:bg-[#12141d]/40 border-slate-205 dark:border-[#1f2130] text-slate-500'
-                      }`}
-                    >
-                      {log}
-                    </div>
-                  ))
-                ) : (
-                  <div className="h-full flex flex-col items-center justify-center text-center opacity-45 p-4">
-                    <Flame className="w-8 h-8 mb-2 text-slate-400 dark:text-white" />
-                    <p className="text-xs font-medium text-slate-500 leading-normal">Warmup autopilot is currently disabled. Toggle autopilot loop above to start deliverability exchanges.</p>
-                  </div>
-                )}
               </div>
             </div>
           </div>
@@ -1232,69 +947,63 @@ export default function AccountsPage() {
                   </select>
                 </div>
 
-                {!isSmtpDisabled(globalActiveProvider) && (
+                {provider !== 'Azure Relay Node' && (
                   <div className="p-3.5 rounded-xl border border-slate-200 dark:border-[#1e202d] bg-slate-50/30 dark:bg-[#10121a]/50 space-y-3">
                     <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                       {provider === 'Google Workspace'
-                        ? `Outbound Mail Delivery [Google App Password Method] ${getSmtpStatusLabel(globalActiveProvider)}`
-                        : `Outbound Mail Delivery [SMTP] ${getSmtpStatusLabel(globalActiveProvider)}`}
+                        ? `Outbound Mail Delivery [Google App Password Method] ${isSmtpDisabled(globalActiveProvider) ? '(Global Route Override)' : ''}`
+                        : `Outbound Mail Delivery [SMTP] ${isSmtpDisabled(globalActiveProvider) ? '(Global Route Override)' : ''}`}
                     </h4>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
                         <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">SMTP Host</label>
                         <input 
                           type="text" 
-                          disabled={isSmtpDisabled(globalActiveProvider)}
                           placeholder="smtp.example.com"
                           value={smtpHost}
                           onChange={(e) => setSmtpHost(e.target.value)}
-                          className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono disabled:opacity-50"
+                          className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono"
                         />
                       </div>
                       <div className="space-y-1">
                         <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">SMTP Port</label>
                         <input 
                           type="text" 
-                          disabled={isSmtpDisabled(globalActiveProvider)}
                           placeholder="587"
                           value={smtpPort}
                           onChange={(e) => setSmtpPort(e.target.value)}
-                          className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono disabled:opacity-50"
+                          className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono"
                         />
                       </div>
                     </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">SMTP Username</label>
+                        <label className="text-[9px] font-bold text-slate-550 dark:text-slate-400 uppercase tracking-widest leading-none">SMTP Username</label>
                         <input 
                           type="text" 
-                          disabled={isSmtpDisabled(globalActiveProvider)}
                           placeholder="user@domain.com"
                           value={smtpUser}
                           onChange={(e) => setSmtpUser(e.target.value)}
-                          className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono disabled:opacity-50"
+                          className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono"
                         />
                       </div>
                       <div className="space-y-1">
-                        <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">SMTP Password</label>
+                        <label className="text-[9px] font-bold text-slate-550 dark:text-slate-400 uppercase tracking-widest leading-none">SMTP Password</label>
                         <div className="relative">
                           <input 
                             type={showAddSmtpPass ? "text" : "password"} 
-                            disabled={isSmtpDisabled(globalActiveProvider)}
                             placeholder="Password or App Key"
                             value={smtpPass}
                             onChange={(e) => setSmtpPass(e.target.value)}
-                            className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 pr-8 text-xs font-mono disabled:opacity-50"
+                            className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 pr-8 text-xs font-mono"
                           />
-                          {!isSmtpDisabled(globalActiveProvider) && (
-                            <button 
-                              type="button"
-                              onClick={() => setShowAddSmtpPass(!showAddSmtpPass)}
-                              className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer"
-                            >
-                              {showAddSmtpPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                            </button>
-                          )}
+                          <button 
+                            type="button"
+                            onClick={() => setShowAddSmtpPass(!showAddSmtpPass)}
+                            className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer"
+                          >
+                            {showAddSmtpPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -1463,7 +1172,7 @@ export default function AccountsPage() {
                   )}
                   
                   <p className="text-[9px] text-slate-400 dark:text-slate-500 leading-normal font-sans font-medium">
-                    Limits are strictly audited in delivery buffers. Active warmed accounts shouldn't exceed 500 emails/day to maximize DMARC reputation health.
+                    Limits are strictly audited in delivery buffers. Active accounts shouldn't exceed 500 emails/day to maximize DMARC reputation health.
                   </p>
                 </div>
 

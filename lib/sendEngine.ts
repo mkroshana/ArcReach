@@ -43,6 +43,9 @@ export async function processDueEmails() {
         nextActionDate: {
           lte: now,
         },
+        campaign: {
+          status: 'Active',
+        },
         // Send guards: skip leads that should not receive emails
         lead: {
           isArchived: false,
@@ -103,6 +106,11 @@ export async function processDueEmails() {
       const stepContent = campaign.steps.find((s: any) => s.stepOrder === currentStepOrder);
       
       if (!stepContent) {
+          // If the campaign has no steps defined yet, skip processing for now instead of completing
+          if (campaign.steps.length === 0) {
+            console.log(`[SendEngine] Campaign "${campaign.name}" (${campaign.id}) has no steps. Skipping.`);
+            continue;
+          }
           // Lead has finished the sequence or has invalid sequence pointer
           await prisma.campaignEnrollment.update({
             where: { id: enrollment.id },

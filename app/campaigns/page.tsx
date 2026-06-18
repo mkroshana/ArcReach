@@ -28,6 +28,39 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
+const isDispatchForStep = (dispatchSubject: string, stepSubject: string) => {
+  if (!dispatchSubject || !stepSubject) return false;
+  
+  const cleanStep = stepSubject.trim().toLowerCase();
+  const cleanDispatch = dispatchSubject.trim().toLowerCase();
+  
+  if (cleanDispatch === cleanStep) return true;
+  
+  // Convert step subject to a regex pattern
+  // 1. Escape special regex characters
+  let pattern = cleanStep.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+  
+  // 2. Make spaces flexible (allowing optional spaces only at word boundaries)
+  pattern = pattern.replace(/\s+/g, '(?:\\s+|\\b)');
+  
+  // 3. Replace escaped variable markers `\{\{[^}]+\}\}` with wildcards `.*`
+  pattern = pattern.replace(/\\\{\\\{[^}]+\\\}\\\}/g, '.*');
+  
+  // 4. Replace escaped spintax `\{option1\|option2\}` with regex group `(option1|option2)`
+  pattern = pattern.replace(/\\\{([^{}]+)\\\}/g, (match, optionsEscaped) => {
+    // Unescape the pipe character for the regex group
+    const options = optionsEscaped.replace(/\\\|/g, '|');
+    return `(${options})`;
+  });
+  
+  try {
+    const regex = new RegExp(`^${pattern}\\s*\\.*\\!*\\??$`);
+    return regex.test(cleanDispatch);
+  } catch (e) {
+    return cleanDispatch.includes(cleanStep.replace(/\{\{[^}]+\}\}/g, '').replace(/\{[^}]+\}/g, '').trim());
+  }
+};
+
 interface DbCampaign {
   id: string;
   name: string;
@@ -52,6 +85,10 @@ interface DbCampaign {
     status: 'Active' | 'Completed' | 'Bounced' | 'Stopped';
     currentSequenceStep: number;
     nextActionDate: string | null;
+  }[];
+  dispatches?: {
+    id: string;
+    subject: string | null;
   }[];
 }
 
@@ -437,6 +474,13 @@ export default function CampaignsPage() {
                                   const activeLeadsCount = stepLeads.length;
                                   const isActiveStep = activeLeadsCount > 0;
 
+                                  const stepDispatches = campaign.dispatches?.filter(
+                                    d => isDispatchForStep(d.subject || '', step.subject || '')
+                                  ) || [];
+                                  const sentCount = stepDispatches.length;
+                                  const totalEnrolled = campaign.enrollments?.length || 0;
+                                  const progressPercent = totalEnrolled > 0 ? Math.round((sentCount / totalEnrolled) * 100) : 0;
+
                                   return (
                                     <Fragment key={step.id}>
                                       {/* Connecting Line */}
@@ -475,15 +519,33 @@ export default function CampaignsPage() {
                                         </div>
 
                                         {/* Step Info below the node */}
-                                        <div className="space-y-0.5 min-w-[100px] max-w-[130px]">
+                                        <div className="space-y-1 min-w-[110px] max-w-[140px] bg-white dark:bg-slate-900/60 p-2 rounded-lg border border-slate-200 dark:border-slate-800/80 shadow-3xs">
                                           <span className="text-[10px] text-slate-900 dark:text-white font-bold block truncate" title={step.subject}>
                                             {step.subject || '(No Subject)'}
                                           </span>
                                           {idx > 0 && (
-                                            <span className="text-[9px] text-slate-400 dark:text-slate-500 font-semibold block uppercase font-mono">
+                                            <span className="text-[9px] text-slate-450 dark:text-slate-500 font-semibold block uppercase font-mono">
                                               Wait: {step.waitDays} days
                                             </span>
                                           )}
+                                          
+                                          {/* Step Metrics */}
+                                          <div className="mt-1.5 pt-1.5 border-t border-slate-105 dark:border-slate-800 text-[9px] space-y-0.5 text-left">
+                                            <div className="flex justify-between px-0.5">
+                                              <span className="text-slate-400 dark:text-slate-500">To Send:</span>
+                                              <span className="font-extrabold text-slate-700 dark:text-slate-350">{activeLeadsCount}</span>
+                                            </div>
+                                            <div className="flex justify-between px-0.5">
+                                              <span className="text-slate-400 dark:text-slate-500">Sent:</span>
+                                              <span className="font-extrabold text-slate-700 dark:text-slate-350">{sentCount}</span>
+                                            </div>
+                                            {sentCount > 0 && (
+                                              <div className="flex justify-between px-0.5">
+                                                <span className="text-slate-400 dark:text-slate-500">Progress:</span>
+                                                <span className="font-extrabold text-blue-605 dark:text-blue-400">{progressPercent}%</span>
+                                              </div>
+                                            )}
+                                          </div>
                                         </div>
 
                                         {/* Manual Dispatch Trigger */}

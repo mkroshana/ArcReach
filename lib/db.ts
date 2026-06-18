@@ -99,7 +99,8 @@ export const db = {
         include: { 
           senderAccount: true,
           steps: { orderBy: { stepOrder: 'asc' } },
-          enrollments: true
+          enrollments: true,
+          dispatches: true
         },
         orderBy: { createdAt: 'desc' }
       });
@@ -109,7 +110,8 @@ export const db = {
       include: { 
         senderAccount: true,
         steps: { orderBy: { stepOrder: 'asc' } },
-        enrollments: true
+        enrollments: true,
+        dispatches: true
       },
       orderBy: { createdAt: 'desc' }
     });

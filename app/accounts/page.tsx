@@ -24,7 +24,9 @@ import {
   Save,
   Send,
   Loader2,
-  Trash2
+  Trash2,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -110,6 +112,12 @@ export default function AccountsPage() {
   const [editImapUser, setEditImapUser] = useState('');
   const [editImapPass, setEditImapPass] = useState('');
   const [savingCredentials, setSavingCredentials] = useState(false);
+
+  // Show/Hide password toggles
+  const [showAddSmtpPass, setShowAddSmtpPass] = useState(false);
+  const [showAddImapPass, setShowAddImapPass] = useState(false);
+  const [showEditSmtpPass, setShowEditSmtpPass] = useState(false);
+  const [showEditImapPass, setShowEditImapPass] = useState(false);
 
   // Send Test Email state
   const [sendingTestEmail, setSendingTestEmail] = useState(false);
@@ -963,14 +971,25 @@ export default function AccountsPage() {
                         </div>
                         <div className="space-y-1">
                           <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">SMTP Password</label>
-                          <input 
-                            type="password" 
-                            disabled={isSmtpDisabled(globalActiveProvider)}
-                            placeholder="Password or App Key"
-                            value={editSmtpPass}
-                            onChange={(e) => setEditSmtpPass(e.target.value)}
-                            className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono disabled:opacity-50"
-                          />
+                          <div className="relative">
+                            <input 
+                              type={showEditSmtpPass ? "text" : "password"} 
+                              disabled={isSmtpDisabled(globalActiveProvider)}
+                              placeholder="Password or App Key"
+                              value={editSmtpPass}
+                              onChange={(e) => setEditSmtpPass(e.target.value)}
+                              className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 pr-8 text-xs font-mono disabled:opacity-50"
+                            />
+                            {!isSmtpDisabled(globalActiveProvider) && (
+                              <button 
+                                type="button"
+                                onClick={() => setShowEditSmtpPass(!showEditSmtpPass)}
+                                className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer"
+                              >
+                                {showEditSmtpPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -1018,13 +1037,22 @@ export default function AccountsPage() {
                         </div>
                         <div className="space-y-1">
                           <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">IMAP Password</label>
-                          <input 
-                            type="password" 
-                            placeholder="Password or App Key"
-                            value={editImapPass}
-                            onChange={(e) => setEditImapPass(e.target.value)}
-                            className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono"
-                          />
+                          <div className="relative">
+                            <input 
+                              type={showEditImapPass ? "text" : "password"} 
+                              placeholder="Password or App Key"
+                              value={editImapPass}
+                              onChange={(e) => setEditImapPass(e.target.value)}
+                              className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 pr-8 text-xs font-mono"
+                            />
+                            <button 
+                              type="button"
+                              onClick={() => setShowEditImapPass(!showEditImapPass)}
+                              className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer"
+                            >
+                              {showEditImapPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -1236,14 +1264,25 @@ export default function AccountsPage() {
                       </div>
                       <div className="space-y-1">
                         <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">SMTP Password</label>
-                        <input 
-                          type="password" 
-                          disabled={isSmtpDisabled(globalActiveProvider)}
-                          placeholder="Password or App Key"
-                          value={smtpPass}
-                          onChange={(e) => setSmtpPass(e.target.value)}
-                          className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono disabled:opacity-50"
-                        />
+                        <div className="relative">
+                          <input 
+                            type={showAddSmtpPass ? "text" : "password"} 
+                            disabled={isSmtpDisabled(globalActiveProvider)}
+                            placeholder="Password or App Key"
+                            value={smtpPass}
+                            onChange={(e) => setSmtpPass(e.target.value)}
+                            className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 pr-8 text-xs font-mono disabled:opacity-50"
+                          />
+                          {!isSmtpDisabled(globalActiveProvider) && (
+                            <button 
+                              type="button"
+                              onClick={() => setShowAddSmtpPass(!showAddSmtpPass)}
+                              className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer"
+                            >
+                              {showAddSmtpPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -1292,13 +1331,22 @@ export default function AccountsPage() {
                       </div>
                       <div className="space-y-1">
                         <label className="text-[9px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">IMAP Password</label>
-                        <input 
-                          type="password" 
-                          placeholder="Password or App Key"
-                          value={imapPass}
-                          onChange={(e) => setImapPass(e.target.value)}
-                          className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono"
-                        />
+                        <div className="relative">
+                          <input 
+                            type={showAddImapPass ? "text" : "password"} 
+                            placeholder="Password or App Key"
+                            value={imapPass}
+                            onChange={(e) => setImapPass(e.target.value)}
+                            className="w-full bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 pr-8 text-xs font-mono"
+                          />
+                          <button 
+                            type="button"
+                            onClick={() => setShowAddImapPass(!showAddImapPass)}
+                            className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer"
+                          >
+                            {showAddImapPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>

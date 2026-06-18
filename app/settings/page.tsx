@@ -68,12 +68,15 @@ export default function SettingsPage() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
+  const [showNewPass, setShowNewPass] = useState(false);
+  const [showConfirmPass, setShowConfirmPass] = useState(false);
 
   // --- API INTEGRATIONS STATES ---
   const [activeProvider, setActiveProvider] = useState('MOCK');
   const [azureConnected, setAzureConnected] = useState(true);
   const [azureConnString, setAzureConnString] = useState('');
   const [azureSenderDomain, setAzureSenderDomain] = useState('');
+  const [showAzureConnString, setShowAzureConnString] = useState(false);
 
 
 
@@ -82,12 +85,14 @@ export default function SettingsPage() {
   const [smtpPort, setSmtpPort] = useState('');
   const [smtpUser, setSmtpUser] = useState('');
   const [smtpPass, setSmtpPass] = useState('');
+  const [showSmtpPass, setShowSmtpPass] = useState(false);
   const [smtpLogs, setSmtpLogs] = useState<string[]>([]);
   // IMAP Settings State
   const [imapHost, setImapHost] = useState('');
   const [imapPort, setImapPort] = useState('');
   const [imapUser, setImapUser] = useState('');
   const [imapPass, setImapPass] = useState('');
+  const [showImapPass, setShowImapPass] = useState(false);
   const [smtpLoading, setSmtpLoading] = useState(false);
 
   // Service-Level Rate Limits State
@@ -533,23 +538,41 @@ export default function SettingsPage() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-1.5">
                       <label className="text-[10px] text-slate-555 dark:text-slate-400 font-bold uppercase tracking-widest">New Secure Password</label>
-                      <input 
-                        type="password"
-                        value={newPassword}
-                        onChange={(e) => setNewPassword(e.target.value)}
-                        placeholder="Min. 8 characters"
-                        className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500/35 shadow-2xs font-mono"
-                      />
+                      <div className="relative">
+                        <input 
+                          type={showNewPass ? "text" : "password"}
+                          value={newPassword}
+                          onChange={(e) => setNewPassword(e.target.value)}
+                          placeholder="Min. 8 characters"
+                          className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 pr-10 outline-none focus:ring-2 focus:ring-blue-500/35 shadow-2xs font-mono"
+                        />
+                        <button 
+                          type="button"
+                          onClick={() => setShowNewPass(!showNewPass)}
+                          className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-605 dark:hover:text-slate-300 cursor-pointer"
+                        >
+                          {showNewPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
                     </div>
                     <div className="space-y-1.5">
-                      <label className="text-[10px] text-slate-555 dark:text-slate-400 font-bold uppercase tracking-widest">Confirm New Password</label>
-                      <input 
-                        type="password"
-                        value={confirmPassword}
-                        onChange={(e) => setConfirmPassword(e.target.value)}
-                        placeholder="Retype password"
-                        className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500/35 shadow-2xs font-mono"
-                      />
+                      <label className="text-[10px] text-slate-555 dark:text-slate-405 font-bold uppercase tracking-widest">Confirm New Password</label>
+                      <div className="relative">
+                        <input 
+                          type={showConfirmPass ? "text" : "password"}
+                          value={confirmPassword}
+                          onChange={(e) => setConfirmPassword(e.target.value)}
+                          placeholder="Retype password"
+                          className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 pr-10 outline-none focus:ring-2 focus:ring-blue-500/35 shadow-2xs font-mono"
+                        />
+                        <button 
+                          type="button"
+                          onClick={() => setShowConfirmPass(!showConfirmPass)}
+                          className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-605 dark:hover:text-slate-300 cursor-pointer"
+                        >
+                          {showConfirmPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -606,14 +629,23 @@ export default function SettingsPage() {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div className="space-y-1.5">
                         <label className="text-[10px] text-slate-555 dark:text-slate-405 font-bold uppercase tracking-widest">Azure Connection String</label>
-                        <input 
-                          type="password" 
-                          required
-                          value={azureConnString}
-                          onChange={(e) => setAzureConnString(e.target.value)}
-                          placeholder="endpoint=https://...;accesskey=..."
-                          className="w-full bg-white dark:bg-slate-950 border border-slate-202 dark:border-slate-800 text-slate-850 dark:text-white text-xs rounded-lg px-3 py-2 outline-none font-mono focus:ring-2 focus:ring-blue-500/35"
-                        />
+                        <div className="relative">
+                          <input 
+                            type={showAzureConnString ? "text" : "password"} 
+                            required
+                            value={azureConnString}
+                            onChange={(e) => setAzureConnString(e.target.value)}
+                            placeholder="endpoint=https://...;accesskey=..."
+                            className="w-full bg-white dark:bg-slate-955 border border-slate-202 dark:border-slate-800 text-slate-850 dark:text-white text-xs rounded-lg px-3 py-2 pr-10 outline-none font-mono focus:ring-2 focus:ring-blue-500/35"
+                          />
+                          <button 
+                            type="button"
+                            onClick={() => setShowAzureConnString(!showAzureConnString)}
+                            className="absolute right-3 top-2.5 text-slate-405 hover:text-slate-605 dark:hover:text-slate-300 cursor-pointer animate-in fade-in duration-200"
+                          >
+                            {showAzureConnString ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
                       </div>
                       <div className="space-y-1.5">
                         <label className="text-[10px] text-slate-555 dark:text-slate-405 font-bold uppercase tracking-widest">Verified Sender Domain</label>
@@ -690,14 +722,25 @@ export default function SettingsPage() {
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-1.5">
                           <label className="text-[10px] text-slate-555 dark:text-slate-405 font-bold uppercase tracking-widest">Outbound SMTP Password Key</label>
-                          <input 
-                            type="password" 
-                            disabled={isGlobalSmtpDisabled(activeProvider)}
-                            value={smtpPass}
-                            onChange={(e) => setSmtpPass(e.target.value)}
-                            placeholder="SMTP Connection Password Key"
-                            className="w-full bg-white dark:bg-slate-955 border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none font-mono focus:ring-2 focus:ring-blue-500/35 disabled:opacity-50"
-                          />
+                          <div className="relative">
+                            <input 
+                              type={showSmtpPass ? "text" : "password"} 
+                              disabled={isGlobalSmtpDisabled(activeProvider)}
+                              value={smtpPass}
+                              onChange={(e) => setSmtpPass(e.target.value)}
+                              placeholder="SMTP Connection Password Key"
+                              className="w-full bg-white dark:bg-slate-955 border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 pr-10 outline-none font-mono focus:ring-2 focus:ring-blue-500/35 disabled:opacity-50"
+                            />
+                            {!isGlobalSmtpDisabled(activeProvider) && (
+                              <button 
+                                type="button"
+                                onClick={() => setShowSmtpPass(!showSmtpPass)}
+                                className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-650 dark:hover:text-slate-300 cursor-pointer"
+                              >
+                                {showSmtpPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                              </button>
+                            )}
+                          </div>
                         </div>
                         <div className="flex items-end pb-0.5">
                           <button 
@@ -761,14 +804,25 @@ export default function SettingsPage() {
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-1.5">
                           <label className="text-[10px] text-slate-555 dark:text-slate-405 font-bold uppercase tracking-widest">Inbound IMAP Password Key</label>
-                          <input 
-                            type="password" 
-                            disabled={isGlobalSmtpDisabled(activeProvider)}
-                            value={imapPass}
-                            onChange={(e) => setImapPass(e.target.value)}
-                            placeholder="IMAP Connection Password Key"
-                            className="w-full bg-white dark:bg-slate-955 border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none font-mono focus:ring-2 focus:ring-blue-500/35 disabled:opacity-50"
-                          />
+                          <div className="relative">
+                            <input 
+                              type={showImapPass ? "text" : "password"} 
+                              disabled={isGlobalSmtpDisabled(activeProvider)}
+                              value={imapPass}
+                              onChange={(e) => setImapPass(e.target.value)}
+                              placeholder="IMAP Connection Password Key"
+                              className="w-full bg-white dark:bg-slate-955 border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 pr-10 outline-none font-mono focus:ring-2 focus:ring-blue-500/35 disabled:opacity-50"
+                            />
+                            {!isGlobalSmtpDisabled(activeProvider) && (
+                              <button 
+                                type="button"
+                                onClick={() => setShowImapPass(!showImapPass)}
+                                className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-650 dark:hover:text-slate-300 cursor-pointer"
+                              >
+                                {showImapPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>

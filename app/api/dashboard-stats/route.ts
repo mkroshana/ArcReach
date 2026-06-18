@@ -76,6 +76,19 @@ export async function GET(req: NextRequest) {
     const averageOpenRate = totalSent > 0 ? (dispatchesWithOpens / totalSent) * 100 : 0;
     const averageClickRate = totalSent > 0 ? (dispatchesWithClicks / totalSent) * 100 : 0;
 
+    // Deliverability health across the workspace
+    const failedCount = await prisma.campaignEnrollment.count({
+      where: { ...enrollmentWhere, status: 'Failed' }
+    });
+
+    const bouncedCount = await prisma.campaignEnrollment.count({
+      where: { ...enrollmentWhere, status: 'Bounced' }
+    });
+
+    const unsubscribedCount = await prisma.campaignEnrollment.count({
+      where: { ...enrollmentWhere, lead: { status: 'Unsubscribed' } }
+    });
+
     // 2. Fetch daily trends for the last 7 days
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
@@ -121,6 +134,9 @@ export async function GET(req: NextRequest) {
         totalReplies,
         averageOpenRate: Number(averageOpenRate.toFixed(1)),
         averageClickRate: Number(averageClickRate.toFixed(1)),
+        failed: failedCount,
+        bounced: bouncedCount,
+        unsubscribed: unsubscribedCount,
       },
       trends
     });

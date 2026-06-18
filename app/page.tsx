@@ -12,7 +12,7 @@ import {
   Tooltip, 
   ResponsiveContainer 
 } from 'recharts';
-import { Mail, MousePointerClick, Reply, SendHorizontal, RefreshCw } from 'lucide-react';
+import { Mail, MousePointerClick, Reply, SendHorizontal, RefreshCw, XCircle, AlertTriangle, UserMinus } from 'lucide-react';
 
 function StatCard({ title, value, change, icon: Icon, accentColor, accentBg }: any) {
   return (
@@ -42,7 +42,10 @@ export default function Dashboard() {
     totalSent: 0,
     totalReplies: 0,
     averageOpenRate: 0,
-    averageClickRate: 0
+    averageClickRate: 0,
+    failed: 0,
+    bounced: 0,
+    unsubscribed: 0
   });
   const [trends, setTrends] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -233,14 +236,34 @@ export default function Dashboard() {
               accentColor="text-amber-600 dark:text-amber-400" 
               accentBg="bg-amber-50 dark:bg-amber-950/20"
             />
-            <StatCard 
-              title="Sequences Replies" 
-              value={stats.totalReplies.toLocaleString()} 
-              change="+8.3%" 
-              icon={Reply} 
-              accentColor="text-rose-600 dark:text-rose-400" 
+            <StatCard
+              title="Sequences Replies"
+              value={stats.totalReplies.toLocaleString()}
+              change="+8.3%"
+              icon={Reply}
+              accentColor="text-rose-600 dark:text-rose-400"
               accentBg="bg-rose-50 dark:bg-rose-950/20"
             />
+          </div>
+
+          {/* Deliverability Health Section */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {[
+              { title: 'Failed Sends', value: (stats.failed ?? 0).toLocaleString(), icon: XCircle, color: 'text-rose-600 dark:text-rose-400', bg: 'bg-rose-50 dark:bg-rose-950/25', border: 'border-rose-100 dark:border-rose-500/10', sub: 'Delivery errors at send time' },
+              { title: 'Bounced', value: (stats.bounced ?? 0).toLocaleString(), icon: AlertTriangle, color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-950/25', border: 'border-amber-100 dark:border-amber-500/10', sub: 'Hard bounces (delivery webhook)' },
+              { title: 'Unsubscribed', value: (stats.unsubscribed ?? 0).toLocaleString(), icon: UserMinus, color: 'text-slate-600 dark:text-slate-300', bg: 'bg-slate-100 dark:bg-slate-800/40', border: 'border-slate-200 dark:border-slate-700/40', sub: 'Opted out of mailings' },
+            ].map((stat, i) => (
+              <div key={i} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 shadow-xs">
+                <div className="flex justify-between items-start mb-2">
+                  <p className="text-[10px] text-slate-500 dark:text-slate-405 font-extrabold uppercase tracking-widest">{stat.title}</p>
+                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center border border-slate-100 dark:border-slate-800/40 ${stat.bg} ${stat.border} ${stat.color}`}>
+                    <stat.icon className="w-4.5 h-4.5" />
+                  </div>
+                </div>
+                <h3 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">{stat.value}</h3>
+                <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium mt-2">{stat.sub}</p>
+              </div>
+            ))}
           </div>
 
           {/* Graph Section */}

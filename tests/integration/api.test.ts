@@ -215,7 +215,8 @@ describe('ArcReach Live API Integration Tests', () => {
         minuteLimit: 5,
         hourlyLimit: 100,
         dailyLimit: 500,
-        warmupEnabled: false
+        warmupEnabled: false,
+        replyTo: 'reply-test@arcreach-test.io'
       };
 
       // Create
@@ -227,6 +228,7 @@ describe('ArcReach Live API Integration Tests', () => {
       expect(createRes.status).toBe(200);
       const created = await createRes.json();
       expect(created).toHaveProperty('id');
+      expect(created.replyTo).toBe('reply-test@arcreach-test.io');
       createdAccountId = created.id;
 
       // Update limits and reputation status
@@ -234,7 +236,8 @@ describe('ArcReach Live API Integration Tests', () => {
         id: createdAccountId,
         name: 'Updated Test Sender',
         warmupEnabled: true,
-        minuteLimit: 10
+        minuteLimit: 10,
+        replyTo: 'reply-updated@arcreach-test.io'
       };
       const updateRes = await testFetch(`${BASE_URL}/api/accounts`, {
         method: 'PUT',
@@ -244,6 +247,7 @@ describe('ArcReach Live API Integration Tests', () => {
       expect(updateRes.status).toBe(200);
       const updated = await updateRes.json();
       expect(updated.warmupEnabled).toBe(true);
+      expect(updated.replyTo).toBe('reply-updated@arcreach-test.io');
 
       // Clean up / Delete
       const deleteRes = await testFetch(`${BASE_URL}/api/accounts?id=${createdAccountId}`, {

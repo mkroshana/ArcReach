@@ -165,6 +165,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             recipients: {
               to: [{ address: lead.email }],
             },
+            replyTo: [
+              { address: campaign.senderAccount.replyTo || campaign.senderAccount.emailAddress }
+            ],
             userEngagementTrackingDisabled: !campaign.trackOpens,
           };
 
@@ -203,6 +206,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           const mailOptions: any = {
             from: `"${campaign.senderAccount.name || 'ArcReach Sender'}" <${smtpUser}>`,
             to: lead.email,
+            replyTo: campaign.senderAccount.replyTo || campaign.senderAccount.emailAddress,
             subject,
           };
 

@@ -906,6 +906,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                  </AreaChart>
                </ResponsiveContainer>
             </div>
+           </div>
 
             {/* Conversion Funnel */}
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 flex flex-col shadow-xs">

@@ -137,8 +137,8 @@ export default function Dashboard() {
           >
             + Create Campaign
           </Link>
-          <button 
-            onClick={fetchStats}
+          <button
+            onClick={() => fetchStats()}
             className="p-2 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-lg shadow-xs"
             title="Refresh statistics"
           >
@@ -262,7 +262,8 @@ export default function Dashboard() {
           <div className="border border-slate-200 dark:border-slate-800 rounded-xl p-5 bg-white dark:bg-slate-900 h-[350px] animate-pulse" />
         </div>
       ) : (
-               {/* Structured Stats Section */}
+        <>
+          {/* Structured Stats Section */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <StatCard 
               title="Total Outbound Sent" 

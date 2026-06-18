@@ -138,6 +138,19 @@ export async function PUT(req: NextRequest) {
         where: { id: { in: ids } },
         data: updates
       });
+      if (updates.status === 'Neutral' || updates.validationStatus === 'Valid') {
+        await prisma.campaignEnrollment.updateMany({
+          where: {
+            leadId: { in: ids },
+            status: { in: ['Bounced', 'Failed'] }
+          },
+          data: {
+            status: 'Active',
+            currentSequenceStep: 1,
+            nextActionDate: new Date()
+          }
+        });
+      }
       return NextResponse.json({ success: true, count: result.count });
     }
 
@@ -153,6 +166,19 @@ export async function PUT(req: NextRequest) {
           where: { id: { in: leadIds } },
           data: updates
         });
+        if (updates.status === 'Neutral' || updates.validationStatus === 'Valid') {
+          await prisma.campaignEnrollment.updateMany({
+            where: {
+              leadId: { in: leadIds },
+              status: { in: ['Bounced', 'Failed'] }
+            },
+            data: {
+              status: 'Active',
+              currentSequenceStep: 1,
+              nextActionDate: new Date()
+            }
+          });
+        }
         return NextResponse.json({ success: true, count: result.count });
       }
       return NextResponse.json({ success: true, count: 0 });
@@ -180,6 +206,20 @@ export async function PUT(req: NextRequest) {
         }
       }
     });
+
+    if (updates.status === 'Neutral' || updates.validationStatus === 'Valid') {
+      await prisma.campaignEnrollment.updateMany({
+        where: {
+          leadId: id,
+          status: { in: ['Bounced', 'Failed'] }
+        },
+        data: {
+          status: 'Active',
+          currentSequenceStep: 1,
+          nextActionDate: new Date()
+        }
+      });
+    }
 
     return NextResponse.json(updated);
   } catch (error: any) {

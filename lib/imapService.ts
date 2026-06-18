@@ -740,3 +740,33 @@ function stripLeakedMimeHeaders(text: string): string {
   
   return cleaned.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
+
+export async function getActiveImapAccounts(userId: string, role: string) {
+  let accountsWhere: any = {
+    status: 'Active',
+    imapHost: { not: null },
+    imapPass: { not: null },
+    provider: { not: 'Azure Relay Node' }
+  };
+  
+  if (role !== 'ADMIN') {
+    accountsWhere.userId = userId;
+  }
+  
+  return prisma.senderAccount.findMany({
+    where: accountsWhere
+  });
+}
+
+export async function syncAllActiveMailboxes() {
+  console.log('[IMAP Sync Daemon] Starting global mailbox synchronization tick...');
+  const activeImapAccounts = await getActiveImapAccounts('', 'ADMIN');
+  if (activeImapAccounts.length > 0) {
+    const results = await Promise.allSettled(
+      activeImapAccounts.map(acc => syncMailboxReplies(acc.id))
+    );
+    console.log(`[IMAP Sync Daemon] Tick finished. Synced ${activeImapAccounts.length} mailboxes.`, results);
+  } else {
+    console.log('[IMAP Sync Daemon] No active IMAP mailboxes found to sync.');
+  }
+}

@@ -249,8 +249,10 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
     if (!isCampaignActive && !isCampaignRunning) return;
 
     const interval = setInterval(() => {
-      refreshCampaignTelemetry();
-    }, 2000);
+      if (document.visibilityState === 'visible') {
+        refreshCampaignTelemetry();
+      }
+    }, 30000);
 
     return () => clearInterval(interval);
   }, [campaignId, status, runningCampaign, !!campaign]);

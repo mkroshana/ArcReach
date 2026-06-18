@@ -1,4 +1,5 @@
 import { processDueEmails } from './sendEngine';
+import { syncAllActiveMailboxes } from './imapService';
 
 const globalForWorker = globalThis as unknown as { workerStarted: boolean | undefined };
 
@@ -20,6 +21,14 @@ export function startBackgroundWorker() {
     }
   }, 1000);
 
+  setTimeout(async () => {
+    try {
+      await syncAllActiveMailboxes();
+    } catch (err) {
+      console.error('[Background Worker] Initial IMAP sync error:', err);
+    }
+  }, 5000);
+
   // Set interval to run every 30 seconds
   setInterval(async () => {
     try {
@@ -29,4 +38,14 @@ export function startBackgroundWorker() {
       console.error('[Background Worker] Loop tick execution error:', err);
     }
   }, 30000);
+
+  // Set interval to sync IMAP replies every 3 minutes
+  setInterval(async () => {
+    try {
+      console.log('[Background Worker] Running periodic IMAP mailbox sync...');
+      await syncAllActiveMailboxes();
+    } catch (err) {
+      console.error('[Background Worker] IMAP sync tick error:', err);
+    }
+  }, 180000);
 }

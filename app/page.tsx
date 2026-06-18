@@ -111,7 +111,15 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchStats();
-  }, []);
+
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        fetchStats();
+      }
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [range]);
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
-import { syncMailboxReplies } from '@/lib/imapService';
+import { syncMailboxReplies, getActiveImapAccounts } from '@/lib/imapService';
 
 function normalizeSubject(subject: string): string {
   if (!subject) return '';
@@ -21,21 +21,8 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const shouldSync = searchParams.get('sync') === 'true';
     
-    // Find all active sender accounts with IMAP configured for this user/admin
-    let accountsWhere: any = {
-      status: 'Active',
-      imapHost: { not: null },
-      imapPass: { not: null },
-      provider: { not: 'Azure Relay Node' }
-    };
-    
-    if (session.role !== 'ADMIN') {
-      accountsWhere.userId = session.id;
-    }
-    
-    const activeImapAccounts = await prisma.senderAccount.findMany({
-      where: accountsWhere
-    });
+    // Find all active sender accounts with IMAP configured for this user/admin using shared helper
+    const activeImapAccounts = await getActiveImapAccounts(session.id, session.role);
     
     // Concurrently trigger IMAP sync for all eligible accounts
     if (activeImapAccounts.length > 0) {

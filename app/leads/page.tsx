@@ -63,7 +63,7 @@ export default function LeadsPage() {
   const [expandedEmailId, setExpandedEmailId] = useState<string | null>(null);
 
   // Lead Groups and Archiving states
-  const [activeTab, setActiveTab] = useState<'leads' | 'groups' | 'overlaps' | 'archived'>('leads');
+  const [activeTab, setActiveTab] = useState<'leads' | 'groups' | 'overlaps' | 'archived' | 'suppressed'>('leads');
   const [groups, setGroups] = useState<any[]>([]);
   const [loadingGroups, setLoadingGroups] = useState(false);
   const [showCreateGroup, setShowCreateGroup] = useState(false);
@@ -369,6 +369,44 @@ export default function LeadsPage() {
     } catch (err) {
       console.error(err);
       showToast('Error deleting selected leads.');
+    }
+  };
+
+  const handleBulkReactivateLeads = async () => {
+    if (selectedLeadIds.length === 0) return;
+    if (!confirm(`Are you sure you want to re-activate the ${selectedLeadIds.length} selected suppressed leads?`)) return;
+
+    try {
+      setLoading(true);
+      const res = await fetch('/api/leads', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ids: selectedLeadIds,
+          status: 'Neutral',
+          validationStatus: 'Valid'
+        })
+      });
+
+      if (res.ok) {
+        // Update local leads status
+        const updatedLeads = leads.map(l => {
+          if (selectedLeadIds.includes(l.id)) {
+            return { ...l, status: 'Neutral', validationStatus: 'Valid' };
+          }
+          return l;
+        });
+        setLeads(updatedLeads);
+        setSelectedLeadIds([]);
+        showToast('Selected leads re-activated and sequences reset to step 1.');
+      } else {
+        showToast('Failed to re-activate selected leads.');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Error re-activating selected leads.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -746,6 +784,11 @@ export default function LeadsPage() {
       if (!lead.isArchived) return false;
     } else {
       if (lead.isArchived) return false;
+    }
+
+    if (activeTab === 'suppressed') {
+      const isSuppressed = lead.status === 'Bounced' || lead.status === 'Unsubscribed' || lead.validationStatus === 'Invalid';
+      if (!isSuppressed) return false;
     }
 
     if (activeTab === 'groups' && selectedGroupIdForView) {
@@ -1150,6 +1193,7 @@ export default function LeadsPage() {
           { id: 'leads', name: 'Leads Directory', icon: FileType },
           { id: 'groups', name: 'Lead Groups', icon: Folder },
           { id: 'overlaps', name: 'Cross-Check & Overlaps', icon: Copy },
+          { id: 'suppressed', name: 'Suppressed Leads', icon: MailX },
           { id: 'archived', name: 'Archived Leads', icon: Archive }
         ].map(tab => {
           const Icon = tab.icon;
@@ -1176,8 +1220,8 @@ export default function LeadsPage() {
       {/* Main CRM Board Area */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-xs mt-2 animate-in fade-in duration-300">
         
-        {/* Render for LEADS or ARCHIVED Tab */}
-        {(activeTab === 'leads' || activeTab === 'archived') && (
+        {/* Render for LEADS, ARCHIVED or SUPPRESSED Tab */}
+        {(activeTab === 'leads' || activeTab === 'archived' || activeTab === 'suppressed') && (
           <>
             {/* Table Filter Top Bar */}
             <div className="p-4 border-b border-slate-200 dark:border-slate-800/60 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-slate-50/50 dark:bg-slate-900/50">
@@ -1255,7 +1299,7 @@ export default function LeadsPage() {
                       <th className="px-5 py-3">Assigned Brand</th>
                       <th className="px-5 py-3">Deliverability Validation</th>
                       <th className="px-5 py-3">Lead Status</th>
-                      {activeTab === 'leads' && <th className="px-5 py-3">Groups</th>}
+                      {(activeTab === 'leads' || activeTab === 'suppressed') && <th className="px-5 py-3">Groups</th>}
                       <th className="px-5 py-3 text-right">Clear</th>
                     </tr>
                   </thead>
@@ -1325,11 +1369,11 @@ export default function LeadsPage() {
                             <span className="text-[10px] text-slate-400 dark:text-slate-500">Active</span>
                           )}
                         </td>
-                        {activeTab === 'leads' && (
+                        {(activeTab === 'leads' || activeTab === 'suppressed') && (
                           <td className="px-5 py-3.5">
                             <div className="flex flex-wrap gap-1 max-w-[150px]">
                               {(lead.groups || []).map((g: any) => (
-                                <span key={g.groupId} className="px-1.5 py-0.5 rounded text-[8px] font-bold bg-slate-100 dark:bg-slate-850 text-slate-600 dark:text-slate-400 border border-slate-201 dark:border-slate-800 uppercase tracking-wider">
+                                <span key={g.groupId} className="px-1.5 py-0.5 rounded text-[8px] font-bold bg-slate-100 dark:bg-slate-855 text-slate-600 dark:text-slate-400 border border-slate-201 dark:border-slate-800 uppercase tracking-wider">
                                   {g.group?.name}
                                 </span>
                               ))}
@@ -1383,7 +1427,7 @@ export default function LeadsPage() {
                     ))}
                     {filteredLeads.length === 0 && (
                       <tr>
-                        <td colSpan={activeTab === 'leads' ? 7 : 6} className="text-center py-10 text-slate-400 dark:text-slate-500 text-xs">
+                        <td colSpan={(activeTab === 'leads' || activeTab === 'suppressed') ? 7 : 6} className="text-center py-10 text-slate-400 dark:text-slate-500 text-xs">
                           No lead records match your search filters.
                         </td>
                       </tr>
@@ -2093,14 +2137,24 @@ export default function LeadsPage() {
               {selectedLeadIds.length} selected
             </span>
             <div className="flex items-center gap-2">
-              <button
-                onClick={handleBulkVerify}
-                disabled={isVerifying}
-                className="bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1 transition-colors cursor-pointer"
-              >
-                <Play className="w-3 h-3" />
-                Verify
-              </button>
+              {activeTab === 'suppressed' ? (
+                <button
+                  onClick={handleBulkReactivateLeads}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1 transition-colors cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  Re-activate
+                </button>
+              ) : (
+                <button
+                  onClick={handleBulkVerify}
+                  disabled={isVerifying}
+                  className="bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1 transition-colors cursor-pointer"
+                >
+                  <Play className="w-3 h-3" />
+                  Verify
+                </button>
+              )}
               <button
                 onClick={() => handleBulkArchiveLeads(activeTab !== 'archived')}
                 className="bg-slate-800 hover:bg-slate-700 text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1 transition-colors cursor-pointer border border-slate-700"

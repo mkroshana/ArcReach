@@ -1,29 +1,30 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { jwtVerify } from 'jose';
 
-export function middleware(request: NextRequest) {
+const SESSION_SECRET = process.env.SESSION_SECRET || 'dev_session_secret_jwt_32_chars_long_placeholder';
+const secretKey = new TextEncoder().encode(SESSION_SECRET);
+
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // 1. Bypass check for integration tests
-  if (request.headers.get('x-integration-test') === 'true') {
-    return NextResponse.next();
-  }
-
-  // 2. Allow auth APIs, webhook, tracking, unsubscribe, and login page without authentication
+  // 1. Allow auth APIs, webhook, tracking, and unsubscribe without authentication
   if (
     pathname.startsWith('/api/auth') ||
     pathname.startsWith('/api/track') ||
     pathname.startsWith('/api/unsubscribe') ||
-    pathname === '/api/webhook' ||
-    pathname === '/login'
+    pathname === '/api/webhook'
   ) {
     return NextResponse.next();
   }
 
   const sessionCookie = request.cookies.get('user_session');
 
-  // 3. Redirect unauthenticated users to /login
-  if (!sessionCookie) {
+  // 2. Redirect unauthenticated users to /login (allow /login itself to render)
+  if (!sessionCookie || !sessionCookie.value) {
+    if (pathname === '/login') {
+      return NextResponse.next();
+    }
     const url = request.nextUrl.clone();
     url.pathname = '/login';
     return NextResponse.redirect(url);
@@ -31,23 +32,28 @@ export function middleware(request: NextRequest) {
 
   let role = 'USER';
   try {
-    const session = JSON.parse(sessionCookie.value);
-    role = session?.role || 'USER';
+    const { payload } = await jwtVerify(sessionCookie.value, secretKey);
+    role = (payload.role as string) || 'USER';
   } catch {
-    // Malformed session cookie, clear and redirect to login
+    // Malformed or expired session cookie
+    if (pathname === '/login') {
+      const response = NextResponse.next();
+      response.cookies.delete('user_session');
+      return response;
+    }
     const response = NextResponse.redirect(new URL('/login', request.url));
     response.cookies.delete('user_session');
     return response;
   }
 
-  // 4. Redirect logged-in users away from /login
+  // 3. Redirect logged-in users away from /login
   if (pathname === '/login') {
     const url = request.nextUrl.clone();
     url.pathname = '/';
     return NextResponse.redirect(url);
   }
 
-  // 5. Protect /admin paths
+  // 4. Protect /admin paths
   if (pathname.startsWith('/admin')) {
     if (role !== 'ADMIN') {
       const url = request.nextUrl.clone();

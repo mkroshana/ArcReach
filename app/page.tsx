@@ -29,16 +29,16 @@ function StatCard({ title, value, change, icon: Icon, accentColor, accentBg }: a
   
   let badgeStyle = "text-slate-500 bg-slate-50 dark:bg-slate-950/30 border border-slate-100 dark:border-slate-900/30";
   if (isPositive) {
-    badgeStyle = "text-emerald-700 dark:text-emerald-450 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-900/30";
+    badgeStyle = "text-emerald-700 dark:text-emerald-500 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-900/30";
   } else if (isNegative) {
-    badgeStyle = "text-rose-700 dark:text-rose-450 bg-rose-50 dark:bg-rose-950/30 border border-rose-100 dark:border-rose-900/30";
+    badgeStyle = "text-rose-700 dark:text-rose-500 bg-rose-50 dark:bg-rose-950/30 border border-rose-100 dark:border-rose-900/30";
   }
 
   return (
     <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 shadow-xs hover:border-blue-100 dark:hover:border-slate-700 transition-all duration-250">
       <div className="flex justify-between items-start">
         <div>
-          <p className="text-[10px] text-slate-500 dark:text-slate-405 font-extrabold uppercase tracking-widest">{title}</p>
+          <p className="text-[10px] text-slate-500 dark:text-slate-400 font-extrabold uppercase tracking-widest">{title}</p>
           <h3 className="text-2xl font-bold mt-1 text-slate-900 dark:text-white tracking-tight">{value}</h3>
           
           <div className="flex items-center gap-1.5 mt-2.5">
@@ -139,12 +139,12 @@ export default function Dashboard() {
           </Link>
           <button
             onClick={() => fetchStats()}
-            className="p-2 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-lg shadow-xs"
+            className="p-2 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xs"
             title="Refresh statistics"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
           </button>
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-205 dark:border-slate-850 rounded-lg shadow-xs">
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xs">
             <span className={`w-2 h-2 rounded-full ${
               systemStatus?.deliveryStatus === 'OPERATIONAL' 
                 ? 'bg-emerald-500' 
@@ -152,7 +152,7 @@ export default function Dashboard() {
                   ? 'bg-amber-500' 
                   : 'bg-slate-400'
             }`}></span>
-            <span className="text-[11px] text-slate-650 dark:text-slate-300 font-bold font-mono">
+            <span className="text-[11px] text-slate-600 dark:text-slate-300 font-bold font-mono">
               {systemStatus?.deliveryStatus === 'OPERATIONAL' ? 'LIVE OUTBOX' : 'OUTBOX INACTIVE'}
             </span>
           </div>
@@ -163,7 +163,7 @@ export default function Dashboard() {
       {systemStatus && (
         (systemStatus.accountsCount === 0 || systemStatus.leadsCount === 0 || systemStatus.activeCampaignsCount === 0) && (
           <div className="bg-amber-500/5 dark:bg-amber-500/5 border border-amber-500/20 dark:border-amber-500/20 rounded-xl p-5 shadow-xs space-y-3 animate-in fade-in duration-300">
-            <div className="flex items-center gap-2 text-amber-600 dark:text-amber-450">
+            <div className="flex items-center gap-2 text-amber-600 dark:text-amber-500">
               <span className="font-bold text-xs uppercase tracking-wider">Required Setup Steps</span>
             </div>
             <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed font-semibold">
@@ -174,7 +174,7 @@ export default function Dashboard() {
                 <div className="bg-white dark:bg-slate-900 border border-amber-500/30 rounded-lg p-3.5 flex flex-col justify-between hover:border-amber-500 transition-colors shadow-2xs">
                   <div>
                     <h4 className="text-[11px] font-bold text-slate-800 dark:text-white uppercase tracking-wider mb-1">1. Connect Mailbox</h4>
-                    <p className="text-[10px] text-slate-500 dark:text-slate-450">No mailboxes connected. Outbound paused.</p>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400">No mailboxes connected. Outbound paused.</p>
                   </div>
                   <Link href="/accounts" className="text-[11px] font-bold text-amber-600 dark:text-amber-400 mt-3 flex items-center gap-1 hover:underline">
                     Connect Senders &rarr;
@@ -183,10 +183,10 @@ export default function Dashboard() {
               ) : (
                 <div className="bg-emerald-500/5 dark:bg-emerald-500/5 border border-emerald-500/20 rounded-lg p-3.5 flex flex-col justify-between shadow-2xs">
                   <div>
-                    <h4 className="text-[11px] font-bold text-emerald-700 dark:text-emerald-450 uppercase tracking-wider mb-1 flex items-center gap-1">
+                    <h4 className="text-[11px] font-bold text-emerald-700 dark:text-emerald-500 uppercase tracking-wider mb-1 flex items-center gap-1">
                       <span>✓ Connected</span>
                     </h4>
-                    <p className="text-[10px] text-slate-550 dark:text-slate-450">{systemStatus.accountsCount} active mailbox(es) online.</p>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400">{systemStatus.accountsCount} active mailbox(es) online.</p>
                   </div>
                   <Link href="/accounts" className="text-[10px] font-medium text-slate-500 dark:text-slate-400 mt-3 hover:underline">
                     Manage Accounts
@@ -198,7 +198,7 @@ export default function Dashboard() {
                 <div className="bg-white dark:bg-slate-900 border border-amber-500/30 rounded-lg p-3.5 flex flex-col justify-between hover:border-amber-500 transition-colors shadow-2xs">
                   <div>
                     <h4 className="text-[11px] font-bold text-slate-800 dark:text-white uppercase tracking-wider mb-1">2. Import Leads</h4>
-                    <p className="text-[10px] text-slate-500 dark:text-slate-450">No CRM leads. Outbox has no targets.</p>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400">No CRM leads. Outbox has no targets.</p>
                   </div>
                   <Link href="/leads" className="text-[11px] font-bold text-amber-600 dark:text-amber-400 mt-3 flex items-center gap-1 hover:underline">
                     Upload Leads &rarr;
@@ -207,10 +207,10 @@ export default function Dashboard() {
               ) : (
                 <div className="bg-emerald-500/5 dark:bg-emerald-500/5 border border-emerald-500/20 rounded-lg p-3.5 flex flex-col justify-between shadow-2xs">
                   <div>
-                    <h4 className="text-[11px] font-bold text-emerald-700 dark:text-emerald-450 uppercase tracking-wider mb-1 flex items-center gap-1">
+                    <h4 className="text-[11px] font-bold text-emerald-700 dark:text-emerald-500 uppercase tracking-wider mb-1 flex items-center gap-1">
                       <span>✓ Leads Ready</span>
                     </h4>
-                    <p className="text-[10px] text-slate-550 dark:text-slate-450">{systemStatus.leadsCount} CRM contact(s) imported.</p>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400">{systemStatus.leadsCount} CRM contact(s) imported.</p>
                   </div>
                   <Link href="/leads" className="text-[10px] font-medium text-slate-500 dark:text-slate-400 mt-3 hover:underline">
                     Manage Leads
@@ -222,7 +222,7 @@ export default function Dashboard() {
                 <div className="bg-white dark:bg-slate-900 border border-amber-500/30 rounded-lg p-3.5 flex flex-col justify-between hover:border-amber-500 transition-colors shadow-2xs">
                   <div>
                     <h4 className="text-[11px] font-bold text-slate-800 dark:text-white uppercase tracking-wider mb-1">3. Start Campaign</h4>
-                    <p className="text-[10px] text-slate-500 dark:text-slate-450">All campaigns are idle.</p>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400">All campaigns are idle.</p>
                   </div>
                   <Link href="/campaigns" className="text-[11px] font-bold text-amber-600 dark:text-amber-400 mt-3 flex items-center gap-1 hover:underline">
                     Manage Campaigns &rarr;
@@ -231,10 +231,10 @@ export default function Dashboard() {
               ) : (
                 <div className="bg-emerald-500/5 dark:bg-emerald-500/5 border border-emerald-500/20 rounded-lg p-3.5 flex flex-col justify-between shadow-2xs">
                   <div>
-                    <h4 className="text-[11px] font-bold text-emerald-700 dark:text-emerald-450 uppercase tracking-wider mb-1 flex items-center gap-1">
+                    <h4 className="text-[11px] font-bold text-emerald-700 dark:text-emerald-500 uppercase tracking-wider mb-1 flex items-center gap-1">
                       <span>✓ Active Campaign</span>
                     </h4>
-                    <p className="text-[10px] text-slate-550 dark:text-slate-450">{systemStatus.activeCampaignsCount} campaign(s) actively sending.</p>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400">{systemStatus.activeCampaignsCount} campaign(s) actively sending.</p>
                   </div>
                   <Link href="/campaigns" className="text-[10px] font-medium text-slate-500 dark:text-slate-400 mt-3 hover:underline">
                     Manage Campaigns
@@ -308,7 +308,7 @@ export default function Dashboard() {
             ].map((stat, i) => (
               <div key={i} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 shadow-xs">
                 <div className="flex justify-between items-start mb-2">
-                  <p className="text-[10px] text-slate-550 dark:text-slate-405 font-extrabold uppercase tracking-widest">{stat.title}</p>
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400 font-extrabold uppercase tracking-widest">{stat.title}</p>
                   <div className={`w-9 h-9 rounded-lg flex items-center justify-center border border-slate-100 dark:border-slate-800/40 ${stat.bg} ${stat.border} ${stat.color}`}>
                     <stat.icon className="w-4.5 h-4.5" />
                   </div>
@@ -323,13 +323,13 @@ export default function Dashboard() {
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 flex flex-col shadow-xs transition-colors duration-200">
             <div className="flex justify-between items-center mb-6">
               <div>
-                <h2 className="text-sm font-bold text-slate-805 dark:text-slate-200 uppercase tracking-widest">Engagement Trends</h2>
+                <h2 className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-widest">Engagement Trends</h2>
                 <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Track key deliverability status metrics in real-time.</p>
               </div>
               <select 
                 value={range}
                 onChange={(e) => handleRangeChange(e.target.value)}
-                className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 text-slate-705 dark:text-slate-300 text-xs rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500/40 appearance-none font-medium pr-8 relative cursor-pointer shadow-xs"
+                className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 text-xs rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500/40 appearance-none font-medium pr-8 relative cursor-pointer shadow-xs"
               >
                 <option value="7">Last 7 Days</option>
                 <option value="30">Last 30 Days</option>
@@ -391,8 +391,8 @@ export default function Dashboard() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Funnel Card */}
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 flex flex-col shadow-xs transition-colors duration-200">
-              <h2 className="text-sm font-bold text-slate-805 dark:text-slate-200 uppercase tracking-widest mb-1">Conversion Funnel</h2>
-              <p className="text-xs text-slate-400 dark:text-slate-505 mb-6">Pipeline performance from outbound dispatch to booked meeting.</p>
+              <h2 className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-widest mb-1">Conversion Funnel</h2>
+              <p className="text-xs text-slate-400 dark:text-slate-500 mb-6">Pipeline performance from outbound dispatch to booked meeting.</p>
               <div className="h-[300px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart
@@ -419,8 +419,8 @@ export default function Dashboard() {
 
             {/* Sentiment Breakdown Card */}
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 flex flex-col shadow-xs transition-colors duration-200">
-              <h2 className="text-sm font-bold text-slate-805 dark:text-slate-200 uppercase tracking-widest mb-1">Prospect Sentiment</h2>
-              <p className="text-xs text-slate-400 dark:text-slate-505 mb-6">Distribution of global lead outcomes and responses.</p>
+              <h2 className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-widest mb-1">Prospect Sentiment</h2>
+              <p className="text-xs text-slate-400 dark:text-slate-500 mb-6">Distribution of global lead outcomes and responses.</p>
               <div className="h-[300px] w-full flex items-center justify-center relative">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>

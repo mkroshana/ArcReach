@@ -358,7 +358,7 @@ export default function SettingsPage() {
 
   if (loading) {
     return (
-      <div className="py-40 text-center text-slate-450 dark:text-slate-500 text-xs space-y-3">
+      <div className="py-40 text-center text-slate-400 dark:text-slate-500 text-xs space-y-3">
         <div className="w-6 h-6 border-2 border-slate-305 dark:border-slate-700 border-t-blue-500 animate-spin rounded-full mx-auto" />
         <p className="font-medium tracking-wide">Syncing setting components nodes...</p>
       </div>
@@ -381,7 +381,7 @@ export default function SettingsPage() {
 
       <header className="pb-4 border-b border-slate-200 dark:border-slate-800">
         <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white mb-0.5">Settings Preferences</h1>
-        <p className="text-slate-505 dark:text-slate-400 text-xs font-medium">Manage authenticated SMTP servers, API records, and team roles.</p>
+        <p className="text-slate-500 dark:text-slate-400 text-xs font-medium">Manage authenticated SMTP servers, API records, and team roles.</p>
       </header>
 
       <div className="flex flex-col md:flex-row gap-6">
@@ -398,7 +398,7 @@ export default function SettingsPage() {
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
                   activeTab === tab.id
                     ? 'bg-blue-50 dark:bg-blue-600/10 text-blue-700 dark:text-blue-400 border border-blue-150 dark:border-blue-500/10 shadow-2xs'
-                    : 'text-slate-555 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-white/[0.01] hover:text-slate-900 dark:hover:text-white border border-transparent'
+                    : 'text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-white/[0.01] hover:text-slate-900 dark:hover:text-white border border-transparent'
                 }`}
               >
                 <tab.icon className="w-4 h-4" />
@@ -418,59 +418,59 @@ export default function SettingsPage() {
                 <h2 className="text-xs font-bold uppercase tracking-widest text-[#64748b] dark:text-slate-400 mb-4 pb-2 border-b border-slate-100 dark:border-[#1b1c26]">Profile Information</h2>
                 
                 <div className="flex items-center gap-5 mb-6">
-                  <div className="w-14 h-14 rounded-lg bg-blue-50 dark:bg-blue-955/40 border border-blue-100 dark:border-blue-505/15 flex items-center justify-center text-lg font-bold text-blue-705 dark:text-blue-400 shadow-2xs font-mono">
+                  <div className="w-14 h-14 rounded-lg bg-blue-50 dark:bg-blue-950/40 border border-blue-100 dark:border-blue-500/15 flex items-center justify-center text-lg font-bold text-blue-700 dark:text-blue-400 shadow-2xs font-mono">
                     {profileInitials}
                   </div>
                   <div>
                     <button 
                       type="button"
                       onClick={handleRandomizeAvatar}
-                      className="px-3 py-1.5 bg-white dark:bg-[#12141d] hover:bg-slate-50 dark:hover:bg-white/[0.01] border border-slate-202 dark:border-[#1f2130] text-slate-700 dark:text-gray-305 text-xs font-bold rounded-lg transition-all shadow-2xs mb-1 cursor-pointer"
+                      className="px-3 py-1.5 bg-white dark:bg-[#12141d] hover:bg-slate-50 dark:hover:bg-white/[0.01] border border-slate-200 dark:border-[#1f2130] text-slate-700 dark:text-gray-300 text-xs font-bold rounded-lg transition-all shadow-2xs mb-1 cursor-pointer"
                     >
                       Randomize Identity
                     </button>
-                    <p className="text-[10px] text-slate-400 dark:text-slate-505 font-medium">Generates visual initials dynamically in frontend workspace.</p>
+                    <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">Generates visual initials dynamically in frontend workspace.</p>
                   </div>
                 </div>
 
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-1.5">
-                      <label className="text-[10px] text-slate-555 dark:text-slate-400 font-bold uppercase tracking-widest">First Name</label>
+                      <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">First Name</label>
                       <input 
                         type="text" 
                         value={firstName}
                         onChange={(e) => setFirstName(e.target.value)}
-                        className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500/35 placeholder:text-slate-400 shadow-2xs"
+                        className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500/35 placeholder:text-slate-400 shadow-2xs"
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <label className="text-[10px] text-slate-555 dark:text-slate-400 font-bold uppercase tracking-widest">Last Name</label>
+                      <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">Last Name</label>
                       <input 
                         type="text" 
                         value={lastName}
                         onChange={(e) => setLastName(e.target.value)}
-                        className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500/35 placeholder:text-slate-400 shadow-2xs"
+                        className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500/35 placeholder:text-slate-400 shadow-2xs"
                       />
                     </div>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-1.5">
-                      <label className="text-[10px] text-slate-555 dark:text-slate-400 font-bold uppercase tracking-widest">Organization</label>
+                      <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">Organization</label>
                       <input 
                         type="text" 
                         value={orgName}
                         onChange={(e) => setOrgName(e.target.value)}
-                        className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500/35 placeholder:text-slate-400 shadow-2xs"
+                        className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500/35 placeholder:text-slate-400 shadow-2xs"
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <label className="text-[10px] text-slate-555 dark:text-slate-400 font-bold uppercase tracking-widest">Local Timezone Option</label>
+                      <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">Local Timezone Option</label>
                       <select 
                         value={timezone}
                         onChange={(e) => setTimezone(e.target.value)}
-                        className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500/35 cursor-pointer"
+                        className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500/35 cursor-pointer"
                       >
                         {timezoneOptions.map(option => (
                           <option key={option.value} value={option.value}>
@@ -481,22 +481,22 @@ export default function SettingsPage() {
                     </div>
                   </div>
 
-                  <div className="space-y-1.5 border-t border-slate-100 dark:border-slate-850 pt-4">
-                    <label className="text-[10px] text-slate-555 dark:text-slate-400 font-bold uppercase tracking-widest">Registered E-Mail</label>
+                  <div className="space-y-1.5 border-t border-slate-100 dark:border-slate-800 pt-4">
+                    <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">Registered E-Mail</label>
                     <input 
                       type="email" 
                       value={email}
-                      className="w-full bg-slate-100/60 dark:bg-slate-900/50 border border-slate-202 dark:border-[#1b1c26] text-slate-400 dark:text-slate-400 text-xs rounded-lg px-3 py-2 cursor-not-allowed outline-none"
+                      className="w-full bg-slate-100/60 dark:bg-slate-900/50 border border-slate-200 dark:border-[#1b1c26] text-slate-400 dark:text-slate-400 text-xs rounded-lg px-3 py-2 cursor-not-allowed outline-none"
                       disabled
                     />
                   </div>
                 </div>
 
-                <div className="flex justify-end gap-2.5 mt-6 pt-4 border-t border-slate-100 dark:border-slate-850">
+                <div className="flex justify-end gap-2.5 mt-6 pt-4 border-t border-slate-100 dark:border-slate-800">
                    <button 
                      type="button"
                      onClick={() => loadSettings()}
-                     className="px-4 py-2 bg-white dark:bg-[#12141d] hover:bg-slate-50 dark:hover:bg-white/[0.01] border border-slate-202 dark:border-[#1f2130] text-slate-700 dark:text-gray-300 font-bold rounded-lg transition-all text-xs shadow-2xs cursor-pointer"
+                     className="px-4 py-2 bg-white dark:bg-[#12141d] hover:bg-slate-50 dark:hover:bg-white/[0.01] border border-slate-200 dark:border-[#1f2130] text-slate-700 dark:text-gray-300 font-bold rounded-lg transition-all text-xs shadow-2xs cursor-pointer"
                    >
                      Reset Fields
                    </button>
@@ -516,19 +516,19 @@ export default function SettingsPage() {
                 
                 <div className="space-y-4">
                   <div className="space-y-1.5">
-                    <label className="text-[10px] text-slate-555 dark:text-slate-400 font-bold uppercase tracking-widest">Current Active Password</label>
+                    <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">Current Active Password</label>
                     <div className="relative">
                       <input 
                         type={showPass ? "text" : "password"}
                         value={currentPassword}
                         onChange={(e) => setCurrentPassword(e.target.value)}
                         placeholder="•••••••••••••••••"
-                        className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 pr-10 outline-none focus:ring-2 focus:ring-blue-500/35 shadow-2xs font-mono"
+                        className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 pr-10 outline-none focus:ring-2 focus:ring-blue-500/35 shadow-2xs font-mono"
                       />
                       <button 
                         type="button"
                         onClick={() => setShowPass(!showPass)}
-                        className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-605 dark:hover:text-slate-300 cursor-pointer"
+                        className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer"
                       >
                         {showPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                       </button>
@@ -537,38 +537,38 @@ export default function SettingsPage() {
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-1.5">
-                      <label className="text-[10px] text-slate-555 dark:text-slate-400 font-bold uppercase tracking-widest">New Secure Password</label>
+                      <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">New Secure Password</label>
                       <div className="relative">
                         <input 
                           type={showNewPass ? "text" : "password"}
                           value={newPassword}
                           onChange={(e) => setNewPassword(e.target.value)}
                           placeholder="Min. 8 characters"
-                          className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 pr-10 outline-none focus:ring-2 focus:ring-blue-500/35 shadow-2xs font-mono"
+                          className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 pr-10 outline-none focus:ring-2 focus:ring-blue-500/35 shadow-2xs font-mono"
                         />
                         <button 
                           type="button"
                           onClick={() => setShowNewPass(!showNewPass)}
-                          className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-605 dark:hover:text-slate-300 cursor-pointer"
+                          className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer"
                         >
                           {showNewPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                         </button>
                       </div>
                     </div>
                     <div className="space-y-1.5">
-                      <label className="text-[10px] text-slate-555 dark:text-slate-405 font-bold uppercase tracking-widest">Confirm New Password</label>
+                      <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">Confirm New Password</label>
                       <div className="relative">
                         <input 
                           type={showConfirmPass ? "text" : "password"}
                           value={confirmPassword}
                           onChange={(e) => setConfirmPassword(e.target.value)}
                           placeholder="Retype password"
-                          className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 pr-10 outline-none focus:ring-2 focus:ring-blue-500/35 shadow-2xs font-mono"
+                          className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 pr-10 outline-none focus:ring-2 focus:ring-blue-500/35 shadow-2xs font-mono"
                         />
                         <button 
                           type="button"
                           onClick={() => setShowConfirmPass(!showConfirmPass)}
-                          className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-605 dark:hover:text-slate-300 cursor-pointer"
+                          className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer"
                         >
                           {showConfirmPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                         </button>
@@ -596,17 +596,17 @@ export default function SettingsPage() {
               
               {/* Outbound Mail Delivery Service */}
               <div className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1b1c26] rounded-xl p-5 shadow-xs space-y-4">
-                <div className="pb-3 border-b border-slate-100 dark:border-slate-850">
-                  <h3 className="text-xs font-bold uppercase tracking-widest text-slate-855 dark:text-slate-200 mb-0.5 font-sans">Outbound Mail Delivery Service</h3>
+                <div className="pb-3 border-b border-slate-100 dark:border-slate-800">
+                  <h3 className="text-xs font-bold uppercase tracking-widest text-slate-800 dark:text-slate-200 mb-0.5 font-sans">Outbound Mail Delivery Service</h3>
                   <p className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">Select your active outbound sending channel provider and authenticate connection pipelines.</p>
                 </div>
 
                 <div className="space-y-1.5 max-w-md">
-                  <label className="text-[10px] text-slate-555 dark:text-slate-400 font-bold uppercase tracking-widest">Active Email Delivery Service</label>
+                  <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">Active Email Delivery Service</label>
                   <select 
                     value={activeProvider}
                     onChange={(e) => handleProviderChange(e.target.value)}
-                    className="w-full bg-white dark:bg-slate-950 border border-slate-202 dark:border-slate-800 text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none font-medium focus:ring-2 focus:ring-blue-500/35 cursor-pointer"
+                    className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none font-medium focus:ring-2 focus:ring-blue-500/35 cursor-pointer"
                   >
                     <option value="MOCK">Development Sandbox (MOCK)</option>
                     <option value="AZURE">Azure Communication Services</option>
@@ -615,7 +615,7 @@ export default function SettingsPage() {
 
                 {/* Conditionally render settings based on provider */}
                 {activeProvider === 'MOCK' && (
-                  <div className="p-4 bg-slate-50 dark:bg-[#12141d] border border-slate-202 dark:border-[#1f2130] rounded-xl text-xs text-slate-500 dark:text-slate-400 flex items-start gap-2.5">
+                  <div className="p-4 bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] rounded-xl text-xs text-slate-500 dark:text-slate-400 flex items-start gap-2.5">
                     <Info className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
                     <div>
                       <p className="font-bold text-slate-750 dark:text-slate-350 mb-0.5">Development Sandbox Mode Active</p>
@@ -625,10 +625,10 @@ export default function SettingsPage() {
                 )}
 
                 {activeProvider === 'AZURE' && (
-                  <form onSubmit={handleSaveAzureConfig} className="p-4 bg-slate-50 dark:bg-[#12141d] border border-slate-202 dark:border-[#1f2130] rounded-xl space-y-4 animate-in slide-in-from-top-2 duration-250">
+                  <form onSubmit={handleSaveAzureConfig} className="p-4 bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] rounded-xl space-y-4 animate-in slide-in-from-top-2 duration-250">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div className="space-y-1.5">
-                        <label className="text-[10px] text-slate-555 dark:text-slate-405 font-bold uppercase tracking-widest">Azure Connection String</label>
+                        <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">Azure Connection String</label>
                         <div className="relative">
                           <input 
                             type={showAzureConnString ? "text" : "password"} 
@@ -636,26 +636,26 @@ export default function SettingsPage() {
                             value={azureConnString}
                             onChange={(e) => setAzureConnString(e.target.value)}
                             placeholder="endpoint=https://...;accesskey=..."
-                            className="w-full bg-white dark:bg-slate-955 border border-slate-202 dark:border-slate-800 text-slate-850 dark:text-white text-xs rounded-lg px-3 py-2 pr-10 outline-none font-mono focus:ring-2 focus:ring-blue-500/35"
+                            className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 pr-10 outline-none font-mono focus:ring-2 focus:ring-blue-500/35"
                           />
                           <button 
                             type="button"
                             onClick={() => setShowAzureConnString(!showAzureConnString)}
-                            className="absolute right-3 top-2.5 text-slate-405 hover:text-slate-605 dark:hover:text-slate-300 cursor-pointer animate-in fade-in duration-200"
+                            className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer animate-in fade-in duration-200"
                           >
                             {showAzureConnString ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                           </button>
                         </div>
                       </div>
                       <div className="space-y-1.5">
-                        <label className="text-[10px] text-slate-555 dark:text-slate-405 font-bold uppercase tracking-widest">Verified Sender Domain</label>
+                        <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">Verified Sender Domain</label>
                         <input 
                           type="text" 
                           required
                           value={azureSenderDomain}
                           onChange={(e) => setAzureSenderDomain(e.target.value)}
                           placeholder="outbound.yourdomain.com"
-                          className="w-full bg-white dark:bg-slate-955 border border-slate-202 dark:border-slate-800 text-slate-850 dark:text-white text-xs rounded-lg px-3 py-2 outline-none font-mono focus:ring-2 focus:ring-blue-500/35"
+                          className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none font-mono focus:ring-2 focus:ring-blue-500/35"
                         />
                       </div>
                     </div>
@@ -672,7 +672,7 @@ export default function SettingsPage() {
                 )}
 
                 {(activeProvider === 'SMTP' || activeProvider === 'GOOGLE' || activeProvider === 'MICROSOFT') && (
-                  <form onSubmit={handleSaveSmtpImap} className="p-4 bg-slate-50 dark:bg-[#12141d] border border-slate-202 dark:border-[#1f2130] rounded-xl space-y-6 animate-in slide-in-from-top-2 duration-250">
+                  <form onSubmit={handleSaveSmtpImap} className="p-4 bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] rounded-xl space-y-6 animate-in slide-in-from-top-2 duration-250">
                     
                     {/* SMTP Outbound Section */}
                     <div className="space-y-4">
@@ -681,7 +681,7 @@ export default function SettingsPage() {
                       </h4>
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div className="space-y-1.5">
-                          <label className="text-[10px] text-slate-555 dark:text-slate-400 font-bold uppercase tracking-widest">SMTP Host Server</label>
+                          <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">SMTP Host Server</label>
                           <input 
                             type="text" 
                             disabled={isGlobalSmtpDisabled(activeProvider)}
@@ -692,36 +692,36 @@ export default function SettingsPage() {
                               activeProvider === 'MICROSOFT' ? 'smtp.office365.com' :
                               'e.g. smtp.mailgun.org'
                             }
-                            className="w-full bg-white dark:bg-slate-950 border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none font-mono focus:ring-2 focus:ring-blue-500/35 disabled:opacity-50"
+                            className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none font-mono focus:ring-2 focus:ring-blue-500/35 disabled:opacity-50"
                           />
                         </div>
                         <div className="space-y-1.5">
-                          <label className="text-[10px] text-slate-555 dark:text-slate-405 font-bold uppercase tracking-widest">Port Connection</label>
+                          <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">Port Connection</label>
                           <input 
                             type="text" 
                             disabled={isGlobalSmtpDisabled(activeProvider)}
                             value={smtpPort}
                             onChange={(e) => setSmtpPort(e.target.value)}
                             placeholder="587"
-                            className="w-full bg-white dark:bg-slate-950 border border-slate-202 dark:border-[#1f2130] text-slate-805 dark:text-white text-xs rounded-lg px-3 py-2 outline-none font-mono focus:ring-2 focus:ring-blue-500/35 disabled:opacity-50"
+                            className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none font-mono focus:ring-2 focus:ring-blue-500/35 disabled:opacity-50"
                           />
                         </div>
                         <div className="space-y-1.5">
-                          <label className="text-[10px] text-slate-555 dark:text-slate-405 font-bold uppercase tracking-widest">Identity Username</label>
+                          <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">Identity Username</label>
                           <input 
                             type="text" 
                             disabled={isGlobalSmtpDisabled(activeProvider)}
                             value={smtpUser}
                             onChange={(e) => setSmtpUser(e.target.value)}
                             placeholder="e.g. user@yourdomain.com"
-                            className="w-full bg-white dark:bg-slate-955 border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none font-mono focus:ring-2 focus:ring-blue-500/35 disabled:opacity-50"
+                            className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none font-mono focus:ring-2 focus:ring-blue-500/35 disabled:opacity-50"
                           />
                         </div>
                       </div>
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-1.5">
-                          <label className="text-[10px] text-slate-555 dark:text-slate-405 font-bold uppercase tracking-widest">Outbound SMTP Password Key</label>
+                          <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">Outbound SMTP Password Key</label>
                           <div className="relative">
                             <input 
                               type={showSmtpPass ? "text" : "password"} 
@@ -729,13 +729,13 @@ export default function SettingsPage() {
                               value={smtpPass}
                               onChange={(e) => setSmtpPass(e.target.value)}
                               placeholder="SMTP Connection Password Key"
-                              className="w-full bg-white dark:bg-slate-955 border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 pr-10 outline-none font-mono focus:ring-2 focus:ring-blue-500/35 disabled:opacity-50"
+                              className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 pr-10 outline-none font-mono focus:ring-2 focus:ring-blue-500/35 disabled:opacity-50"
                             />
                             {!isGlobalSmtpDisabled(activeProvider) && (
                               <button 
                                 type="button"
                                 onClick={() => setShowSmtpPass(!showSmtpPass)}
-                                className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-650 dark:hover:text-slate-300 cursor-pointer"
+                                className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer"
                               >
                                 {showSmtpPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                               </button>
@@ -747,7 +747,7 @@ export default function SettingsPage() {
                             type="button" 
                             disabled={smtpLoading || isGlobalSmtpDisabled(activeProvider)}
                             onClick={handleTestSmtpConnection}
-                            className="w-full flex items-center justify-center gap-2 bg-blue-605/10 hover:bg-blue-600/10 text-blue-600 dark:text-blue-400 font-bold text-xs py-2 rounded-lg transition-colors border border-blue-200 dark:border-blue-500/30 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="w-full flex items-center justify-center gap-2 bg-blue-600/10 hover:bg-blue-600/10 text-blue-600 dark:text-blue-400 font-bold text-xs py-2 rounded-lg transition-colors border border-blue-200 dark:border-blue-500/30 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             <RefreshCw className={`w-3.5 h-3.5 ${smtpLoading ? 'animate-spin' : ''}`} />
                             {smtpLoading ? 'Communicating Server...' : 'Test SMTP Authentication Connection'}
@@ -763,7 +763,7 @@ export default function SettingsPage() {
                       </h4>
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div className="space-y-1.5">
-                          <label className="text-[10px] text-slate-555 dark:text-slate-400 font-bold uppercase tracking-widest">IMAP Host Server</label>
+                          <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">IMAP Host Server</label>
                           <input 
                             type="text" 
                             disabled={isGlobalSmtpDisabled(activeProvider)}
@@ -774,36 +774,36 @@ export default function SettingsPage() {
                               activeProvider === 'MICROSOFT' ? 'outlook.office365.com' :
                               'e.g. imap.mailgun.org'
                             }
-                            className="w-full bg-white dark:bg-slate-950 border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none font-mono focus:ring-2 focus:ring-blue-500/35 disabled:opacity-50"
+                            className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none font-mono focus:ring-2 focus:ring-blue-500/35 disabled:opacity-50"
                           />
                         </div>
                         <div className="space-y-1.5">
-                          <label className="text-[10px] text-slate-555 dark:text-slate-405 font-bold uppercase tracking-widest">Port Connection</label>
+                          <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">Port Connection</label>
                           <input 
                             type="text" 
                             disabled={isGlobalSmtpDisabled(activeProvider)}
                             value={imapPort}
                             onChange={(e) => setImapPort(e.target.value)}
                             placeholder="993"
-                            className="w-full bg-white dark:bg-slate-950 border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none font-mono focus:ring-2 focus:ring-blue-500/35 disabled:opacity-50"
+                            className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none font-mono focus:ring-2 focus:ring-blue-500/35 disabled:opacity-50"
                           />
                         </div>
                         <div className="space-y-1.5">
-                          <label className="text-[10px] text-slate-555 dark:text-slate-405 font-bold uppercase tracking-widest">IMAP Username</label>
+                          <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">IMAP Username</label>
                           <input 
                             type="text" 
                             disabled={isGlobalSmtpDisabled(activeProvider)}
                             value={imapUser}
                             onChange={(e) => setImapUser(e.target.value)}
                             placeholder="e.g. user@yourdomain.com"
-                            className="w-full bg-white dark:bg-slate-955 border border-slate-202 dark:border-[#1f2130] text-slate-805 dark:text-white text-xs rounded-lg px-3 py-2 outline-none font-mono focus:ring-2 focus:ring-blue-500/35 disabled:opacity-50"
+                            className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none font-mono focus:ring-2 focus:ring-blue-500/35 disabled:opacity-50"
                           />
                         </div>
                       </div>
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-1.5">
-                          <label className="text-[10px] text-slate-555 dark:text-slate-405 font-bold uppercase tracking-widest">Inbound IMAP Password Key</label>
+                          <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">Inbound IMAP Password Key</label>
                           <div className="relative">
                             <input 
                               type={showImapPass ? "text" : "password"} 
@@ -811,13 +811,13 @@ export default function SettingsPage() {
                               value={imapPass}
                               onChange={(e) => setImapPass(e.target.value)}
                               placeholder="IMAP Connection Password Key"
-                              className="w-full bg-white dark:bg-slate-955 border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 pr-10 outline-none font-mono focus:ring-2 focus:ring-blue-500/35 disabled:opacity-50"
+                              className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 pr-10 outline-none font-mono focus:ring-2 focus:ring-blue-500/35 disabled:opacity-50"
                             />
                             {!isGlobalSmtpDisabled(activeProvider) && (
                               <button 
                                 type="button"
                                 onClick={() => setShowImapPass(!showImapPass)}
-                                className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-650 dark:hover:text-slate-300 cursor-pointer"
+                                className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer"
                               >
                                 {showImapPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                               </button>
@@ -827,7 +827,7 @@ export default function SettingsPage() {
                       </div>
                     </div>
 
-                    <div className="flex justify-end pt-2 border-t border-slate-150 dark:border-slate-850">
+                    <div className="flex justify-end pt-2 border-t border-slate-150 dark:border-slate-800">
                       <button 
                         type="submit" 
                         disabled={isGlobalSmtpDisabled(activeProvider)}
@@ -839,7 +839,7 @@ export default function SettingsPage() {
                     </div>
 
                     {(smtpLogs.length > 0 || smtpLoading) && (
-                      <div className="p-3.5 bg-slate-950 rounded-lg text-[11px] font-mono whitespace-pre-wrap text-[#cbd5e1] leading-relaxed border border-slate-850 max-h-52 overflow-y-auto w-full">
+                      <div className="p-3.5 bg-slate-950 rounded-lg text-[11px] font-mono whitespace-pre-wrap text-[#cbd5e1] leading-relaxed border border-slate-800 max-h-52 overflow-y-auto w-full">
                         <div className="text-slate-500 pb-1.5 border-b border-slate-900 mb-1.5 flex justify-between items-center text-[9px] tracking-wider uppercase font-bold">
                           <span>SMTP Dispatch Diagnostic Console</span>
                           {smtpLoading && <span className="animate-pulse text-blue-400">CONNECTING...</span>}
@@ -856,35 +856,35 @@ export default function SettingsPage() {
               </div>
 
               {/* Service-Level Rate Limits */}
-              <div className="bg-white dark:bg-[#0e1017] border border-slate-202 dark:border-[#1b1c26] rounded-xl p-5 shadow-xs">
-                <h3 className="text-xs font-bold uppercase tracking-widest text-slate-855 dark:text-slate-200 mb-0.5">Service-Level Outbound Rate Limits</h3>
-                <p className="text-[11px] text-slate-400 dark:text-slate-505 mb-4 font-medium">Configure global limits for sending frequencies across all campaigns and active senders.</p>
+              <div className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1b1c26] rounded-xl p-5 shadow-xs">
+                <h3 className="text-xs font-bold uppercase tracking-widest text-slate-800 dark:text-slate-200 mb-0.5">Service-Level Outbound Rate Limits</h3>
+                <p className="text-[11px] text-slate-400 dark:text-slate-500 mb-4 font-medium">Configure global limits for sending frequencies across all campaigns and active senders.</p>
 
                 <form onSubmit={handleSaveRateLimits} className="space-y-4">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-1.5">
-                      <label className="text-[10px] text-slate-555 dark:text-slate-405 font-bold uppercase tracking-widest">Requests Per Minute (RPM)</label>
+                      <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">Requests Per Minute (RPM)</label>
                       <input 
                         type="number" 
                         value={rateLimitMinute}
                         onChange={(e) => setRateLimitMinute(e.target.value)}
                         placeholder="60"
-                        className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none font-mono focus:ring-2 focus:ring-blue-500/35"
+                        className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none font-mono focus:ring-2 focus:ring-blue-500/35"
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <label className="text-[10px] text-slate-555 dark:text-slate-405 font-bold uppercase tracking-widest">Requests Per Hour (RPH)</label>
+                      <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">Requests Per Hour (RPH)</label>
                       <input 
                         type="number" 
                         value={rateLimitHour}
                         onChange={(e) => setRateLimitHour(e.target.value)}
                         placeholder="1000"
-                        className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none font-mono focus:ring-2 focus:ring-blue-500/35"
+                        className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none font-mono focus:ring-2 focus:ring-blue-500/35"
                       />
                     </div>
                   </div>
 
-                  <div className="flex justify-end pt-4 border-t border-slate-100 dark:border-slate-850 mt-4">
+                  <div className="flex justify-end pt-4 border-t border-slate-100 dark:border-slate-800 mt-4">
                     <button 
                       type="submit" 
                       disabled={rateLimitLoading}

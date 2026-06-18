@@ -6,7 +6,7 @@ import { useState, useEffect } from 'react';
 
 const statusColors: Record<string, string> = {
   'Interested': 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900/30',
-  'Not_Interested': 'bg-rose-50 dark:bg-rose-955/30 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-900/30',
+  'Not_Interested': 'bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-900/30',
   'Meeting_Booked': 'bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-900/30',
   'Out_of_Office': 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-500 border-amber-200 dark:border-amber-900/30',
   'Bounced': 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700',
@@ -346,10 +346,10 @@ export default function UniboxPage() {
   return (
     <div className="h-[calc(100vh-6rem)] flex gap-4 animate-in fade-in duration-500">
       {/* Left Pane: Inbox List */}
-      <div className="w-80 shrink-0 bg-white dark:bg-slate-900 border border-slate-202 dark:border-slate-800 rounded-xl flex flex-col overflow-hidden shadow-xs">
-        <div className="p-4 border-b border-slate-202 dark:border-slate-800/80 bg-slate-50/20 dark:bg-slate-955/20 flex flex-col gap-3">
+      <div className="w-80 shrink-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl flex flex-col overflow-hidden shadow-xs">
+        <div className="p-4 border-b border-slate-200 dark:border-slate-800/80 bg-slate-50/20 dark:bg-slate-950/20 flex flex-col gap-3">
           <div className="flex justify-between items-center">
-            <h2 className="text-xs font-bold text-slate-855 dark:text-white uppercase tracking-widest flex items-center justify-between w-full">
+            <h2 className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-widest flex items-center justify-between w-full">
               Unibox Inbox
               <span className="bg-blue-600 text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full font-mono shrink-0 ml-2">
                 {replies.filter(e => e.unread).length} NEW
@@ -370,13 +370,13 @@ export default function UniboxPage() {
               placeholder="Search contacts..." 
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-202 dark:border-slate-805 text-xs rounded-lg pl-9 pr-4 py-2 outline-none focus:ring-2 focus:ring-blue-500/30 placeholder:text-slate-400 dark:placeholder:text-slate-500 text-slate-800 dark:text-white"
+              className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs rounded-lg pl-9 pr-4 py-2 outline-none focus:ring-2 focus:ring-blue-500/30 placeholder:text-slate-400 dark:placeholder:text-slate-500 text-slate-800 dark:text-white"
             />
           </div>
         </div>
         
         {loading ? (
-          <div className="flex-1 flex flex-col items-center justify-center text-slate-400 dark:text-slate-505 text-xs space-y-2">
+          <div className="flex-1 flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 text-xs space-y-2">
             <div className="w-5 h-5 border-2 border-slate-300 dark:border-slate-700 border-t-blue-500 animate-spin rounded-full mx-auto" />
             <p className="font-semibold tracking-wider font-mono">Syncing streams...</p>
           </div>
@@ -393,8 +393,8 @@ export default function UniboxPage() {
                   onClick={() => handleSelectThread(item.id)}
                   className={`w-full text-left p-3.5 rounded-lg transition-all border block relative ${
                     isSelected 
-                      ? 'bg-blue-50/65 dark:bg-blue-955/20 border-blue-200 dark:border-blue-500/25 shadow-xs' 
-                      : 'bg-transparent border-transparent hover:bg-slate-50/80 dark:hover:bg-slate-850/40'
+                      ? 'bg-blue-50/65 dark:bg-blue-950/20 border-blue-200 dark:border-blue-500/25 shadow-xs' 
+                      : 'bg-transparent border-transparent hover:bg-slate-50/80 dark:hover:bg-slate-800/40'
                   }`}
                 >
                   <div className="flex justify-between items-start mb-1">
@@ -404,17 +404,17 @@ export default function UniboxPage() {
                     <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 font-medium">{dateStr}</span>
                   </div>
                   <div className="flex justify-between items-center mb-1.5">
-                     <div className="text-xs font-semibold text-slate-805 dark:text-slate-200 truncate mr-2 w-32">{item.subject}</div>
+                     <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate mr-2 w-32">{item.subject}</div>
                      <div className="flex items-center gap-1 shrink-0">
                        {leadPaused && (
-                         <span className="text-[8px] bg-rose-50 dark:bg-rose-955/30 text-rose-600 dark:text-rose-400 font-bold px-1.5 py-0.5 rounded border border-rose-200 dark:border-rose-900/30">PAUSED</span>
+                         <span className="text-[8px] bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 font-bold px-1.5 py-0.5 rounded border border-rose-200 dark:border-rose-900/30">PAUSED</span>
                        )}
                        <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded border uppercase tracking-wider ${statusColors[item.lead?.status || 'Neutral']}`}>
                           {readableStatus[item.lead?.status || 'Neutral']}
                        </span>
                      </div>
                   </div>
-                  <div className="text-[11px] text-slate-505 dark:text-slate-400 truncate w-[94%] leading-snug font-medium">{sanitizeEmailBody(item.body)}</div>
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate w-[94%] leading-snug font-medium">{sanitizeEmailBody(item.body)}</div>
                   {item.unread && (
                     <div className="absolute left-1.5 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-blue-500" />
                   )}
@@ -422,7 +422,7 @@ export default function UniboxPage() {
               );
             })}
             {filteredInbox.length === 0 && (
-              <div className="text-center py-10 text-slate-400 dark:text-slate-505 text-xs font-medium">
+              <div className="text-center py-10 text-slate-400 dark:text-slate-500 text-xs font-medium">
                 No matching records.
               </div>
             )}
@@ -431,25 +431,25 @@ export default function UniboxPage() {
       </div>
 
       {/* Right Pane: Conversation Thread */}
-      <div className="flex-1 bg-white dark:bg-slate-900 border border-slate-201 dark:border-slate-800 rounded-xl flex flex-col overflow-hidden relative shadow-xs">
+      <div className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl flex flex-col overflow-hidden relative shadow-xs">
         {selectedEmail ? (
           <>
             {/* Thread Header */}
             <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex justify-between items-start bg-slate-50/20 dark:bg-slate-950/10">
               <div>
-                <h2 className="text-base font-bold text-slate-909 dark:text-white mb-2 leading-tight">{selectedEmail.subject}</h2>
+                <h2 className="text-base font-bold text-slate-900 dark:text-white mb-2 leading-tight">{selectedEmail.subject}</h2>
                 <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-slate-105 dark:bg-slate-955 border border-slate-202 dark:border-slate-800 flex items-center justify-center text-blue-650 dark:text-blue-400 font-bold text-xs shadow-xs">
+                  <div className="w-8 h-8 rounded-lg bg-slate-105 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex items-center justify-center text-blue-600 dark:text-blue-400 font-bold text-xs shadow-xs">
                     {(selectedEmail.lead?.name || 'P').charAt(0)}
                   </div>
                   <div>
                     <div className="text-xs font-bold text-slate-900 dark:text-white flex items-center gap-2">
                        {selectedEmail.lead?.name || 'Prospect'}
                        {selectedEmail.lead?.enrollments?.some((e: any) => e.status === 'Paused') && (
-                         <span className="text-[9px] bg-rose-50 dark:bg-rose-955/20 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/30 px-2 py-0.5 rounded font-bold uppercase tracking-wider">PAUSED SEQUENCE</span>
+                         <span className="text-[9px] bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/30 px-2 py-0.5 rounded font-bold uppercase tracking-wider">PAUSED SEQUENCE</span>
                        )}
                     </div>
-                    <div className="text-[10px] text-slate-400 dark:text-slate-505 font-mono mt-0.5">{selectedEmail.lead?.email}</div>
+                    <div className="text-[10px] text-slate-400 dark:text-slate-500 font-mono mt-0.5">{selectedEmail.lead?.email}</div>
                   </div>
                 </div>
               </div>
@@ -460,8 +460,8 @@ export default function UniboxPage() {
                         onClick={handleTogglePause}
                         className={`p-1.5 rounded-lg transition-colors border shadow-xs cursor-pointer ${
                           selectedEmail.lead?.enrollments?.some((e: any) => e.status === 'Paused') 
-                            ? 'bg-rose-50 dark:bg-rose-955/20 hover:bg-rose-100 dark:hover:bg-rose-955/30 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-900/30' 
-                            : 'bg-white dark:bg-slate-950 hover:bg-slate-50 dark:hover:bg-slate-850 border border-slate-202 dark:border-slate-805 text-slate-500 dark:text-slate-400'
+                            ? 'bg-rose-50 dark:bg-rose-950/20 hover:bg-rose-100 dark:hover:bg-rose-950/30 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-900/30' 
+                            : 'bg-white dark:bg-slate-950 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400'
                         }`} 
                         title={selectedEmail.lead?.enrollments?.some((e: any) => e.status === 'Paused') ? "Resume Lead Sequence" : "Pause Lead Sequence"}
                     >
@@ -476,12 +476,12 @@ export default function UniboxPage() {
                             <ChevronDown className="w-3 h-3" />
                         </button>
                         {showStatusDropdown && (
-                            <div className="absolute right-0 top-full mt-1.5 w-44 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl overflow-hidden z-20 animate-in fade-in slide-in-from-top-2 duration-150">
+                            <div className="absolute right-0 top-full mt-1.5 w-44 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl overflow-hidden z-20 animate-in fade-in slide-in-from-top-2 duration-150">
                                 {Object.keys(statusColors).map(statusKey => (
                                     <button 
                                         key={statusKey}
                                         onClick={() => handleUpdateStatus(statusKey)}
-                                        className="w-full text-left px-3.5 py-2 text-xs text-slate-707 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850/60 transition-colors font-medium cursor-pointer"
+                                        className="w-full text-left px-3.5 py-2 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors font-medium cursor-pointer"
                                     >
                                         {readableStatus[statusKey]}
                                     </button>
@@ -494,12 +494,12 @@ export default function UniboxPage() {
             </div>
 
             {/* Thread Content */}
-            <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-slate-50/30 dark:bg-slate-955/10">
+            <div className="flex-1 overflow-y-auto p-5 space-y-4 bg-slate-50/30 dark:bg-slate-950/10">
               {(selectedEmail.messages || []).map((msg: any) => {
                 if (msg.type === 'outbound') {
                   return (
                     <div key={msg.id} className="flex gap-3 justify-end">
-                      <div className="bg-blue-50/70 dark:bg-blue-955/20 border border-blue-150 dark:border-blue-500/10 p-4 rounded-lg rounded-tr-sm text-xs text-slate-800 dark:text-white leading-relaxed font-sans shadow-xs max-w-[80%]">
+                      <div className="bg-blue-50/70 dark:bg-blue-950/20 border border-blue-150 dark:border-blue-500/10 p-4 rounded-lg rounded-tr-sm text-xs text-slate-800 dark:text-white leading-relaxed font-sans shadow-xs max-w-[80%]">
                         <div className="whitespace-pre-line">{msg.body}</div>
                         <div className="text-[9px] text-slate-400 dark:text-slate-500 mt-2 text-right font-mono font-medium">
                           {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -513,10 +513,10 @@ export default function UniboxPage() {
                 } else {
                   return (
                     <div key={msg.id} className="flex gap-3">
-                      <div className="w-7 h-7 rounded-md bg-white dark:bg-slate-955 border border-slate-220 dark:border-slate-800 flex items-center justify-center text-blue-655 dark:text-blue-400 text-[10px] font-bold shrink-0 shadow-xs">
+                      <div className="w-7 h-7 rounded-md bg-white dark:bg-slate-950 border border-slate-220 dark:border-slate-800 flex items-center justify-center text-blue-600 dark:text-blue-400 text-[10px] font-bold shrink-0 shadow-xs">
                         {(selectedEmail.lead?.name || 'P').charAt(0)}
                       </div>
-                      <div className="bg-white dark:bg-slate-900 border border-slate-202 dark:border-slate-750 p-4 rounded-lg rounded-tl-sm text-xs text-slate-805 dark:text-white leading-relaxed font-sans shadow-xs whitespace-pre-line">
+                      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-750 p-4 rounded-lg rounded-tl-sm text-xs text-slate-800 dark:text-white leading-relaxed font-sans shadow-xs whitespace-pre-line">
                         {sanitizeEmailBody(msg.body)}
                         <div className="text-[9px] text-slate-400 dark:text-slate-500 mt-2 font-mono font-medium">
                           {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -530,7 +530,7 @@ export default function UniboxPage() {
               {/* Local Sent Replies stack (simulates real-time thread updating) */}
               {(sentRepliesLocal[selectedEmail.id] || []).map((sent, index) => (
                 <div key={`local-${index}`} className="flex gap-3 justify-end animate-in fade-in slide-in-from-bottom-2 duration-200">
-                  <div className="bg-blue-50/70 dark:bg-blue-955/20 border border-blue-150 dark:border-blue-500/10 p-4 rounded-lg rounded-tr-sm text-xs text-slate-800 dark:text-white leading-relaxed font-sans shadow-xs max-w-[80%]">
+                  <div className="bg-blue-50/70 dark:bg-blue-950/20 border border-blue-150 dark:border-blue-500/10 p-4 rounded-lg rounded-tr-sm text-xs text-slate-800 dark:text-white leading-relaxed font-sans shadow-xs max-w-[80%]">
                     {sent.body}
                     <div className="text-[9px] text-slate-400 dark:text-slate-500 mt-2 text-right font-mono font-medium">{sent.sentAt}</div>
                   </div>
@@ -543,39 +543,39 @@ export default function UniboxPage() {
 
             {/* Reply Editor */}
             <div className="p-4 bg-slate-50/50 dark:bg-slate-950/20 border-t border-slate-200 dark:border-slate-800 bg-white">
-              <div className="bg-slate-50 dark:bg-slate-950 border border-slate-202 dark:border-slate-800/80 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-blue-500/20 transition-all shadow-xs">
-                <div className="px-3.5 py-2 bg-slate-105 dark:bg-slate-900/50 border-b border-slate-202 dark:border-slate-800/80 flex items-center gap-1.5 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest font-mono">
-                  <CornerUpLeft className="w-3.5 h-3.5 text-slate-400 dark:text-slate-550" />
+              <div className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800/80 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-blue-500/20 transition-all shadow-xs">
+                <div className="px-3.5 py-2 bg-slate-105 dark:bg-slate-900/50 border-b border-slate-200 dark:border-slate-800/80 flex items-center gap-1.5 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest font-mono">
+                  <CornerUpLeft className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
                   Reply to {selectedEmail.lead?.name?.split(' ')[0] || 'Prospect'}
                 </div>
                 <textarea 
                   value={currentReplyText}
                   onChange={(e) => setReplyText(e.target.value)}
-                  className="w-full p-4 h-24 resize-none outline-none text-slate-800 dark:text-white text-xs placeholder:text-slate-400 dark:placeholder:text-slate-550 bg-transparent leading-relaxed font-mono"
+                  className="w-full p-4 h-24 resize-none outline-none text-slate-800 dark:text-white text-xs placeholder:text-slate-400 dark:placeholder:text-slate-500 bg-transparent leading-relaxed font-mono"
                   placeholder="Type your reply here, or insert matching template..."
                 ></textarea>
                 
-                <div className="p-2.5 border-t border-slate-202 dark:border-slate-800/80 bg-white dark:bg-slate-900 flex justify-between items-center relative z-10">
+                <div className="p-2.5 border-t border-slate-200 dark:border-slate-800/80 bg-white dark:bg-slate-900 flex justify-between items-center relative z-10">
                   <div className="relative">
                     <button 
                       onClick={() => setShowTemplateMenu(!showTemplateMenu)}
-                      className="hover:text-blue-700 dark:hover:text-white text-blue-650 dark:text-blue-400 font-bold flex items-center gap-1.5 bg-blue-50 dark:bg-blue-500/10 px-3 py-1.5 rounded-lg text-[10px] uppercase border border-blue-150 dark:border-blue-500/20 transition-all shadow-2xs font-sans cursor-pointer"
+                      className="hover:text-blue-700 dark:hover:text-white text-blue-600 dark:text-blue-400 font-bold flex items-center gap-1.5 bg-blue-50 dark:bg-blue-500/10 px-3 py-1.5 rounded-lg text-[10px] uppercase border border-blue-150 dark:border-blue-500/20 transition-all shadow-2xs font-sans cursor-pointer"
                     >
                         <FileText className="w-3.5 h-3.5" />
                         Templates
                     </button>
                     
                     {showTemplateMenu && (
-                      <div className="absolute left-0 bottom-full mb-1.5 w-64 bg-white dark:bg-slate-900 border border-slate-202 dark:border-slate-800 rounded-lg p-2 shadow-2xl z-30 animate-in slide-in-from-bottom-2 duration-150">
+                      <div className="absolute left-0 bottom-full mb-1.5 w-64 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-2 shadow-2xl z-30 animate-in slide-in-from-bottom-2 duration-150">
                         <p className="text-[9px] uppercase font-bold text-slate-400 dark:text-slate-500 px-2 py-1.5 tracking-widest border-b border-slate-100 dark:border-slate-800 mb-1">CRM template select</p>
                         <div className="space-y-0.5">
                           {templatesList.map(template => (
                             <button 
                               key={template.name}
                               onClick={() => handleInsertTemplate(template.text)}
-                              className="w-full text-left p-2 rounded-md hover:bg-slate-50 dark:hover:bg-slate-850 text-slate-700 dark:text-slate-350 transition-colors block border border-transparent hover:border-slate-202 dark:hover:border-slate-800 cursor-pointer"
+                              className="w-full text-left p-2 rounded-md hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-350 transition-colors block border border-transparent hover:border-slate-200 dark:hover:border-slate-800 cursor-pointer"
                             >
-                              <div className="font-bold text-xs text-slate-905 dark:text-white">{template.name}</div>
+                              <div className="font-bold text-xs text-slate-900 dark:text-white">{template.name}</div>
                               <div className="text-[10px] text-slate-400 dark:text-slate-500 truncate mt-0.5 font-mono">{template.text}</div>
                             </button>
                           ))}
@@ -596,7 +596,7 @@ export default function UniboxPage() {
             </div>
           </>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-slate-400 dark:text-slate-505">
+          <div className="flex-1 flex flex-col items-center justify-center text-slate-400 dark:text-slate-500">
             <MailOpen className="w-12 h-12 mb-3 opacity-30" />
             <p className="text-xs font-semibold uppercase tracking-wider">Select conversation to review</p>
           </div>

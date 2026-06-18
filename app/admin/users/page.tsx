@@ -210,12 +210,12 @@ export default function UsersAdminPage() {
           <AlertTriangle className="w-10 h-10 text-rose-500 mx-auto mb-3 animate-pulse" />
           <h3 className="text-slate-900 dark:text-white font-bold text-sm">Privileged Access Required</h3>
           <p className="text-slate-500 text-xs mt-1.5 leading-relaxed">{error}</p>
-          <div className="mt-4 p-2.5 bg-slate-100 dark:bg-slate-900 rounded-lg text-[11px] text-slate-550 leading-relaxed max-w-sm mx-auto font-medium">
+          <div className="mt-4 p-2.5 bg-slate-100 dark:bg-slate-900 rounded-lg text-[11px] text-slate-500 leading-relaxed max-w-sm mx-auto font-medium">
             <strong>Simulation Note:</strong> Click the <strong>"Toggle to Admin"</strong> button in the left-hand sidebar workspace first to see the secure user database.
           </div>
         </div>
       ) : loading ? (
-        <div className="py-20 text-center text-slate-400 dark:text-slate-550 text-xs space-y-3">
+        <div className="py-20 text-center text-slate-400 dark:text-slate-500 text-xs space-y-3">
           <div className="w-6 h-6 border-2 border-slate-350 dark:border-slate-700 border-t-blue-500 animate-spin rounded-full mx-auto" />
           <p className="font-medium tracking-wide">Querying corporate user directory secure nodes...</p>
         </div>
@@ -223,13 +223,13 @@ export default function UsersAdminPage() {
         <div className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1b1c26] rounded-xl overflow-hidden shadow-xs">
           <div className="p-4 border-b border-slate-200 dark:border-[#1b1c26] flex items-center justify-between bg-slate-50/40 dark:bg-slate-950/20">
             <h2 className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-widest">All Users</h2>
-            <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-2.5 py-0.5 rounded border border-emerald-150 dark:border-emerald-500/15 uppercase tracking-widest font-mono">RBAC Active</span>
+            <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-2.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-500/15 uppercase tracking-widest font-mono">RBAC Active</span>
           </div>
 
           <div className="w-full overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="border-b border-slate-201 dark:border-[#1b1c26] text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest bg-slate-50/20 dark:bg-slate-950/10">
+                <tr className="border-b border-slate-200 dark:border-[#1b1c26] text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest bg-slate-50/20 dark:bg-slate-950/10">
                   <th className="px-5 py-3">Name</th>
                   <th className="px-5 py-3">Email</th>
                   <th className="px-5 py-3">Role</th>
@@ -249,14 +249,14 @@ export default function UsersAdminPage() {
                     </td>
                     <td className="px-5 py-3.5">
                       <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-bold border uppercase tracking-wider ${item.role === 'ADMIN'
-                        ? 'bg-rose-50 dark:bg-rose-550/10 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-550/20'
-                        : 'bg-blue-50 dark:bg-blue-550/10 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-550/20'
+                        ? 'bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-500/20'
+                        : 'bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-500/20'
                         }`}>
                         {item.role === 'ADMIN' ? <Shield className="w-2.5 h-2.5" /> : <Users className="w-2.5 h-2.5" />}
                         {item.role}
                       </span>
                     </td>
-                    <td className="px-5 py-3.5 text-xs text-slate-500 dark:text-slate-450">
+                    <td className="px-5 py-3.5 text-xs text-slate-500 dark:text-slate-400">
                       {new Date(item.createdAt).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' })}
                     </td>
                     <td className="px-5 py-3.5 text-right space-x-2">
@@ -265,7 +265,7 @@ export default function UsersAdminPage() {
                         disabled={item.id === 'admin-id-999'}
                         className={`text-[10px] font-bold uppercase border px-2.5 py-1 rounded-lg transition-colors inline-flex items-center gap-1 ${item.id === 'admin-id-999'
                           ? 'opacity-30 cursor-not-allowed border-slate-200 dark:border-slate-800 text-slate-400'
-                          : 'border-slate-201 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60 cursor-pointer text-slate-700 dark:text-slate-300'
+                          : 'border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60 cursor-pointer text-slate-700 dark:text-slate-300'
                           }`}
                       >
                         {item.role === 'ADMIN' ? 'Demote to User' : 'Promote to Admin'}
@@ -275,7 +275,7 @@ export default function UsersAdminPage() {
                         disabled={item.id === 'admin-id-999' || item.id === currentSession?.id}
                         className={`p-1.5 rounded-lg border transition-colors inline-flex items-center justify-center ${item.id === 'admin-id-999' || item.id === currentSession?.id
                           ? 'opacity-30 cursor-not-allowed border-slate-200 dark:border-slate-800 text-slate-400'
-                          : 'border-rose-150 dark:border-[#961747]/30 text-rose-500 dark:text-rose-455 hover:bg-rose-500/10 cursor-pointer'
+                          : 'border-rose-150 dark:border-[#961747]/30 text-rose-500 dark:text-rose-500 hover:bg-rose-500/10 cursor-pointer'
                           }`}
                         title={item.id === currentSession?.id ? "Cannot delete yourself" : "Deauthorize Member"}
                       >
@@ -384,7 +384,7 @@ export default function UsersAdminPage() {
                       type="button"
                       onClick={() => setNewRole('ADMIN')}
                       className={`py-2 rounded-lg border text-xs font-semibold uppercase tracking-wider transition-all cursor-pointer ${newRole === 'ADMIN'
-                        ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-450'
+                        ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500'
                         : 'border-slate-200 dark:border-slate-800 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800/40'
                         }`}
                     >

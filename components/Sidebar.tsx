@@ -84,8 +84,8 @@ export function Sidebar() {
           <span className={cn(
             "px-1.5 py-0.5 rounded text-[8px] font-mono tracking-normal",
             session?.role === 'ADMIN' 
-              ? "bg-rose-500/10 text-rose-600 dark:text-rose-455 border border-rose-500/15" 
-              : "bg-blue-500/10 text-blue-600 dark:text-blue-455 border border-blue-500/15"
+              ? "bg-rose-500/10 text-rose-600 dark:text-rose-500 border border-rose-500/15" 
+              : "bg-blue-500/10 text-blue-600 dark:text-blue-500 border border-blue-500/15"
           )}>
             {session?.role || 'USER'}
           </span>
@@ -93,7 +93,7 @@ export function Sidebar() {
         <div className="text-xs font-bold text-slate-800 dark:text-white truncate">
           {session?.name || 'Syncing Account...'}
         </div>
-        <div className="text-[10px] text-slate-500 dark:text-slate-450 truncate mt-0.5 mb-2.5">
+        <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate mt-0.5 mb-2.5">
           {session?.email || 'Connecting...'}
         </div>
         <button
@@ -116,7 +116,7 @@ export function Sidebar() {
                 'flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-sm font-medium border border-transparent',
                 isActive
                   ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 border-blue-100 dark:border-blue-500/10 font-semibold'
-                  : 'text-slate-600 dark:text-slate-450 hover:bg-slate-100 dark:hover:bg-slate-800/40 hover:text-slate-900 dark:hover:text-white'
+                  : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/40 hover:text-slate-900 dark:hover:text-white'
               )}
             >
               <item.icon className={cn('w-4 h-4 transition-colors', isActive ? 'text-blue-600 dark:text-blue-400' : 'text-slate-400 group-hover:text-slate-600 dark:text-slate-500')} />
@@ -131,12 +131,12 @@ export function Sidebar() {
         {/* Theme Toggle Button */}
         <button
           onClick={toggleTheme}
-          className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg transition-colors text-sm font-medium text-slate-500 dark:text-slate-455 hover:bg-slate-100 dark:hover:bg-slate-800/40 hover:text-slate-900 dark:hover:text-white cursor-pointer border border-transparent"
+          className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg transition-colors text-sm font-medium text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/40 hover:text-slate-900 dark:hover:text-white cursor-pointer border border-transparent"
         >
           <div className="flex items-center gap-3">
             {!mounted ? (
               <>
-                <div className="w-4 h-4 rounded-full bg-slate-200 dark:bg-slate-850 animate-pulse" />
+                <div className="w-4 h-4 rounded-full bg-slate-200 dark:bg-slate-800 animate-pulse" />
                 <span className="w-16 h-4 bg-slate-100 dark:bg-slate-800 rounded animate-pulse" />
               </>
             ) : theme === 'dark' ? (
@@ -158,19 +158,19 @@ export function Sidebar() {
 
         <Link
           href="/settings"
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-sm font-medium text-slate-500 dark:text-slate-455 hover:bg-slate-100 dark:hover:bg-slate-800/40 hover:text-slate-900 dark:hover:text-white border border-transparent"
+          className="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-sm font-medium text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/40 hover:text-slate-900 dark:hover:text-white border border-transparent"
         >
           <Settings className="w-4 h-4 text-slate-400 dark:text-slate-500" />
           Settings
         </Link>
         
         {/* Systems Status Plate */}
-        <div className="bg-slate-50 dark:bg-slate-950/40 border border-slate-100 dark:border-slate-850 rounded-xl p-3 shadow-xs space-y-2">
-          <p className="text-[9px] uppercase tracking-wider text-slate-405 dark:text-slate-500 font-bold mb-1">System Status</p>
+        <div className="bg-slate-50 dark:bg-slate-950/40 border border-slate-100 dark:border-slate-800 rounded-xl p-3 shadow-xs space-y-2">
+          <p className="text-[9px] uppercase tracking-wider text-slate-400 dark:text-slate-500 font-bold mb-1">System Status</p>
           
           {/* Database */}
           <div className="flex items-center justify-between">
-            <span className="text-xs text-slate-650 dark:text-slate-400 font-medium">Database</span>
+            <span className="text-xs text-slate-600 dark:text-slate-400 font-medium">Database</span>
             <div className="flex items-center gap-1.5">
               <span className={cn(
                 "w-1.5 h-1.5 rounded-full",
@@ -187,7 +187,7 @@ export function Sidebar() {
 
           {/* Azure API */}
           <div className="flex items-center justify-between">
-            <span className="text-xs text-slate-650 dark:text-slate-400 font-medium">Azure API</span>
+            <span className="text-xs text-slate-600 dark:text-slate-400 font-medium">Azure API</span>
             <div className="flex items-center gap-1.5">
               <span className={cn(
                 "w-1.5 h-1.5 rounded-full",
@@ -204,8 +204,8 @@ export function Sidebar() {
                   systemStatus.activeProvider === 'AZURE' ? (
                     systemStatus.azureStatus === 'OPERATIONAL' ? "text-emerald-600 dark:text-emerald-400" :
                     systemStatus.azureStatus === 'UNCONFIGURED' ? "text-amber-600 dark:text-amber-400" : "text-rose-600 dark:text-rose-400"
-                  ) : "text-blue-600 dark:text-blue-405"
-                ) : "text-slate-550 dark:text-slate-400"
+                  ) : "text-blue-600 dark:text-blue-400"
+                ) : "text-slate-500 dark:text-slate-400"
               )}>
                 {systemStatus ? (
                   systemStatus.activeProvider === 'AZURE' ? (

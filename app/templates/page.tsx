@@ -245,7 +245,7 @@ export default function TemplatesPage() {
       <header className="flex justify-between items-center pb-4 border-b border-slate-200 dark:border-slate-800">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white mb-0.5">Copy Library</h1>
-          <p className="text-slate-505 dark:text-slate-400 text-xs font-semibold">Write and manage high-converting cold email COPY strings with dynamic spintax spins.</p>
+          <p className="text-slate-500 dark:text-slate-400 text-xs font-semibold">Write and manage high-converting cold email COPY strings with dynamic spintax spins.</p>
         </div>
         <button 
           onClick={createNewTemplate}
@@ -291,7 +291,7 @@ export default function TemplatesPage() {
           {/* Templates Stack */}
           <div className="space-y-2 overflow-y-auto max-h-[500px]">
             {loading ? (
-              <div className="py-12 text-center text-slate-405 dark:text-slate-500 text-xs">
+              <div className="py-12 text-center text-slate-400 dark:text-slate-500 text-xs">
                 <div className="w-5 h-5 border-2 border-slate-200 dark:border-slate-800 border-t-blue-500 animate-spin rounded-full mx-auto mb-2.5" />
                 <p className="font-medium tracking-wide">Retrieving copy templates...</p>
               </div>
@@ -313,7 +313,7 @@ export default function TemplatesPage() {
                       <h3 className="font-bold text-xs text-slate-900 dark:text-white line-clamp-1">{t.name}</h3>
                       <div className="flex gap-1 items-center shrink-0">
                         {t.steps && Array.isArray(t.steps) && t.steps.length > 1 && (
-                          <span className="text-[8px] bg-slate-100 dark:bg-slate-800 border border-slate-202 dark:border-slate-700 text-slate-600 dark:text-slate-400 font-bold px-1.5 py-0.5 rounded font-mono">
+                          <span className="text-[8px] bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 font-bold px-1.5 py-0.5 rounded font-mono">
                             {t.steps.length} Steps
                           </span>
                         )}
@@ -323,13 +323,13 @@ export default function TemplatesPage() {
                       </div>
                     </div>
                     <p className="text-[10px] text-slate-400 dark:text-slate-500 font-mono mb-2 truncate font-semibold">{t.steps?.[0]?.subject || t.subject}</p>
-                    <p className="text-[11px] text-slate-650 dark:text-slate-400 line-clamp-2 leading-relaxed">{t.steps?.[0]?.body || t.body}</p>
+                    <p className="text-[11px] text-slate-600 dark:text-slate-400 line-clamp-2 leading-relaxed">{t.steps?.[0]?.body || t.body}</p>
                   </div>
                 ))}
                 {filteredTemplates.length === 0 && (
                   <div className="text-center py-10 bg-white dark:bg-[#0e1017] border border-dashed border-slate-200 dark:border-[#1b1c26] rounded-lg">
-                    <FileText className="w-6 h-6 mx-auto text-slate-400 dark:text-gray-550 mb-2" />
-                    <p className="text-xs text-slate-505 dark:text-gray-500 font-medium">No email templates found</p>
+                    <FileText className="w-6 h-6 mx-auto text-slate-400 dark:text-gray-500 mb-2" />
+                    <p className="text-xs text-slate-500 dark:text-gray-500 font-medium">No email templates found</p>
                   </div>
                 )}
               </>
@@ -343,7 +343,7 @@ export default function TemplatesPage() {
             <div className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1b1c26] rounded-xl p-5 relative shadow-xs">
               <div className="flex justify-between items-center pb-3 border-b border-slate-200 dark:border-[#1b1c26] mb-5">
                 <div className="flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-blue-650 dark:text-blue-400" />
+                  <FileText className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                   <span className="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-white">Edit: {editingTemplate.name}</span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -351,8 +351,8 @@ export default function TemplatesPage() {
                     onClick={() => setPreviewResolved(!previewResolved)}
                     className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all flex items-center gap-1.5 border uppercase shadow-xs cursor-pointer ${
                       previewResolved 
-                        ? 'bg-blue-50 dark:bg-blue-600/10 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-505/15' 
-                        : 'bg-white dark:bg-slate-900 text-slate-655 dark:text-slate-300 border-slate-210 dark:border-[#1f2130] hover:text-slate-900 dark:hover:text-white'
+                        ? 'bg-blue-50 dark:bg-blue-600/10 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-500/15' 
+                        : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-210 dark:border-[#1f2130] hover:text-slate-900 dark:hover:text-white'
                     }`}
                   >
                     <Eye className="w-3.5 h-3.5" />
@@ -360,7 +360,7 @@ export default function TemplatesPage() {
                   </button>
                   <button 
                     onClick={() => deleteTemplate(editingTemplate.id)}
-                    className="p-1.5 bg-rose-50 dark:bg-rose-500/5 hover:bg-rose-100 dark:hover:bg-rose-500/10 text-rose-700 dark:text-rose-455 border border-rose-200 dark:border-[#1f2130] rounded-lg transition-all cursor-pointer"
+                    className="p-1.5 bg-rose-50 dark:bg-rose-500/5 hover:bg-rose-100 dark:hover:bg-rose-500/10 text-rose-700 dark:text-rose-500 border border-rose-200 dark:border-[#1f2130] rounded-lg transition-all cursor-pointer"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
@@ -371,7 +371,7 @@ export default function TemplatesPage() {
               <div className="flex flex-wrap items-center gap-2 mb-5 pb-3 border-b border-slate-100 dark:border-slate-800/60">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mr-2">Sequence steps:</span>
                 {editingTemplate.steps?.map((step: any, idx: number) => (
-                  <div key={step.id || idx} className="flex items-center gap-1 bg-slate-50 dark:bg-slate-950 border border-slate-202 dark:border-[#1f2130] rounded-lg p-0.5">
+                  <div key={step.id || idx} className="flex items-center gap-1 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-[#1f2130] rounded-lg p-0.5">
                     <button
                       type="button"
                       onClick={() => { setActiveStepIndex(idx); }}
@@ -397,7 +397,7 @@ export default function TemplatesPage() {
                 <button
                   type="button"
                   onClick={addStep}
-                  className="px-3 py-1 rounded-lg border border-dashed border-slate-350 dark:border-slate-800 text-[10px] font-bold text-slate-505 hover:text-slate-808 dark:hover:text-white transition-colors cursor-pointer"
+                  className="px-3 py-1 rounded-lg border border-dashed border-slate-350 dark:border-slate-800 text-[10px] font-bold text-slate-500 hover:text-slate-800 dark:hover:text-white transition-colors cursor-pointer"
                 >
                   + Add Step
                 </button>
@@ -406,7 +406,7 @@ export default function TemplatesPage() {
               {previewResolved ? (
                 /* Dynamic Preview Window */
                 <div className="space-y-4 animate-in fade-in">
-                  <div className="bg-blue-50 dark:bg-blue-955/15 border border-blue-150 dark:border-blue-500/15 p-4 rounded-lg flex items-start gap-3">
+                  <div className="bg-blue-50 dark:bg-blue-950/15 border border-blue-150 dark:border-blue-500/15 p-4 rounded-lg flex items-start gap-3">
                     <Sparkles className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
                     <div>
                       <p className="text-[10px] text-blue-700 dark:text-blue-400 font-bold uppercase tracking-wider">Dynamic Resolve Active (Step {activeStepIndex + 1})</p>
@@ -416,11 +416,11 @@ export default function TemplatesPage() {
 
                   <div className="space-y-4 font-sans bg-slate-50 dark:bg-[#12141d] border border-slate-100 dark:border-[#1f2130] p-4 rounded-lg">
                     <div className="border-b border-slate-200 dark:border-[#1b1c26] pb-3">
-                      <span className="text-[10px] text-slate-400 dark:text-slate-505 uppercase tracking-widest font-bold font-mono">Subject Outcome:</span>
+                      <span className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-widest font-bold font-mono">Subject Outcome:</span>
                       <p className="text-xs font-semibold text-slate-900 dark:text-white mt-1">{resolveTemplateText(editingTemplate.steps?.[activeStepIndex]?.subject || '')}</p>
                     </div>
                     <div>
-                      <span className="text-[10px] text-slate-400 dark:text-slate-505 uppercase tracking-widest font-bold font-mono mb-2 block">Message Outcome:</span>
+                      <span className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-widest font-bold font-mono mb-2 block">Message Outcome:</span>
                       {isHtml(resolveTemplateText(editingTemplate.steps?.[activeStepIndex]?.body || '')) ? (
                         <iframe 
                           srcDoc={resolveTemplateText(editingTemplate.steps?.[activeStepIndex]?.body || '')}
@@ -429,7 +429,7 @@ export default function TemplatesPage() {
                           sandbox="allow-same-origin"
                         />
                       ) : (
-                        <p className="text-xs text-slate-705 dark:text-gray-350 whitespace-pre-wrap leading-relaxed font-sans">{resolveTemplateText(editingTemplate.steps?.[activeStepIndex]?.body || '')}</p>
+                        <p className="text-xs text-slate-700 dark:text-gray-350 whitespace-pre-wrap leading-relaxed font-sans">{resolveTemplateText(editingTemplate.steps?.[activeStepIndex]?.body || '')}</p>
                       )}
                     </div>
                   </div>
@@ -439,7 +439,7 @@ export default function TemplatesPage() {
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-1.5">
-                      <label className="text-[10px] text-slate-400 dark:text-slate-505 font-bold uppercase tracking-wider">Template Title</label>
+                      <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Template Title</label>
                       <input 
                         type="text" 
                         value={editingTemplate.name}
@@ -448,14 +448,14 @@ export default function TemplatesPage() {
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <label className="text-[10px] text-slate-400 dark:text-slate-505 font-bold uppercase tracking-wider">Campaign Segment Category</label>
+                      <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Campaign Segment Category</label>
                       <input 
                         type="text"
                         list="categories-list"
                         value={editingTemplate.category}
                         onChange={(e) => setEditingTemplate({...editingTemplate, category: e.target.value})}
                         placeholder="e.g. Cold Outreach"
-                        className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] rounded-lg px-3 py-2 text-xs text-slate-850 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/30"
+                        className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] rounded-lg px-3 py-2 text-xs text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/30"
                       />
                       <datalist id="categories-list">
                         {Array.from(new Set(templates.map(t => t.category))).map(cat => (
@@ -467,24 +467,24 @@ export default function TemplatesPage() {
 
                   {activeStepIndex > 0 && (
                     <div className="space-y-1.5">
-                      <label className="text-[10px] text-slate-400 dark:text-slate-505 font-bold uppercase tracking-wider">Wait Days before sending this follow-up</label>
+                      <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Wait Days before sending this follow-up</label>
                       <input 
                         type="number" 
                         min="1"
                         value={editingTemplate.steps?.[activeStepIndex]?.waitDays || 3}
                         onChange={(e) => updateStepField(activeStepIndex, 'waitDays', parseInt(e.target.value) || 1)}
-                        className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-202 dark:border-[#1f2130] rounded-lg px-3 py-2 text-xs text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/30 font-mono"
+                        className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] rounded-lg px-3 py-2 text-xs text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/30 font-mono"
                       />
                     </div>
                   )}
 
                   <div className="space-y-1.5">
-                    <label className="text-[10px] text-slate-400 dark:text-slate-505 font-bold uppercase tracking-wider">Email Subject line</label>
+                    <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Email Subject line</label>
                     <input 
                       type="text" 
                       value={editingTemplate.steps?.[activeStepIndex]?.subject || ''}
                       onChange={(e) => updateStepField(activeStepIndex, 'subject', e.target.value)}
-                      className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] rounded-lg px-3 py-2 text-xs text-slate-855 dark:text-white font-mono outline-none focus:ring-2 focus:ring-blue-500/30"
+                      className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] rounded-lg px-3 py-2 text-xs text-slate-800 dark:text-white font-mono outline-none focus:ring-2 focus:ring-blue-500/30"
                     />
                   </div>
 
@@ -496,7 +496,7 @@ export default function TemplatesPage() {
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-[10px] text-slate-400 dark:text-slate-505 font-bold uppercase tracking-wider">Body copy & variables (Supports HTML/Text)</label>
+                    <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Body copy & variables (Supports HTML/Text)</label>
                     <textarea 
                       value={editingTemplate.steps?.[activeStepIndex]?.body || ''}
                       onChange={(e) => updateStepField(activeStepIndex, 'body', e.target.value)}
@@ -508,7 +508,7 @@ export default function TemplatesPage() {
                   <div className="flex justify-between items-center pt-2">
                     <button 
                       onClick={() => handleCopy(editingTemplate.id, editingTemplate.steps?.[activeStepIndex]?.body || '')}
-                      className="text-[10px] text-slate-555 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white flex items-center gap-1 bg-slate-50 dark:bg-[#12141d] px-3 py-1.8 rounded-lg border border-slate-202 dark:border-[#1f2130] font-bold uppercase transition-colors shadow-2xs cursor-pointer"
+                      className="text-[10px] text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white flex items-center gap-1 bg-slate-50 dark:bg-[#12141d] px-3 py-1.8 rounded-lg border border-slate-200 dark:border-[#1f2130] font-bold uppercase transition-colors shadow-2xs cursor-pointer"
                     >
                       {copiedId === editingTemplate.id ? <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
                       {copiedId === editingTemplate.id ? 'Copied' : 'Copy Code'}
@@ -526,7 +526,7 @@ export default function TemplatesPage() {
             </div>
           ) : (
             <div className="text-center py-20 border border-dashed border-slate-300 dark:border-[#1b1c26] rounded-xl bg-white dark:bg-[#0e1017] shadow-2xs">
-              <FileText className="w-10 h-10 mx-auto text-slate-400 dark:text-gray-550 mb-2" />
+              <FileText className="w-10 h-10 mx-auto text-slate-400 dark:text-gray-500 mb-2" />
               <p className="text-xs text-slate-500 dark:text-gray-500 font-semibold tracking-wider uppercase">Select template to configure copy</p>
             </div>
           )}

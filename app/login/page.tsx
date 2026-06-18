@@ -89,16 +89,16 @@ export default function LoginPage() {
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-[10px] text-slate-555 dark:text-slate-400 uppercase tracking-widest font-bold">Password</label>
+            <label className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-widest font-bold">Password</label>
             <div className="relative">
-              <Lock className="absolute left-3 top-3 w-4 h-4 text-slate-400 dark:text-slate-505" />
+              <Lock className="absolute left-3 top-3 w-4 h-4 text-slate-400 dark:text-slate-500" />
               <input
                 type="password"
                 required
                 placeholder="••••••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-202 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-xl pl-10 pr-4 py-2.5 text-xs outline-none focus:ring-2 focus:ring-blue-500/35 transition-all font-mono"
+                className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-xl pl-10 pr-4 py-2.5 text-xs outline-none focus:ring-2 focus:ring-blue-500/35 transition-all font-mono"
               />
             </div>
           </div>

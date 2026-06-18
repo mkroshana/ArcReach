@@ -395,7 +395,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
 
 
       {/* Header */}
-      <header className="flex justify-between items-start pb-4 border-b border-slate-205 dark:border-slate-800">
+      <header className="flex justify-between items-start pb-4 border-b border-slate-200 dark:border-slate-800">
         <div className="flex gap-4">
           <Link href="/campaigns" className="p-2 h-fit bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800 rounded-lg transition-colors border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-white shadow-xs">
             <ArrowLeft className="w-4 h-4" />
@@ -409,9 +409,9 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                   onChange={(e) => handleSaveCampaign(e.target.value)}
                   className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded text-[10px] uppercase font-bold border cursor-pointer outline-none ${
                     status === 'Active' 
-                      ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border-emerald-150 dark:border-emerald-900/30'
+                      ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900/30'
                       : status === 'Paused'
-                      ? 'bg-amber-50 dark:bg-amber-950/30 text-amber-705 dark:text-amber-400 border-amber-150 dark:border-amber-900/30'
+                      ? 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-900/30'
                       : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700'
                   }`}
                 >
@@ -421,7 +421,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                 </select>
               </div>
             </div>
-            <p className="text-slate-505 dark:text-slate-400 text-xs mt-1">Sender Mailbox: {campaign?.senderAccount?.emailAddress || 'N/A'}</p>
+            <p className="text-slate-500 dark:text-slate-400 text-xs mt-1">Sender Mailbox: {campaign?.senderAccount?.emailAddress || 'N/A'}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -442,7 +442,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
           <button 
             onClick={() => handleSaveCampaign()}
             disabled={saving}
-            className="px-3.5 py-2 bg-white hover:bg-slate-50 dark:bg-slate-955 dark:hover:bg-slate-800 border border-slate-202 dark:border-slate-800 text-slate-705 dark:text-slate-300 font-semibold rounded-lg text-xs flex items-center gap-1.5 cursor-pointer shadow-xs"
+            className="px-3.5 py-2 bg-white hover:bg-slate-50 dark:bg-slate-950 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-semibold rounded-lg text-xs flex items-center gap-1.5 cursor-pointer shadow-xs"
           >
             <Save className="w-3.5 h-3.5 text-slate-400" />
             {saving ? 'Saving...' : 'Save Draft'}
@@ -461,21 +461,21 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
       {/* Telemetry Metrics Row */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { title: 'Total Dispatched', value: campaign?.telemetry?.sent.toLocaleString() || '0', icon: SendHorizontal, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-955/25', border: 'border-blue-100 dark:border-blue-500/10', pct: null },
-          { title: 'Email Opens', value: campaign?.telemetry?.opens.toLocaleString() || '0', icon: Mail, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-955/25', border: 'border-blue-105 dark:border-blue-500/10', pct: `${campaign?.telemetry?.openRate || 0}% open rate` },
-          { title: 'Goal Clicks', value: campaign?.telemetry?.clicks.toLocaleString() || '0', icon: MousePointerClick, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-955/25', border: 'border-blue-105 dark:border-blue-500/10', pct: `${campaign?.telemetry?.clickRate || 0}% clickthrough` },
-          { title: 'CRM Replies', value: campaign?.telemetry?.replies.toLocaleString() || '0', icon: Reply, color: 'text-emerald-700 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-955/25', border: 'border-emerald-100 dark:border-emerald-500/10', pct: `${campaign?.telemetry?.replyRate || 0}% reply rate` },
+          { title: 'Total Dispatched', value: campaign?.telemetry?.sent.toLocaleString() || '0', icon: SendHorizontal, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-950/25', border: 'border-blue-100 dark:border-blue-500/10', pct: null },
+          { title: 'Email Opens', value: campaign?.telemetry?.opens.toLocaleString() || '0', icon: Mail, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-950/25', border: 'border-blue-105 dark:border-blue-500/10', pct: `${campaign?.telemetry?.openRate || 0}% open rate` },
+          { title: 'Goal Clicks', value: campaign?.telemetry?.clicks.toLocaleString() || '0', icon: MousePointerClick, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-950/25', border: 'border-blue-105 dark:border-blue-500/10', pct: `${campaign?.telemetry?.clickRate || 0}% clickthrough` },
+          { title: 'CRM Replies', value: campaign?.telemetry?.replies.toLocaleString() || '0', icon: Reply, color: 'text-emerald-700 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-950/25', border: 'border-emerald-100 dark:border-emerald-500/10', pct: `${campaign?.telemetry?.replyRate || 0}% reply rate` },
         ].map((stat, i) => (
           <div key={i} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-xs">
             <div className="flex justify-between items-start mb-2">
-              <p className="text-[10px] text-slate-550 dark:text-slate-400 font-bold uppercase tracking-widest">{stat.title}</p>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">{stat.title}</p>
               <div className={`w-8 h-8 rounded ${stat.bg} border ${stat.border} flex items-center justify-center ${stat.color}`}>
                 <stat.icon className="w-4 h-4" />
               </div>
             </div>
             <h3 className="text-xl font-bold text-slate-900 dark:text-white">{stat.value}</h3>
             {stat.pct && (
-              <p className="text-[10px] text-slate-400 dark:text-slate-505 font-bold mt-1.5 font-mono">{stat.pct}</p>
+              <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold mt-1.5 font-mono">{stat.pct}</p>
             )}
           </div>
         ))}
@@ -490,19 +490,19 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
         ].map((stat, i) => (
           <div key={i} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-xs">
             <div className="flex justify-between items-start mb-2">
-              <p className="text-[10px] text-slate-550 dark:text-slate-400 font-bold uppercase tracking-widest">{stat.title}</p>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">{stat.title}</p>
               <div className={`w-8 h-8 rounded ${stat.bg} border ${stat.border} flex items-center justify-center ${stat.color}`}>
                 <stat.icon className="w-4 h-4" />
               </div>
             </div>
             <h3 className="text-xl font-bold text-slate-900 dark:text-white">{stat.value}</h3>
-            <p className="text-[10px] text-slate-400 dark:text-slate-505 font-bold mt-1.5 font-mono">{stat.sub}</p>
+            <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold mt-1.5 font-mono">{stat.sub}</p>
           </div>
         ))}
       </div>
 
       {/* Tabs Menu Bar */}
-      <div className="flex gap-1 p-1 bg-white dark:bg-slate-900 border border-slate-202 dark:border-slate-800 rounded-xl w-fit shadow-xs">
+      <div className="flex gap-1 p-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl w-fit shadow-xs">
         {['Sequence', 'Audience', 'Schedule', 'Options'].map((tab) => (
           <button
             key={tab}
@@ -526,7 +526,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
              <div className="space-y-6">
                 {/* Title Card */}
                 <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 shadow-xs">
-                  <h2 className="text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-405 mb-3 flex items-center gap-2">
+                  <h2 className="text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400 mb-3 flex items-center gap-2">
                     <Settings className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                     Campaign Title
                   </h2>
@@ -535,7 +535,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                     placeholder="e.g. Q4 Inactive Leads Engagement"
                     value={campaignName}
                     onChange={(e) => setCampaignName(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-blue-500/40 placeholder:text-slate-400 dark:placeholder:text-slate-500 shadow-xs"
+                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-blue-500/40 placeholder:text-slate-400 dark:placeholder:text-slate-500 shadow-xs"
                   />
                 </section>
 
@@ -573,22 +573,22 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                     
                     <div className="flex justify-between items-center mb-4">
                       <div className="flex items-center gap-3">
-                        <div className="w-7 h-7 rounded bg-blue-50 dark:bg-blue-955/40 text-blue-600 dark:text-blue-400 font-bold flex items-center justify-center text-xs border border-blue-100 dark:border-blue-550/15 font-mono">
+                        <div className="w-7 h-7 rounded bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 font-bold flex items-center justify-center text-xs border border-blue-100 dark:border-blue-500/15 font-mono">
                           {index + 1}
                         </div>
                         {index > 0 ? (
-                          <div className="flex items-center gap-2 text-xs font-semibold text-slate-705 dark:text-slate-350">
+                          <div className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-350">
                             Wait for
                             <input 
                               type="number" 
                               value={step.waitDays} 
                               onChange={(e) => updateStepField(index, 'waitDays', parseInt(e.target.value) || 0)}
-                              className="w-14 bg-slate-50 dark:bg-slate-950 py-1 px-2 border border-slate-202 dark:border-slate-800 rounded text-center text-xs font-mono outline-none text-slate-800 dark:text-white focus:border-blue-500" 
+                              className="w-14 bg-slate-50 dark:bg-slate-950 py-1 px-2 border border-slate-200 dark:border-slate-800 rounded text-center text-xs font-mono outline-none text-slate-800 dark:text-white focus:border-blue-500" 
                             />
                             days
                           </div>
                         ) : (
-                          <span className="text-xs font-semibold uppercase tracking-widest text-slate-550 dark:text-slate-400">Initial Dispatch</span>
+                          <span className="text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">Initial Dispatch</span>
                         )}
                       </div>
                       
@@ -620,7 +620,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                           <button 
                             type="button"
                             onClick={() => removeStep(index)} 
-                            className="p-1.5 bg-slate-50 border border-slate-200 hover:bg-rose-500/10 hover:text-rose-600 dark:bg-slate-955 dark:border-slate-800 dark:hover:bg-rose-500/10 dark:hover:text-rose-400 rounded text-slate-400 dark:text-slate-500 transition-colors cursor-pointer"
+                            className="p-1.5 bg-slate-50 border border-slate-200 hover:bg-rose-500/10 hover:text-rose-600 dark:bg-slate-950 dark:border-slate-800 dark:hover:bg-rose-500/10 dark:hover:text-rose-400 rounded text-slate-400 dark:text-slate-500 transition-colors cursor-pointer"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -666,10 +666,10 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                           placeholder="Subject Line"
                           value={step.subject}
                           onChange={(e) => updateStepField(index, 'subject', e.target.value)}
-                          className="w-full bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500/40 placeholder:text-slate-400 dark:placeholder:text-slate-500 shadow-xs"
+                          className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500/40 placeholder:text-slate-400 dark:placeholder:text-slate-500 shadow-xs"
                         />
                         
-                        <div className="border border-slate-202 dark:border-slate-800 rounded-lg bg-slate-50 dark:bg-slate-950 flex flex-col">
+                        <div className="border border-slate-200 dark:border-slate-800 rounded-lg bg-slate-50 dark:bg-slate-950 flex flex-col">
                           <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-3 py-1.5 flex items-center text-[11px] rounded-t-lg">
                             <VariableToolbar
                               onInsert={(v) => insertVariable(v, index)}
@@ -709,11 +709,11 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                   
                   <div className="space-y-5">
                     <div className="space-y-1.5">
-                      <label className="text-[10px] text-slate-550 dark:text-slate-400 font-bold uppercase tracking-widest">Outbox Timezone</label>
+                      <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">Outbox Timezone</label>
                       <select 
                         value={timezone}
                         onChange={(e) => setTimezone(e.target.value)}
-                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-202 dark:border-slate-800 text-slate-700 dark:text-slate-300 text-xs rounded-lg px-3 py-2 outline-none font-medium cursor-pointer"
+                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 text-xs rounded-lg px-3 py-2 outline-none font-medium cursor-pointer"
                       >
                         {timezoneOptions.map(option => (
                           <option key={option.value} value={option.value}>
@@ -724,7 +724,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                     </div>
 
                     <div className="space-y-2">
-                      <label className="text-[10px] text-slate-550 dark:text-slate-400 font-bold uppercase tracking-widest">Permitted Active Days</label>
+                      <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">Permitted Active Days</label>
                       <div className="flex gap-1.5">
                          {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => (
                             <label key={day} className="flex-1 cursor-pointer">
@@ -734,7 +734,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                                  onChange={() => toggleDaySelection(day)}
                                  className="peer sr-only" 
                                />
-                               <div className="py-2 text-center rounded border border-slate-202 dark:border-slate-800 bg-slate-50 dark:bg-slate-955 text-[10px] font-bold text-slate-550 dark:text-slate-400 peer-checked:bg-blue-50 dark:peer-checked:bg-blue-955/40 peer-checked:border-blue-200 dark:peer-checked:border-blue-550/20 peer-checked:text-blue-600 dark:peer-checked:text-blue-400 transition-all uppercase tracking-wider">
+                               <div className="py-2 text-center rounded border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-[10px] font-bold text-slate-500 dark:text-slate-400 peer-checked:bg-blue-50 dark:peer-checked:bg-blue-950/40 peer-checked:border-blue-200 dark:peer-checked:border-blue-500/20 peer-checked:text-blue-600 dark:peer-checked:text-blue-400 transition-all uppercase tracking-wider">
                                   {day}
                                </div>
                             </label>
@@ -743,20 +743,20 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                     </div>
 
                     <div className="space-y-4">
-                      <label className="text-[10px] text-slate-555 dark:text-slate-400 font-bold uppercase tracking-widest">Cadence Delivery Window (Local Senders Clock)</label>
+                      <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">Cadence Delivery Window (Local Senders Clock)</label>
                       <div className="flex items-center gap-3">
                          <input 
                            type="time" 
                            value={startTime}
                            onChange={(e) => setStartTime(e.target.value)}
-                           className="flex-1 bg-slate-50 dark:bg-slate-950 border border-slate-202 dark:border-slate-800 rounded-lg px-3 py-2 text-slate-800 dark:text-white text-xs outline-none font-mono" 
+                           className="flex-1 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 text-slate-800 dark:text-white text-xs outline-none font-mono" 
                          />
-                         <span className="text-slate-400 dark:text-slate-550 text-xs">to</span>
+                         <span className="text-slate-400 dark:text-slate-500 text-xs">to</span>
                          <input 
                            type="time" 
                            value={endTime}
                            onChange={(e) => setEndTime(e.target.value)}
-                           className="flex-1 bg-slate-50 dark:bg-slate-950 border border-slate-202 dark:border-slate-800 rounded-lg px-3 py-2 text-slate-800 dark:text-white text-xs outline-none font-mono" 
+                           className="flex-1 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 text-slate-800 dark:text-white text-xs outline-none font-mono" 
                          />
                       </div>
                     </div>
@@ -768,16 +768,16 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
           {activeTab === 'Options' && (
              <div className="space-y-6 animate-in fade-in duration-200">
                 <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 shadow-xs">
-                  <h2 className="text-xs font-semibold uppercase tracking-widest text-slate-555 dark:text-slate-405 mb-4 flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
+                  <h2 className="text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400 mb-4 flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
                     <ToggleLeft className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                     Delivery Autopilot Flags
                   </h2>
                   
                   <div className="space-y-3">
-                    <label className="flex items-center justify-between p-3.5 bg-slate-50 dark:bg-slate-950 border border-slate-202 dark:border-slate-800 rounded-lg cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-850/30 transition-colors">
+                    <label className="flex items-center justify-between p-3.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-800/30 transition-colors">
                        <div>
                           <div className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-widest">Pause Sequence on Reply (Stop on Reply)</div>
-                          <div className="text-[11px] text-slate-505 dark:text-slate-400 mt-1">Stop further emails once a customer expresses interest.</div>
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Stop further emails once a customer expresses interest.</div>
                        </div>
                        <input 
                          type="checkbox" 
@@ -785,13 +785,13 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                          onChange={(e) => setStopOnReply(e.target.checked)}
                          className="toggle-checkbox sr-only peer" 
                        />
-                       <div className="w-10 h-6 bg-slate-200 dark:bg-slate-850 rounded-full peer peer-checked:bg-blue-650 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all relative border border-slate-300 dark:border-slate-750"></div>
+                       <div className="w-10 h-6 bg-slate-200 dark:bg-slate-800 rounded-full peer peer-checked:bg-blue-600 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all relative border border-slate-300 dark:border-slate-750"></div>
                     </label>
 
-                    <label className="flex items-center justify-between p-3.5 bg-slate-50 dark:bg-slate-950 border border-slate-202 dark:border-slate-800 rounded-lg cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-850/30 transition-colors">
+                    <label className="flex items-center justify-between p-3.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-800/30 transition-colors">
                        <div>
                           <div className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-widest">Track Read Opens status</div>
-                          <div className="text-[11px] text-slate-505 dark:text-slate-400 mt-1">Embed standard safe tracking pixel mechanisms.</div>
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Embed standard safe tracking pixel mechanisms.</div>
                        </div>
                        <input 
                          type="checkbox" 
@@ -799,13 +799,13 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                          onChange={(e) => setTrackOpens(e.target.checked)}
                          className="toggle-checkbox sr-only peer" 
                        />
-                       <div className="w-10 h-6 bg-slate-200 dark:bg-slate-850 rounded-full peer peer-checked:bg-blue-655 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all relative border border-slate-300 dark:border-slate-750"></div>
+                       <div className="w-10 h-6 bg-slate-200 dark:bg-slate-800 rounded-full peer peer-checked:bg-blue-600 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all relative border border-slate-300 dark:border-slate-750"></div>
                     </label>
 
-                    <label className="flex items-center justify-between p-3.5 bg-slate-50 dark:bg-slate-950 border border-slate-202 dark:border-slate-800 rounded-lg cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-850/30 transition-colors">
+                    <label className="flex items-center justify-between p-3.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-800/30 transition-colors">
                        <div>
-                          <div className="text-xs font-bold text-slate-805 dark:text-white uppercase tracking-widest">Track Hyperlink Engagements</div>
-                          <div className="text-[11px] text-slate-505 dark:text-slate-400 mt-1">Wrap static body content links using custom domains.</div>
+                          <div className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-widest">Track Hyperlink Engagements</div>
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Wrap static body content links using custom domains.</div>
                        </div>
                        <input 
                          type="checkbox" 
@@ -813,7 +813,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                          onChange={(e) => setTrackClicks(e.target.checked)}
                          className="toggle-checkbox sr-only peer" 
                        />
-                       <div className="w-10 h-6 bg-slate-200 dark:bg-slate-850 rounded-full peer peer-checked:bg-blue-650 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all relative border border-slate-300 dark:border-slate-750"></div>
+                       <div className="w-10 h-6 bg-slate-200 dark:bg-slate-800 rounded-full peer peer-checked:bg-blue-600 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all relative border border-slate-300 dark:border-slate-750"></div>
                     </label>
                   </div>
                 </section>
@@ -829,11 +829,11 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                  </h2>
                  <div className="space-y-4">
                    <div className="space-y-1.5">
-                      <label className="text-[10px] text-slate-550 dark:text-slate-400 font-bold uppercase tracking-widest">Target CRM List Folder</label>
+                      <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">Target CRM List Folder</label>
                       <select 
                         value={audienceCohort}
                         onChange={(e) => setAudienceCohort(e.target.value)}
-                        className="w-full bg-slate-50 dark:bg-slate-955 border border-slate-202 dark:border-slate-800 text-slate-705 dark:text-slate-300 text-xs rounded-lg px-3 py-2 outline-none cursor-pointer"
+                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 text-xs rounded-lg px-3 py-2 outline-none cursor-pointer"
                       >
                         <option value="Valid">All Active Valid Leads ({campaign?.telemetry?.validLeadsCount || 0})</option>
                         <option value="Unverified">All Unverified Leads ({campaign?.telemetry?.unverifiedLeadsCount || 0})</option>
@@ -844,9 +844,9 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                         ))}
                       </select>
                     </div>
-                   <div className="p-4 bg-blue-50 dark:bg-blue-955/20 border border-blue-105 dark:border-blue-550/15 rounded-lg">
+                   <div className="p-4 bg-blue-50 dark:bg-blue-950/20 border border-blue-105 dark:border-blue-500/15 rounded-lg">
                      <p className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-widest">Selected Prospects Estimate</p>
-                     <p className="text-2xl font-bold text-slate-905 dark:text-white mt-1">{campaign?.telemetry?.enrollments || 0}</p>
+                     <p className="text-2xl font-bold text-slate-900 dark:text-white mt-1">{campaign?.telemetry?.enrollments || 0}</p>
                      <p className="text-xs text-blue-500 dark:text-blue-300 font-medium mt-1">Active enrollments in sequence execution queue</p>
                    </div>
                  </div>
@@ -858,9 +858,9 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
 
         {/* Info Sidebar Summary info */}
         <div className="space-y-6">
-           <div className="p-4 bg-blue-50/50 dark:bg-blue-955/10 border border-blue-100 dark:border-blue-500/10 rounded-xl shadow-xs">
+           <div className="p-4 bg-blue-50/50 dark:bg-blue-950/10 border border-blue-100 dark:border-blue-500/10 rounded-xl shadow-xs">
               <h3 className="text-[10px] font-extrabold text-blue-600 dark:text-blue-400 uppercase tracking-widest mb-3.5">Campaign Outline</h3>
-              <ul className="space-y-2.5 text-xs text-slate-650 dark:text-slate-300">
+              <ul className="space-y-2.5 text-xs text-slate-600 dark:text-slate-300">
                  <li className="flex justify-between border-b border-slate-100 dark:border-slate-800/60 pb-1.5">
                     <span>Total Emails</span> <span className="font-bold text-slate-900 dark:text-white">{steps.length} Steps</span>
                  </li>
@@ -875,7 +875,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
 
            {/* Telemetry Chart details */}
            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 flex flex-col shadow-xs">
-             <h2 className="text-[10px] font-bold uppercase tracking-widest text-slate-550 dark:text-slate-400 mb-6">Funnel Over Time</h2>
+             <h2 className="text-[10px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400 mb-6">Funnel Over Time</h2>
              <div className="h-[200px] w-full">
                <ResponsiveContainer width="100%" height="100%">
                  <AreaChart data={campaign?.telemetry?.trend || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
@@ -889,7 +889,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                        <stop offset="95%" stopColor="#818cf8" stopOpacity={0}/>
                      </linearGradient>
                    </defs>
-                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="currentColor" className="text-slate-202 dark:text-slate-800/80" />
+                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="currentColor" className="text-slate-200 dark:text-slate-800/80" />
                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10 }} dy={10} />
                    <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10 }} />
                    <Tooltip 
@@ -910,7 +910,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
 
             {/* Conversion Funnel */}
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 flex flex-col shadow-xs">
-              <h2 className="text-[10px] font-bold uppercase tracking-widest text-slate-550 dark:text-slate-400 mb-6">Conversion Funnel</h2>
+              <h2 className="text-[10px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400 mb-6">Conversion Funnel</h2>
               <div className="h-[200px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart
@@ -937,7 +937,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
 
             {/* Sentiment breakdown */}
             <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 flex flex-col shadow-xs">
-              <h2 className="text-[10px] font-bold uppercase tracking-widest text-slate-550 dark:text-slate-400 mb-6">Sentiment Distribution</h2>
+              <h2 className="text-[10px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400 mb-6">Sentiment Distribution</h2>
               <div className="h-[200px] w-full flex items-center justify-center relative">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
@@ -981,7 +981,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                   </div>
                 )}
               </div>
-              <div className="grid grid-cols-2 gap-1.5 mt-2 text-[9px] text-slate-505 dark:text-slate-400">
+              <div className="grid grid-cols-2 gap-1.5 mt-2 text-[9px] text-slate-500 dark:text-slate-400">
                 {campaign?.telemetry?.sentiment?.filter((s: any) => s.value > 0).map((s: any, idx: number) => {
                   const colors: Record<string, string> = {
                     'Neutral': 'bg-slate-400',

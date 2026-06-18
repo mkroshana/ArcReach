@@ -873,7 +873,7 @@ export default function LeadsPage() {
         <div className="flex gap-2.5">
           <button 
             onClick={fetchLeads}
-            className="p-2 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white bg-white dark:bg-slate-900 border border-slate-202 dark:border-slate-800 rounded-lg shadow-xs"
+            className="p-2 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xs"
             title="Refresh Leads Catalog"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading && !isVerifying ? 'animate-spin' : ''}`} />
@@ -882,7 +882,7 @@ export default function LeadsPage() {
             onClick={() => setShowAddLead(!showAddLead)}
             className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-white px-3.5 py-1.8 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs"
           >
-            <Plus className="w-3.5 h-3.5 text-slate-400 dark:text-slate-505" />
+            <Plus className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
             Add Single Lead
           </button>
           
@@ -911,21 +911,21 @@ export default function LeadsPage() {
 
       {/* Verification progress status */}
       {isVerifying && (
-        <div className="bg-blue-50 dark:bg-blue-955/25 border border-blue-100 dark:border-blue-500/10 p-4 rounded-xl animate-pulse flex flex-col md:flex-row items-center justify-between gap-4">
+        <div className="bg-blue-50 dark:bg-blue-950/25 border border-blue-100 dark:border-blue-500/10 p-4 rounded-xl animate-pulse flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <Sparkles className="w-4 h-4 text-blue-650 dark:text-blue-400 shrink-0" />
+            <Sparkles className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
             <div>
-              <p className="text-xs font-bold text-slate-855 dark:text-white uppercase tracking-wider">Checking Mailbox MX Status</p>
-              <p className="text-xs text-slate-550 dark:text-slate-405 mt-0.5 font-medium">Resolving DNS setups, catching invalid syntax sequences...</p>
+              <p className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-wider">Checking Mailbox MX Status</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-medium">Resolving DNS setups, catching invalid syntax sequences...</p>
             </div>
           </div>
           <div className="w-full md:w-64 font-sans">
             <div className="flex justify-between text-[11px] mb-1 font-bold">
-              <span className="text-blue-650 dark:text-blue-400">SMTP Progress</span>
-              <span className="text-slate-500 dark:text-slate-405">{verifyProgress}%</span>
+              <span className="text-blue-600 dark:text-blue-400">SMTP Progress</span>
+              <span className="text-slate-500 dark:text-slate-400">{verifyProgress}%</span>
             </div>
             <div className="w-full bg-slate-150 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
-              <div className="bg-blue-650 dark:bg-blue-500 h-full rounded-full transition-all duration-300" style={{ width: `${verifyProgress}%` }}></div>
+              <div className="bg-blue-600 dark:bg-blue-500 h-full rounded-full transition-all duration-300" style={{ width: `${verifyProgress}%` }}></div>
             </div>
           </div>
         </div>
@@ -934,7 +934,7 @@ export default function LeadsPage() {
       {/* Add Lead dialog */}
       {showAddLead && (
         <form onSubmit={handleAddCustomLead} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 rounded-xl space-y-4 animate-in slide-in-from-top-3 duration-200 shadow-xs">
-          <h3 className="text-xs font-semibold uppercase tracking-widest text-slate-550 dark:text-slate-400">Add Lead Record</h3>
+          <h3 className="text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">Add Lead Record</h3>
           <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
             <input 
               type="text" 
@@ -942,7 +942,7 @@ export default function LeadsPage() {
               value={newLead.name}
               required
               onChange={e => setNewLead({...newLead, name: e.target.value})}
-              className="bg-slate-50 dark:bg-slate-955 border border-slate-202 dark:border-slate-805 p-2.5 rounded-lg text-xs placeholder:text-slate-400 text-slate-855 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/40"
+              className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 p-2.5 rounded-lg text-xs placeholder:text-slate-400 text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/40"
             />
             <input 
               type="email" 
@@ -950,26 +950,26 @@ export default function LeadsPage() {
               value={newLead.email}
               required
               onChange={e => setNewLead({...newLead, email: e.target.value})}
-              className="bg-slate-50 dark:bg-slate-955 border border-slate-202 dark:border-slate-805 p-2.5 rounded-lg text-xs placeholder:text-slate-400 text-slate-855 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/40"
+              className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 p-2.5 rounded-lg text-xs placeholder:text-slate-400 text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/40"
             />
             <input 
               type="text" 
               placeholder="Brand Company Name"
               value={newLead.company}
               onChange={e => setNewLead({...newLead, company: e.target.value})}
-              className="bg-slate-50 dark:bg-slate-955 border border-slate-202 dark:border-slate-805 p-2.5 rounded-lg text-xs placeholder:text-slate-400 text-slate-855 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/40"
+              className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 p-2.5 rounded-lg text-xs placeholder:text-slate-400 text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/40"
             />
             <input 
               type="text" 
               placeholder="Job Title (e.g. CEO)"
               value={newLead.jobTitle}
               onChange={e => setNewLead({...newLead, jobTitle: e.target.value})}
-              className="bg-slate-50 dark:bg-slate-955 border border-slate-202 dark:border-slate-805 p-2.5 rounded-lg text-xs placeholder:text-slate-400 text-slate-855 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/40"
+              className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 p-2.5 rounded-lg text-xs placeholder:text-slate-400 text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/40"
             />
             <select
               value={selectedGroupForAdd}
               onChange={e => setSelectedGroupForAdd(e.target.value)}
-              className="bg-slate-50 dark:bg-slate-955 border border-slate-202 dark:border-slate-805 p-2.5 rounded-lg text-xs text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/40 cursor-pointer"
+              className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 p-2.5 rounded-lg text-xs text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/40 cursor-pointer"
             >
               <option value="">-- No Group Assignment --</option>
               {groups.map(g => (
@@ -1008,7 +1008,7 @@ export default function LeadsPage() {
           <div className="flex justify-between items-start border-b border-slate-100 dark:border-slate-800/80 pb-4">
             <div>
               <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
-                <FileType className="w-4.5 h-4.5 text-blue-650 dark:text-blue-400" />
+                <FileType className="w-4.5 h-4.5 text-blue-600 dark:text-blue-400" />
                 Map CSV Columns — {csvFileName}
               </h3>
               <p className="text-slate-500 dark:text-slate-400 text-xs mt-1 font-medium">
@@ -1017,7 +1017,7 @@ export default function LeadsPage() {
             </div>
             <button
               onClick={handleCancelImport}
-              className="text-slate-450 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 p-1 rounded-lg"
+              className="text-slate-400 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 p-1 rounded-lg"
             >
               <X className="w-4 h-4" />
             </button>
@@ -1025,7 +1025,7 @@ export default function LeadsPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-4">
-              <h4 className="text-[10px] font-bold uppercase tracking-widest text-slate-450 dark:text-slate-500">Field Matching</h4>
+              <h4 className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">Field Matching</h4>
               
               {/* Email Mapping (Required) */}
               <div className="space-y-1.5">
@@ -1035,7 +1035,7 @@ export default function LeadsPage() {
                 <select
                   value={mappings.email}
                   onChange={e => setMappings({ ...mappings, email: e.target.value })}
-                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-805 rounded-lg p-2.5 text-xs text-slate-800 dark:text-white cursor-pointer outline-none focus:ring-2 focus:ring-blue-500/40"
+                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-2.5 text-xs text-slate-800 dark:text-white cursor-pointer outline-none focus:ring-2 focus:ring-blue-500/40"
                 >
                   <option value="" disabled>-- Select Column --</option>
                   {csvHeaders.map(h => (
@@ -1043,7 +1043,7 @@ export default function LeadsPage() {
                   ))}
                 </select>
                 {mappings.email && csvRows.length > 0 && (
-                  <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-850 text-slate-500 dark:text-slate-400 border border-slate-200/50 dark:border-slate-800/40 mt-1">
+                  <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200/50 dark:border-slate-800/40 mt-1">
                     Preview: {csvRows[0][csvHeaders.indexOf(mappings.email)] || <em className="text-slate-400">Empty</em>}
                   </div>
                 )}
@@ -1057,7 +1057,7 @@ export default function LeadsPage() {
                 <select
                   value={mappings.name}
                   onChange={e => setMappings({ ...mappings, name: e.target.value })}
-                  className="w-full bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-805 rounded-lg p-2.5 text-xs text-slate-800 dark:text-white cursor-pointer outline-none focus:ring-2 focus:ring-blue-500/40"
+                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-2.5 text-xs text-slate-800 dark:text-white cursor-pointer outline-none focus:ring-2 focus:ring-blue-500/40"
                 >
                   <option value="">{"[Don't Map - Autogenerate]"}</option>
                   {csvHeaders.map(h => (
@@ -1065,7 +1065,7 @@ export default function LeadsPage() {
                   ))}
                 </select>
                 {mappings.name && csvRows.length > 0 && (
-                  <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-855 text-slate-500 dark:text-slate-400 border border-slate-200/50 dark:border-slate-800/40 mt-1">
+                  <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200/50 dark:border-slate-800/40 mt-1">
                     Preview: {csvRows[0][csvHeaders.indexOf(mappings.name)] || <em className="text-slate-400">Empty</em>}
                   </div>
                 )}
@@ -1079,7 +1079,7 @@ export default function LeadsPage() {
                 <select
                   value={mappings.company}
                   onChange={e => setMappings({ ...mappings, company: e.target.value })}
-                  className="w-full bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-805 rounded-lg p-2.5 text-xs text-slate-800 dark:text-white cursor-pointer outline-none focus:ring-2 focus:ring-blue-500/40"
+                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-2.5 text-xs text-slate-800 dark:text-white cursor-pointer outline-none focus:ring-2 focus:ring-blue-500/40"
                 >
                   <option value="">{"[Don't Map - Use 'Unknown']"}</option>
                   {csvHeaders.map(h => (
@@ -1087,7 +1087,7 @@ export default function LeadsPage() {
                   ))}
                 </select>
                 {mappings.company && csvRows.length > 0 && (
-                  <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-855 text-slate-500 dark:text-slate-400 border border-slate-200/50 dark:border-slate-800/40 mt-1">
+                  <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200/50 dark:border-slate-800/40 mt-1">
                     Preview: {csvRows[0][csvHeaders.indexOf(mappings.company)] || <em className="text-slate-400">Empty</em>}
                   </div>
                 )}
@@ -1101,7 +1101,7 @@ export default function LeadsPage() {
                 <select
                   value={mappings.jobTitle}
                   onChange={e => setMappings({ ...mappings, jobTitle: e.target.value })}
-                  className="w-full bg-slate-50 dark:bg-slate-955 border border-slate-202 dark:border-slate-805 rounded-lg p-2.5 text-xs text-slate-800 dark:text-white cursor-pointer outline-none focus:ring-2 focus:ring-blue-500/40"
+                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-2.5 text-xs text-slate-800 dark:text-white cursor-pointer outline-none focus:ring-2 focus:ring-blue-500/40"
                 >
                   <option value="">{"[Don't Map - Use Empty]"}</option>
                   {csvHeaders.map(h => (
@@ -1109,7 +1109,7 @@ export default function LeadsPage() {
                   ))}
                 </select>
                 {mappings.jobTitle && csvRows.length > 0 && (
-                  <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-855 text-slate-500 dark:text-slate-400 border border-slate-200/50 dark:border-slate-800/40 mt-1">
+                  <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200/50 dark:border-slate-800/40 mt-1">
                     Preview: {csvRows[0][csvHeaders.indexOf(mappings.jobTitle)] || <em className="text-slate-400">Empty</em>}
                   </div>
                 )}
@@ -1118,17 +1118,17 @@ export default function LeadsPage() {
 
             <div className="space-y-5 flex flex-col justify-between">
               <div className="space-y-4">
-                <h4 className="text-[10px] font-bold uppercase tracking-widest text-slate-450 dark:text-slate-500">Destination Settings</h4>
+                <h4 className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">Destination Settings</h4>
                 <div className="space-y-3 bg-slate-50/50 dark:bg-[#12141c]/50 p-4 rounded-xl border border-slate-200/50 dark:border-slate-800/40">
                   <div>
-                    <label className="block text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-wider mb-1">Add Imported to Group</label>
+                    <label className="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Add Imported to Group</label>
                     <select
                       value={selectedGroupForImport}
                       onChange={e => {
                         setSelectedGroupForImport(e.target.value);
                         setNewGroupNameForImport('');
                       }}
-                      className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-805 rounded-lg p-2 text-xs text-slate-855 dark:text-white cursor-pointer"
+                      className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-2 text-xs text-slate-800 dark:text-white cursor-pointer"
                     >
                       <option value="">-- No Group (General CRM) --</option>
                       {groups.map(g => (
@@ -1137,7 +1137,7 @@ export default function LeadsPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-wider mb-1">Or Create New Group</label>
+                    <label className="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Or Create New Group</label>
                     <input
                       type="text"
                       placeholder="e.g. Cold Leads June"
@@ -1146,7 +1146,7 @@ export default function LeadsPage() {
                         setNewGroupNameForImport(e.target.value);
                         setSelectedGroupForImport('');
                       }}
-                      className="w-full bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-805 rounded-lg p-2 text-xs text-slate-855 dark:text-white placeholder:text-slate-400"
+                      className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-2 text-xs text-slate-800 dark:text-white placeholder:text-slate-400"
                     />
                   </div>
                 </div>
@@ -1163,7 +1163,7 @@ export default function LeadsPage() {
                 <button
                   onClick={handleExecuteImport}
                   disabled={!mappings.email || loading}
-                  className="bg-blue-650 hover:bg-blue-500 disabled:bg-slate-200 dark:disabled:bg-slate-800 text-white disabled:text-slate-450 dark:disabled:text-slate-600 px-5 py-2 rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer flex items-center gap-2"
+                  className="bg-blue-600 hover:bg-blue-500 disabled:bg-slate-200 dark:disabled:bg-slate-800 text-white disabled:text-slate-400 dark:disabled:text-slate-600 px-5 py-2 rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer flex items-center gap-2"
                 >
                   {loading && <RefreshCw className="w-3 h-3 animate-spin" />}
                   {loading ? (importProgress || 'Importing...') : 'Confirm & Import'}
@@ -1176,35 +1176,35 @@ export default function LeadsPage() {
         <div 
           className={`relative overflow-hidden rounded-xl border border-dashed transition-all duration-200 ${
             isDragging 
-              ? 'border-blue-500 bg-blue-50 dark:bg-blue-955/20' 
-              : 'border-slate-355 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50/50 dark:hover:bg-slate-850/45'
+              ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/20' 
+              : 'border-slate-355 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50/50 dark:hover:bg-slate-800/45'
           } p-8 flex flex-col items-center justify-center cursor-pointer shadow-xs`}
           onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
           onDragLeave={() => setIsDragging(false)}
           onDrop={handleDropUpload}
           onClick={() => fileInputRef.current?.click()}
         >
-          <div className="w-10 h-10 mb-3 rounded-lg bg-slate-50 dark:bg-slate-955 flex items-center justify-center border border-slate-202 dark:border-slate-805">
-            <UploadCloud className="w-4.5 h-4.5 text-blue-650 dark:text-blue-400" />
+          <div className="w-10 h-10 mb-3 rounded-lg bg-slate-50 dark:bg-slate-950 flex items-center justify-center border border-slate-200 dark:border-slate-800">
+            <UploadCloud className="w-4.5 h-4.5 text-blue-600 dark:text-blue-400" />
           </div>
-          <h3 className="text-sm font-semibold text-slate-805 dark:text-white uppercase tracking-widest mb-1">Import bulk list CSV</h3>
+          <h3 className="text-sm font-semibold text-slate-800 dark:text-white uppercase tracking-widest mb-1">Import bulk list CSV</h3>
           <p className="text-slate-500 dark:text-slate-400 text-center max-w-md text-xs mb-3 font-medium">
             Drag and drop contacts list, or click to select and import custom CSV spreadsheets.
           </p>
-          <button className="bg-white dark:bg-slate-955 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-205 dark:border-slate-800 text-slate-700 dark:text-slate-300 px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors shadow-xs mb-2">
+          <button className="bg-white dark:bg-slate-950 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors shadow-xs mb-2">
             Browse Files (.csv)
           </button>
 
           <div className="mt-4 flex flex-col sm:flex-row gap-3 w-full max-w-md bg-slate-50/50 dark:bg-[#12141c]/50 p-4 rounded-xl border border-slate-200/50 dark:border-slate-800/40" onClick={(e) => e.stopPropagation()}>
             <div className="flex-1 col-span-1">
-              <label className="block text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-wider mb-1">Add Imported to Group</label>
+              <label className="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Add Imported to Group</label>
               <select
                 value={selectedGroupForImport}
                 onChange={e => {
                   setSelectedGroupForImport(e.target.value);
                   setNewGroupNameForImport('');
                 }}
-                className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-805 rounded-lg p-2 text-xs text-slate-855 dark:text-white cursor-pointer"
+                className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-2 text-xs text-slate-800 dark:text-white cursor-pointer"
               >
                 <option value="">-- No Group (General CRM) --</option>
                 {groups.map(g => (
@@ -1213,7 +1213,7 @@ export default function LeadsPage() {
               </select>
             </div>
             <div className="flex-1 col-span-1">
-              <label className="block text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-wider mb-1">Or Create New Group</label>
+              <label className="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Or Create New Group</label>
               <input
                 type="text"
                 placeholder="e.g. Cold Leads June"
@@ -1222,7 +1222,7 @@ export default function LeadsPage() {
                   setNewGroupNameForImport(e.target.value);
                   setSelectedGroupForImport('');
                 }}
-                className="w-full bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-805 rounded-lg p-2 text-xs text-slate-855 dark:text-white placeholder:text-slate-400"
+                className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-2 text-xs text-slate-800 dark:text-white placeholder:text-slate-400"
               />
             </div>
           </div>
@@ -1249,7 +1249,7 @@ export default function LeadsPage() {
               className={`pb-3 text-xs font-bold uppercase tracking-wider border-b-2 flex items-center gap-2 transition-all cursor-pointer ${
                 activeTab === tab.id
                   ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
-                  : 'border-transparent text-slate-450 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-350'
+                  : 'border-transparent text-slate-400 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-350'
               }`}
             >
               <Icon className="w-3.5 h-3.5" />
@@ -1275,11 +1275,11 @@ export default function LeadsPage() {
                     placeholder="Search leads folder..."
                     value={search}
                     onChange={e => setSearch(e.target.value)}
-                    className="bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-805 rounded-lg pl-9 pr-4 py-1.8 text-xs text-slate-800 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none w-full md:w-52 focus:ring-2 focus:ring-blue-500/40 shadow-xs"
+                    className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg pl-9 pr-4 py-1.8 text-xs text-slate-800 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none w-full md:w-52 focus:ring-2 focus:ring-blue-500/40 shadow-xs"
                   />
                 </div>
                 
-                <div className="flex items-center gap-1 p-1 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xs">
+                <div className="flex items-center gap-1 p-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xs">
                   {['All', 'Valid', 'Risky', 'Invalid', 'Unverified', 'Bounced', 'Unsubscribed'].map(statusOption => (
                     <button
                       key={statusOption}
@@ -1288,8 +1288,8 @@ export default function LeadsPage() {
                         filterStatus === statusOption 
                           ? statusOption === 'Bounced' ? 'bg-red-600 text-white shadow-xs'
                           : statusOption === 'Unsubscribed' ? 'bg-orange-600 text-white shadow-xs'
-                          : 'bg-blue-650 dark:bg-blue-600 text-white shadow-xs' 
-                          : 'text-slate-550 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                          : 'bg-blue-600 dark:bg-blue-600 text-white shadow-xs' 
+                          : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                       }`}
                     >
                       {statusOption}
@@ -1300,7 +1300,7 @@ export default function LeadsPage() {
               
               <button 
                 onClick={handleExportCSV}
-                className="flex items-center gap-1.5 bg-white hover:bg-slate-50 dark:bg-slate-955 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-xs px-3.5 py-2 rounded-lg font-bold text-blue-650 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors shadow-xs cursor-pointer"
+                className="flex items-center gap-1.5 bg-white hover:bg-slate-50 dark:bg-slate-950 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-xs px-3.5 py-2 rounded-lg font-bold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors shadow-xs cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5" />
                 Download Cleansed CSV
@@ -1317,7 +1317,7 @@ export default function LeadsPage() {
                 <div className="w-full overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="border-b border-slate-202 dark:border-slate-800/80 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest bg-slate-50/20 dark:bg-slate-955/10">
+                    <tr className="border-b border-slate-200 dark:border-slate-800/80 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest bg-slate-50/20 dark:bg-slate-950/10">
                       <th className="px-5 py-3 w-10">
                         <input
                           type="checkbox"
@@ -1352,7 +1352,7 @@ export default function LeadsPage() {
                           setSelectedLeadId(lead.id);
                           fetchLeadDetails(lead.id);
                         }}
-                        className={`hover:bg-slate-50/50 dark:hover:bg-slate-850/20 transition-all group cursor-pointer ${
+                        className={`hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-all group cursor-pointer ${
                           selectedLeadIds.includes(lead.id) ? 'bg-blue-50/20 dark:bg-blue-950/10' : ''
                         }`}
                       >
@@ -1371,20 +1371,20 @@ export default function LeadsPage() {
                           />
                         </td>
                         <td className="px-5 py-3.5">
-                          <div className="font-semibold text-xs text-slate-909 dark:text-white">{lead.name || 'N/A'}</div>
-                          {lead.jobTitle && <div className="text-[10px] text-slate-405 dark:text-slate-500 mt-0.5 font-medium">{lead.jobTitle}</div>}
+                          <div className="font-semibold text-xs text-slate-900 dark:text-white">{lead.name || 'N/A'}</div>
+                          {lead.jobTitle && <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5 font-medium">{lead.jobTitle}</div>}
                         </td>
-                        <td className="px-5 py-3.5 text-xs text-slate-500 dark:text-slate-405 font-mono flex items-center gap-2">
+                        <td className="px-5 py-3.5 text-xs text-slate-500 dark:text-slate-400 font-mono flex items-center gap-2">
                           <FileType className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
                           {lead.email}
                         </td>
-                        <td className="px-5 py-3.5 text-xs text-slate-650 dark:text-slate-405 font-medium">{lead.company || 'N/A'}</td>
+                        <td className="px-5 py-3.5 text-xs text-slate-600 dark:text-slate-400 font-medium">{lead.company || 'N/A'}</td>
                         <td className="px-5 py-3.5">
                           <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wider
                             ${lead.validationStatus === 'Valid' ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900/30' : ''}
                             ${lead.validationStatus === 'Invalid' ? 'bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-900/30' : ''}
                             ${lead.validationStatus === 'Risky' ? 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-900/30' : ''}
-                            ${lead.validationStatus === 'Unverified' ? 'bg-slate-100 dark:bg-slate-850 text-slate-600 dark:text-slate-400 border-slate-201 dark:border-slate-800' : ''}
+                            ${lead.validationStatus === 'Unverified' ? 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800' : ''}
                           `}>
                             {lead.validationStatus === 'Valid' && <CheckCircle2 className="w-3.5 h-3.5" />}
                             {lead.validationStatus === 'Invalid' && <AlertCircle className="w-3.5 h-3.5" />}
@@ -1414,7 +1414,7 @@ export default function LeadsPage() {
                           <td className="px-5 py-3.5">
                             <div className="flex flex-wrap gap-1 max-w-[150px]">
                               {(lead.groups || []).map((g: any) => (
-                                <span key={g.groupId} className="px-1.5 py-0.5 rounded text-[8px] font-bold bg-slate-100 dark:bg-slate-855 text-slate-600 dark:text-slate-400 border border-slate-201 dark:border-slate-800 uppercase tracking-wider">
+                                <span key={g.groupId} className="px-1.5 py-0.5 rounded text-[8px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800 uppercase tracking-wider">
                                   {g.group?.name}
                                 </span>
                               ))}
@@ -1479,7 +1479,7 @@ export default function LeadsPage() {
 
               {/* Pagination Controls */}
               {totalLeads > 0 && (
-                <div className="px-5 py-4 border-t border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row justify-between items-center gap-4 bg-slate-50/20 dark:bg-slate-955/10">
+                <div className="px-5 py-4 border-t border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row justify-between items-center gap-4 bg-slate-50/20 dark:bg-slate-950/10">
                   <div className="text-xs text-slate-500 dark:text-slate-400">
                     Showing <span className="font-semibold text-slate-700 dark:text-white">{startIndex}</span> to{' '}
                     <span className="font-semibold text-slate-700 dark:text-white">{endIndex}</span> of{' '}
@@ -1562,7 +1562,7 @@ export default function LeadsPage() {
                 <div className="flex justify-between items-center bg-slate-50/50 dark:bg-[#12141e]/50 border border-slate-200 dark:border-slate-800 p-4 rounded-xl">
                   <div>
                     <h4 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider flex items-center gap-2">
-                      <Folder className="w-4.5 h-4.5 text-blue-650 dark:text-blue-400" />
+                      <Folder className="w-4.5 h-4.5 text-blue-600 dark:text-blue-400" />
                       {groups.find(g => g.id === selectedGroupIdForView)?.name}
                     </h4>
                     <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 font-medium">
@@ -1572,23 +1572,23 @@ export default function LeadsPage() {
                   <div className="flex gap-2">
                     <button
                       onClick={() => handleArchiveGroupLeads(selectedGroupIdForView!, true)}
-                      className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-450 transition-all cursor-pointer shadow-xs"
+                      className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-500 transition-all cursor-pointer shadow-xs"
                     >
                       Archive All Leads
                     </button>
                     <button
                       onClick={() => setSelectedGroupIdForView(null)}
-                      className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-white hover:bg-slate-50 dark:bg-slate-950 dark:hover:bg-slate-850 border border-slate-205 dark:border-slate-800 text-slate-700 dark:text-slate-300 transition-all cursor-pointer shadow-xs"
+                      className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-white hover:bg-slate-50 dark:bg-slate-950 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 transition-all cursor-pointer shadow-xs"
                     >
                       Back to Groups list
                     </button>
                   </div>
                 </div>
 
-                <div className="border border-slate-200 dark:border-slate-850 rounded-xl overflow-hidden bg-white dark:bg-slate-900">
+                <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900">
                   <table className="w-full text-left border-collapse">
                     <thead>
-                      <tr className="border-b border-slate-202 dark:border-slate-800/80 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest bg-slate-50/20 dark:bg-slate-955/10">
+                      <tr className="border-b border-slate-200 dark:border-slate-800/80 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest bg-slate-50/20 dark:bg-slate-950/10">
                         <th className="px-5 py-3">Lead Target Name</th>
                         <th className="px-5 py-3">Outreach Address</th>
                         <th className="px-5 py-3">Assigned Brand</th>
@@ -1603,17 +1603,17 @@ export default function LeadsPage() {
                             setSelectedLeadId(lead.id);
                             fetchLeadDetails(lead.id);
                           }}
-                          className="hover:bg-slate-50/50 dark:hover:bg-slate-850/20 transition-all group cursor-pointer"
+                          className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-all group cursor-pointer"
                         >
                           <td className="px-5 py-3.5">
-                            <div className="font-semibold text-xs text-slate-909 dark:text-white">{lead.name || 'N/A'}</div>
-                            {lead.jobTitle && <div className="text-[10px] text-slate-405 dark:text-slate-500 mt-0.5 font-medium">{lead.jobTitle}</div>}
+                            <div className="font-semibold text-xs text-slate-900 dark:text-white">{lead.name || 'N/A'}</div>
+                            {lead.jobTitle && <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5 font-medium">{lead.jobTitle}</div>}
                           </td>
-                          <td className="px-5 py-3.5 text-xs text-slate-500 dark:text-slate-405 font-mono flex items-center gap-2">
+                          <td className="px-5 py-3.5 text-xs text-slate-500 dark:text-slate-400 font-mono flex items-center gap-2">
                             <FileType className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
                             {lead.email}
                           </td>
-                          <td className="px-5 py-3.5 text-xs text-slate-650 dark:text-slate-405 font-medium">{lead.company || 'N/A'}</td>
+                          <td className="px-5 py-3.5 text-xs text-slate-600 dark:text-slate-400 font-medium">{lead.company || 'N/A'}</td>
                           <td className="px-5 py-3.5 text-right" onClick={(e) => e.stopPropagation()}>
                             <div className="flex items-center justify-end gap-1.5">
                               <button
@@ -1647,7 +1647,7 @@ export default function LeadsPage() {
               /* Groups grid overview */
               <div className="p-5 space-y-4">
                 <div className="flex justify-between items-center">
-                  <h3 className="text-xs font-semibold uppercase tracking-widest text-slate-550 dark:text-slate-405">Manage Segments</h3>
+                  <h3 className="text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">Manage Segments</h3>
                   <button
                     onClick={() => setShowCreateGroup(!showCreateGroup)}
                     className="bg-white hover:bg-slate-50 dark:bg-slate-950 dark:hover:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-white px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
@@ -1659,27 +1659,27 @@ export default function LeadsPage() {
 
                 {showCreateGroup && (
                   <form onSubmit={handleCreateGroup} className="bg-slate-50 dark:bg-[#12141e] border border-slate-200 dark:border-[#1e202d] p-4 rounded-xl space-y-4 animate-in slide-in-from-top-2 duration-200">
-                    <h4 className="text-[10px] font-bold uppercase tracking-widest text-slate-450 dark:text-slate-500">New Group Details</h4>
+                    <h4 className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">New Group Details</h4>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
-                        <label className="block text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-wider mb-1">Group Name *</label>
+                        <label className="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Group Name *</label>
                         <input
                           type="text"
                           required
                           placeholder="e.g. Q3 Outbound Outreach"
                           value={newGroup.name}
                           onChange={e => setNewGroup({ ...newGroup, name: e.target.value })}
-                          className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-805 rounded-lg p-2 text-xs text-slate-855 dark:text-white placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-blue-500/40"
+                          className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-2 text-xs text-slate-800 dark:text-white placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-blue-500/40"
                         />
                       </div>
                       <div>
-                        <label className="block text-[9px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-wider mb-1">Description</label>
+                        <label className="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Description</label>
                         <input
                           type="text"
                           placeholder="e.g. Leads extracted from June marketing campaign"
                           value={newGroup.description}
                           onChange={e => setNewGroup({ ...newGroup, description: e.target.value })}
-                          className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-805 rounded-lg p-2 text-xs text-slate-855 dark:text-white placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-blue-500/40"
+                          className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-2 text-xs text-slate-800 dark:text-white placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-blue-500/40"
                         />
                       </div>
                     </div>
@@ -1693,7 +1693,7 @@ export default function LeadsPage() {
                       </button>
                       <button
                         type="submit"
-                        className="bg-blue-650 hover:bg-blue-600 text-white px-4 py-1.5 rounded-lg text-xs font-semibold shadow-sm cursor-pointer"
+                        className="bg-blue-600 hover:bg-blue-600 text-white px-4 py-1.5 rounded-lg text-xs font-semibold shadow-sm cursor-pointer"
                       >
                         Save Group
                       </button>
@@ -1712,8 +1712,8 @@ export default function LeadsPage() {
                       <div key={group.id} className="bg-slate-50 dark:bg-[#12141e] border border-slate-200 dark:border-[#1e202d] rounded-xl p-4 flex flex-col justify-between hover:border-blue-500/50 transition-all shadow-xs">
                         <div>
                           <div className="flex justify-between items-start">
-                            <h4 className="text-xs font-bold text-slate-855 dark:text-white uppercase tracking-wider">{group.name}</h4>
-                            <span className="bg-blue-50 dark:bg-blue-955/20 border border-blue-200 dark:border-blue-500/10 text-blue-700 dark:text-blue-400 px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider">
+                            <h4 className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-wider">{group.name}</h4>
+                            <span className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-500/10 text-blue-700 dark:text-blue-400 px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider">
                               {group._count?.leads || 0} leads
                             </span>
                           </div>
@@ -1730,13 +1730,13 @@ export default function LeadsPage() {
                           </button>
                           <button
                             onClick={() => handleArchiveGroupLeads(group.id, true)}
-                            className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-450 transition-all cursor-pointer"
+                            className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-500 transition-all cursor-pointer"
                           >
                             Archive Leads
                           </button>
                           <button
                             onClick={() => handleDeleteGroup(group)}
-                            className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-450 transition-all cursor-pointer"
+                            className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-500 transition-all cursor-pointer"
                           >
                             Delete
                           </button>
@@ -1744,7 +1744,7 @@ export default function LeadsPage() {
                       </div>
                     ))}
                     {groups.length === 0 && (
-                      <div className="col-span-full py-12 text-center text-slate-405 dark:text-slate-500 text-xs">
+                      <div className="col-span-full py-12 text-center text-slate-400 dark:text-slate-500 text-xs">
                         No segments created yet. Create a group to organize prospects.
                       </div>
                     )}
@@ -1760,8 +1760,8 @@ export default function LeadsPage() {
           <div className="p-5 space-y-5 animate-in fade-in duration-300">
             <div className="bg-slate-50/50 dark:bg-[#12141e]/50 border border-slate-200 dark:border-slate-800 p-4 rounded-xl space-y-3">
               <div>
-                <h4 className="text-xs font-bold text-slate-855 dark:text-white uppercase tracking-wider">Cross-Check & Deduplication Filters</h4>
-                <p className="text-[11px] text-slate-550 dark:text-slate-400 mt-0.5">Select specific groups to check for overlapping leads. If no groups are selected, it compiles duplicates across all segments.</p>
+                <h4 className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-wider">Cross-Check & Deduplication Filters</h4>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Select specific groups to check for overlapping leads. If no groups are selected, it compiles duplicates across all segments.</p>
               </div>
               <div className="flex flex-wrap gap-2 pt-1">
                 {groups.map(group => {
@@ -1779,7 +1779,7 @@ export default function LeadsPage() {
                       className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border uppercase tracking-wider transition-all cursor-pointer ${
                         isSelected
                           ? 'bg-blue-600 border-transparent text-white shadow-xs'
-                          : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-505 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+                          : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
                       }`}
                     >
                       {group.name}
@@ -1787,15 +1787,15 @@ export default function LeadsPage() {
                   );
                 })}
                 {groups.length === 0 && (
-                  <span className="text-xs text-slate-450 dark:text-slate-500 italic">No segments created yet.</span>
+                  <span className="text-xs text-slate-400 dark:text-slate-500 italic">No segments created yet.</span>
                 )}
               </div>
             </div>
 
-            <div className="border border-slate-200 dark:border-slate-805 rounded-xl overflow-hidden bg-white dark:bg-slate-900">
+            <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="border-b border-slate-202 dark:border-slate-800/80 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest bg-slate-50/20 dark:bg-slate-955/10">
+                  <tr className="border-b border-slate-200 dark:border-slate-800/80 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest bg-slate-50/20 dark:bg-slate-950/10">
                     <th className="px-5 py-3">Lead Target Name</th>
                     <th className="px-5 py-3">Outreach Address</th>
                     <th className="px-5 py-3">Overlapping Groups</th>
@@ -1810,13 +1810,13 @@ export default function LeadsPage() {
                         setSelectedLeadId(lead.id);
                         fetchLeadDetails(lead.id);
                       }}
-                      className="hover:bg-slate-50/50 dark:hover:bg-slate-850/20 transition-all group cursor-pointer"
+                      className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-all group cursor-pointer"
                     >
                       <td className="px-5 py-3.5">
-                        <div className="font-semibold text-xs text-slate-909 dark:text-white">{lead.name || 'N/A'}</div>
-                        {lead.jobTitle && <div className="text-[10px] text-slate-405 dark:text-slate-500 mt-0.5 font-medium">{lead.jobTitle}</div>}
+                        <div className="font-semibold text-xs text-slate-900 dark:text-white">{lead.name || 'N/A'}</div>
+                        {lead.jobTitle && <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5 font-medium">{lead.jobTitle}</div>}
                       </td>
-                      <td className="px-5 py-3.5 text-xs text-slate-500 dark:text-slate-405 font-mono flex items-center gap-2">
+                      <td className="px-5 py-3.5 text-xs text-slate-500 dark:text-slate-400 font-mono flex items-center gap-2">
                         <FileType className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
                         {lead.email}
                       </td>
@@ -1825,12 +1825,12 @@ export default function LeadsPage() {
                           {(lead.groups || []).map((g: any) => (
                             <span 
                               key={g.groupId}
-                              className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[8px] font-bold bg-blue-50 dark:bg-blue-955/20 border border-blue-200 dark:border-blue-500/10 text-blue-750 dark:text-blue-400 uppercase tracking-wider"
+                              className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[8px] font-bold bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-500/10 text-blue-750 dark:text-blue-400 uppercase tracking-wider"
                             >
                               {g.group?.name}
                               <button
                                 onClick={() => handleRemoveFromGroup(lead.id, g.groupId)}
-                                className="text-[10px] font-bold hover:text-rose-600 dark:hover:text-rose-450 transition-colors border-0 bg-transparent cursor-pointer pl-0.5"
+                                className="text-[10px] font-bold hover:text-rose-600 dark:hover:text-rose-500 transition-colors border-0 bg-transparent cursor-pointer pl-0.5"
                                 title={`Remove from ${g.group?.name}`}
                               >
                                 ×
@@ -1858,7 +1858,7 @@ export default function LeadsPage() {
                                   console.error(err);
                               }
                             }}
-                            className="px-2 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-450 rounded text-[9px] font-bold uppercase tracking-wider transition-colors cursor-pointer"
+                            className="px-2 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-500 rounded text-[9px] font-bold uppercase tracking-wider transition-colors cursor-pointer"
                           >
                             Archive Lead
                           </button>
@@ -1874,7 +1874,7 @@ export default function LeadsPage() {
                   ))}
                   {getOverlappingLeads().length === 0 && (
                     <tr>
-                      <td colSpan={4} className="text-center py-10 text-slate-405 dark:text-slate-505 text-xs">
+                      <td colSpan={4} className="text-center py-10 text-slate-400 dark:text-slate-500 text-xs">
                         No overlapping prospects found with the current cross-check filters.
                       </td>
                     </tr>
@@ -1937,16 +1937,16 @@ export default function LeadsPage() {
                     <div className="bg-slate-50 dark:bg-[#12141e] border border-slate-200 dark:border-[#1e202d] rounded-xl p-4 space-y-3.5 animate-in fade-in duration-300">
                       <div className="flex items-start justify-between gap-4">
                         <div>
-                          <h4 className="text-sm font-bold text-slate-855 dark:text-white">{leadDetails.name || 'Anonymous Prospect'}</h4>
+                          <h4 className="text-sm font-bold text-slate-800 dark:text-white">{leadDetails.name || 'Anonymous Prospect'}</h4>
                           {leadDetails.jobTitle && (
-                            <p className="text-[11px] text-slate-550 dark:text-slate-400 font-medium mt-0.5">{leadDetails.jobTitle}</p>
+                            <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">{leadDetails.jobTitle}</p>
                           )}
                         </div>
                         <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wider
                           ${leadDetails.validationStatus === 'Valid' ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900/30' : ''}
                           ${leadDetails.validationStatus === 'Invalid' ? 'bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-900/30' : ''}
                           ${leadDetails.validationStatus === 'Risky' ? 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-900/30' : ''}
-                          ${leadDetails.validationStatus === 'Unverified' ? 'bg-slate-100 dark:bg-slate-850 text-slate-600 dark:text-slate-400 border-slate-201 dark:border-slate-800' : ''}
+                          ${leadDetails.validationStatus === 'Unverified' ? 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800' : ''}
                         `}>
                           {leadDetails.validationStatus}
                         </span>
@@ -1998,8 +1998,8 @@ export default function LeadsPage() {
                                 }}
                                 className={`px-2 py-0.5 rounded text-[9px] font-bold transition-all border uppercase tracking-wider flex items-center gap-1 cursor-pointer ${
                                   isMember
-                                    ? 'bg-blue-50 dark:bg-blue-955/20 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-500/10 shadow-xs'
-                                    : 'bg-transparent text-slate-400 dark:text-slate-500 border-slate-202 dark:border-slate-800 hover:text-slate-600 dark:hover:text-slate-300'
+                                    ? 'bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-500/10 shadow-xs'
+                                    : 'bg-transparent text-slate-400 dark:text-slate-500 border-slate-200 dark:border-slate-800 hover:text-slate-600 dark:hover:text-slate-300'
                                 }`}
                               >
                                 {group.name}
@@ -2054,7 +2054,7 @@ export default function LeadsPage() {
                       {getTimeline().length === 0 ? (
                         <p className="text-slate-400 dark:text-slate-500 text-xs py-6 text-center">No outbound campaigns or inbound responses recorded for this lead yet.</p>
                       ) : (
-                        <div className="relative border-l-2 border-slate-100 dark:border-slate-850 ml-3 pl-5 space-y-5">
+                        <div className="relative border-l-2 border-slate-100 dark:border-slate-800 ml-3 pl-5 space-y-5">
                           {getTimeline().map((event: any) => {
                             const isExpanded = expandedEmailId === event.id;
                             const isDispatch = event.type === 'dispatch';
@@ -2073,16 +2073,16 @@ export default function LeadsPage() {
                                   }`}
                                 >
                                   {isDispatch ? (
-                                    <Mail className="w-1.5 h-1.5 text-blue-650 dark:text-blue-500" />
+                                    <Mail className="w-1.5 h-1.5 text-blue-600 dark:text-blue-500" />
                                   ) : (
-                                    <MessageSquare className="w-1.5 h-1.5 text-emerald-650 dark:text-emerald-505" />
+                                    <MessageSquare className="w-1.5 h-1.5 text-emerald-600 dark:text-emerald-500" />
                                   )}
                                 </span>
 
                                 {/* Event Card */}
                                 <div className="bg-slate-50/50 dark:bg-[#12141c]/45 border border-slate-150 dark:border-[#1a1c27] rounded-xl p-3.5 space-y-2 hover:border-slate-300 dark:hover:border-[#2b2e40] transition-colors">
                                   {/* Header */}
-                                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[10px] text-slate-405 dark:text-slate-500">
+                                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[10px] text-slate-400 dark:text-slate-500">
                                     <span className="font-bold uppercase tracking-wider">
                                       {isDispatch 
                                         ? `Sent via ${event.campaign}`
@@ -2102,13 +2102,13 @@ export default function LeadsPage() {
                                   {isDispatch && (opens > 0 || clicks > 0) && (
                                     <div className="flex gap-2 pt-0.5">
                                       {opens > 0 && (
-                                        <span className="inline-flex items-center gap-1 bg-blue-50/70 dark:bg-blue-955/20 border border-blue-200/50 dark:border-blue-500/10 text-[9px] font-bold text-blue-650 dark:text-blue-400 px-2 py-0.5 rounded">
+                                        <span className="inline-flex items-center gap-1 bg-blue-50/70 dark:bg-blue-950/20 border border-blue-200/50 dark:border-blue-500/10 text-[9px] font-bold text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded">
                                           <Eye className="w-3 h-3" />
                                           Opened ({opens})
                                         </span>
                                       )}
                                       {clicks > 0 && (
-                                        <span className="inline-flex items-center gap-1 bg-indigo-50/70 dark:bg-indigo-955/20 border border-indigo-200/50 dark:border-indigo-500/10 text-[9px] font-bold text-indigo-650 dark:text-indigo-400 px-2 py-0.5 rounded">
+                                        <span className="inline-flex items-center gap-1 bg-indigo-50/70 dark:bg-indigo-950/20 border border-indigo-200/50 dark:border-indigo-500/10 text-[9px] font-bold text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded">
                                           <MousePointerClick className="w-3 h-3" />
                                           Clicked ({clicks})
                                         </span>
@@ -2119,7 +2119,7 @@ export default function LeadsPage() {
                                   {/* Body Toggle Button */}
                                   <button
                                     onClick={() => setExpandedEmailId(isExpanded ? null : event.id)}
-                                    className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-blue-600 hover:text-blue-550 dark:text-blue-400 dark:hover:text-blue-350 cursor-pointer pt-1 border-0 bg-transparent"
+                                    className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-blue-600 hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-350 cursor-pointer pt-1 border-0 bg-transparent"
                                   >
                                     {isExpanded ? (
                                       <>
@@ -2137,7 +2137,7 @@ export default function LeadsPage() {
                                   {/* Body copy container */}
                                   {isExpanded && (
                                     <div 
-                                      className="text-xs mt-2.5 p-3 rounded-lg bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-slate-850 text-slate-655 dark:text-slate-350 font-mono whitespace-pre-wrap max-h-56 overflow-y-auto break-words leading-relaxed"
+                                      className="text-xs mt-2.5 p-3 rounded-lg bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-350 font-mono whitespace-pre-wrap max-h-56 overflow-y-auto break-words leading-relaxed"
                                       dangerouslySetInnerHTML={{ __html: event.body }}
                                     />
                                   )}
@@ -2247,7 +2247,7 @@ export default function LeadsPage() {
                   placeholder="DELETE"
                   value={deleteAllConfirmText}
                   onChange={(e) => setDeleteAllConfirmText(e.target.value)}
-                  className="w-full bg-slate-50 dark:bg-slate-955 border border-slate-202 dark:border-slate-805 rounded-lg p-2.5 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-rose-500/40"
+                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-2.5 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-rose-500/40"
                 />
               </div>
               <div className="flex gap-3 justify-end mt-6 pt-4 border-t border-slate-100 dark:border-slate-800/80">
@@ -2288,7 +2288,7 @@ export default function LeadsPage() {
               className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl p-6 z-55 w-full max-w-md"
             >
               <h3 className="text-base font-bold text-slate-900 dark:text-white mb-2 uppercase tracking-wide flex items-center gap-2">
-                <Folder className="w-5 h-5 text-blue-650 dark:text-blue-400" />
+                <Folder className="w-5 h-5 text-blue-600 dark:text-blue-400" />
                 Delete Group: {groupToDelete.name}
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed mb-5">
@@ -2297,7 +2297,7 @@ export default function LeadsPage() {
               
               <div className="space-y-3.5">
                 {/* KEEP option */}
-                <label className="flex items-start gap-3 p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200/60 dark:border-slate-805 rounded-xl cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-900/50 transition-colors">
+                <label className="flex items-start gap-3 p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200/60 dark:border-slate-800 rounded-xl cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-900/50 transition-colors">
                   <input
                     type="radio"
                     name="disposalAction"
@@ -2308,12 +2308,12 @@ export default function LeadsPage() {
                   />
                   <div>
                     <span className="block text-xs font-bold text-slate-800 dark:text-white">Keep leads in CRM</span>
-                    <span className="block text-[10px] text-slate-500 dark:text-slate-450 mt-0.5">Retains leads in the database and removes them from this group only.</span>
+                    <span className="block text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">Retains leads in the database and removes them from this group only.</span>
                   </div>
                 </label>
 
                 {/* DELETE option */}
-                <label className="flex items-start gap-3 p-3 bg-slate-50 dark:bg-slate-955 border border-slate-200/60 dark:border-slate-805 rounded-xl cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-900/50 transition-colors">
+                <label className="flex items-start gap-3 p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200/60 dark:border-slate-800 rounded-xl cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-900/50 transition-colors">
                   <input
                     type="radio"
                     name="disposalAction"
@@ -2324,12 +2324,12 @@ export default function LeadsPage() {
                   />
                   <div>
                     <span className="block text-xs font-bold text-rose-600 dark:text-rose-400">Delete associated leads</span>
-                    <span className="block text-[10px] text-slate-500 dark:text-slate-450 mt-0.5">Permanently deletes all leads in this group from the CRM database.</span>
+                    <span className="block text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">Permanently deletes all leads in this group from the CRM database.</span>
                   </div>
                 </label>
 
                 {/* MOVE option */}
-                <label className="flex items-start gap-3 p-3 bg-slate-50 dark:bg-slate-955 border border-slate-200/60 dark:border-slate-805 rounded-xl cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-900/50 transition-colors">
+                <label className="flex items-start gap-3 p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200/60 dark:border-slate-800 rounded-xl cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-900/50 transition-colors">
                   <input
                     type="radio"
                     name="disposalAction"
@@ -2340,14 +2340,14 @@ export default function LeadsPage() {
                   />
                   <div className="w-full">
                     <span className="block text-xs font-bold text-slate-800 dark:text-white">Move leads to another group</span>
-                    <span className="block text-[10px] text-slate-500 dark:text-slate-450 mt-0.5">Transfer all leads to a different existing group.</span>
+                    <span className="block text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">Transfer all leads to a different existing group.</span>
                     
                     {leadDisposalAction === 'MOVE' && (
                       <div className="mt-2.5" onClick={(e) => e.stopPropagation()}>
                         <select
                           value={disposalTargetGroupId}
                           onChange={(e) => setDisposalTargetGroupId(e.target.value)}
-                          className="w-full bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-805 rounded-lg p-2 text-xs text-slate-800 dark:text-white cursor-pointer outline-none"
+                          className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-2 text-xs text-slate-800 dark:text-white cursor-pointer outline-none"
                         >
                           <option value="">-- Choose Target Group --</option>
                           {groups.filter(g => g.id !== groupToDelete.id).map(g => (
@@ -2370,7 +2370,7 @@ export default function LeadsPage() {
                 <button
                   onClick={handleExecuteDeleteGroup}
                   disabled={leadDisposalAction === 'MOVE' && !disposalTargetGroupId}
-                  className="bg-blue-650 hover:bg-blue-500 disabled:bg-slate-200 dark:disabled:bg-slate-800 text-white disabled:text-slate-450 dark:disabled:text-slate-600 px-5 py-2 rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer"
+                  className="bg-blue-600 hover:bg-blue-500 disabled:bg-slate-200 dark:disabled:bg-slate-800 text-white disabled:text-slate-400 dark:disabled:text-slate-600 px-5 py-2 rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer"
                 >
                   Confirm Delete Group
                 </button>

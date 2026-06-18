@@ -99,7 +99,7 @@ export default function VariableToolbar({ onInsert, onInsertSubject }: VariableT
             className={`flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
               target === 'subject'
                 ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-xs'
-                : 'text-slate-450 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                : 'text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
             }`}
           >
             <Type className="w-2.5 h-2.5" />
@@ -112,7 +112,7 @@ export default function VariableToolbar({ onInsert, onInsertSubject }: VariableT
             className={`flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
               target === 'body'
                 ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-xs'
-                : 'text-slate-450 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                : 'text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
             }`}
           >
             <FileText className="w-2.5 h-2.5" />

@@ -77,8 +77,14 @@ export async function POST(req: NextRequest) {
           case 'Microsoft.Communication.EmailDeliveryReportReceived':
             console.log('Delivery Report Received:', data);
             const status = data.status; // "Delivered" or "Failed" (Bounce)
-            
-            if (status === 'Failed') {
+
+            if (status === 'Delivered') {
+              // Record the confirmed-delivery timestamp for accurate "Delivered" metrics.
+              await prisma.emailDispatch.update({
+                where: { id: dispatch.id },
+                data: { deliveredAt: new Date() },
+              });
+            } else if (status === 'Failed') {
               // Update Lead: mark as Bounced + Invalid deliverability
               await prisma.lead.update({
                 where: { id: dispatch.leadId },

@@ -106,6 +106,37 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         continue;
       }
 
+      // Idempotency guard: never send the same step to the same lead twice.
+      // Without this, repeated manual runs re-create dispatch rows for leads that
+      // were already emailed this step, inflating the "sent" metrics.
+      const alreadySent = await prisma.emailDispatch.findFirst({
+        where: {
+          campaignId: campaign.id,
+          leadId: lead.id,
+          stepOrder: currentStepOrder,
+          status: 'Sent',
+        },
+      });
+      if (alreadySent) {
+        // Advance the enrollment past this already-sent step without re-dispatching.
+        const nextStepOrder = currentStepOrder + 1;
+        const nextStep = campaign.steps.find(s => s.stepOrder === nextStepOrder);
+        if (nextStep) {
+          const nextActionDate = new Date();
+          nextActionDate.setDate(nextActionDate.getDate() + nextStep.waitDays);
+          await prisma.campaignEnrollment.update({
+            where: { id: enrollment.id },
+            data: { currentSequenceStep: nextStepOrder, nextActionDate },
+          });
+        } else {
+          await prisma.campaignEnrollment.update({
+            where: { id: enrollment.id },
+            data: { status: 'Completed', nextActionDate: null },
+          });
+        }
+        continue;
+      }
+
       // Personalize copy (Spintax, Lead variables)
       const subject = personalizeText(step.subject, lead);
       const bodyText = personalizeText(step.body, lead);
@@ -118,15 +149,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         baseBody = `<html><head><meta charset="utf-8"></head><body>${bodyText}</body></html>`;
       }
 
+      let dispatch: { id: string } | null = null;
       try {
         // 5. Create dispatch record FIRST so we have a dispatchId for tracking URLs
-        const dispatch = await prisma.emailDispatch.create({
+        dispatch = await prisma.emailDispatch.create({
           data: {
             leadId: lead.id,
             campaignId: campaign.id,
             messageId: syntheticMessageId,
             subject,
             body: baseBody,
+            stepOrder: currentStepOrder,
+            status: 'Sent',
           }
         });
 
@@ -266,6 +300,19 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       } catch (err: any) {
         console.error(`[Campaign Run Error] Failed to process lead ${lead.email}:`, err);
         errors.push({ email: lead.email, error: err.message || err });
+
+        // Mark the dispatch row (created before the send) as Failed so it is not
+        // counted as an actually-sent email.
+        if (dispatch) {
+          try {
+            await prisma.emailDispatch.update({
+              where: { id: dispatch.id },
+              data: { status: 'Failed' },
+            });
+          } catch (markErr: any) {
+            console.error(`[Campaign Run] Failed to mark dispatch failed for ${lead.email}:`, markErr.message);
+          }
+        }
 
         // Mark enrollment as Failed to prevent retry loops
         try {

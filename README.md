@@ -60,6 +60,44 @@ Azure Event Grid webhook events (delivery confirmations, opens, clicks) are capt
 
 ---
 
+## 🧹 Dispatch Metrics & Duplicate Cleanup
+
+Each outbound email writes an `EmailDispatch` row. To keep the campaign metrics
+(Total Sent Requests / Emails Sent / Delivered / Opens / Clicks) accurate:
+
+- A dispatch's `status` is `Sent` (handed to the provider) or `Failed`. Failed
+  attempts are excluded from the "Emails Sent" figure.
+- Every campaign dispatch records its `stepOrder`, and both the send engine and
+  the manual run guard against sending the **same step to the same lead twice**.
+- `deliveredAt` is stamped by the Azure delivery webhook for the "Delivered" metric.
+
+The send engine and run route enforce the dedup guard automatically, so under
+normal operation no manual cleanup is required. The one-off maintenance script
+[scripts/audit-dispatches.ts](file:///d:/Development/ArcReach/scripts/audit-dispatches.ts)
+exists for legacy data created before these guards, or if duplicates ever slip
+through (e.g. a concurrent cron + manual run). It is **read-only by default** and
+reports duplicate `(campaign, lead, step)` rows; pass `--backfill` to set
+`stepOrder` on legacy rows and `--fix` to delete duplicates (keeping the earliest
+send per step — `EmailEvent` rows cascade).
+
+```bash
+# 1. Apply any schema changes. On Windows, stop the running `next dev` server first —
+#    it locks the Prisma engine binary and causes a generate/EPERM error.
+npx prisma db push --schema schema.prisma
+
+# 2. Audit historical rows — DRY RUN first (read-only, makes no changes):
+npx tsx scripts/audit-dispatches.ts
+
+# 3. Backfill stepOrder on legacy rows + delete the duplicates it reports:
+npx tsx scripts/audit-dispatches.ts --backfill --fix
+```
+
+> **Note:** the backfill updates rows one at a time, so against a remote DB it can
+> take a few minutes for several thousand rows. The delete phase that follows is
+> batched and fast. The script is safe to re-run.
+
+---
+
 ## 🚀 Getting Started
 
 ### Prerequisites

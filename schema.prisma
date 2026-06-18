@@ -217,16 +217,27 @@ model CampaignEnrollment {
 // 6. DISPATCH & EVENT TRACKING
 // ------------------------------------------------------
 model EmailDispatch {
-  id         String        @id @default(uuid())
-  leadId     String
-  lead       Lead          @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  campaignId String?
-  campaign   Campaign?     @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  messageId  String        @unique
-  sentAt     DateTime      @default(now())
-  subject    String?
-  body       String?       @db.Text
-  events     EmailEvent[]
+  id          String        @id @default(uuid())
+  leadId      String
+  lead        Lead          @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  campaignId  String?
+  campaign    Campaign?     @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  messageId   String        @unique
+  sentAt      DateTime      @default(now())
+  subject     String?
+  body        String?       @db.Text
+
+  // Send-attempt outcome: "Sent" (handed to the provider) or "Failed" (provider/SMTP error).
+  status      String        @default("Sent")
+  // Sequence step this dispatch belongs to (null for manual / non-campaign sends).
+  stepOrder   Int?
+  // Set by the Azure delivery webhook when the message is confirmed delivered.
+  deliveredAt DateTime?
+
+  events      EmailEvent[]
+
+  // Speeds up the per-(campaign, lead, step) idempotency guard.
+  @@index([campaignId, leadId, stepOrder])
 }
 
 model EmailEvent {

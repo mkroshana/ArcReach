@@ -59,10 +59,11 @@ export async function GET(req: NextRequest) {
 
 
 
-    // 1. Get current period stats
+    // 1. Get current period stats (only count emails actually sent, not failed attempts)
     const totalSent = await prisma.emailDispatch.count({
       where: {
         ...dispatchWhere,
+        status: 'Sent',
         sentAt: { gte: startOfCurrentPeriod, lte: now }
       }
     });
@@ -70,6 +71,7 @@ export async function GET(req: NextRequest) {
     const dispatchesWithOpens = await prisma.emailDispatch.count({
       where: {
         ...dispatchWhere,
+        status: 'Sent',
         sentAt: { gte: startOfCurrentPeriod, lte: now },
         events: {
           some: { eventType: 'open' }
@@ -80,6 +82,7 @@ export async function GET(req: NextRequest) {
     const dispatchesWithClicks = await prisma.emailDispatch.count({
       where: {
         ...dispatchWhere,
+        status: 'Sent',
         sentAt: { gte: startOfCurrentPeriod, lte: now },
         events: {
           some: { eventType: 'click' }
@@ -125,6 +128,7 @@ export async function GET(req: NextRequest) {
     const priorSent = await prisma.emailDispatch.count({
       where: {
         ...dispatchWhere,
+        status: 'Sent',
         sentAt: { gte: startOfPriorPeriod, lt: startOfCurrentPeriod }
       }
     });
@@ -132,6 +136,7 @@ export async function GET(req: NextRequest) {
     const priorOpens = await prisma.emailDispatch.count({
       where: {
         ...dispatchWhere,
+        status: 'Sent',
         sentAt: { gte: startOfPriorPeriod, lt: startOfCurrentPeriod },
         events: {
           some: { eventType: 'open' }
@@ -142,6 +147,7 @@ export async function GET(req: NextRequest) {
     const priorClicks = await prisma.emailDispatch.count({
       where: {
         ...dispatchWhere,
+        status: 'Sent',
         sentAt: { gte: startOfPriorPeriod, lt: startOfCurrentPeriod },
         events: {
           some: { eventType: 'click' }
@@ -176,6 +182,7 @@ export async function GET(req: NextRequest) {
     const trendDispatches = await prisma.emailDispatch.findMany({
       where: {
         ...dispatchWhere,
+        status: 'Sent',
         sentAt: { gte: startOfCurrentPeriod, lte: now }
       },
       include: {

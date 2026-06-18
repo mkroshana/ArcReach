@@ -76,13 +76,25 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       }
     }
 
-    const sentCount = await prisma.emailDispatch.count({
+    // Total send *attempts* (includes retries and failed sends).
+    const sentRequestsCount = await prisma.emailDispatch.count({
       where: { campaignId: id }
+    });
+
+    // Emails actually handed off to the provider (failed attempts excluded).
+    const sentCount = await prisma.emailDispatch.count({
+      where: { campaignId: id, status: 'Sent' }
+    });
+
+    // Emails confirmed delivered by the provider's delivery webhook.
+    const deliveredCount = await prisma.emailDispatch.count({
+      where: { campaignId: id, status: 'Sent', deliveredAt: { not: null } }
     });
 
     const opensCount = await prisma.emailDispatch.count({
       where: {
         campaignId: id,
+        status: 'Sent',
         events: {
           some: { eventType: 'open' }
         }
@@ -92,6 +104,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const clicksCount = await prisma.emailDispatch.count({
       where: {
         campaignId: id,
+        status: 'Sent',
         events: {
           some: { eventType: 'click' }
         }
@@ -191,6 +204,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
     const funnel = [
       { name: 'Sent', value: sentCount },
+      { name: 'Delivered', value: deliveredCount },
       { name: 'Opened', value: opensCount },
       { name: 'Clicked', value: clicksCount },
       { name: 'Replied', value: repliesCount },
@@ -224,19 +238,26 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       }
     });
 
+    // Engagement rates are measured against delivered mail when delivery
+    // confirmations are available, otherwise against actual sends.
+    const engagementBase = deliveredCount > 0 ? deliveredCount : sentCount;
+
     const telemetry = {
       enrollments: enrollmentsCount,
       validLeadsCount,
       unverifiedLeadsCount,
+      sentRequests: sentRequestsCount,
       sent: sentCount,
+      delivered: deliveredCount,
       opens: opensCount,
       clicks: clicksCount,
       replies: repliesCount,
       bounced: bouncedCount,
       failed: failedCount,
       unsubscribed: unsubscribedCount,
-      openRate: sentCount > 0 ? Number(((opensCount / sentCount) * 100).toFixed(1)) : 0,
-      clickRate: sentCount > 0 ? Number(((clicksCount / sentCount) * 100).toFixed(1)) : 0,
+      deliveryRate: sentCount > 0 ? Number(((deliveredCount / sentCount) * 100).toFixed(1)) : 0,
+      openRate: engagementBase > 0 ? Number(((opensCount / engagementBase) * 100).toFixed(1)) : 0,
+      clickRate: engagementBase > 0 ? Number(((clicksCount / engagementBase) * 100).toFixed(1)) : 0,
       replyRate: sentCount > 0 ? Number(((repliesCount / sentCount) * 100).toFixed(1)) : 0,
       bounceRate: sentCount > 0 ? Number(((bouncedCount / sentCount) * 100).toFixed(1)) : 0,
       trend,

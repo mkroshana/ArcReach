@@ -82,6 +82,22 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       where: { campaignId: id }
     });
 
+    // Deliverability health for this campaign.
+    // Bounced: enrollments flagged by the Azure delivery webhook on a hard bounce.
+    // Failed: enrollments the send engine could not dispatch (SMTP/Azure send errors).
+    // Unsubscribed: enrolled leads who opted out via the unsubscribe link.
+    const bouncedCount = await prisma.campaignEnrollment.count({
+      where: { campaignId: id, status: 'Bounced' }
+    });
+
+    const failedCount = await prisma.campaignEnrollment.count({
+      where: { campaignId: id, status: 'Failed' }
+    });
+
+    const unsubscribedCount = await prisma.campaignEnrollment.count({
+      where: { campaignId: id, lead: { status: 'Unsubscribed' } }
+    });
+
     const validLeadsCount = await prisma.lead.count({
       where: { validationStatus: 'Valid' }
     });
@@ -136,9 +152,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       opens: opensCount,
       clicks: clicksCount,
       replies: repliesCount,
+      bounced: bouncedCount,
+      failed: failedCount,
+      unsubscribed: unsubscribedCount,
       openRate: sentCount > 0 ? Number(((opensCount / sentCount) * 100).toFixed(1)) : 0,
       clickRate: sentCount > 0 ? Number(((clicksCount / sentCount) * 100).toFixed(1)) : 0,
       replyRate: sentCount > 0 ? Number(((repliesCount / sentCount) * 100).toFixed(1)) : 0,
+      bounceRate: sentCount > 0 ? Number(((bouncedCount / sentCount) * 100).toFixed(1)) : 0,
       trend
     };
 

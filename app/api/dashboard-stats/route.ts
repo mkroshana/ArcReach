@@ -11,6 +11,7 @@ export async function GET(req: NextRequest) {
     let senderAccountWhere = {};
     let dispatchWhere = {};
     let inboundWhere = {};
+    let enrollmentWhere: any = {};
 
     if (session.role !== 'ADMIN') {
       campaignWhere = { userId: session.id };
@@ -37,6 +38,7 @@ export async function GET(req: NextRequest) {
           }
         }
       };
+      enrollmentWhere = { campaign: { userId: session.id } };
     }
 
     // 1. Get total numbers

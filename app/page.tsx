@@ -15,6 +15,18 @@ import {
 import { Mail, MousePointerClick, Reply, SendHorizontal, RefreshCw, XCircle, AlertTriangle, UserMinus } from 'lucide-react';
 
 function StatCard({ title, value, change, icon: Icon, accentColor, accentBg }: any) {
+  const numericChange = Number(change) || 0;
+  const isPositive = numericChange > 0;
+  const isNegative = numericChange < 0;
+  const changeText = isPositive ? `+${numericChange}%` : `${numericChange}%`;
+  
+  let badgeStyle = "text-slate-500 bg-slate-50 dark:bg-slate-950/30 border border-slate-100 dark:border-slate-900/30";
+  if (isPositive) {
+    badgeStyle = "text-emerald-700 dark:text-emerald-450 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-900/30";
+  } else if (isNegative) {
+    badgeStyle = "text-rose-700 dark:text-rose-450 bg-rose-50 dark:bg-rose-950/30 border border-rose-100 dark:border-rose-900/30";
+  }
+
   return (
     <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 shadow-xs hover:border-blue-100 dark:hover:border-slate-700 transition-all duration-250">
       <div className="flex justify-between items-start">
@@ -23,10 +35,10 @@ function StatCard({ title, value, change, icon: Icon, accentColor, accentBg }: a
           <h3 className="text-2xl font-bold mt-1 text-slate-900 dark:text-white tracking-tight">{value}</h3>
           
           <div className="flex items-center gap-1.5 mt-2.5">
-            <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-450 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-100 dark:border-emerald-900/30 px-2 py-0.5 rounded">
-              {change}
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${badgeStyle}`}>
+              {changeText}
             </span>
-            <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">vs last week</span>
+            <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">vs last period</span>
           </div>
         </div>
         <div className={`w-9 h-9 rounded-lg flex items-center justify-center border border-slate-100 dark:border-slate-800/40 ${accentBg} ${accentColor}`}>
@@ -38,24 +50,31 @@ function StatCard({ title, value, change, icon: Icon, accentColor, accentBg }: a
 }
 
 export default function Dashboard() {
-  const [stats, setStats] = useState({
+  const [range, setRange] = useState('7');
+  const [stats, setStats] = useState<any>({
     totalSent: 0,
     totalReplies: 0,
     averageOpenRate: 0,
     averageClickRate: 0,
     failed: 0,
     bounced: 0,
-    unsubscribed: 0
+    unsubscribed: 0,
+    deltas: {
+      sent: 0,
+      openRate: 0,
+      clickRate: 0,
+      replies: 0
+    }
   });
   const [trends, setTrends] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [systemStatus, setSystemStatus] = useState<any>(null);
 
-  const fetchStats = async () => {
+  const fetchStats = async (selectedRange = range) => {
     try {
       setLoading(true);
       const [statsRes, statusRes] = await Promise.all([
-        fetch('/api/dashboard-stats'),
+        fetch(`/api/dashboard-stats?range=${selectedRange}`),
         fetch('/api/system-status')
       ]);
 
@@ -73,6 +92,11 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleRangeChange = (newRange: string) => {
+    setRange(newRange);
+    fetchStats(newRange);
   };
 
   useEffect(() => {
@@ -209,13 +233,12 @@ export default function Dashboard() {
           <p className="font-medium tracking-wide">Retrieving outbound logs aggregates...</p>
         </div>
       ) : (
-        <>
-          {/* Structured Stats Section */}
+               {/* Structured Stats Section */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <StatCard 
               title="Total Outbound Sent" 
               value={stats.totalSent.toLocaleString()} 
-              change="+5.4%" 
+              change={stats.deltas?.sent} 
               icon={SendHorizontal} 
               accentColor="text-blue-600 dark:text-blue-400" 
               accentBg="bg-blue-50 dark:bg-blue-950/20"
@@ -223,7 +246,7 @@ export default function Dashboard() {
             <StatCard 
               title="Average Open Rate" 
               value={`${stats.averageOpenRate}%`} 
-              change="+2.1%" 
+              change={stats.deltas?.openRate} 
               icon={Mail} 
               accentColor="text-teal-600 dark:text-teal-400" 
               accentBg="bg-teal-50 dark:bg-teal-950/20"
@@ -231,7 +254,7 @@ export default function Dashboard() {
             <StatCard 
               title="Dynamic Click Rate" 
               value={`${stats.averageClickRate}%`} 
-              change="+1.2%" 
+              change={stats.deltas?.clickRate} 
               icon={MousePointerClick} 
               accentColor="text-amber-600 dark:text-amber-400" 
               accentBg="bg-amber-50 dark:bg-amber-950/20"
@@ -239,7 +262,7 @@ export default function Dashboard() {
             <StatCard
               title="Sequences Replies"
               value={stats.totalReplies.toLocaleString()}
-              change="+8.3%"
+              change={stats.deltas?.replies}
               icon={Reply}
               accentColor="text-rose-600 dark:text-rose-400"
               accentBg="bg-rose-50 dark:bg-rose-950/20"
@@ -255,7 +278,7 @@ export default function Dashboard() {
             ].map((stat, i) => (
               <div key={i} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 shadow-xs">
                 <div className="flex justify-between items-start mb-2">
-                  <p className="text-[10px] text-slate-500 dark:text-slate-405 font-extrabold uppercase tracking-widest">{stat.title}</p>
+                  <p className="text-[10px] text-slate-550 dark:text-slate-405 font-extrabold uppercase tracking-widest">{stat.title}</p>
                   <div className={`w-9 h-9 rounded-lg flex items-center justify-center border border-slate-100 dark:border-slate-800/40 ${stat.bg} ${stat.border} ${stat.color}`}>
                     <stat.icon className="w-4.5 h-4.5" />
                   </div>
@@ -273,10 +296,14 @@ export default function Dashboard() {
                 <h2 className="text-sm font-bold text-slate-805 dark:text-slate-200 uppercase tracking-widest">Engagement Trends</h2>
                 <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Track key deliverability status metrics in real-time.</p>
               </div>
-              <select className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-805 text-slate-700 dark:text-slate-300 text-xs rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500/40 appearance-none font-medium pr-8 relative cursor-pointer shadow-xs">
-                <option>Last 7 Days</option>
-                <option>Last 30 Days</option>
-                <option>This Year</option>
+              <select 
+                value={range}
+                onChange={(e) => handleRangeChange(e.target.value)}
+                className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 text-slate-705 dark:text-slate-300 text-xs rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500/40 appearance-none font-medium pr-8 relative cursor-pointer shadow-xs"
+              >
+                <option value="7">Last 7 Days</option>
+                <option value="30">Last 30 Days</option>
+                <option value="90">Last 90 Days</option>
               </select>
             </div>
             

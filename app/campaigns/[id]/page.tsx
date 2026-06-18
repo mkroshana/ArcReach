@@ -339,16 +339,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
     }
   };
 
-  // Mock graph data matching telemetry performance trend
-  const mockChartData = [
-    { name: 'Day 1', opens: Math.round((campaign?.telemetry?.opens || 0) * 0.15), clicks: Math.round((campaign?.telemetry?.clicks || 0) * 0.1) },
-    { name: 'Day 2', opens: Math.round((campaign?.telemetry?.opens || 0) * 0.35), clicks: Math.round((campaign?.telemetry?.clicks || 0) * 0.25) },
-    { name: 'Day 3', opens: Math.round((campaign?.telemetry?.opens || 0) * 0.55), clicks: Math.round((campaign?.telemetry?.clicks || 0) * 0.45) },
-    { name: 'Day 4', opens: Math.round((campaign?.telemetry?.opens || 0) * 0.75), clicks: Math.round((campaign?.telemetry?.clicks || 0) * 0.65) },
-    { name: 'Day 5', opens: Math.round((campaign?.telemetry?.opens || 0) * 0.85), clicks: Math.round((campaign?.telemetry?.clicks || 0) * 0.8) },
-    { name: 'Day 6', opens: Math.round((campaign?.telemetry?.opens || 0) * 0.95), clicks: Math.round((campaign?.telemetry?.clicks || 0) * 0.9) },
-    { name: 'Day 7', opens: campaign?.telemetry?.opens || 0, clicks: campaign?.telemetry?.clicks || 0 },
-  ];
+
 
   if (loading) {
     return (
@@ -865,7 +856,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
              <h2 className="text-[10px] font-bold uppercase tracking-widest text-slate-550 dark:text-slate-400 mb-6">Funnel Over Time</h2>
              <div className="h-[200px] w-full">
                <ResponsiveContainer width="100%" height="100%">
-                 <AreaChart data={campaign?.telemetry?.trend || mockChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                 <AreaChart data={campaign?.telemetry?.trend || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                    <defs>
                      <linearGradient id="colorO" x1="0" y1="0" x2="0" y2="1">
                        <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.2}/>

@@ -81,7 +81,10 @@ Azure Event Grid webhook events (delivery confirmations, opens, clicks) are capt
    # Development Integration Credentials
    NEXT_PUBLIC_RELAY_API_KEY="arc_pk_live_d817f2g9h3k8l9m0n1p2q3r4s5t6"
    NEXT_PUBLIC_SANDBOX_API_KEY="arc_sk_test_9fa8b7c6d5e4f3a2b1c2d3e4f5a6"
-   NEXT_PUBLIC_CRM_WEBHOOK_SECRET="whsec_e9a182c38d4f7281"
+   
+   # Hardened Server-Only Secrets
+   SESSION_SECRET="arcreach_session_secret_jwt_32_chars_long_placeholder"
+   WEBHOOK_SECRET="whsec_e9a182c38d4f7281"
    ```
 
    #### Key Specifications & How to Obtain/Generate Them:
@@ -92,8 +95,9 @@ Azure Event Grid webhook events (delivery confirmations, opens, clicks) are capt
    - **`APP_URL`**: Absolute URL of the hosted application. Set to `http://localhost:3000` for local development.
    - **`NEXT_PUBLIC_RELAY_API_KEY` & `NEXT_PUBLIC_SANDBOX_API_KEY`**: Mock access tokens loaded inside the Settings screen.
      - *How to Generate*: Can be any arbitrary unique string. You can also generate and copy new ones directly inside the app's **Settings -> Security & Keys** tab.
-   - **`NEXT_PUBLIC_CRM_WEBHOOK_SECRET`**: Signature secret for the mock CRM webhook.
-     - *How to Generate*: Any mock string starting with `whsec_` followed by hexadecimal characters (e.g. `whsec_e9a182c38d4f7281`).
+   - **`SESSION_SECRET`**: Private signing key for session JWTs. Must be at least 32 characters in production.
+   - **`WEBHOOK_SECRET`**: Secret signature verified by the CRM webhook endpoint.
+     - *How to Generate*: Any secret string starting with `whsec_` followed by hexadecimal characters (e.g. `whsec_e9a182c38d4f7281`).
 
 
 3. **Synchronize database schema:**
@@ -171,7 +175,8 @@ npm run seed
    APP_URL = https://arcreach-app.azurewebsites.net
    NEXT_PUBLIC_RELAY_API_KEY = <your key>
    NEXT_PUBLIC_SANDBOX_API_KEY = <your key>
-   NEXT_PUBLIC_CRM_WEBHOOK_SECRET = <your secret>
+   SESSION_SECRET = <your minimum 32 character session signing key>
+   WEBHOOK_SECRET = <your webhook signature secret>
    ```
 4. Under **Settings** → **Configuration** → **General settings**, set the **Startup Command**:
    ```

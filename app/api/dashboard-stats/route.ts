@@ -216,7 +216,72 @@ export async function GET(req: NextRequest) {
       }
     });
 
-    const trends = Object.values(dailyBuckets);
+    // 4. Funnel and Sentiment breakdown
+    const meetingBookedCount = await prisma.lead.count({
+      where: {
+        status: 'Meeting_Booked',
+        isArchived: false,
+        enrollments: session.role !== 'ADMIN' ? {
+          some: {
+            campaign: {
+              userId: session.id
+            }
+          }
+        } : undefined
+      }
+    });
+
+    const sentimentGroups = await prisma.lead.groupBy({
+      by: ['status'],
+      where: {
+        isArchived: false,
+        enrollments: session.role !== 'ADMIN' ? {
+          some: {
+            campaign: {
+              userId: session.id
+            }
+          }
+        } : undefined
+      },
+      _count: {
+        id: true
+      }
+    });
+
+    const funnel = [
+      { name: 'Sent', value: totalSent },
+      { name: 'Opened', value: dispatchesWithOpens },
+      { name: 'Clicked', value: dispatchesWithClicks },
+      { name: 'Replied', value: totalReplies },
+      { name: 'Meeting Booked', value: meetingBookedCount }
+    ];
+
+    const sentimentBreakdown = [
+      { name: 'Neutral', value: 0 },
+      { name: 'Interested', value: 0 },
+      { name: 'Not Interested', value: 0 },
+      { name: 'Meeting Booked', value: 0 },
+      { name: 'Out of Office', value: 0 },
+      { name: 'Bounced', value: 0 },
+      { name: 'Unsubscribed', value: 0 }
+    ];
+
+    sentimentGroups.forEach(g => {
+      const nameMap: Record<string, string> = {
+        'Neutral': 'Neutral',
+        'Interested': 'Interested',
+        'Not_Interested': 'Not Interested',
+        'Meeting_Booked': 'Meeting Booked',
+        'Out_of_Office': 'Out of Office',
+        'Bounced': 'Bounced',
+        'Unsubscribed': 'Unsubscribed'
+      };
+      const mappedName = nameMap[g.status] || g.status;
+      const item = sentimentBreakdown.find(item => item.name === mappedName);
+      if (item) {
+        item.value = g._count.id;
+      }
+    });
 
     return NextResponse.json({
       stats: {
@@ -234,7 +299,9 @@ export async function GET(req: NextRequest) {
           replies: repliesDelta
         }
       },
-      trends
+      trends,
+      funnel,
+      sentiment: sentimentBreakdown
     });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });

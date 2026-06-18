@@ -164,6 +164,66 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
     const trend = Object.values(dailyBuckets);
 
+    const meetingBookedCount = await prisma.campaignEnrollment.count({
+      where: {
+        campaignId: id,
+        lead: {
+          status: 'Meeting_Booked',
+          isArchived: false
+        }
+      }
+    });
+
+    const sentimentGroups = await prisma.lead.groupBy({
+      by: ['status'],
+      where: {
+        isArchived: false,
+        enrollments: {
+          some: {
+            campaignId: id
+          }
+        }
+      },
+      _count: {
+        id: true
+      }
+    });
+
+    const funnel = [
+      { name: 'Sent', value: sentCount },
+      { name: 'Opened', value: opensCount },
+      { name: 'Clicked', value: clicksCount },
+      { name: 'Replied', value: repliesCount },
+      { name: 'Meeting Booked', value: meetingBookedCount }
+    ];
+
+    const sentimentBreakdown = [
+      { name: 'Neutral', value: 0 },
+      { name: 'Interested', value: 0 },
+      { name: 'Not Interested', value: 0 },
+      { name: 'Meeting Booked', value: 0 },
+      { name: 'Out of Office', value: 0 },
+      { name: 'Bounced', value: 0 },
+      { name: 'Unsubscribed', value: 0 }
+    ];
+
+    sentimentGroups.forEach(g => {
+      const nameMap: Record<string, string> = {
+        'Neutral': 'Neutral',
+        'Interested': 'Interested',
+        'Not_Interested': 'Not Interested',
+        'Meeting_Booked': 'Meeting Booked',
+        'Out_of_Office': 'Out of Office',
+        'Bounced': 'Bounced',
+        'Unsubscribed': 'Unsubscribed'
+      };
+      const mappedName = nameMap[g.status] || g.status;
+      const item = sentimentBreakdown.find(item => item.name === mappedName);
+      if (item) {
+        item.value = g._count.id;
+      }
+    });
+
     const telemetry = {
       enrollments: enrollmentsCount,
       validLeadsCount,
@@ -179,7 +239,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       clickRate: sentCount > 0 ? Number(((clicksCount / sentCount) * 100).toFixed(1)) : 0,
       replyRate: sentCount > 0 ? Number(((repliesCount / sentCount) * 100).toFixed(1)) : 0,
       bounceRate: sentCount > 0 ? Number(((bouncedCount / sentCount) * 100).toFixed(1)) : 0,
-      trend
+      trend,
+      funnel,
+      sentiment: sentimentBreakdown
     };
 
     return NextResponse.json({

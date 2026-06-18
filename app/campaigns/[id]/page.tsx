@@ -31,7 +31,21 @@ import {
 import Link from 'next/link';
 import { use, useState, useEffect } from 'react';
 import { useTimezones } from '@/hooks/use-timezones';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { 
+  AreaChart, 
+  Area, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  PieChart,
+  Pie,
+  Cell,
+  Legend
+} from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
 import VariableToolbar from '@/components/VariableToolbar';
 
@@ -883,9 +897,102 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                    <Area type="monotone" dataKey="clicks" stroke="#818cf8" strokeWidth={2} fillOpacity={1} fill="url(#colorC)" />
                  </AreaChart>
                </ResponsiveContainer>
-             </div>
-           </div>
-        </div>
+            </div>
+
+            {/* Conversion Funnel */}
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 flex flex-col shadow-xs">
+              <h2 className="text-[10px] font-bold uppercase tracking-widest text-slate-550 dark:text-slate-400 mb-6">Conversion Funnel</h2>
+              <div className="h-[200px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    layout="vertical"
+                    data={campaign?.telemetry?.funnel || []}
+                    margin={{ top: 5, right: 5, left: 10, bottom: 5 }}
+                  >
+                    <XAxis type="number" hide />
+                    <YAxis type="category" dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 9 }} width={75} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'var(--card-bg, #ffffff)',
+                        borderRadius: '12px',
+                        border: '1px solid var(--border-card, #e2e8f0)',
+                        color: 'var(--text-white, #0f172a)',
+                        fontSize: '11px'
+                      }}
+                    />
+                    <Bar dataKey="value" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={14} name="Leads" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Sentiment breakdown */}
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 flex flex-col shadow-xs">
+              <h2 className="text-[10px] font-bold uppercase tracking-widest text-slate-550 dark:text-slate-400 mb-6">Sentiment Distribution</h2>
+              <div className="h-[200px] w-full flex items-center justify-center relative">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={(campaign?.telemetry?.sentiment || []).filter((s: any) => s.value > 0)}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={45}
+                      outerRadius={65}
+                      paddingAngle={3}
+                      dataKey="value"
+                      nameKey="name"
+                    >
+                      {(campaign?.telemetry?.sentiment || []).filter((s: any) => s.value > 0).map((entry: any, index: number) => {
+                        const colors: Record<string, string> = {
+                          'Neutral': '#94a3b8',
+                          'Interested': '#10b981',
+                          'Not Interested': '#f43f5e',
+                          'Meeting Booked': '#6366f1',
+                          'Out of Office': '#f59e0b',
+                          'Bounced': '#8b5cf6',
+                          'Unsubscribed': '#475569'
+                        };
+                        return <Cell key={`cell-${index}`} fill={colors[entry.name] || '#3b82f6'} />;
+                      })}
+                    </Pie>
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'var(--card-bg, #ffffff)',
+                        borderRadius: '12px',
+                        border: '1px solid var(--border-card, #e2e8f0)',
+                        color: 'var(--text-white, #0f172a)',
+                        fontSize: '11px'
+                      }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                {(!campaign?.telemetry?.sentiment || campaign?.telemetry?.sentiment.every((s: any) => s.value === 0)) && (
+                  <div className="absolute inset-0 flex items-center justify-center text-slate-400 dark:text-slate-500 text-[10px]">
+                    No leads enrolled.
+                  </div>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-1.5 mt-2 text-[9px] text-slate-505 dark:text-slate-400">
+                {campaign?.telemetry?.sentiment?.filter((s: any) => s.value > 0).map((s: any, idx: number) => {
+                  const colors: Record<string, string> = {
+                    'Neutral': 'bg-slate-400',
+                    'Interested': 'bg-emerald-500',
+                    'Not Interested': 'bg-rose-500',
+                    'Meeting Booked': 'bg-indigo-500',
+                    'Out of Office': 'bg-amber-500',
+                    'Bounced': 'bg-purple-500',
+                    'Unsubscribed': 'bg-slate-600'
+                  };
+                  return (
+                    <div key={idx} className="flex items-center gap-1">
+                      <span className={`w-1.5 h-1.5 rounded-full ${colors[s.name] || 'bg-blue-500'}`} />
+                      <span className="truncate">{s.name}: {s.value}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+         </div>
       </div>
     </div>
   );

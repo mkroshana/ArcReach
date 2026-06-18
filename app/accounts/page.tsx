@@ -526,6 +526,13 @@ export default function AccountsPage() {
                             <div>
                               <div className="font-semibold text-xs text-slate-905 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">{account.emailAddress}</div>
                               <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{account.name} • {account.provider}</div>
+                              <div className="text-[9px] text-slate-400 dark:text-slate-500 mt-1 flex items-center gap-2 font-mono">
+                                <span>Sent: <strong className="text-slate-700 dark:text-slate-350">{account.sentTotal ?? 0}</strong></span>
+                                <span>Opens: <strong className="text-slate-700 dark:text-slate-350">{account.opens ?? 0}</strong></span>
+                                <span>Clicks: <strong className="text-slate-700 dark:text-slate-350">{account.clicks ?? 0}</strong></span>
+                                <span>Replies: <strong className="text-slate-700 dark:text-slate-350">{account.replies ?? 0}</strong></span>
+                                <span>Bounces: <strong className="text-rose-600 dark:text-rose-455">{account.bounced ?? 0}</strong></span>
+                              </div>
                             </div>
                           </div>
                         </td>
@@ -622,6 +629,23 @@ export default function AccountsPage() {
                 {deleting ? 'Deleting...' : confirmDelete ? 'Confirm Delete' : 'Delete Mailbox'}
               </button>
             </div>
+          </div>
+
+          {/* Deliverability Summary stats block */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 bg-slate-50 dark:bg-slate-900/40 p-4 border border-slate-200 dark:border-slate-800 rounded-xl">
+            {[
+              { title: 'Total Sent', value: selectedWarmupAccount.sentTotal ?? 0, desc: 'All campaigns' },
+              { title: 'Unique Opens', value: selectedWarmupAccount.opens ?? 0, desc: `${selectedWarmupAccount.sentTotal > 0 ? ((selectedWarmupAccount.opens / selectedWarmupAccount.sentTotal) * 100).toFixed(1) : 0}% open rate` },
+              { title: 'Link Clicks', value: selectedWarmupAccount.clicks ?? 0, desc: `${selectedWarmupAccount.sentTotal > 0 ? ((selectedWarmupAccount.clicks / selectedWarmupAccount.sentTotal) * 100).toFixed(1) : 0}% clickthrough` },
+              { title: 'Customer Replies', value: selectedWarmupAccount.replies ?? 0, desc: `${selectedWarmupAccount.sentTotal > 0 ? ((selectedWarmupAccount.replies / selectedWarmupAccount.sentTotal) * 100).toFixed(1) : 0}% reply rate` },
+              { title: 'Total Bounced', value: selectedWarmupAccount.bounced ?? 0, desc: 'Hard bounces' }
+            ].map((s, idx) => (
+              <div key={idx} className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-slate-800/60 rounded-lg p-3">
+                <p className="text-[9px] text-slate-400 dark:text-slate-550 font-extrabold uppercase tracking-widest">{s.title}</p>
+                <h3 className="text-lg font-bold mt-1 text-slate-900 dark:text-white font-mono">{s.value.toLocaleString()}</h3>
+                <p className="text-[9px] text-slate-400 dark:text-slate-500 mt-1 font-medium">{s.desc}</p>
+              </div>
+            ))}
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 animate-in fade-in duration-300">

@@ -27,9 +27,47 @@ export async function GET() {
         }
       });
 
+      const sentTotal = await prisma.emailDispatch.count({
+        where: { campaignId: { in: campaignIds } }
+      });
+
+      const opens = await prisma.emailDispatch.count({
+        where: {
+          campaignId: { in: campaignIds },
+          events: {
+            some: { eventType: 'open' }
+          }
+        }
+      });
+
+      const clicks = await prisma.emailDispatch.count({
+        where: {
+          campaignId: { in: campaignIds },
+          events: {
+            some: { eventType: 'click' }
+          }
+        }
+      });
+
+      const replies = await prisma.inboundResponse.count({
+        where: { senderAccountId: account.id }
+      });
+
+      const bounced = await prisma.campaignEnrollment.count({
+        where: {
+          campaignId: { in: campaignIds },
+          status: 'Bounced'
+        }
+      });
+
       return {
         ...account,
-        sentToday
+        sentToday,
+        sentTotal,
+        opens,
+        clicks,
+        replies,
+        bounced
       };
     }));
 

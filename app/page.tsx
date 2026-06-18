@@ -10,7 +10,13 @@ import {
   YAxis, 
   CartesianGrid, 
   Tooltip, 
-  ResponsiveContainer 
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  PieChart,
+  Pie,
+  Cell,
+  Legend
 } from 'recharts';
 import { Mail, MousePointerClick, Reply, SendHorizontal, RefreshCw, XCircle, AlertTriangle, UserMinus } from 'lucide-react';
 
@@ -67,6 +73,8 @@ export default function Dashboard() {
     }
   });
   const [trends, setTrends] = useState<any[]>([]);
+  const [funnel, setFunnel] = useState<any[]>([]);
+  const [sentiment, setSentiment] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [systemStatus, setSystemStatus] = useState<any>(null);
 
@@ -82,6 +90,8 @@ export default function Dashboard() {
         const data = await statsRes.json();
         setStats(data.stats);
         setTrends(data.trends);
+        setFunnel(data.funnel || []);
+        setSentiment(data.sentiment || []);
       }
       if (statusRes.ok) {
         const statusData = await statusRes.json();
@@ -355,6 +365,92 @@ export default function Dashboard() {
                   <Area type="monotone" dataKey="clicks" stroke="#f43f5e" strokeWidth={2.5} fillOpacity={1} fill="url(#colorClicks)" name="Total Clicks" />
                 </AreaChart>
               </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Funnel Card */}
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 flex flex-col shadow-xs transition-colors duration-200">
+              <h2 className="text-sm font-bold text-slate-805 dark:text-slate-200 uppercase tracking-widest mb-1">Conversion Funnel</h2>
+              <p className="text-xs text-slate-400 dark:text-slate-505 mb-6">Pipeline performance from outbound dispatch to booked meeting.</p>
+              <div className="h-[300px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    layout="vertical"
+                    data={funnel}
+                    margin={{ top: 10, right: 10, left: 20, bottom: 10 }}
+                  >
+                    <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10 }} />
+                    <YAxis type="category" dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10 }} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'var(--card-bg, #ffffff)',
+                        borderRadius: '12px',
+                        border: '1px solid var(--border-card, #e2e8f0)',
+                        color: 'var(--text-white, #0f172a)'
+                      }}
+                      itemStyle={{ fontSize: 11 }}
+                    />
+                    <Bar dataKey="value" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={24} name="Leads" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Sentiment Breakdown Card */}
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 flex flex-col shadow-xs transition-colors duration-200">
+              <h2 className="text-sm font-bold text-slate-805 dark:text-slate-200 uppercase tracking-widest mb-1">Prospect Sentiment</h2>
+              <p className="text-xs text-slate-400 dark:text-slate-505 mb-6">Distribution of global lead outcomes and responses.</p>
+              <div className="h-[300px] w-full flex items-center justify-center relative">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={sentiment.filter(s => s.value > 0)}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={65}
+                      outerRadius={95}
+                      paddingAngle={3}
+                      dataKey="value"
+                      nameKey="name"
+                    >
+                      {sentiment.filter(s => s.value > 0).map((entry, index) => {
+                        const colors: Record<string, string> = {
+                          'Neutral': '#94a3b8',
+                          'Interested': '#10b981',
+                          'Not Interested': '#f43f5e',
+                          'Meeting Booked': '#6366f1',
+                          'Out of Office': '#f59e0b',
+                          'Bounced': '#8b5cf6',
+                          'Unsubscribed': '#475569'
+                        };
+                        return <Cell key={`cell-${index}`} fill={colors[entry.name] || '#3b82f6'} />;
+                      })}
+                    </Pie>
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: 'var(--card-bg, #ffffff)',
+                        borderRadius: '12px',
+                        border: '1px solid var(--border-card, #e2e8f0)',
+                        color: 'var(--text-white, #0f172a)'
+                      }}
+                      itemStyle={{ fontSize: 11 }}
+                    />
+                    <Legend 
+                      verticalAlign="bottom" 
+                      height={36} 
+                      iconType="circle" 
+                      iconSize={8}
+                      wrapperStyle={{ fontSize: 10 }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                {sentiment.every(s => s.value === 0) && (
+                  <div className="absolute inset-0 flex items-center justify-center text-slate-400 dark:text-slate-500 text-xs">
+                    No leads enrolled in active campaigns.
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </>

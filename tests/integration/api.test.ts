@@ -1,13 +1,43 @@
 import { describe, it, expect, beforeAll } from 'vitest';
+import { SignJWT } from 'jose';
 
 const BASE_URL = 'http://localhost:3000';
 
-const testFetch = (url: string, options: any = {}) => {
+// Resolve the signing secret exactly like lib/sessionSecret.ts so the cookies we mint
+// here verify against the running dev server. Signing is done inline (not via lib/session)
+// to avoid importing next/headers into the test runtime.
+const SESSION_SECRET = process.env.SESSION_SECRET || 'dev_session_secret_jwt_32_chars_long_placeholder';
+const secretKey = new TextEncoder().encode(SESSION_SECRET);
+
+interface TestSession {
+  id: string;
+  name: string;
+  email: string;
+  role: 'ADMIN' | 'USER';
+}
+
+async function signSession(session: TestSession): Promise<string> {
+  return new SignJWT({ ...session })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime('7d')
+    .sign(secretKey);
+}
+
+const DEFAULT_ADMIN: TestSession = {
+  id: 'admin-id-999',
+  name: 'ArcReach Admin',
+  email: 'admin@arcreach.com',
+  role: 'ADMIN',
+};
+
+const testFetch = async (url: string, options: any = {}) => {
+  const token = await signSession(DEFAULT_ADMIN);
   return fetch(url, {
     ...options,
     headers: {
       ...options.headers,
-      'x-integration-test': 'true',
+      Cookie: `user_session=${token}`,
     },
   });
 };
@@ -720,18 +750,18 @@ describe('ArcReach Live API Integration Tests', () => {
     });
 
     it('should prevent deleting the currently logged-in admin user via cookie session', async () => {
-      // Create a mock session cookie for a temporary admin "temp-admin-123"
-      const mockSession = {
+      // Sign a valid session cookie for a temporary admin "temp-admin-123"
+      const token = await signSession({
         id: 'temp-admin-123',
         name: 'Temporary Admin',
         email: 'temp@arcreach.com',
         role: 'ADMIN',
-      };
-      
+      });
+
       const res = await fetch(`${BASE_URL}/api/users?id=temp-admin-123`, {
         method: 'DELETE',
         headers: {
-          'Cookie': `user_session=${JSON.stringify(mockSession)}`,
+          'Cookie': `user_session=${token}`,
         },
       });
       expect(res.status).toBe(400);

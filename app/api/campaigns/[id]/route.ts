@@ -224,22 +224,36 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       // 3. Sync/enroll matching leads
       const selectedCohort = audienceCohort || campaign.audienceCohort || 'Valid';
       
-      // Delete old enrollments to prevent mixing cohorts
-      await tx.campaignEnrollment.deleteMany({
-        where: {
-          campaignId: id
-        }
-      });
-
       const eligibleLeads = await tx.lead.findMany({
         where: {
           validationStatus: selectedCohort === 'Unverified' ? 'Unverified' : 'Valid'
         }
       });
 
-      if (eligibleLeads.length > 0) {
+      // Get existing enrollments for this campaign
+      const existingEnrollments = await tx.campaignEnrollment.findMany({
+        where: { campaignId: id }
+      });
+
+      // Delete enrollments that are no longer eligible (e.g. if the cohort changed)
+      const eligibleLeadIds = new Set(eligibleLeads.map(lead => lead.id));
+      const enrollmentsToDelete = existingEnrollments.filter(env => !eligibleLeadIds.has(env.leadId));
+
+      if (enrollmentsToDelete.length > 0) {
+        await tx.campaignEnrollment.deleteMany({
+          where: {
+            id: { in: enrollmentsToDelete.map(env => env.id) }
+          }
+        });
+      }
+
+      // Add new enrollments only for eligible leads that aren't already enrolled
+      const enrolledLeadIds = new Set(existingEnrollments.map(env => env.leadId));
+      const newLeadsToEnroll = eligibleLeads.filter(lead => !enrolledLeadIds.has(lead.id));
+
+      if (newLeadsToEnroll.length > 0) {
         await tx.campaignEnrollment.createMany({
-          data: eligibleLeads.map(lead => ({
+          data: newLeadsToEnroll.map(lead => ({
             leadId: lead.id,
             campaignId: id,
             status: 'Active',

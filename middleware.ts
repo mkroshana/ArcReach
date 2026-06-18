@@ -1,9 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { jwtVerify } from 'jose';
-
-const SESSION_SECRET = process.env.SESSION_SECRET || 'dev_session_secret_jwt_32_chars_long_placeholder';
-const secretKey = new TextEncoder().encode(SESSION_SECRET);
+import { sessionSecretKey as secretKey } from './lib/sessionSecret';
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;

@@ -1,5 +1,6 @@
 import * as jose from 'jose';
 import { cookies } from 'next/headers';
+import { sessionSecretKey } from './sessionSecret';
 
 export interface UserSession {
   id: string;
@@ -22,11 +23,7 @@ export const DEFAULT_USER: UserSession = {
   role: 'USER',
 };
 
-const SESSION_SECRET = process.env.SESSION_SECRET || 'dev_session_secret_jwt_32_chars_long_placeholder';
-if (process.env.NODE_ENV === 'production' && (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32)) {
-  throw new Error('SESSION_SECRET environment variable must be set and at least 32 characters long in production.');
-}
-const secretKey = new TextEncoder().encode(SESSION_SECRET);
+const secretKey = sessionSecretKey;
 
 /**
  * Server-side helper to fetch the current active session from the cookies.

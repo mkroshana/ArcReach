@@ -1,8 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import crypto from 'crypto';
 
 export async function POST(req: NextRequest) {
   try {
+    const { searchParams } = new URL(req.url);
+    const key = searchParams.get('key');
+
+    const expectedSecret = process.env.WEBHOOK_SECRET || 'whsec_e9a182c38d4f7281';
+
+    if (!key) {
+      return NextResponse.json({ error: 'Unauthorized: Webhook key missing.' }, { status: 401 });
+    }
+
+    const keyBuf = Buffer.from(key);
+    const secretBuf = Buffer.from(expectedSecret);
+
+    let isValid = false;
+    if (keyBuf.length === secretBuf.length) {
+      isValid = crypto.timingSafeEqual(keyBuf, secretBuf);
+    }
+
+    if (!isValid) {
+      return NextResponse.json({ error: 'Unauthorized: Webhook key invalid.' }, { status: 401 });
+    }
+
     const events = await req.json();
 
     for (const event of events) {

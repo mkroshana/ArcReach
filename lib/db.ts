@@ -103,7 +103,8 @@ export const db = {
           dispatches: {
             select: {
               id: true,
-              subject: true
+              subject: true,
+              leadId: true
             }
           }
         },
@@ -119,7 +120,8 @@ export const db = {
         dispatches: {
           select: {
             id: true,
-            subject: true
+            subject: true,
+            leadId: true
           }
         }
       },

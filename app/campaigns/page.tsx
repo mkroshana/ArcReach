@@ -89,6 +89,7 @@ interface DbCampaign {
   dispatches?: {
     id: string;
     subject: string | null;
+    leadId: string;
   }[];
 }
 
@@ -502,7 +503,8 @@ export default function CampaignsPage() {
                                   const stepDispatches = campaign.dispatches?.filter(
                                     d => isDispatchForStep(d.subject || '', step.subject || '')
                                   ) || [];
-                                  const sentCount = stepDispatches.length;
+                                  const uniqueSentLeads = new Set(stepDispatches.map(d => d.leadId).filter(Boolean));
+                                  const sentCount = uniqueSentLeads.size;
                                   const totalEnrolled = campaign.enrollments?.length || 0;
                                   const progressPercent = totalEnrolled > 0 ? Math.round((sentCount / totalEnrolled) * 100) : 0;
 

@@ -37,12 +37,31 @@ export async function POST(req: NextRequest) {
 
     // Auto-enroll eligible leads matching chosen cohort
     const selectedCohort = audienceCohort || 'Valid';
-    const eligibleLeads = await prisma.lead.findMany({
-      where: {
-        validationStatus: selectedCohort === 'Unverified' ? 'Unverified' : 'Valid',
-        isArchived: false
-      }
-    });
+    let eligibleLeads: any[] = [];
+    if (selectedCohort === 'Unverified') {
+      eligibleLeads = await prisma.lead.findMany({
+        where: { validationStatus: 'Unverified', isArchived: false }
+      });
+    } else if (selectedCohort === 'Valid') {
+      eligibleLeads = await prisma.lead.findMany({
+        where: { validationStatus: 'Valid', isArchived: false }
+      });
+    } else if (selectedCohort === 'HighIntent') {
+      eligibleLeads = [];
+    } else {
+      // Assume selectedCohort is a groupId
+      const groupId = selectedCohort.startsWith('group_') ? selectedCohort.replace('group_', '') : selectedCohort;
+      eligibleLeads = await prisma.lead.findMany({
+        where: {
+          isArchived: false,
+          groups: {
+            some: {
+              groupId: groupId
+            }
+          }
+        }
+      });
+    }
 
     if (eligibleLeads.length > 0) {
       await prisma.campaignEnrollment.createMany({

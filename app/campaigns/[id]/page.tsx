@@ -94,6 +94,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
   const [trackOpens, setTrackOpens] = useState(true);
   const [trackClicks, setTrackClicks] = useState(true);
   const [steps, setSteps] = useState<any[]>([]);
+  const [groups, setGroups] = useState<any[]>([]);
 
   // Schedule days & time window
   const [selectedDays, setSelectedDays] = useState<string[]>(['Mon', 'Tue', 'Wed', 'Thu', 'Fri']);
@@ -117,6 +118,18 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
       }
     } catch (err) {
       console.error('Failed to load templates:', err);
+    }
+  };
+
+  const loadGroups = async () => {
+    try {
+      const res = await fetch('/api/leads/groups');
+      if (res.ok) {
+        const data = await res.json();
+        setGroups(data);
+      }
+    } catch (err) {
+      console.error('Failed to load lead groups:', err);
     }
   };
 
@@ -202,6 +215,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
   useEffect(() => {
     loadCampaign();
     loadTemplates();
+    loadGroups();
   }, [campaignId]);
 
   const addStep = () => {
@@ -781,7 +795,11 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                       >
                         <option value="Valid">All Active Valid Leads ({campaign?.telemetry?.validLeadsCount || 0})</option>
                         <option value="Unverified">All Unverified Leads ({campaign?.telemetry?.unverifiedLeadsCount || 0})</option>
-                        <option value="HighIntent">Segment: High Intent (0)</option>
+                        {groups.map(group => (
+                          <option key={group.id} value={group.id}>
+                            Segment: {group.name} ({group._count?.leads || 0})
+                          </option>
+                        ))}
                       </select>
                     </div>
                    <div className="p-4 bg-blue-50 dark:bg-blue-955/20 border border-blue-105 dark:border-blue-550/15 rounded-lg">

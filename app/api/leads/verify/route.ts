@@ -93,8 +93,8 @@ export async function POST(req: NextRequest) {
             skipDuplicates: true
           });
         }
-      } else if (status === 'Invalid' || (status as string) === 'Risky') {
-        // Delete enrollments for invalid or risky leads
+      } else if (status === 'Invalid') {
+        // Delete enrollments for invalid leads
         await prisma.campaignEnrollment.deleteMany({
           where: { leadId: lead.id }
         });

@@ -31,6 +31,29 @@ export function validateSendingFrequency(senderAccount: {
 }
 
 /**
+ * Calculates the daily limit for a sender based on the warmup volume ramp
+ */
+export function getEffectiveDailyCap(
+  senderAccount: {
+    warmupEnabled: boolean;
+    warmupStartedAt: Date | string | null;
+    dailyLimit: number;
+    warmupLimit: number;
+    warmupRamp: number;
+  },
+  now: Date
+): number {
+  if (!senderAccount.warmupEnabled || !senderAccount.warmupStartedAt) {
+    return senderAccount.dailyLimit;
+  }
+  const startedAt = new Date(senderAccount.warmupStartedAt);
+  const elapsedMs = now.getTime() - startedAt.getTime();
+  const daysActive = Math.max(0, Math.floor(elapsedMs / 86400000));
+  const currentCap = senderAccount.warmupLimit + senderAccount.warmupRamp * daysActive;
+  return Math.min(senderAccount.dailyLimit, currentCap);
+}
+
+/**
  * Main entry point for the background sending loop.
  */
 export async function processDueEmails() {
@@ -95,6 +118,28 @@ export async function processDueEmails() {
       return;
     }
 
+    // Build map of sent counts today for each unique sender in the batch
+    const senderIds = Array.from(new Set(dueEnrollments.map(e => e.campaign.senderAccountId)));
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const senderSentToday = new Map<string, number>();
+    for (const senderId of senderIds) {
+      if (senderId) {
+        const count = await prisma.emailDispatch.count({
+          where: {
+            campaign: {
+              senderAccountId: senderId
+            },
+            sentAt: {
+              gte: startOfToday
+            }
+          }
+        });
+        senderSentToday.set(senderId, count);
+      }
+    }
+
     // 2. Validate global rate limits before processing any sends
     const rateCheck = await checkGlobalRateLimits();
     if (!rateCheck.allowed) {
@@ -115,6 +160,23 @@ export async function processDueEmails() {
       if (!incrementalRateCheck.allowed) {
         console.log(`[SendEngine] Global rate limit hit mid-cycle: ${incrementalRateCheck.reason}. Pausing remaining batch.`);
         break;
+      }
+
+      // Check per-sender daily cap (warmup limits)
+      if (campaign.senderAccountId) {
+        const effectiveCap = getEffectiveDailyCap(campaign.senderAccount, now);
+        const sentToday = senderSentToday.get(campaign.senderAccountId) || 0;
+        if (sentToday >= effectiveCap) {
+          console.log(`[SendEngine] Sender ${campaign.senderAccount.emailAddress} daily sending limit reached (${sentToday}/${effectiveCap}). Deferring lead ${lead.email} to tomorrow.`);
+          const nextDay = new Date();
+          nextDay.setDate(nextDay.getDate() + 1);
+          nextDay.setHours(0, 0, 0, 0);
+          await prisma.campaignEnrollment.update({
+            where: { id: enrollment.id },
+            data: { nextActionDate: nextDay }
+          });
+          continue;
+        }
       }
 
       // 4. Check Timezone & Sending Schedule restrictions
@@ -296,6 +358,17 @@ export async function processDueEmails() {
             }
           });
         }
+
+        // Increment warmupSent counter if warmup is enabled
+        if (campaign.senderAccount.warmupEnabled) {
+          await prisma.senderAccount.update({
+            where: { id: campaign.senderAccountId },
+            data: { warmupSent: { increment: 1 } }
+          });
+        }
+
+        // Update local sent count tracking
+        senderSentToday.set(campaign.senderAccountId, (senderSentToday.get(campaign.senderAccountId) || 0) + 1);
 
       } catch (err: any) {
         console.error(`[SendEngine Failure] Could not send to ${lead.email}:`, err.message || err);

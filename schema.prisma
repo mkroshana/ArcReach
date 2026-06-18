@@ -74,6 +74,7 @@ model SenderAccount {
   
   // Warmup & Deliverability Telemetry
   warmupEnabled   Boolean           @default(false)
+  warmupStartedAt DateTime?
   reputationScore Decimal           @default(100.0) @db.Decimal(5, 2)
   warmupLimit     Int               @default(50)
   warmupRamp      Int               @default(2)

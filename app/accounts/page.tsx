@@ -497,7 +497,15 @@ export default function AccountsPage() {
                               <Mail className="w-4 h-4 text-slate-500 dark:text-slate-400" />
                             </div>
                             <div>
-                              <div className="font-semibold text-xs text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">{account.emailAddress}</div>
+                              <div className="font-semibold text-xs text-slate-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors flex items-center gap-1.5">
+                                {account.emailAddress}
+                                {account.warmupEnabled && (
+                                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8px] font-extrabold bg-orange-50 dark:bg-orange-500/10 text-orange-600 dark:text-orange-500 border border-orange-100 dark:border-orange-500/20 uppercase tracking-widest animate-pulse">
+                                    <Flame className="w-2.5 h-2.5 fill-orange-500/10" />
+                                    Warmup
+                                  </span>
+                                )}
+                              </div>
                               <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{account.name} • {account.provider}</div>
                               <div className="text-[9px] text-slate-400 dark:text-slate-500 mt-1 flex items-center gap-2 font-mono">
                                 <span>Sent: <strong className="text-slate-700 dark:text-slate-350">{account.sentTotal ?? 0}</strong></span>
@@ -519,7 +527,14 @@ export default function AccountsPage() {
                           </span>
                         </td>
                         <td className="px-5 py-3.5 font-mono text-[11px]">
-                          <div>{account.dailyLimit} daily max</div>
+                          {account.warmupEnabled ? (
+                            <div>
+                              <span className="text-orange-600 dark:text-orange-400 font-semibold">{account.effectiveDailyCap} today</span>
+                              <span className="text-slate-400 dark:text-slate-500 text-[10px]"> / {account.dailyLimit} limit</span>
+                            </div>
+                          ) : (
+                            <div>{account.dailyLimit} daily max</div>
+                          )}
                           <div className="text-[9px] text-slate-400 dark:text-slate-500 mt-0.5 font-sans leading-none flex gap-1">
                             <span>Min: {account.minuteLimit}/min</span> • <span>Hour: {account.hourlyLimit}/hr</span>
                           </div>
@@ -569,8 +584,29 @@ export default function AccountsPage() {
                   <Sliders className="w-3 h-3" />
                   {selectedWarmupAccount.provider}
                 </span>
+                {selectedWarmupAccount.warmupEnabled && (
+                  <span className="bg-orange-50 dark:bg-orange-500/10 text-orange-700 dark:text-orange-400 text-[10px] font-bold px-2.5 py-0.5 border border-orange-150 dark:border-orange-500/20 rounded uppercase tracking-wider flex items-center gap-1 font-mono animate-pulse">
+                    <Flame className="w-3 h-3 fill-orange-500/10" />
+                    Warmup Active
+                  </span>
+                )}
               </div>
-              <p className="text-slate-500 dark:text-slate-400 text-xs font-medium">Configure sending rate limits, connection details, and credentials for this mailbox.</p>
+              <p className="text-slate-500 dark:text-slate-400 text-xs font-medium">
+                {selectedWarmupAccount.warmupEnabled ? (
+                  (() => {
+                    const startedAt = selectedWarmupAccount.warmupStartedAt ? new Date(selectedWarmupAccount.warmupStartedAt) : new Date();
+                    const daysActive = Math.max(0, Math.floor((new Date().getTime() - startedAt.getTime()) / 86400000));
+                    const effectiveCap = selectedWarmupAccount.effectiveDailyCap ?? selectedWarmupAccount.dailyLimit;
+                    return (
+                      <span className="text-orange-600 dark:text-orange-400 font-semibold flex items-center gap-1">
+                        Warmup Day {daysActive + 1} • Today's Cap: {effectiveCap} / {selectedWarmupAccount.dailyLimit} daily limit
+                      </span>
+                    );
+                  })()
+                ) : (
+                  "Configure sending rate limits, connection details, and credentials for this mailbox."
+                )}
+              </p>
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -776,52 +812,128 @@ export default function AccountsPage() {
               </form>
             </div>
 
-            {/* Column 2: Throttling & sending frequency */}
-            <div className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1b1c26] rounded-xl p-5 space-y-4 shadow-xs h-fit">
-              <h2 className="text-xs font-bold uppercase tracking-widest text-slate-700 dark:text-slate-400 flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-2.5">
-                <Gauge className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                Throttling & sending frequency
-              </h2>
-              
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Per Minute</label>
-                    <input 
-                      type="number" 
-                      min="1"
-                      value={selectedWarmupAccount.minuteLimit}
-                      onChange={(e) => handleUpdateWarmupSettings('minuteLimit', parseInt(e.target.value))}
-                      className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono"
-                    />
+            <div className="space-y-5">
+              {/* Throttling Card */}
+              <div className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1b1c26] rounded-xl p-5 space-y-4 shadow-xs h-fit">
+                <h2 className="text-xs font-bold uppercase tracking-widest text-slate-700 dark:text-slate-400 flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-2.5">
+                  <Gauge className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                  Throttling & sending frequency
+                </h2>
+                
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Per Minute</label>
+                      <input 
+                        type="number" 
+                        min="1"
+                        value={selectedWarmupAccount.minuteLimit}
+                        onChange={(e) => handleUpdateWarmupSettings('minuteLimit', parseInt(e.target.value))}
+                        className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Per Hour</label>
+                      <input 
+                        type="number" 
+                        min="1"
+                        value={selectedWarmupAccount.hourlyLimit}
+                        onChange={(e) => handleUpdateWarmupSettings('hourlyLimit', parseInt(e.target.value))}
+                        className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Per Day</label>
+                      <input 
+                        type="number" 
+                        min="10"
+                        value={selectedWarmupAccount.dailyLimit}
+                        onChange={(e) => handleUpdateWarmupSettings('dailyLimit', parseInt(e.target.value))}
+                        className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono"
+                      />
+                    </div>
                   </div>
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Per Hour</label>
-                    <input 
-                      type="number" 
-                      min="1"
-                      value={selectedWarmupAccount.hourlyLimit}
-                      onChange={(e) => handleUpdateWarmupSettings('hourlyLimit', parseInt(e.target.value))}
-                      className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">Per Day</label>
-                    <input 
-                      type="number" 
-                      min="10"
-                      value={selectedWarmupAccount.dailyLimit}
-                      onChange={(e) => handleUpdateWarmupSettings('dailyLimit', parseInt(e.target.value))}
-                      className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-2.5 py-1.5 text-xs font-mono"
-                    />
+
+                  <div className="p-3 bg-blue-50/80 dark:bg-blue-950/10 border border-blue-150 dark:border-blue-500/10 rounded-lg flex gap-3 text-[11px] leading-relaxed text-blue-750 dark:text-blue-300">
+                    <Sparkles className="w-4 h-4 flex-shrink-0 text-blue-600 dark:text-blue-400" />
+                    <p className="font-sans font-medium">
+                      <strong>Throttling Advice:</strong> To protect domain DNS records, we randomize interval spaces heavily. A minute limit of 5 is recommended for new mailboxes.
+                    </p>
                   </div>
                 </div>
+              </div>
 
-                <div className="p-3 bg-blue-50/80 dark:bg-blue-950/10 border border-blue-150 dark:border-blue-500/10 rounded-lg flex gap-3 text-[11px] leading-relaxed text-blue-750 dark:text-blue-300">
-                  <Sparkles className="w-4 h-4 flex-shrink-0 text-blue-600 dark:text-blue-400" />
-                  <p className="font-sans font-medium">
-                    <strong>Throttling Advice:</strong> To protect domain DNS records, we randomize interval spaces heavily. A minute limit of 5 is recommended for new mailboxes.
-                  </p>
+              {/* Warmup Autopilot Settings Card */}
+              <div className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1b1c26] rounded-xl p-5 space-y-4 shadow-xs h-fit">
+                <h2 className="text-xs font-bold uppercase tracking-widest text-slate-700 dark:text-slate-400 flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-2.5">
+                  <Flame className="w-4 h-4 text-orange-600 dark:text-orange-400" />
+                  Warmup Autopilot Settings
+                </h2>
+                
+                <div className="space-y-4">
+                  {/* Toggle Switch */}
+                  <div className="flex items-center justify-between p-3.5 bg-slate-50/50 dark:bg-[#10121a]/30 border border-slate-200 dark:border-[#1f2130] rounded-xl">
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-wide">Warmup Autopilot</h4>
+                      <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium mt-0.5">Slowly ramp up mailbox daily sending volumes to establish high sender domain reputation.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleUpdateWarmupSettings('warmupEnabled', !selectedWarmupAccount.warmupEnabled)}
+                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out outline-none focus:ring-2 focus:ring-blue-500/35
+                        ${selectedWarmupAccount.warmupEnabled ? 'bg-orange-500' : 'bg-slate-200 dark:bg-slate-850'}
+                      `}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out
+                          ${selectedWarmupAccount.warmupEnabled ? 'translate-x-4' : 'translate-x-0'}
+                        `}
+                      />
+                    </button>
+                  </div>
+
+                  {selectedWarmupAccount.warmupEnabled && (
+                    <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-250">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">Starting Volume (Day 1)</label>
+                          <input
+                            type="number"
+                            min="1"
+                            max={selectedWarmupAccount.dailyLimit}
+                            value={selectedWarmupAccount.warmupLimit ?? 50}
+                            onChange={(e) => handleUpdateWarmupSettings('warmupLimit', parseInt(e.target.value))}
+                            className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-3 py-2 outline-none text-xs font-mono"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">Daily Ramp Increment</label>
+                          <input
+                            type="number"
+                            min="0"
+                            value={selectedWarmupAccount.warmupRamp ?? 2}
+                            onChange={(e) => handleUpdateWarmupSettings('warmupRamp', parseInt(e.target.value))}
+                            className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-3 py-2 outline-none text-xs font-mono"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Info Telemetry box */}
+                      <div className="p-3 bg-orange-50/50 dark:bg-orange-950/10 border border-orange-200/50 dark:border-orange-500/10 rounded-lg space-y-2 text-[11px] leading-relaxed text-orange-800 dark:text-orange-300">
+                        <div className="flex gap-2">
+                          <Flame className="w-4 h-4 flex-shrink-0 text-orange-600 dark:text-orange-400 mt-0.5" />
+                          <div>
+                            <p className="font-semibold">Warmup Progress Tracker</p>
+                            <ul className="list-disc pl-4 mt-1.5 space-y-1">
+                              <li>Started On: <strong className="font-mono">{selectedWarmupAccount.warmupStartedAt ? new Date(selectedWarmupAccount.warmupStartedAt).toLocaleDateString() : 'Just now'}</strong></li>
+                              <li>Lifetime Warmup Emails Sent: <strong className="font-mono">{selectedWarmupAccount.warmupSent ?? 0}</strong></li>
+                              <li>Today's Effective sending limit: <strong className="font-mono">{selectedWarmupAccount.effectiveDailyCap ?? selectedWarmupAccount.dailyLimit}</strong> emails</li>
+                            </ul>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

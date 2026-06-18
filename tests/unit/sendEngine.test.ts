@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { validateSendingFrequency, checkSendingWindow, personalizeEmail } from '../../lib/sendEngine';
+import { validateSendingFrequency, checkSendingWindow, personalizeEmail, getEffectiveDailyCap } from '../../lib/sendEngine';
 
 describe('validateSendingFrequency', () => {
   it('should allow sending when all limits are within boundaries', () => {
@@ -136,6 +136,48 @@ describe('validateSendingFrequency', () => {
       const lead = { name: 'John' };
       const output = personalizeEmail(template, lead);
       expect(['Hi John', 'Hello John']).toContain(output);
+    });
+  });
+
+  describe('getEffectiveDailyCap', () => {
+    const sender = {
+      warmupEnabled: true,
+      warmupStartedAt: new Date('2026-06-01T12:00:00Z'),
+      dailyLimit: 200,
+      warmupLimit: 50,
+      warmupRamp: 10
+    };
+
+    it('should return dailyLimit if warmup is disabled', () => {
+      const disabledSender = { ...sender, warmupEnabled: false };
+      const now = new Date('2026-06-05T12:00:00Z');
+      expect(getEffectiveDailyCap(disabledSender, now)).toBe(200);
+    });
+
+    it('should return dailyLimit if warmupStartedAt is null', () => {
+      const noStartSender = { ...sender, warmupStartedAt: null };
+      const now = new Date('2026-06-05T12:00:00Z');
+      expect(getEffectiveDailyCap(noStartSender, now)).toBe(200);
+    });
+
+    it('should return starting warmupLimit on Day 0 (less than 24h elapsed)', () => {
+      const now = new Date('2026-06-01T18:00:00Z'); // 6 hours later
+      expect(getEffectiveDailyCap(sender, now)).toBe(50);
+    });
+
+    it('should calculate ramp correctly on Day 1 (24h to 48h elapsed)', () => {
+      const now = new Date('2026-06-02T13:00:00Z'); // 25 hours later
+      expect(getEffectiveDailyCap(sender, now)).toBe(60); // 50 + 10 * 1
+    });
+
+    it('should calculate ramp correctly on Day 5', () => {
+      const now = new Date('2026-06-06T15:00:00Z'); // 5 days + 3 hours later
+      expect(getEffectiveDailyCap(sender, now)).toBe(100); // 50 + 10 * 5
+    });
+
+    it('should clamp cap to dailyLimit when calculation exceeds it', () => {
+      const now = new Date('2026-06-30T12:00:00Z'); // 29 days later
+      expect(getEffectiveDailyCap(sender, now)).toBe(200); // 50 + 10 * 29 = 340, clamped to 200
     });
   });
 });

@@ -60,6 +60,16 @@ export async function GET() {
         }
       });
 
+      // Calculate effectiveDailyCap
+      const now = new Date();
+      let effectiveDailyCap = account.dailyLimit;
+      if (account.warmupEnabled && account.warmupStartedAt) {
+        const startedAt = new Date(account.warmupStartedAt);
+        const elapsedMs = now.getTime() - startedAt.getTime();
+        const daysActive = Math.max(0, Math.floor(elapsedMs / 86400000));
+        effectiveDailyCap = Math.min(account.dailyLimit, account.warmupLimit + account.warmupRamp * daysActive);
+      }
+
       return {
         ...account,
         sentToday,
@@ -67,7 +77,8 @@ export async function GET() {
         opens,
         clicks,
         replies,
-        bounced
+        bounced,
+        effectiveDailyCap
       };
     }));
 
@@ -124,6 +135,7 @@ export async function POST(req: NextRequest) {
       dailyMax: Number(dailyLimit) || 500,
       userId: targetUserId,
       warmupEnabled: !!warmupEnabled,
+      warmupStartedAt: warmupEnabled ? new Date() : null,
       warmupLimit: Number(warmupLimit) || 50,
       warmupRamp: Number(warmupRamp) || 2,
       smtpHost: smtpHost || null,
@@ -170,6 +182,15 @@ export async function PUT(req: NextRequest) {
     }
     if (updates.imapPort !== undefined) {
       updates.imapPort = updates.imapPort ? Number(updates.imapPort) : null;
+    }
+
+    const existingAccount = await prisma.senderAccount.findUnique({ where: { id } });
+    if (existingAccount) {
+      if (updates.warmupEnabled === true && !existingAccount.warmupEnabled) {
+        if (!existingAccount.warmupStartedAt) {
+          updates.warmupStartedAt = new Date();
+        }
+      }
     }
 
     const updated = await db.updateAccount(id, updates);

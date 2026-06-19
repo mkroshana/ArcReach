@@ -84,7 +84,9 @@ model SenderAccount {
   warmupReplies   Int               @default(0)       // Matches warmupReplies count in UI
   
   campaigns       Campaign[]
+  campaignPool    CampaignSenderAccount[]
   inboundReplies  InboundResponse[]
+  dispatches      EmailDispatch[]
 
   // Individual Mailbox Credentials
   smtpHost        String?
@@ -126,6 +128,16 @@ model Campaign {
   enrollments     CampaignEnrollment[]
   dispatches      EmailDispatch[]
   replies         InboundResponse[]
+  senders         CampaignSenderAccount[]
+}
+
+model CampaignSenderAccount {
+  campaignId      String
+  senderAccountId String
+  campaign        Campaign      @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  senderAccount   SenderAccount @relation(fields: [senderAccountId], references: [id], onDelete: Cascade)
+
+  @@id([campaignId, senderAccountId])
 }
 
 model CampaignStep {
@@ -220,6 +232,8 @@ model EmailDispatch {
   id          String        @id @default(uuid())
   leadId      String
   lead        Lead          @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  senderAccountId String?
+  senderAccount   SenderAccount? @relation(fields: [senderAccountId], references: [id], onDelete: SetNull)
   campaignId  String?
   campaign    Campaign?     @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   messageId   String        @unique

@@ -111,6 +111,9 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
   const [trackClicks, setTrackClicks] = useState(true);
   const [steps, setSteps] = useState<any[]>([]);
   const [groups, setGroups] = useState<any[]>([]);
+  const [availableMailboxes, setAvailableMailboxes] = useState<any[]>([]);
+  const [primarySenderId, setPrimarySenderId] = useState<string>('');
+  const [selectedPoolIds, setSelectedPoolIds] = useState<string[]>([]);
 
   // Schedule days & time window
   const [selectedDays, setSelectedDays] = useState<string[]>(['Mon', 'Tue', 'Wed', 'Thu', 'Fri']);
@@ -180,6 +183,18 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
     showToast(`Applied template: ${selected.name}`);
   };
 
+  const loadMailboxes = async () => {
+    try {
+      const res = await fetch('/api/accounts');
+      if (res.ok) {
+        const data = await res.json();
+        setAvailableMailboxes(data);
+      }
+    } catch (err) {
+      console.error('Failed to load mailboxes:', err);
+    }
+  };
+
   const loadCampaign = async () => {
     try {
       setLoading(true);
@@ -197,6 +212,11 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
         setTrackOpens(data.trackOpens !== false);
         setTrackClicks(data.trackClicks !== false);
         setSteps(data.steps || []);
+        
+        // Senders & Pool
+        setPrimarySenderId(data.senderAccountId || '');
+        const poolIds = data.senders ? data.senders.map((s: any) => s.senderAccountId) : [];
+        setSelectedPoolIds(poolIds);
 
         // Populate schedule fields if JSON structure exists
         if (data.sendSchedule) {
@@ -257,6 +277,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
     loadCampaign();
     loadTemplates();
     loadGroups();
+    loadMailboxes();
   }, [campaignId]);
 
   const addStep = () => {
@@ -303,7 +324,9 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
           trackOpens,
           trackClicks,
           audienceCohort,
-          steps
+          steps,
+          senderAccountId: primarySenderId,
+          senderAccountIds: selectedPoolIds
         })
       });
 
@@ -421,7 +444,10 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                 </select>
               </div>
             </div>
-            <p className="text-slate-500 dark:text-slate-400 text-xs mt-1">Sender Mailbox: {campaign?.senderAccount?.emailAddress || 'N/A'}</p>
+             <p className="text-slate-500 dark:text-slate-400 text-xs mt-1">
+              Primary Mailbox: {campaign?.senderAccount?.emailAddress || 'N/A'}
+              {campaign?.senders && campaign.senders.length > 0 && ` (+${campaign.senders.length} rotated)`}
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -505,7 +531,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
 
       {/* Tabs Menu Bar */}
       <div className="flex gap-1 p-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl w-fit shadow-xs">
-        {['Sequence', 'Audience', 'Schedule', 'Options'].map((tab) => (
+        {['Sequence', 'Audience', 'Schedule', 'Options', 'Senders'].map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -851,6 +877,114 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                      <p className="text-2xl font-bold text-slate-900 dark:text-white mt-1">{campaign?.telemetry?.enrollments || 0}</p>
                      <p className="text-xs text-blue-500 dark:text-blue-300 font-medium mt-1">Active enrollments in sequence execution queue</p>
                    </div>
+                 </div>
+               </section>
+             </div>
+          )}
+
+          {activeTab === 'Senders' && (
+             <div className="space-y-6 animate-in fade-in duration-200">
+               <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 shadow-xs">
+                 <div className="flex justify-between items-center mb-5 border-b border-slate-200 dark:border-slate-800 pb-2">
+                   <h2 className="text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400 flex items-center gap-2">
+                     <Mail className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                     Campaign Senders Pool & Rotation
+                   </h2>
+                   <span className="text-[9px] bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded font-extrabold uppercase tracking-wider">
+                     {selectedPoolIds.length || 1} Active Senders
+                   </span>
+                 </div>
+                 
+                 <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-6 leading-relaxed">
+                   Balanced sending across multiple mailboxes spreads outbound volume, protects mailbox reputation, and circumvents daily service provider caps. Check mailboxes to include them in the campaign's rotation pool. The send engine will automatically route each dispatch via the least-loaded mailbox.
+                 </p>
+                 
+                 <div className="space-y-3">
+                   {availableMailboxes.map((mailbox) => {
+                     const isPrimary = primarySenderId === mailbox.id;
+                     const isChecked = selectedPoolIds.includes(mailbox.id) || isPrimary;
+                     
+                     const toggleCheckbox = () => {
+                       if (isPrimary) {
+                         showToast('The primary sender is always included in the rotation pool.', 'error');
+                         return;
+                       }
+                       if (isChecked) {
+                         setSelectedPoolIds(prev => prev.filter(id => id !== mailbox.id));
+                       } else {
+                         setSelectedPoolIds(prev => [...prev, mailbox.id]);
+                       }
+                     };
+                     
+                     const makePrimary = () => {
+                       setPrimarySenderId(mailbox.id);
+                       if (!selectedPoolIds.includes(mailbox.id)) {
+                         setSelectedPoolIds(prev => [...prev, mailbox.id]);
+                       }
+                     };
+
+                     return (
+                       <div 
+                         key={mailbox.id} 
+                         className={`p-4 border rounded-xl flex items-center justify-between transition-all ${
+                           isPrimary 
+                             ? 'bg-blue-50/20 dark:bg-blue-950/10 border-blue-200 dark:border-blue-500/25' 
+                             : isChecked 
+                             ? 'bg-slate-50/50 dark:bg-slate-900/40 border-slate-300 dark:border-slate-800' 
+                             : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 opacity-60 hover:opacity-90'
+                         }`}
+                       >
+                         <div className="flex items-center gap-3.5">
+                           <input 
+                             type="checkbox"
+                             checked={isChecked}
+                             onChange={toggleCheckbox}
+                             disabled={isPrimary}
+                             className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer"
+                           />
+                           
+                           <div>
+                             <div className="flex items-center gap-2">
+                               <p className="text-xs font-bold text-slate-800 dark:text-white">{mailbox.name || 'SMTP Account'}</p>
+                               <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">({mailbox.emailAddress})</span>
+                               {isPrimary && (
+                                 <span className="text-[8px] bg-blue-600 text-white font-extrabold px-1.5 py-0.5 rounded-full uppercase tracking-widest">
+                                   Primary
+                                 </span>
+                               )}
+                               {mailbox.warmupEnabled && (
+                                 <span className="text-[8px] bg-amber-500 text-white font-extrabold px-1.5 py-0.5 rounded-full uppercase tracking-widest animate-pulse">
+                                   Warmup
+                                 </span>
+                               )}
+                             </div>
+                             
+                             <div className="flex items-center gap-4 mt-2 text-[10px] text-slate-500 dark:text-slate-400">
+                               <span>Provider: <strong className="text-slate-700 dark:text-slate-300 uppercase">{mailbox.provider}</strong></span>
+                               <span>Sent Today: <strong>{mailbox.sentToday} / {mailbox.effectiveDailyCap}</strong></span>
+                               <span>Total Sent: <strong>{mailbox.sentTotal}</strong></span>
+                             </div>
+                           </div>
+                         </div>
+                         
+                         {!isPrimary && (
+                           <button
+                             type="button"
+                             onClick={makePrimary}
+                             className="px-2.5 py-1 text-[10px] font-bold text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 border border-slate-200 dark:border-slate-800 hover:border-blue-300 dark:hover:border-blue-500/30 rounded-lg cursor-pointer transition-colors"
+                           >
+                             Set as Primary
+                           </button>
+                         )}
+                       </div>
+                     );
+                   })}
+                   
+                   {availableMailboxes.length === 0 && (
+                     <div className="text-center py-8 text-slate-400 dark:text-slate-500 text-xs">
+                       No sender accounts found. Create mailboxes in the Senders configuration first.
+                     </div>
+                   )}
                  </div>
                </section>
              </div>

@@ -54,6 +54,45 @@ export function getEffectiveDailyCap(
 }
 
 /**
+ * Resolves the pool of senders for a campaign, defaulting to the primary sender if pool is empty.
+ */
+export function resolveCampaignSenders(campaign: {
+  senderAccount: any;
+  senders?: Array<{ senderAccount: any }>;
+}): any[] {
+  if (campaign.senders && campaign.senders.length > 0) {
+    return campaign.senders.map(s => s.senderAccount);
+  }
+  return [campaign.senderAccount];
+}
+
+/**
+ * Picks the sender with the maximum remaining daily capacity (least-loaded under cap).
+ * Returns null if all senders in the pool are at cap.
+ */
+export function pickSender(
+  pool: Array<any>,
+  sentToday: Map<string, number>,
+  now: Date
+): any | null {
+  let selectedSender: any | null = null;
+  let maxRemaining = -1;
+
+  for (const sender of pool) {
+    const cap = getEffectiveDailyCap(sender, now);
+    const sent = sentToday.get(sender.id) || 0;
+    const remaining = cap - sent;
+
+    if (remaining > 0 && remaining > maxRemaining) {
+      maxRemaining = remaining;
+      selectedSender = sender;
+    }
+  }
+
+  return selectedSender;
+}
+
+/**
  * Main entry point for the background sending loop.
  */
 export async function processDueEmails() {
@@ -106,7 +145,12 @@ export async function processDueEmails() {
             steps: {
               orderBy: { stepOrder: 'asc' }
             },
-            senderAccount: true
+            senderAccount: true,
+            senders: {
+              include: {
+                senderAccount: true
+              }
+            }
           }
         }
       },
@@ -119,25 +163,35 @@ export async function processDueEmails() {
     }
 
     // Build map of sent counts today for each unique sender in the batch
-    const senderIds = Array.from(new Set(dueEnrollments.map(e => e.campaign.senderAccountId)));
+    const senderIds = new Set<string>();
+    for (const enrollment of dueEnrollments) {
+      const campaign = enrollment.campaign;
+      if (campaign.senderAccountId) {
+        senderIds.add(campaign.senderAccountId);
+      }
+      if (campaign.senders) {
+        for (const poolItem of campaign.senders) {
+          if (poolItem.senderAccountId) {
+            senderIds.add(poolItem.senderAccountId);
+          }
+        }
+      }
+    }
+
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
 
     const senderSentToday = new Map<string, number>();
     for (const senderId of senderIds) {
-      if (senderId) {
-        const count = await prisma.emailDispatch.count({
-          where: {
-            campaign: {
-              senderAccountId: senderId
-            },
-            sentAt: {
-              gte: startOfToday
-            }
+      const count = await prisma.emailDispatch.count({
+        where: {
+          senderAccountId: senderId,
+          sentAt: {
+            gte: startOfToday
           }
-        });
-        senderSentToday.set(senderId, count);
-      }
+        }
+      });
+      senderSentToday.set(senderId, count);
     }
 
     // 2. Validate global rate limits before processing any sends
@@ -162,21 +216,20 @@ export async function processDueEmails() {
         break;
       }
 
-      // Check per-sender daily cap (warmup limits)
-      if (campaign.senderAccountId) {
-        const effectiveCap = getEffectiveDailyCap(campaign.senderAccount, now);
-        const sentToday = senderSentToday.get(campaign.senderAccountId) || 0;
-        if (sentToday >= effectiveCap) {
-          console.log(`[SendEngine] Sender ${campaign.senderAccount.emailAddress} daily sending limit reached (${sentToday}/${effectiveCap}). Deferring lead ${lead.email} to tomorrow.`);
-          const nextDay = new Date();
-          nextDay.setDate(nextDay.getDate() + 1);
-          nextDay.setHours(0, 0, 0, 0);
-          await prisma.campaignEnrollment.update({
-            where: { id: enrollment.id },
-            data: { nextActionDate: nextDay }
-          });
-          continue;
-        }
+      // Resolve the pool and pick a sender per send (least-loaded under cap)
+      const senderPool = resolveCampaignSenders(campaign);
+      const chosenSender = pickSender(senderPool, senderSentToday, now);
+
+      if (!chosenSender) {
+        console.log(`[SendEngine] All senders in pool for campaign "${campaign.name}" are at cap. Deferring lead ${lead.email} to tomorrow.`);
+        const nextDay = new Date();
+        nextDay.setDate(nextDay.getDate() + 1);
+        nextDay.setHours(0, 0, 0, 0);
+        await prisma.campaignEnrollment.update({
+          where: { id: enrollment.id },
+          data: { nextActionDate: nextDay }
+        });
+        continue;
       }
 
       // 4. Check Timezone & Sending Schedule restrictions
@@ -251,6 +304,7 @@ export async function processDueEmails() {
           data: {
             leadId: lead.id,
             campaignId: campaign.id,
+            senderAccountId: chosenSender.id,
             messageId: syntheticMessageId,
             subject,
             body: baseBody,
@@ -283,7 +337,7 @@ export async function processDueEmails() {
 
           const { EmailClient } = require("@azure/communication-email");
           const emailClient = new EmailClient(connString);
-          const [username] = campaign.senderAccount.emailAddress.split('@');
+          const [username] = chosenSender.emailAddress.split('@');
           const fromAddress = `${username}@${senderDomain}`;
 
           const message = {
@@ -295,7 +349,7 @@ export async function processDueEmails() {
               to: [{ address: lead.email }],
             },
             replyTo: [
-              { address: campaign.senderAccount.replyTo || campaign.senderAccount.emailAddress }
+              { address: chosenSender.replyTo || chosenSender.emailAddress }
             ],
             userEngagementTrackingDisabled: !campaign.trackOpens,
           };
@@ -316,11 +370,11 @@ export async function processDueEmails() {
           let smtpUser = settings?.smtpUser;
           let smtpPass = settings?.smtpPass;
 
-          if (campaign.senderAccount.smtpHost && campaign.senderAccount.smtpUser && campaign.senderAccount.smtpPass) {
-            smtpHost = campaign.senderAccount.smtpHost;
-            smtpPort = campaign.senderAccount.smtpPort || 587;
-            smtpUser = campaign.senderAccount.smtpUser;
-            smtpPass = campaign.senderAccount.smtpPass;
+          if (chosenSender.smtpHost && chosenSender.smtpUser && chosenSender.smtpPass) {
+            smtpHost = chosenSender.smtpHost;
+            smtpPort = chosenSender.smtpPort || 587;
+            smtpUser = chosenSender.smtpUser;
+            smtpPass = chosenSender.smtpPass;
           }
 
           if (!smtpHost || !smtpUser || !smtpPass) {
@@ -336,9 +390,9 @@ export async function processDueEmails() {
           });
 
           const mailOptions: any = {
-            from: `"${campaign.senderAccount.name || 'ArcReach Sender'}" <${smtpUser}>`,
+            from: `"${chosenSender.name || 'ArcReach Sender'}" <${smtpUser}>`,
             to: lead.email,
-            replyTo: campaign.senderAccount.replyTo || campaign.senderAccount.emailAddress,
+            replyTo: chosenSender.replyTo || chosenSender.emailAddress,
             subject,
           };
 
@@ -392,15 +446,15 @@ export async function processDueEmails() {
         }
 
         // Increment warmupSent counter if warmup is enabled
-        if (campaign.senderAccount.warmupEnabled) {
+        if (chosenSender.warmupEnabled) {
           await prisma.senderAccount.update({
-            where: { id: campaign.senderAccountId },
+            where: { id: chosenSender.id },
             data: { warmupSent: { increment: 1 } }
           });
         }
 
         // Update local sent count tracking
-        senderSentToday.set(campaign.senderAccountId, (senderSentToday.get(campaign.senderAccountId) || 0) + 1);
+        senderSentToday.set(chosenSender.id, (senderSentToday.get(chosenSender.id) || 0) + 1);
 
       } catch (err: any) {
         console.error(`[SendEngine Failure] Could not send to ${lead.email}:`, err.message || err);

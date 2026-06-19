@@ -93,6 +93,7 @@ export async function POST(req: NextRequest) {
       data: {
         leadId: lead.id,
         campaignId: campaignId || null,
+        senderAccountId: targetSenderAccountId || null,
         messageId: syntheticMessageId,
         subject: subject || 'Outreach from ArcReach',
         body: baseBody,

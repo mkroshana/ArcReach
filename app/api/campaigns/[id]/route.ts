@@ -13,7 +13,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         steps: {
           orderBy: { stepOrder: 'asc' }
         },
-        senderAccount: true
+        senderAccount: true,
+        senders: {
+          include: {
+            senderAccount: true
+          }
+        }
       }
     });
 
@@ -302,7 +307,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       trackOpens, 
       trackClicks,
       audienceCohort,
-      steps 
+      steps,
+      senderAccountIds
     } = body;
 
     const updates: any = {};
@@ -323,6 +329,21 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         where: { id },
         data: updates
       });
+
+      // Sync sender pool
+      if (senderAccountIds && Array.isArray(senderAccountIds)) {
+        await tx.campaignSenderAccount.deleteMany({
+          where: { campaignId: id }
+        });
+        if (senderAccountIds.length > 0) {
+          await tx.campaignSenderAccount.createMany({
+            data: senderAccountIds.map((sid: string) => ({
+              campaignId: id,
+              senderAccountId: sid
+            }))
+          });
+        }
+      }
 
       // 2. If steps are provided, delete and recreate campaign step items
       if (steps && Array.isArray(steps)) {
@@ -414,7 +435,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         steps: {
           orderBy: { stepOrder: 'asc' }
         },
-        senderAccount: true
+        senderAccount: true,
+        senders: {
+          include: {
+            senderAccount: true
+          }
+        }
       }
     });
 

@@ -20,20 +20,32 @@ export async function GET() {
       });
       const campaignIds = campaigns.map(c => c.id);
 
+      const dispatchWhereClause = {
+        OR: [
+          { senderAccountId: account.id },
+          {
+            senderAccountId: null,
+            campaign: {
+              senderAccountId: account.id
+            }
+          }
+        ]
+      };
+
       const sentToday = await prisma.emailDispatch.count({
         where: {
-          campaignId: { in: campaignIds },
+          ...dispatchWhereClause,
           sentAt: { gte: startOfToday }
         }
       });
 
       const sentTotal = await prisma.emailDispatch.count({
-        where: { campaignId: { in: campaignIds } }
+        where: dispatchWhereClause
       });
 
       const opens = await prisma.emailDispatch.count({
         where: {
-          campaignId: { in: campaignIds },
+          ...dispatchWhereClause,
           events: {
             some: { eventType: 'open' }
           }
@@ -42,7 +54,7 @@ export async function GET() {
 
       const clicks = await prisma.emailDispatch.count({
         where: {
-          campaignId: { in: campaignIds },
+          ...dispatchWhereClause,
           events: {
             some: { eventType: 'click' }
           }

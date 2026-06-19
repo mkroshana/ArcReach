@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { validateSendingFrequency, checkSendingWindow, personalizeEmail, getEffectiveDailyCap } from '../../lib/sendEngine';
+import { validateSendingFrequency, checkSendingWindow, personalizeEmail, getEffectiveDailyCap, resolveCampaignSenders, pickSender } from '../../lib/sendEngine';
 
 describe('validateSendingFrequency', () => {
   it('should allow sending when all limits are within boundaries', () => {
@@ -178,6 +178,86 @@ describe('validateSendingFrequency', () => {
     it('should clamp cap to dailyLimit when calculation exceeds it', () => {
       const now = new Date('2026-06-30T12:00:00Z'); // 29 days later
       expect(getEffectiveDailyCap(sender, now)).toBe(200); // 50 + 10 * 29 = 340, clamped to 200
+    });
+  });
+
+  describe('resolveCampaignSenders', () => {
+    it('should return primary sender when pool is empty', () => {
+      const campaign = {
+        senderAccountId: 'acc-1',
+        senderAccount: { id: 'acc-1', emailAddress: 'acc1@test.com' },
+        senders: []
+      };
+      const result = resolveCampaignSenders(campaign);
+      expect(result).toEqual([{ id: 'acc-1', emailAddress: 'acc1@test.com' }]);
+    });
+
+    it('should return pool senders when pool is populated', () => {
+      const campaign = {
+        senderAccountId: 'acc-1',
+        senderAccount: { id: 'acc-1', emailAddress: 'acc1@test.com' },
+        senders: [
+          { senderAccount: { id: 'acc-2', emailAddress: 'acc2@test.com' } },
+          { senderAccount: { id: 'acc-3', emailAddress: 'acc3@test.com' } }
+        ]
+      };
+      const result = resolveCampaignSenders(campaign);
+      expect(result).toEqual([
+        { id: 'acc-2', emailAddress: 'acc2@test.com' },
+        { id: 'acc-3', emailAddress: 'acc3@test.com' }
+      ]);
+    });
+  });
+
+  describe('pickSender', () => {
+    const senderA = {
+      id: 'sender-a',
+      emailAddress: 'a@test.com',
+      warmupEnabled: false,
+      warmupStartedAt: null,
+      dailyLimit: 100,
+      warmupLimit: 10,
+      warmupRamp: 2
+    };
+
+    const senderB = {
+      id: 'sender-b',
+      emailAddress: 'b@test.com',
+      warmupEnabled: true,
+      warmupStartedAt: new Date('2026-06-15T12:00:00Z'),
+      dailyLimit: 200,
+      warmupLimit: 50,
+      warmupRamp: 10
+    };
+
+    const pool = [senderA, senderB];
+    const now = new Date('2026-06-17T12:00:00Z'); // 2 days active for senderB -> cap is 50 + 10 * 2 = 70
+
+    it('should pick the sender with the maximum remaining daily capacity', () => {
+      const sentToday = new Map<string, number>();
+      sentToday.set('sender-a', 40); // 100 - 40 = 60 remaining
+      sentToday.set('sender-b', 5);  // 70 - 5 = 65 remaining -> B has more remaining
+
+      const picked = pickSender(pool, sentToday, now);
+      expect(picked?.id).toBe('sender-b');
+    });
+
+    it('should pick the other sender if one has more remaining capacity', () => {
+      const sentToday = new Map<string, number>();
+      sentToday.set('sender-a', 20); // 100 - 20 = 80 remaining -> A has more remaining
+      sentToday.set('sender-b', 5);  // 70 - 5 = 65 remaining
+
+      const picked = pickSender(pool, sentToday, now);
+      expect(picked?.id).toBe('sender-a');
+    });
+
+    it('should return null if all senders in the pool are at cap', () => {
+      const sentToday = new Map<string, number>();
+      sentToday.set('sender-a', 100); // 0 remaining
+      sentToday.set('sender-b', 70);  // 0 remaining
+
+      const picked = pickSender(pool, sentToday, now);
+      expect(picked).toBeNull();
     });
   });
 });

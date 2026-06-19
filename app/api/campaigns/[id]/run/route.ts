@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { applyEmailTracking } from '@/lib/emailTracking';
 import { checkGlobalRateLimits } from '@/lib/rateLimits';
+import { resolveCampaignSenders, pickSender } from '@/lib/sendEngine';
 import nodemailer from 'nodemailer';
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -17,7 +18,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         steps: {
           orderBy: { stepOrder: 'asc' }
         },
-        senderAccount: true
+        senderAccount: true,
+        senders: {
+          include: {
+            senderAccount: true
+          }
+        }
       }
     });
 
@@ -76,8 +82,37 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const settings = await prisma.globalSettings.findFirst();
     const provider = settings?.activeProvider || 'MOCK';
 
+    // Build map of sent counts today for each unique sender in the batch/pool
+    const senderIds = new Set<string>();
+    if (campaign.senderAccountId) {
+      senderIds.add(campaign.senderAccountId);
+    }
+    if (campaign.senders) {
+      for (const poolItem of campaign.senders) {
+        if (poolItem.senderAccountId) {
+          senderIds.add(poolItem.senderAccountId);
+        }
+      }
+    }
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const senderSentToday = new Map<string, number>();
+    for (const senderId of senderIds) {
+      const count = await prisma.emailDispatch.count({
+        where: {
+          senderAccountId: senderId,
+          sentAt: {
+            gte: startOfToday
+          }
+        }
+      });
+      senderSentToday.set(senderId, count);
+    }
+
     let dispatchedCount = 0;
     const errors = [];
+    const now = new Date();
 
     // 4. Process each enrollment
     for (const enrollment of enrollments) {
@@ -137,6 +172,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         continue;
       }
 
+      // Resolve the pool and pick a sender per send (least-loaded under cap)
+      const senderPool = resolveCampaignSenders(campaign);
+      const chosenSender = pickSender(senderPool, senderSentToday, now);
+
+      if (!chosenSender) {
+        console.log(`[Campaign Run] All senders in pool for campaign "${campaign.name}" are at cap. Deferring lead ${lead.email} to tomorrow.`);
+        const nextDay = new Date();
+        nextDay.setDate(nextDay.getDate() + 1);
+        nextDay.setHours(0, 0, 0, 0);
+        await prisma.campaignEnrollment.update({
+          where: { id: enrollment.id },
+          data: { nextActionDate: nextDay }
+        });
+        continue;
+      }
+
       // Personalize copy (Spintax, Lead variables)
       const subject = personalizeText(step.subject, lead);
       const bodyText = personalizeText(step.body, lead);
@@ -156,6 +207,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           data: {
             leadId: lead.id,
             campaignId: campaign.id,
+            senderAccountId: chosenSender.id,
             messageId: syntheticMessageId,
             subject,
             body: baseBody,
@@ -188,7 +240,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
           const { EmailClient } = require("@azure/communication-email");
           const emailClient = new EmailClient(connString);
-          const [username] = campaign.senderAccount.emailAddress.split('@');
+          const [username] = chosenSender.emailAddress.split('@');
           const fromAddress = `${username}@${senderDomain}`;
 
           const message = {
@@ -200,7 +252,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
               to: [{ address: lead.email }],
             },
             replyTo: [
-              { address: campaign.senderAccount.replyTo || campaign.senderAccount.emailAddress }
+              { address: chosenSender.replyTo || chosenSender.emailAddress }
             ],
             userEngagementTrackingDisabled: !campaign.trackOpens,
           };
@@ -215,17 +267,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           }
           console.log(`[Campaign Run - Azure Success] Message ID: ${providerMessageId || syntheticMessageId} | From: ${fromAddress} → To: ${lead.email}`);
         } else {
-          // SMTP-based delivery (SMTP, GOOGLE, MICROSOFT fallback)
           let smtpHost = settings?.smtpHost;
           let smtpPort = settings?.smtpPort || 587;
           let smtpUser = settings?.smtpUser;
           let smtpPass = settings?.smtpPass;
 
-          if (campaign.senderAccount.smtpHost && campaign.senderAccount.smtpUser && campaign.senderAccount.smtpPass) {
-            smtpHost = campaign.senderAccount.smtpHost;
-            smtpPort = campaign.senderAccount.smtpPort || 587;
-            smtpUser = campaign.senderAccount.smtpUser;
-            smtpPass = campaign.senderAccount.smtpPass;
+          if (chosenSender.smtpHost && chosenSender.smtpUser && chosenSender.smtpPass) {
+            smtpHost = chosenSender.smtpHost;
+            smtpPort = chosenSender.smtpPort || 587;
+            smtpUser = chosenSender.smtpUser;
+            smtpPass = chosenSender.smtpPass;
           }
 
           if (!smtpHost || !smtpUser || !smtpPass) {
@@ -241,9 +292,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           });
 
           const mailOptions: any = {
-            from: `"${campaign.senderAccount.name || 'ArcReach Sender'}" <${smtpUser}>`,
+            from: `"${chosenSender.name || 'ArcReach Sender'}" <${smtpUser}>`,
             to: lead.email,
-            replyTo: campaign.senderAccount.replyTo || campaign.senderAccount.emailAddress,
+            replyTo: chosenSender.replyTo || chosenSender.emailAddress,
             subject,
           };
 
@@ -297,6 +348,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         }
 
         dispatchedCount++;
+
+        // Increment warmupSent counter if warmup is enabled
+        if (chosenSender.warmupEnabled) {
+          await prisma.senderAccount.update({
+            where: { id: chosenSender.id },
+            data: { warmupSent: { increment: 1 } }
+          });
+        }
+
+        // Update local sent count tracking
+        senderSentToday.set(chosenSender.id, (senderSentToday.get(chosenSender.id) || 0) + 1);
       } catch (err: any) {
         console.error(`[Campaign Run Error] Failed to process lead ${lead.email}:`, err);
         errors.push({ email: lead.email, error: err.message || err });

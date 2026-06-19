@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
   try {
     const session = await getSession();
     const data = await req.json();
-    const { name, status, senderAccountId, userId, audienceCohort } = data;
+    const { name, status, senderAccountId, userId, audienceCohort, senderAccountIds } = data;
 
     if (!name || !senderAccountId) {
       return NextResponse.json({ error: 'Name and sender mailbox are required.' }, { status: 400 });
@@ -33,6 +33,11 @@ export async function POST(req: NextRequest) {
       senderAccountId,
       userId: targetUserId,
       audienceCohort: audienceCohort || 'Valid',
+      senders: senderAccountIds && Array.isArray(senderAccountIds) ? {
+        create: senderAccountIds.map((id: string) => ({
+          senderAccountId: id
+        }))
+      } : undefined
     });
 
     // Auto-enroll eligible leads matching chosen cohort

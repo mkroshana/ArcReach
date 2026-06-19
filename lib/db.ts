@@ -98,6 +98,11 @@ export const db = {
       return prisma.campaign.findMany({
         include: { 
           senderAccount: true,
+          senders: {
+            include: {
+              senderAccount: true
+            }
+          },
           steps: { orderBy: { stepOrder: 'asc' } },
           enrollments: true,
           dispatches: {
@@ -115,6 +120,11 @@ export const db = {
       where: { userId },
       include: { 
         senderAccount: true,
+        senders: {
+          include: {
+            senderAccount: true
+          }
+        },
         steps: { orderBy: { stepOrder: 'asc' } },
         enrollments: true,
         dispatches: {

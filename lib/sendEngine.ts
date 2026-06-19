@@ -106,6 +106,11 @@ export function classifyFailure(err: any): 'quota' | 'hard' | 'soft' {
     return 'quota';
   }
 
+  // Sender/system configuration or connection error check (e.g. SMTP auth failure is 5xx but is not a hard bounce for the recipient)
+  if (/auth|credential|login|unauthorized|forbidden|not configured|missing|econnrefused|econnreset|enotfound|dns/i.test(errStr)) {
+    return 'soft';
+  }
+
   // 2. Hard check (permanent, 5.x.x response code or specific user/mailbox invalid pattern)
   if (err.responseCode && Number(err.responseCode) >= 500 && Number(err.responseCode) <= 559 && Number(err.responseCode) !== 552) {
     return 'hard';

@@ -271,7 +271,12 @@ describe('validateSendingFrequency', () => {
     it('should classify response codes 500-559 (except 552) as hard failures', () => {
       expect(classifyFailure({ message: 'SMTP error', responseCode: 550 })).toBe('hard');
       expect(classifyFailure({ message: 'SMTP error', responseCode: 554 })).toBe('hard');
-      expect(classifyFailure({ message: 'SMTP error', responseCode: 552 })).not.toBe('hard');
+    });
+
+    it('should classify sender-side/system issues as soft failures even if they have 5xx response code', () => {
+      expect(classifyFailure({ message: '535 Authentication credentials invalid', responseCode: 535 })).toBe('soft');
+      expect(classifyFailure({ message: 'Bad credentials', responseCode: 535 })).toBe('soft');
+      expect(classifyFailure({ message: 'SMTP login failed', responseCode: 535 })).toBe('soft');
     });
 
     it('should classify specific invalid user/mailbox/domain patterns as hard failures', () => {

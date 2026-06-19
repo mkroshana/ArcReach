@@ -655,90 +655,11 @@ export async function processDueEmails() {
       } catch (err: any) {
         console.error(`[SendEngine Failure] Could not send to ${lead.email}:`, err.message || err);
 
-        const errStr = (err.message || String(err)).toLowerCase();
-        const isQuotaError = errStr.includes('quota') || errStr.includes('limit') || errStr.includes('rate') || errStr.includes('exceeded');
-
-        if (isQuotaError) {
-          try {
-            console.log(`[SendEngine] Quota limit hit. Pausing campaign "${campaign.name}" (${campaign.id}) for 1 hour.`);
-
-            // The send never went out — mark the pre-created dispatch as Failed so it
-            // is not counted as sent. The enrollment retries later and creates a new row.
-            if (dispatch) {
-              await prisma.emailDispatch.update({
-                where: { id: dispatch.id },
-                data: { status: 'Failed' },
-              });
-            }
-
-            // 1. Pause the campaign in database
-            await prisma.campaign.update({
-              where: { id: campaign.id },
-              data: { status: 'Paused' }
-            });
-
-            // 2. Schedule auto-resume
-            const resumeTime = new Date();
-            resumeTime.setHours(resumeTime.getHours() + 1);
-            quotaPausedCampaigns.set(campaign.id, resumeTime);
-
-            // 3. Postpone next action date of the enrollment so it retries later
-            await prisma.campaignEnrollment.update({
-              where: { id: enrollment.id },
-              data: { nextActionDate: resumeTime }
-            });
-          } catch (pauseErr: any) {
-            console.error('[SendEngine] Failed to pause campaign on quota limit:', pauseErr.message);
-          }
-          // Break the loop since any further sends in the current cycle will fail
+        // Soft/hard bounce classification + retry/backoff (shared with the manual run route).
+        const result = await handleSendFailure(enrollment, lead, dispatch, err, campaign.name, campaign.id);
+        if (result.action === 'break') {
+          // Quota limit hit — any further sends this cycle will also fail.
           break;
-        }
-
-        // Mark enrollment as Failed to stop infinite retry loops
-        try {
-          await prisma.campaignEnrollment.update({
-            where: { id: enrollment.id },
-            data: { status: 'Failed', nextActionDate: null }
-          });
-
-          // Only mark lead as Bounced + Invalid if the error is not a sender-side or system-level error
-          const isSenderOrSystemError = 
-            errStr.includes('auth') || 
-            errStr.includes('credentials') || 
-            errStr.includes('login') || 
-            errStr.includes('timeout') || 
-            errStr.includes('connect') || 
-            errStr.includes('dns') || 
-            errStr.includes('unauthorized') || 
-            errStr.includes('forbidden') || 
-            errStr.includes('configured');
-
-          if (!isSenderOrSystemError) {
-            await prisma.lead.update({
-              where: { id: lead.id },
-              data: {
-                status: 'Bounced',
-                validationStatus: 'Invalid',
-              }
-            });
-          }
-
-          // Mark the dispatch row (created before the send) as Failed so it is not
-          // counted as an actually-sent email, and log an audit-trail event.
-          if (dispatch) {
-            const failedDispatch = await prisma.emailDispatch.update({
-              where: { id: dispatch.id },
-              data: { status: 'Failed' },
-            });
-            await prisma.emailEvent.create({
-              data: {
-                messageId: failedDispatch.messageId,
-                eventType: 'send_failed',
-              }
-            });
-          }
-        } catch (updateErr: any) {
-          console.error(`[SendEngine] Failed to update status for ${lead.email}:`, updateErr.message);
         }
       }
     }

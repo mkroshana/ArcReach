@@ -114,18 +114,7 @@ export async function POST(req: NextRequest) {
             break;
 
           case 'Microsoft.Communication.EmailEngagementTrackingReportReceived':
-            console.log('Engagement Report Received:', data);
-            const rawType = data.engagementType || data.engagement; // "View" (Open) or "Click"
-            const eventType = (rawType && (rawType.toLowerCase() === 'view' || rawType.toLowerCase() === 'open')) ? 'open' : 'click';
-            
-            // Log click URL details if present
-            await prisma.emailEvent.create({
-              data: {
-                messageId: dispatch.messageId, // Use the matched case-sensitive messageId from the db
-                eventType,
-                clickedUrl: data.linkUri || data.engagementContext || null
-              }
-            });
+            console.log('[Webhook] EmailEngagementTrackingReportReceived case ignored to prevent double-tracking. Self-hosted endpoints serve as the single source of truth.', data);
             break;
 
           default:

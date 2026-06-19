@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { shouldDropEvent } from '@/lib/botFilter';
 
 export async function GET(
   req: NextRequest,
@@ -47,38 +48,24 @@ export async function GET(
         }
       }
 
-      // A click implies the email was opened — record an implicit open
-      // if one hasn't been recorded yet for this dispatch.
-      // Many email clients block remote images (the tracking pixel),
-      // but a click proves the email was opened.
-      const existingOpen = await prisma.emailEvent.findFirst({
-        where: {
-          messageId: dispatch.messageId,
-          eventType: 'open',
-        },
-      });
+      // Apply bot filter to clicks
+      const userAgent = req.headers.get('user-agent');
+      const botFilter = shouldDropEvent(dispatch.sentAt, userAgent, 'click');
 
-      if (!existingOpen) {
+      if (botFilter.drop) {
+        console.log(`[Track Click] Bot filter: ${botFilter.reason || 'dropped'} for dispatch ${dispatch.id} (UA: ${userAgent})`);
+      } else {
+        // Record the click event
         await prisma.emailEvent.create({
           data: {
             messageId: dispatch.messageId,
-            eventType: 'open',
+            eventType: 'click',
+            clickedUrl: targetUrl,
           },
         }).catch((err) => {
-          console.error('[Track Click] Failed to record implicit open event:', err);
+          console.error('[Track Click] Failed to record click event:', err);
         });
       }
-
-      // Record the click event
-      await prisma.emailEvent.create({
-        data: {
-          messageId: dispatch.messageId,
-          eventType: 'click',
-          clickedUrl: targetUrl,
-        },
-      }).catch((err) => {
-        console.error('[Track Click] Failed to record click event:', err);
-      });
     } else {
       console.log(`[Track Click] Dispatch not found: ${dispatchId}`);
     }

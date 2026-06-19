@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { shouldDropEvent } from '@/lib/botFilter';
 
 // 1×1 transparent PNG pixel (68 bytes)
 const TRACKING_PIXEL = Buffer.from(
@@ -21,15 +22,22 @@ export async function GET(
     });
 
     if (dispatch) {
-      // Record the open event (fire-and-forget — don't block the pixel response)
-      await prisma.emailEvent.create({
-        data: {
-          messageId: dispatch.messageId,
-          eventType: 'open',
-        },
-      }).catch((err) => {
-        console.error('[Track Open] Failed to record open event:', err);
-      });
+      const userAgent = req.headers.get('user-agent');
+      const botFilter = shouldDropEvent(dispatch.sentAt, userAgent, 'open');
+
+      if (botFilter.drop) {
+        console.log(`[Track Open] Bot filter: ${botFilter.reason || 'dropped'} for dispatch ${dispatchId} (UA: ${userAgent})`);
+      } else {
+        // Record the open event (fire-and-forget — don't block the pixel response)
+        await prisma.emailEvent.create({
+          data: {
+            messageId: dispatch.messageId,
+            eventType: 'open',
+          },
+        }).catch((err) => {
+          console.error('[Track Open] Failed to record open event:', err);
+        });
+      }
     } else {
       console.log(`[Track Open] Dispatch not found: ${dispatchId}`);
     }

@@ -98,6 +98,18 @@ npx tsx scripts/audit-dispatches.ts --backfill --fix
 
 ---
 
+## 🤖 Bot Filtering & Engagement-Metric Accuracy
+
+To keep email open and link click metrics accurate and prevent security scanners (e.g. Proofpoint, Barracuda, Mimecast, Microsoft Safelinks) from inflating statistics:
+
+- **Single Source of Truth**: All engagement tracking events (opens and clicks) are generated exclusively from self-hosted tracking endpoints. Webhook telemetry notifications from Azure Communication Services are no-oped to prevent double-counting.
+- **User-Agent Filtering**: Incoming tracking hits matching known scanner User-Agent signatures are automatically dropped.
+- **Heuristic Prefetch Window**: Clicks occurring within 5 seconds and opens occurring within 10 seconds of a message dispatch are flagged as bot pre-fetches and are not logged.
+- **Gmail & Apple Proxy Exemption**: Apple Mail Privacy Protection (MPP) and Gmail Image Proxy hits are *intentionally not filtered* because they prefetch legitimate human reads; filtering them would discard real human open events.
+- **Removal of Implicit Opens**: The send engine does not auto-generate an open event upon registering a click.
+
+---
+
 ## 🚀 Getting Started
 
 ### Prerequisites

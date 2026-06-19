@@ -92,6 +92,202 @@ export function pickSender(
   return selectedSender;
 }
 
+export const MAX_SEND_ATTEMPTS = 3;
+export const RETRY_BACKOFF_HOURS = [1, 6, 24]; // hour mapping: attempt 1 -> +1h, 2 -> +6h, 3 -> +24h
+
+/**
+ * Classifies an email sending error into quota limits, hard bounce, or soft transient failure.
+ */
+export function classifyFailure(err: any): 'quota' | 'hard' | 'soft' {
+  const errStr = (err.message || String(err)).toLowerCase();
+
+  // 1. Quota check
+  if (errStr.includes('quota') || errStr.includes('limit') || errStr.includes('rate') || errStr.includes('exceeded')) {
+    return 'quota';
+  }
+
+  // 2. Hard check (permanent, 5.x.x response code or specific user/mailbox invalid pattern)
+  if (err.responseCode && Number(err.responseCode) >= 500 && Number(err.responseCode) <= 559 && Number(err.responseCode) !== 552) {
+    return 'hard';
+  }
+
+  const hardPatterns = [
+    'no such user',
+    'user unknown',
+    'mailbox unavailable',
+    'does not exist',
+    'invalid recipient',
+    'address rejected',
+    'recipient rejected',
+    'domain not found',
+    'nxdomain',
+    'no mx',
+    '5\\.1\\.1'
+  ];
+  const hardRegex = new RegExp(hardPatterns.join('|'), 'i');
+  if (hardRegex.test(errStr)) {
+    return 'hard';
+  }
+
+  // 3. Soft check (transient, 4.x.x response code or network patterns or 552 mailbox full)
+  if (
+    (err.responseCode && Number(err.responseCode) >= 400 && Number(err.responseCode) <= 499) ||
+    Number(err.responseCode) === 552 ||
+    errStr.includes('timeout') ||
+    errStr.includes('timed out') ||
+    errStr.includes('econnreset') ||
+    errStr.includes('econnrefused') ||
+    errStr.includes('etimedout') ||
+    errStr.includes('greylist') ||
+    errStr.includes('temporar') ||
+    errStr.includes('try again') ||
+    errStr.includes('mailbox full')
+  ) {
+    return 'soft';
+  }
+
+  // 4. Default fall safe: Unknown/unmatched -> soft
+  return 'soft';
+}
+
+/**
+ * Shared error handler for email dispatches. Resolves failure category (quota, soft, hard)
+ * and updates enrollment retry/backoff parameters, lead deliverability indicators,
+ * and tracks dispatch statuses.
+ */
+export async function handleSendFailure(
+  enrollment: { id: string; retryCount: number },
+  lead: { id: string; email: string },
+  dispatch: any,
+  err: any,
+  campaignName: string,
+  campaignId: string
+): Promise<{ action: 'break' | 'continue' }> {
+  const classification = classifyFailure(err);
+  const errMsg = err.message || String(err);
+  console.log(`[SendFailureHandler] Lead: ${lead.email} | Type: ${classification} | Error: ${errMsg}`);
+
+  // Always mark the pre-created dispatch as Failed so it isn't counted in metrics
+  if (dispatch) {
+    try {
+      await prisma.emailDispatch.update({
+        where: { id: dispatch.id },
+        data: { status: 'Failed' }
+      });
+    } catch (dispatchErr: any) {
+      console.error(`[SendFailureHandler] Failed to mark dispatch ${dispatch.id} failed:`, dispatchErr.message);
+    }
+  }
+
+  if (classification === 'quota') {
+    try {
+      console.log(`[SendFailureHandler] Quota limit hit. Pausing campaign "${campaignName}" (${campaignId}) for 1 hour.`);
+
+      // 1. Pause the campaign in database
+      await prisma.campaign.update({
+        where: { id: campaignId },
+        data: { status: 'Paused' }
+      });
+
+      // 2. Schedule auto-resume
+      const resumeTime = new Date();
+      resumeTime.setHours(resumeTime.getHours() + 1);
+      quotaPausedCampaigns.set(campaignId, resumeTime);
+
+      // 3. Postpone next action date of the enrollment so it retries later
+      await prisma.campaignEnrollment.update({
+        where: { id: enrollment.id },
+        data: { nextActionDate: resumeTime }
+      });
+    } catch (pauseErr: any) {
+      console.error('[SendFailureHandler] Failed to pause campaign on quota limit:', pauseErr.message);
+    }
+    return { action: 'break' };
+  }
+
+  if (classification === 'soft') {
+    const attempts = enrollment.retryCount + 1;
+    if (attempts < MAX_SEND_ATTEMPTS) {
+      const backoffHours = RETRY_BACKOFF_HOURS[enrollment.retryCount] ?? 24;
+      const nextActionDate = new Date();
+      nextActionDate.setHours(nextActionDate.getHours() + backoffHours);
+
+      console.log(`[SendFailureHandler] Soft failure (attempt ${attempts}/${MAX_SEND_ATTEMPTS}). Backing off for ${backoffHours} hours. Next action: ${nextActionDate.toISOString()}`);
+
+      await prisma.campaignEnrollment.update({
+        where: { id: enrollment.id },
+        data: {
+          nextActionDate,
+          retryCount: { increment: 1 },
+          lastError: errMsg,
+          lastBounceType: 'soft'
+        }
+      });
+    } else {
+      console.log(`[SendFailureHandler] Soft failure retries exhausted (${attempts}/${MAX_SEND_ATTEMPTS}) for lead ${lead.email}. Marking enrollment Failed and lead validationStatus Risky.`);
+      
+      await prisma.campaignEnrollment.update({
+        where: { id: enrollment.id },
+        data: {
+          status: 'Failed',
+          nextActionDate: null,
+          lastError: errMsg,
+          lastBounceType: 'soft'
+        }
+      });
+
+      await prisma.lead.update({
+        where: { id: lead.id },
+        data: {
+          validationStatus: 'Risky'
+        }
+      });
+
+      if (dispatch) {
+        await prisma.emailEvent.create({
+          data: {
+            messageId: dispatch.messageId,
+            eventType: 'send_failed'
+          }
+        });
+      }
+    }
+    return { action: 'continue' };
+  }
+
+  // classification === 'hard'
+  console.log(`[SendFailureHandler] Hard bounce detected for lead ${lead.email}. Permanently failing enrollment and lead.`);
+
+  await prisma.campaignEnrollment.update({
+    where: { id: enrollment.id },
+    data: {
+      status: 'Failed',
+      nextActionDate: null,
+      lastError: errMsg,
+      lastBounceType: 'hard'
+    }
+  });
+
+  await prisma.lead.update({
+    where: { id: lead.id },
+    data: {
+      status: 'Bounced',
+      validationStatus: 'Invalid'
+    }
+  });
+
+  if (dispatch) {
+    await prisma.emailEvent.create({
+      data: {
+        messageId: dispatch.messageId,
+        eventType: 'bounce'
+      }
+    });
+  }
+
+  return { action: 'continue' };
+}
+
 /**
  * Main entry point for the background sending loop.
  */

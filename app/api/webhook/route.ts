@@ -96,7 +96,12 @@ export async function POST(req: NextRequest) {
               // Update active enrollments to Bounced
               await prisma.campaignEnrollment.updateMany({
                 where: { leadId: dispatch.leadId, status: 'Active' },
-                data: { status: 'Bounced', nextActionDate: null }
+                data: { 
+                  status: 'Bounced', 
+                  nextActionDate: null,
+                  lastError: 'Azure webhook delivery report: Failed',
+                  lastBounceType: 'hard'
+                }
               });
               // Create an audit trail EmailEvent for the bounce
               await prisma.emailEvent.create({

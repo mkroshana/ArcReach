@@ -147,7 +147,8 @@ export async function PUT(req: NextRequest) {
           data: {
             status: 'Active',
             currentSequenceStep: 1,
-            nextActionDate: new Date()
+            nextActionDate: new Date(),
+            retryCount: 0
           }
         });
       }
@@ -175,7 +176,8 @@ export async function PUT(req: NextRequest) {
             data: {
               status: 'Active',
               currentSequenceStep: 1,
-              nextActionDate: new Date()
+              nextActionDate: new Date(),
+              retryCount: 0
             }
           });
         }
@@ -216,7 +218,8 @@ export async function PUT(req: NextRequest) {
         data: {
           status: 'Active',
           currentSequenceStep: 1,
-          nextActionDate: new Date()
+          nextActionDate: new Date(),
+          retryCount: 0
         }
       });
     }

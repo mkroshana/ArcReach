@@ -220,6 +220,9 @@ model CampaignEnrollment {
   // Sequence Execution State per campaign (moved from Lead for multiple concurrent campaigns support)
   currentSequenceStep Int        @default(1)        // Step order tracking
   nextActionDate      DateTime?                     // Trigger timestamp for worker scheduler
+  retryCount          Int        @default(0)
+  lastError           String?
+  lastBounceType      String?
 
   // Prevents enrolling the same lead into the same campaign twice
   @@unique([leadId, campaignId]) 

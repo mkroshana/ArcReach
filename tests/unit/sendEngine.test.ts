@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { validateSendingFrequency, checkSendingWindow, personalizeEmail, getEffectiveDailyCap, resolveCampaignSenders, pickSender } from '../../lib/sendEngine';
+import { validateSendingFrequency, checkSendingWindow, personalizeEmail, getEffectiveDailyCap, resolveCampaignSenders, pickSender, classifyFailure } from '../../lib/sendEngine';
 
 describe('validateSendingFrequency', () => {
   it('should allow sending when all limits are within boundaries', () => {
@@ -258,6 +258,50 @@ describe('validateSendingFrequency', () => {
 
       const picked = pickSender(pool, sentToday, now);
       expect(picked).toBeNull();
+    });
+  });
+
+  describe('classifyFailure', () => {
+    it('should classify quota errors based on keywords', () => {
+      expect(classifyFailure(new Error('Quota limit exceeded'))).toBe('quota');
+      expect(classifyFailure(new Error('Daily sending rate reached'))).toBe('quota');
+      expect(classifyFailure({ message: '421 Space limit exceeded' })).toBe('quota');
+    });
+
+    it('should classify response codes 500-559 (except 552) as hard failures', () => {
+      expect(classifyFailure({ message: 'SMTP error', responseCode: 550 })).toBe('hard');
+      expect(classifyFailure({ message: 'SMTP error', responseCode: 554 })).toBe('hard');
+      expect(classifyFailure({ message: 'SMTP error', responseCode: 552 })).not.toBe('hard');
+    });
+
+    it('should classify specific invalid user/mailbox/domain patterns as hard failures', () => {
+      expect(classifyFailure(new Error('no such user here'))).toBe('hard');
+      expect(classifyFailure(new Error('User unknown'))).toBe('hard');
+      expect(classifyFailure(new Error('Mailbox unavailable'))).toBe('hard');
+      expect(classifyFailure(new Error('Recipient address rejected'))).toBe('hard');
+      expect(classifyFailure(new Error('Domain not found NXDOMAIN'))).toBe('hard');
+      expect(classifyFailure(new Error('5.1.1 Invalid email address'))).toBe('hard');
+    });
+
+    it('should classify response codes 400-499 as soft failures', () => {
+      expect(classifyFailure({ message: 'SMTP error', responseCode: 421 })).toBe('soft');
+      expect(classifyFailure({ message: 'SMTP error', responseCode: 451 })).toBe('soft');
+    });
+
+    it('should classify response code 552 as soft failure (mailbox full)', () => {
+      expect(classifyFailure({ message: 'Mailbox full', responseCode: 552 })).toBe('soft');
+    });
+
+    it('should classify network/timeout patterns as soft failures', () => {
+      expect(classifyFailure(new Error('Connection timed out ETIMEDOUT'))).toBe('soft');
+      expect(classifyFailure(new Error('connect ECONNREFUSED 127.0.0.1:25'))).toBe('soft');
+      expect(classifyFailure(new Error('greylisting active'))).toBe('soft');
+      expect(classifyFailure(new Error('Try again later'))).toBe('soft');
+    });
+
+    it('should classify unrecognized/unknown errors as soft failures (fail-safe)', () => {
+      expect(classifyFailure(new Error('Something went completely wrong'))).toBe('soft');
+      expect(classifyFailure({ message: 'Internal server error 500' })).toBe('soft');
     });
   });
 });

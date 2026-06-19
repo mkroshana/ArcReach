@@ -3,7 +3,7 @@ import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { applyEmailTracking } from '@/lib/emailTracking';
 import { checkGlobalRateLimits } from '@/lib/rateLimits';
-import { resolveCampaignSenders, pickSender } from '@/lib/sendEngine';
+import { resolveCampaignSenders, pickSender, handleSendFailure } from '@/lib/sendEngine';
 import nodemailer from 'nodemailer';
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -362,37 +362,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       } catch (err: any) {
         console.error(`[Campaign Run Error] Failed to process lead ${lead.email}:`, err);
         errors.push({ email: lead.email, error: err.message || err });
-
-        // Mark the dispatch row (created before the send) as Failed so it is not
-        // counted as an actually-sent email.
-        if (dispatch) {
-          try {
-            await prisma.emailDispatch.update({
-              where: { id: dispatch.id },
-              data: { status: 'Failed' },
-            });
-          } catch (markErr: any) {
-            console.error(`[Campaign Run] Failed to mark dispatch failed for ${lead.email}:`, markErr.message);
-          }
-        }
-
-        // Mark enrollment as Failed to prevent retry loops
-        try {
-          await prisma.campaignEnrollment.update({
-            where: { id: enrollment.id },
-            data: { status: 'Failed', nextActionDate: null }
-          });
-
-          // Mark lead as Bounced + Invalid
-          await prisma.lead.update({
-            where: { id: lead.id },
-            data: {
-              status: 'Bounced',
-              validationStatus: 'Invalid',
-            }
-          });
-        } catch (updateErr: any) {
-          console.error(`[Campaign Run] Failed to update failure status for ${lead.email}:`, updateErr.message);
+        const result = await handleSendFailure(enrollment, lead, dispatch, err, campaign.name, campaign.id);
+        if (result.action === 'break') {
+          break;
         }
       }
     }

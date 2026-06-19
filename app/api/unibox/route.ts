@@ -54,9 +54,14 @@ export async function GET(req: NextRequest) {
       include: {
         lead: {
           include: {
-            enrollments: true
+            enrollments: {
+              include: {
+                campaign: true
+              }
+            }
           }
         },
+        campaign: true,
         senderAccount: true
       },
       orderBy: { receivedAt: 'desc' }
@@ -113,7 +118,9 @@ export async function GET(req: NextRequest) {
         body: r.body,
         timestamp: r.receivedAt,
         senderAccountId: r.senderAccountId,
-        senderAccount: r.senderAccount
+        senderAccount: r.senderAccount,
+        campaign: r.campaign,
+        unread: r.unread
       }));
       
       // Map dispatches to standard message format

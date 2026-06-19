@@ -1,8 +1,9 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 'use client';
 
-import { Search, MoreVertical, CornerUpLeft, Send, Trash2, MailOpen, Pause, FileText, ChevronDown, X, RefreshCw } from 'lucide-react';
+import { Search, MoreVertical, CornerUpLeft, Send, Trash2, MailOpen, Pause, FileText, ChevronDown, X, RefreshCw, Download } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import { toCsv, downloadCsv } from '@/lib/csv';
 
 const statusColors: Record<string, string> = {
   'Interested': 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900/30',
@@ -201,6 +202,51 @@ export default function UniboxPage() {
     markAsRead(id);
   };
 
+  const handleExportCSV = () => {
+    const rows: Record<string, any>[] = [];
+
+    filteredInbox.forEach(thread => {
+      const inboundMessages = (thread.messages || []).filter((msg: any) => msg.type === 'inbound');
+      inboundMessages.forEach((msg: any) => {
+        rows.push({
+          receivedAt: msg.timestamp,
+          leadEmail: thread.lead?.email || '',
+          leadName: thread.lead?.name || '',
+          company: thread.lead?.company || '',
+          campaign: msg.campaign?.name || thread.lead?.enrollments?.[0]?.campaign?.name || '',
+          senderAccount: msg.senderAccount?.emailAddress || thread.senderAccount?.emailAddress || '',
+          subject: msg.subject,
+          body: msg.body,
+          unread: msg.unread ? 'true' : 'false',
+          leadStatus: thread.lead?.status || 'Neutral'
+        });
+      });
+    });
+
+    if (rows.length === 0) {
+      showToast('No replies to export.');
+      return;
+    }
+
+    const columns = [
+      { key: 'receivedAt', label: 'Received At' },
+      { key: 'leadEmail', label: 'Lead Email' },
+      { key: 'leadName', label: 'Lead Name' },
+      { key: 'company', label: 'Company' },
+      { key: 'campaign', label: 'Campaign' },
+      { key: 'senderAccount', label: 'Sender Account' },
+      { key: 'subject', label: 'Subject' },
+      { key: 'body', label: 'Body' },
+      { key: 'unread', label: 'Unread' },
+      { key: 'leadStatus', label: 'Lead Status' }
+    ];
+
+    const csvContent = toCsv(rows, columns);
+    const dateStr = new Date().toISOString().split('T')[0];
+    downloadCsv(`replies-${dateStr}.csv`, csvContent);
+    showToast(`Successfully exported ${rows.length} replies to CSV.`);
+  };
+
   const templatesList = [
     { name: 'Arrange Quick Call', text: "Hi {{firstName}},\n\nI'd love to chat. Would Tuesday at 2 PM EST work for a brief 10-minute introduction call?\n\nBest,\nJohn" },
     { name: 'SaaS Demo Setup', text: "Hi {{firstName}},\n\nAwesome to hear. Here is our direct booking calendar link to choose any open slot that works for you: [Calendar Link]\n\nI look forward to our presentation!\n\nBest,\nJohn" },
@@ -355,13 +401,22 @@ export default function UniboxPage() {
                 {replies.filter(e => e.unread).length} NEW
               </span>
             </h2>
-            <button 
-              onClick={() => fetchReplies(false)}
-              className="p-1 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white ml-2 rounded hover:bg-slate-100 dark:hover:bg-slate-800"
-              title="Refresh Unibox"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-            </button>
+            <div className="flex items-center gap-1.5 ml-2 shrink-0">
+              <button 
+                onClick={handleExportCSV}
+                className="p-1 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white rounded hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                title="Export Replies to CSV"
+              >
+                <Download className="w-3.5 h-3.5" />
+              </button>
+              <button 
+                onClick={() => fetchReplies(false)}
+                className="p-1 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white rounded hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                title="Refresh Unibox"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
           <div className="relative">
             <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />

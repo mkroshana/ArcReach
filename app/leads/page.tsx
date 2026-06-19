@@ -38,6 +38,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { TableSkeleton } from '@/components/Skeleton';
 import { useToast } from '@/components/Toast';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { toCsv, downloadCsv } from '@/lib/csv';
 
 export default function LeadsPage() {
   const [leads, setLeads] = useState<any[]>([]);
@@ -603,22 +604,41 @@ export default function LeadsPage() {
   };
 
   const handleExportCSV = () => {
-    const validLeads = leads.filter(l => l.validationStatus === 'Valid');
-    if (validLeads.length === 0) {
-      showToast('No verified Valid status leads to export.');
+    const exportLeads = selectedLeadIds.length > 0
+      ? leads.filter(l => selectedLeadIds.includes(l.id))
+      : filteredLeads;
+
+    if (exportLeads.length === 0) {
+      showToast('No leads to export.');
       return;
     }
-    const csvContent = "data:text/csv;charset=utf-8," 
-      + ["Name,Email,Company,Job Title,Verification"].join(",") + "\n"
-      + validLeads.map(e => `"${e.name || ''}","${e.email}","${e.company || ''}","${e.jobTitle || ''}","${e.validationStatus}"`).join("\n");
-      
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", "arcreach_verified_leads.csv");
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+
+    const columns = [
+      { key: 'name', label: 'Name' },
+      { key: 'email', label: 'Email' },
+      { key: 'company', label: 'Company' },
+      { key: 'jobTitle', label: 'Job Title' },
+      { key: 'status', label: 'Status' },
+      { key: 'validationStatus', label: 'Validation Status' },
+      { key: 'groups', label: 'Groups' },
+      { key: 'createdAt', label: 'Created At' }
+    ];
+
+    const rows = exportLeads.map(lead => ({
+      name: lead.name || '',
+      email: lead.email,
+      company: lead.company || '',
+      jobTitle: lead.jobTitle || '',
+      status: lead.status,
+      validationStatus: lead.validationStatus,
+      groups: (lead.groups || []).map((g: any) => g.group?.name).filter(Boolean).join(';'),
+      createdAt: ''
+    }));
+
+    const csvContent = toCsv(rows, columns);
+    const dateStr = new Date().toISOString().split('T')[0];
+    downloadCsv(`leads-${dateStr}.csv`, csvContent);
+    showToast(`Successfully exported ${exportLeads.length} leads to CSV.`);
   };
 
   const parseCSVLine = (line: string): string[] => {
@@ -1303,7 +1323,7 @@ export default function LeadsPage() {
                 className="flex items-center gap-1.5 bg-white hover:bg-slate-50 dark:bg-slate-950 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-xs px-3.5 py-2 rounded-lg font-bold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors shadow-xs cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5" />
-                Download Cleansed CSV
+                {selectedLeadIds.length > 0 ? `Export selected (${selectedLeadIds.length})` : 'Export CSV'}
               </button>
             </div>
 

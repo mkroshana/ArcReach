@@ -1,5 +1,6 @@
 import tls from 'tls';
 import { prisma } from './db';
+import { decodeMimeHeader } from './mime';
 
 interface ImapMessage {
   from: string;
@@ -342,7 +343,7 @@ export function parseHeaderResponse(fetchResp: string): HeaderInfo[] {
     const emailMatch = rawFrom.match(/<([^>]+)>/);
     const fromEmail = emailMatch ? emailMatch[1].trim() : rawFrom;
     
-    const subject = subjectMatch ? subjectMatch[1].trim() : '';
+    const subject = subjectMatch ? decodeMimeHeader(subjectMatch[1].trim()) : '';
     const dateStr = dateMatch ? dateMatch[1].trim() : '';
     const date = dateStr ? new Date(dateStr) : new Date();
     const messageId = msgIdMatch ? msgIdMatch[1].trim() : '';
@@ -412,7 +413,7 @@ function parseFetchResponse(fetchResp: string): ImapMessage[] {
     const emailMatch = rawFrom.match(/<([^>]+)>/);
     const fromEmail = emailMatch ? emailMatch[1].trim() : rawFrom;
     
-    const subject = subjectMatch ? subjectMatch[1].trim() : '';
+    const subject = subjectMatch ? decodeMimeHeader(subjectMatch[1].trim()) : '';
     const dateStr = dateMatch ? dateMatch[1].trim() : '';
     const date = dateStr ? new Date(dateStr) : new Date();
     const messageId = msgIdMatch ? msgIdMatch[1].trim() : '';

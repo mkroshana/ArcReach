@@ -36,6 +36,7 @@ import {
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { TableSkeleton } from '@/components/Skeleton';
+import { decodeMimeHeader } from '@/lib/mime';
 import { useToast } from '@/components/Toast';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { toCsv, downloadCsv } from '@/lib/csv';
@@ -145,7 +146,7 @@ export default function LeadsPage() {
       id: r.id,
       type: 'reply',
       date: new Date(r.receivedAt),
-      subject: r.subject || 'Re: Outreach',
+      subject: decodeMimeHeader(r.subject) || 'Re: Outreach',
       body: r.body || '',
       campaign: r.campaign?.name || 'Manual Outreach',
       events: []
@@ -891,7 +892,7 @@ export default function LeadsPage() {
       <header className="flex justify-between items-start md:items-center flex-col md:flex-row gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white mb-0.5">Leads Directory</h1>
-          <p className="text-slate-500 dark:text-slate-400 text-xs">Upload bulk spreadsheets, verify real deliverability state, and filter invalid addresses.</p>
+          <p className="text-slate-500 dark:text-slate-400 text-xs">Import contacts, verify email deliverability, and organize your prospect lists.</p>
         </div>
         <div className="flex gap-2.5">
           <button 
@@ -1295,7 +1296,7 @@ export default function LeadsPage() {
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
                   <input 
                     type="text" 
-                    placeholder="Search leads folder..."
+                    placeholder="Search leads..."
                     value={search}
                     onChange={e => setSearch(e.target.value)}
                     className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg pl-9 pr-4 py-1.8 text-xs text-slate-800 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none w-full md:w-52 focus:ring-2 focus:ring-blue-500/40 shadow-xs"
@@ -1358,13 +1359,13 @@ export default function LeadsPage() {
                           className="w-3.5 h-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500/40 cursor-pointer"
                         />
                       </th>
-                      <th className="px-5 py-3">Lead Target Name</th>
-                      <th className="px-5 py-3">Outreach Address</th>
-                      <th className="px-5 py-3">Assigned Brand</th>
-                      <th className="px-5 py-3">Deliverability Validation</th>
+                      <th className="px-5 py-3">Name</th>
+                      <th className="px-5 py-3">Email</th>
+                      <th className="px-5 py-3">Company</th>
+                      <th className="px-5 py-3">Deliverability</th>
                       <th className="px-5 py-3">Lead Status</th>
                       {(activeTab === 'leads' || activeTab === 'suppressed') && <th className="px-5 py-3">Groups</th>}
-                      <th className="px-5 py-3 text-right">Clear</th>
+                      <th className="px-5 py-3 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50 text-slate-700 dark:text-slate-400">
@@ -1612,10 +1613,10 @@ export default function LeadsPage() {
                   <table className="w-full text-left border-collapse">
                     <thead>
                       <tr className="border-b border-slate-200 dark:border-slate-800/80 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest bg-slate-50/20 dark:bg-slate-950/10">
-                        <th className="px-5 py-3">Lead Target Name</th>
-                        <th className="px-5 py-3">Outreach Address</th>
-                        <th className="px-5 py-3">Assigned Brand</th>
-                        <th className="px-5 py-3 text-right">Clear / Remove</th>
+                        <th className="px-5 py-3">Name</th>
+                        <th className="px-5 py-3">Email</th>
+                        <th className="px-5 py-3">Company</th>
+                        <th className="px-5 py-3 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50 text-slate-700 dark:text-slate-300">
@@ -1819,10 +1820,10 @@ export default function LeadsPage() {
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="border-b border-slate-200 dark:border-slate-800/80 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest bg-slate-50/20 dark:bg-slate-950/10">
-                    <th className="px-5 py-3">Lead Target Name</th>
-                    <th className="px-5 py-3">Outreach Address</th>
+                    <th className="px-5 py-3">Name</th>
+                    <th className="px-5 py-3">Email</th>
                     <th className="px-5 py-3">Overlapping Groups</th>
-                    <th className="px-5 py-3 text-right">Clear / Resolve</th>
+                    <th className="px-5 py-3 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50 text-slate-700 dark:text-slate-400">
@@ -1981,7 +1982,7 @@ export default function LeadsPage() {
                           <p className="font-mono text-slate-700 dark:text-slate-400 mt-0.5 break-all">{leadDetails.email}</p>
                         </div>
                         <div>
-                          <span className="text-slate-400 dark:text-slate-500 font-medium uppercase tracking-wider text-[9px]">Company Brand</span>
+                          <span className="text-slate-400 dark:text-slate-500 font-medium uppercase tracking-wider text-[9px]">Company</span>
                           <p className="text-slate-700 dark:text-slate-400 mt-0.5 font-semibold">{leadDetails.company || 'N/A'}</p>
                         </div>
                       </div>

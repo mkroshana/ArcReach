@@ -423,7 +423,7 @@ export default function AccountsPage() {
           <header className="flex justify-between items-center pb-4 border-b border-slate-200 dark:border-slate-800 mb-4">
             <div>
               <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white mb-0.5">Email Senders</h1>
-              <p className="text-slate-500 dark:text-slate-400 text-xs">Configure domains, configure throttling frequencies, and monitor network delivery limits.</p>
+              <p className="text-slate-500 dark:text-slate-400 text-xs">Connect sender mailboxes, set sending limits, and monitor deliverability.</p>
             </div>
             <button 
               onClick={handleOpenAddModal}
@@ -466,7 +466,7 @@ export default function AccountsPage() {
             <div className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1b1c26] rounded-xl overflow-hidden shadow-xs mt-6">
               <div className="p-4 border-b border-slate-200 dark:border-[#1b1c26] flex items-center justify-between bg-slate-50/40 dark:bg-slate-950/20">
                 <h2 className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-widest">Connected Outreach Senders</h2>
-                <span className="text-[10px] font-bold text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 px-2.5 py-0.5 rounded border border-blue-200 dark:border-blue-500/15 uppercase tracking-widest font-mono">SMTP/IMAP protocol ready</span>
+                <span className="text-[10px] font-bold text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 px-2.5 py-0.5 rounded border border-blue-200 dark:border-blue-500/15 uppercase tracking-widest font-mono">SMTP &amp; IMAP Ready</span>
               </div>
               
               <div className="w-full overflow-x-auto animate-in fade-in duration-300">
@@ -474,8 +474,8 @@ export default function AccountsPage() {
                   <thead>
                     <tr className="border-b border-slate-200 dark:border-[#1b1c26] text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest bg-slate-50/20 dark:bg-slate-950/10">
                       <th className="px-5 py-3">Sender Mailbox</th>
-                      <th className="px-5 py-3">Connection Mode</th>
-                      <th className="px-5 py-3">Daily Throttling Limit</th>
+                      <th className="px-5 py-3">Protocol</th>
+                      <th className="px-5 py-3">Daily Limit</th>
                       <th className="px-5 py-3">Assigned Owner</th>
                       <th className="px-5 py-3">Status</th>
                       <th className="px-5 py-3 text-right">Configure</th>
@@ -678,9 +678,7 @@ export default function AccountsPage() {
                 {selectedWarmupAccount.provider !== 'Azure Relay Node' && (
                   <div className="p-3.5 rounded-xl border border-slate-200 dark:border-[#1e202d] bg-slate-50/30 dark:bg-[#10121a]/50 space-y-3">
                     <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                      {selectedWarmupAccount.provider === 'Google Workspace'
-                        ? 'Outbound Mail Delivery [Google App Password Method]'
-                        : 'Outbound Mail Delivery [SMTP]'}
+                      Outbound Email (SMTP)
                     </h4>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
@@ -741,9 +739,7 @@ export default function AccountsPage() {
                 {selectedWarmupAccount.provider !== 'SendGrid Relay Node' && selectedWarmupAccount.provider !== 'Azure Relay Node' && (
                   <div className="p-3.5 rounded-xl border border-slate-200 dark:border-[#1e202d] bg-slate-50/30 dark:bg-[#10121a]/50 space-y-3">
                     <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                      {selectedWarmupAccount.provider === 'Google Workspace'
-                        ? 'Inbound Reply Sync [Google App Password Method]'
-                        : 'Inbound Reply Sync [IMAP]'}
+                      Inbound Replies (IMAP)
                     </h4>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
@@ -859,7 +855,7 @@ export default function AccountsPage() {
                   <div className="p-3 bg-blue-50/80 dark:bg-blue-950/10 border border-blue-200 dark:border-blue-500/10 rounded-lg flex gap-3 text-[11px] leading-relaxed text-blue-700 dark:text-blue-300">
                     <Sparkles className="w-4 h-4 flex-shrink-0 text-blue-600 dark:text-blue-400" />
                     <p className="font-sans font-medium">
-                      <strong>Throttling Advice:</strong> To protect domain DNS records, we randomize interval spaces heavily. A minute limit of 5 is recommended for new mailboxes.
+                      <strong>Throttling tip:</strong> To protect sender reputation, sends are spread out over time. A low per-minute limit (around 5) is recommended for new mailboxes.
                     </p>
                   </div>
                 </div>
@@ -1016,7 +1012,7 @@ export default function AccountsPage() {
                   </div>
 
                   <div className="md:col-span-1 space-y-1.5">
-                    <label className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-widest font-bold">Connection Tech Provider</label>
+                    <label className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-widest font-bold">Email Provider</label>
                     <select
                       value={provider}
                       onChange={(e) => handleProviderChange(e.target.value)}
@@ -1057,9 +1053,7 @@ export default function AccountsPage() {
                 {provider !== 'Azure Relay Node' && (
                   <div className="p-3.5 rounded-xl border border-slate-200 dark:border-[#1e202d] bg-slate-50/30 dark:bg-[#10121a]/50 space-y-3">
                     <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                      {provider === 'Google Workspace'
-                        ? `Outbound Mail Delivery [Google App Password Method] ${isSmtpDisabled(globalActiveProvider) ? '(Global Route Override)' : ''}`
-                        : `Outbound Mail Delivery [SMTP] ${isSmtpDisabled(globalActiveProvider) ? '(Global Route Override)' : ''}`}
+                      Outbound Email (SMTP){isSmtpDisabled(globalActiveProvider) ? ' · overrides global route' : ''}
                     </h4>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
@@ -1121,9 +1115,7 @@ export default function AccountsPage() {
                 {provider !== 'SendGrid Relay Node' && provider !== 'Azure Relay Node' && (
                   <div className="p-3.5 rounded-xl border border-slate-200 dark:border-[#1e202d] bg-slate-50/30 dark:bg-[#10121a]/50 space-y-3">
                     <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                      {provider === 'Google Workspace'
-                        ? 'Inbound Reply Sync [Google App Password Method]'
-                        : 'Inbound Reply Sync [IMAP]'}
+                      Inbound Replies (IMAP)
                     </h4>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
@@ -1185,7 +1177,7 @@ export default function AccountsPage() {
                 <div className="p-4 rounded-xl border border-slate-200 dark:border-[#1e202d] bg-slate-50/50 dark:bg-[#10121a] mt-2 space-y-3.5 shadow-2xs">
                   <h3 className="text-[10px] font-extrabold uppercase tracking-wide text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
                     <Activity className="w-3.5 h-3.5 text-blue-500" />
-                    Sending Throttling Threshold Limits
+                    Sending Limits
                   </h3>
                   
                   <div className="grid grid-cols-3 gap-3">
@@ -1227,7 +1219,7 @@ export default function AccountsPage() {
                   {accounts.length > 0 && (
                     <div className="border-t border-slate-100 dark:border-[#1c1d29] pt-3 mt-3.5 space-y-3">
                       <div className="flex justify-between items-center text-[10px] uppercase font-bold text-slate-400 dark:text-slate-500 tracking-wider">
-                        <span>Combined Network Capacity</span>
+                        <span>Combined Daily Capacity</span>
                         <span className="text-blue-600 dark:text-blue-400 font-mono">
                           {totalSentToday} / {totalDailyLimit} Sent Today
                         </span>
@@ -1261,7 +1253,7 @@ export default function AccountsPage() {
 
                       {/* Individual Account Allocation Lists */}
                       <div className="space-y-1.5 max-h-24 overflow-y-auto pr-1">
-                        <div className="text-[9px] uppercase font-bold text-slate-400 dark:text-slate-500 tracking-wider">Individual Allocation Breakdown</div>
+                        <div className="text-[9px] uppercase font-bold text-slate-400 dark:text-slate-500 tracking-wider">Per-Mailbox Allocation</div>
                         {accounts.map(acc => {
                           const percent = Math.min(100, acc.dailyLimit > 0 ? ((acc.sentToday || 0) / acc.dailyLimit) * 100 : 0);
                           return (
@@ -1279,7 +1271,7 @@ export default function AccountsPage() {
                   )}
                   
                   <p className="text-[9px] text-slate-400 dark:text-slate-500 leading-normal font-sans font-medium">
-                    Limits are strictly audited in delivery buffers. Active accounts shouldn't exceed 500 emails/day to maximize DMARC reputation health.
+                    Keep volumes conservative — most mailboxes shouldn't exceed ~500 emails/day to protect sender reputation and deliverability.
                   </p>
                 </div>
 
@@ -1296,7 +1288,7 @@ export default function AccountsPage() {
                     disabled={submitting}
                     className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-600/55 rounded-lg text-white font-semibold text-xs transition-colors cursor-pointer shadow-xs"
                   >
-                    {submitting ? 'Plugging domain...' : 'Plug Sender Mailbox'}
+                    {submitting ? 'Connecting...' : 'Connect Mailbox'}
                   </button>
                 </div>
               </form>

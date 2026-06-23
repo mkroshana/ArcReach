@@ -490,9 +490,9 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
           { title: 'Total Sent Requests', value: (campaign?.telemetry?.sentRequests ?? 0).toLocaleString(), icon: SendHorizontal, color: 'text-slate-600 dark:text-slate-300', bg: 'bg-slate-100 dark:bg-slate-800/40', border: 'border-slate-200 dark:border-slate-700/40', pct: 'Includes retries & failures' },
           { title: 'Emails Sent', value: (campaign?.telemetry?.sent ?? 0).toLocaleString(), icon: Send, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-950/25', border: 'border-blue-100 dark:border-blue-500/10', pct: 'Accepted by provider' },
           { title: 'Delivered', value: (campaign?.telemetry?.delivered ?? 0).toLocaleString(), icon: CheckCircle2, color: 'text-emerald-700 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-950/25', border: 'border-emerald-100 dark:border-emerald-500/10', pct: `${campaign?.telemetry?.deliveryRate ?? 0}% delivery rate` },
-          { title: 'Email Opens', value: (campaign?.telemetry?.opens ?? 0).toLocaleString(), icon: Mail, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-950/25', border: 'border-blue-100 dark:border-blue-500/10', pct: `${campaign?.telemetry?.openRate ?? 0}% open rate` },
-          { title: 'Goal Clicks', value: (campaign?.telemetry?.clicks ?? 0).toLocaleString(), icon: MousePointerClick, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-950/25', border: 'border-blue-100 dark:border-blue-500/10', pct: `${campaign?.telemetry?.clickRate ?? 0}% clickthrough` },
-          { title: 'CRM Replies', value: (campaign?.telemetry?.replies ?? 0).toLocaleString(), icon: Reply, color: 'text-emerald-700 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-950/25', border: 'border-emerald-100 dark:border-emerald-500/10', pct: `${campaign?.telemetry?.replyRate ?? 0}% reply rate` },
+          { title: 'Opens', value: (campaign?.telemetry?.opens ?? 0).toLocaleString(), icon: Mail, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-950/25', border: 'border-blue-100 dark:border-blue-500/10', pct: `${campaign?.telemetry?.openRate ?? 0}% open rate` },
+          { title: 'Clicks', value: (campaign?.telemetry?.clicks ?? 0).toLocaleString(), icon: MousePointerClick, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-950/25', border: 'border-blue-100 dark:border-blue-500/10', pct: `${campaign?.telemetry?.clickRate ?? 0}% click rate` },
+          { title: 'Replies', value: (campaign?.telemetry?.replies ?? 0).toLocaleString(), icon: Reply, color: 'text-emerald-700 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-950/25', border: 'border-emerald-100 dark:border-emerald-500/10', pct: `${campaign?.telemetry?.replyRate ?? 0}% reply rate` },
         ].map((stat, i) => (
           <div key={i} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-xs">
             <div className="flex justify-between items-start mb-2">
@@ -933,7 +933,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                      Campaign Senders Pool & Rotation
                    </h2>
                    <span className="text-[9px] bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded font-extrabold uppercase tracking-wider">
-                     {selectedPoolIds.length || 1} Active Senders
+                     {selectedPoolIds.length || 1} Active {(selectedPoolIds.length || 1) === 1 ? 'Sender' : 'Senders'}
                    </span>
                  </div>
                  
@@ -1053,7 +1053,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
 
            {/* Telemetry Chart details */}
            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 flex flex-col shadow-xs">
-             <h2 className="text-[10px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400 mb-6">Funnel Over Time</h2>
+             <h2 className="text-[10px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400 mb-6">Engagement Over Time</h2>
              <div className="h-[200px] w-full">
                <ResponsiveContainer width="100%" height="100%">
                  <AreaChart data={campaign?.telemetry?.trend || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>

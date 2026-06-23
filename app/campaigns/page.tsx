@@ -37,6 +37,7 @@ interface DbCampaign {
     emailAddress: string;
   };
   userId: string | null;
+  user?: { id: string; name: string | null; email: string } | null;
   createdAt: string;
   steps?: {
     id: string;
@@ -279,7 +280,7 @@ export default function CampaignsPage() {
       <header className="flex justify-between items-center pb-4 border-b border-slate-200 dark:border-slate-800">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white mb-0.5">Campaign Sequences</h1>
-          <p className="text-slate-500 dark:text-slate-400 text-xs">Establish cold sequences, attach sender nodes, and orchestrate automated client follow-ups.</p>
+          <p className="text-slate-500 dark:text-slate-400 text-xs">Build cold email sequences, connect sender mailboxes, and automate your follow-ups.</p>
         </div>
         <button 
           onClick={() => {
@@ -304,7 +305,7 @@ export default function CampaignsPage() {
             <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
             <input 
               type="text" 
-              placeholder="Search active sequencers..." 
+              placeholder="Search campaigns..."
               value={search}
               onChange={e => setSearch(e.target.value)}
               className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-[#20222e] text-slate-800 dark:text-white text-xs rounded-lg pl-9 pr-4 py-2 outline-none focus:ring-2 focus:ring-blue-500/15 placeholder:text-slate-400 dark:placeholder:text-slate-500 transition-all shadow-xs"
@@ -340,8 +341,8 @@ export default function CampaignsPage() {
               <thead>
                 <tr className="border-b border-slate-200 dark:border-[#1b1c26] text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest bg-slate-50/10 dark:bg-slate-950/20">
                   <th className="px-5 py-3">Sequence Details</th>
-                  <th className="px-5 py-3">Sender Mailbox Relay</th>
-                  <th className="px-5 py-3">Assign Owner</th>
+                  <th className="px-5 py-3">Sender Mailbox</th>
+                  <th className="px-5 py-3">Owner</th>
                   <th className="px-5 py-3">Status</th>
                   <th className="px-5 py-3 text-right">Configure</th>
                 </tr>
@@ -378,7 +379,7 @@ export default function CampaignsPage() {
                       <td className="px-5 py-3.5 text-xs text-slate-600 dark:text-slate-400">
                         <span className="flex items-center gap-1.5 font-medium">
                           <User className="w-3.5 h-3.5 text-slate-400" />
-                          {campaign.userId === session?.id ? 'Me (' + session?.name + ')' : (campaign.userId || 'Company Admin')}
+                          {campaign.userId === session?.id ? `Me (${session?.name})` : (campaign.user?.name || campaign.user?.email || 'Company Admin')}
                         </span>
                       </td>
                       <td className="px-5 py-3.5">
@@ -453,7 +454,7 @@ export default function CampaignsPage() {
                                     ) : (
                                       <PlayCircle className="w-3 h-3" />
                                     )}
-                                    {executingId === campaign.id ? 'Running Cycle...' : 'Run Campaign Dispatch'}
+                                    {executingId === campaign.id ? 'Running...' : 'Run Now'}
                                   </button>
                                 )}
                               </div>

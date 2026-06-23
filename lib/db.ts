@@ -125,13 +125,17 @@ export const db = {
             senderAccount: true
           }
         },
+        user: { select: { id: true, name: true, email: true } },
         steps: { orderBy: { stepOrder: 'asc' } },
         enrollments: true,
         dispatches: {
           select: {
             id: true,
             subject: true,
-            leadId: true
+            leadId: true,
+            stepOrder: true,
+            status: true,
+            deliveredAt: true
           }
         }
       },

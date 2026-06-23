@@ -23,15 +23,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Forbidden. Admin role required.' }, { status: 403 });
     }
 
-    const { name, email, role } = await req.json();
+    const { name, email, role, password } = await req.json();
     if (!email || !role) {
       return NextResponse.json({ error: 'Email and role are required' }, { status: 400 });
+    }
+    if (!password || password.length < 8) {
+      return NextResponse.json({ error: 'A password of at least 8 characters is required.' }, { status: 400 });
     }
 
     const newUser = await db.createUser({
       name: name || '',
       email,
       role: role as 'ADMIN' | 'USER',
+      password,
     });
 
     return NextResponse.json(newUser);
@@ -47,12 +51,24 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'Forbidden. Admin role required.' }, { status: 403 });
     }
 
-    const { id, role } = await req.json();
-    if (!id || !role) {
-      return NextResponse.json({ error: 'User ID and Role are required' }, { status: 400 });
+    const { id, role, password } = await req.json();
+    if (!id) {
+      return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
+    }
+    if (!role && password === undefined) {
+      return NextResponse.json({ error: 'A role or password is required' }, { status: 400 });
+    }
+    if (password !== undefined && (!password || password.length < 8)) {
+      return NextResponse.json({ error: 'A password of at least 8 characters is required.' }, { status: 400 });
     }
 
-    const updated = await db.updateUserRole(id, role);
+    let updated;
+    if (role) {
+      updated = await db.updateUserRole(id, role);
+    }
+    if (password) {
+      updated = await db.updateUserPassword(id, password);
+    }
     if (!updated) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }

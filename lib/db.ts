@@ -175,13 +175,17 @@ export const db = {
     });
   },
 
-  async createUser(data: { name: string; email: string; role: 'ADMIN' | 'USER' }) {
+  async createUser(data: { name: string; email: string; role: 'ADMIN' | 'USER'; password: string }) {
     await ensureInit();
     return prisma.user.create({
       data: {
-        ...data,
-        passwordHash: hashPassword('securemypassword123')
-      }
+        name: data.name,
+        email: data.email,
+        role: data.role,
+        passwordHash: hashPassword(data.password)
+      },
+      // Never return the password hash to the client.
+      select: { id: true, email: true, name: true, role: true, createdAt: true }
     });
   },
 
@@ -189,7 +193,17 @@ export const db = {
     await ensureInit();
     return prisma.user.update({
       where: { id },
-      data: { role }
+      data: { role },
+      select: { id: true, email: true, name: true, role: true, createdAt: true }
+    });
+  },
+
+  async updateUserPassword(id: string, password: string) {
+    await ensureInit();
+    return prisma.user.update({
+      where: { id },
+      data: { passwordHash: hashPassword(password) },
+      select: { id: true, email: true, name: true, role: true, createdAt: true }
     });
   },
 

@@ -13,7 +13,12 @@ import {
   Mail,
   Calendar,
   Lock,
-  UserCheck
+  UserCheck,
+  Eye,
+  EyeOff,
+  Copy,
+  RefreshCw,
+  KeyRound
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -23,6 +28,72 @@ interface DbUser {
   name: string;
   role: 'ADMIN' | 'USER';
   createdAt: string;
+}
+
+/**
+ * Generates a strong random password using the Web Crypto API.
+ * Excludes ambiguous characters (0/O, 1/l/I) for readability when typed manually.
+ */
+function generatePassword(length = 16): string {
+  const charset = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*';
+  const arr = new Uint32Array(length);
+  crypto.getRandomValues(arr);
+  return Array.from(arr, (n) => charset[n % charset.length]).join('');
+}
+
+/** Password field with show/hide, generate, and copy controls. */
+function PasswordInput({
+  value,
+  onChange,
+  show,
+  setShow,
+  onGenerate,
+  onCopy,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  show: boolean;
+  setShow: (v: boolean) => void;
+  onGenerate: () => void;
+  onCopy: () => void;
+}) {
+  return (
+    <div className="flex gap-2">
+      <div className="relative flex-1">
+        <input
+          type={show ? 'text' : 'password'}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="Enter or generate a password"
+          className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg pl-3 pr-9 py-2.5 outline-none text-xs font-mono"
+        />
+        <button
+          type="button"
+          onClick={() => setShow(!show)}
+          title={show ? 'Hide password' : 'Show password'}
+          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+        >
+          {show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+        </button>
+      </div>
+      <button
+        type="button"
+        onClick={onGenerate}
+        title="Generate strong password"
+        className="px-2.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/40 cursor-pointer"
+      >
+        <RefreshCw className="w-3.5 h-3.5" />
+      </button>
+      <button
+        type="button"
+        onClick={onCopy}
+        title="Copy password"
+        className="px-2.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/40 cursor-pointer"
+      >
+        <Copy className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  );
 }
 
 export default function UsersAdminPage() {
@@ -36,7 +107,25 @@ export default function UsersAdminPage() {
   const [newEmail, setNewEmail] = useState('');
   const [newName, setNewName] = useState('');
   const [newRole, setNewRole] = useState<'ADMIN' | 'USER'>('USER');
+  const [newPassword, setNewPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+
+  // Reset-password modal state
+  const [resetUser, setResetUser] = useState<DbUser | null>(null);
+  const [resetPassword, setResetPassword] = useState('');
+  const [showResetPassword, setShowResetPassword] = useState(true);
+  const [resetting, setResetting] = useState(false);
+
+  const copyToClipboard = async (text: string) => {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast('Password copied to clipboard');
+    } catch {
+      showToast('Could not copy to clipboard', 'error');
+    }
+  };
 
   // Success message toast
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -73,6 +162,10 @@ export default function UsersAdminPage() {
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newEmail) return;
+    if (!newPassword || newPassword.length < 8) {
+      showToast('Set a password of at least 8 characters (use Generate for a strong one).', 'error');
+      return;
+    }
 
     try {
       setSubmitting(true);
@@ -83,6 +176,7 @@ export default function UsersAdminPage() {
           name: newName,
           email: newEmail,
           role: newRole,
+          password: newPassword,
         }),
       });
 
@@ -102,11 +196,43 @@ export default function UsersAdminPage() {
       setNewEmail('');
       setNewName('');
       setNewRole('USER');
+      setNewPassword('');
       showToast('User added');
     } catch (err: any) {
       showToast(err.message || 'Error occurred', 'error');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetUser) return;
+    if (!resetPassword || resetPassword.length < 8) {
+      showToast('Set a password of at least 8 characters (use Generate for a strong one).', 'error');
+      return;
+    }
+
+    try {
+      setResetting(true);
+      const res = await fetch('/api/users', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: resetUser.id, password: resetPassword }),
+      });
+
+      if (!res.ok) {
+        const errObj = await res.json().catch(() => ({}));
+        throw new Error(errObj.error || 'Failed to reset password.');
+      }
+
+      showToast(`Password reset for ${resetUser.email}`);
+      setResetUser(null);
+      setResetPassword('');
+    } catch (err: any) {
+      showToast(err.message || 'Failed to reset password', 'error');
+    } finally {
+      setResetting(false);
     }
   };
 
@@ -271,6 +397,13 @@ export default function UsersAdminPage() {
                         {item.role === 'ADMIN' ? 'Demote to User' : 'Promote to Admin'}
                       </button>
                       <button
+                        onClick={() => { setResetUser(item); setResetPassword(''); setShowResetPassword(true); }}
+                        title="Reset password"
+                        className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60 cursor-pointer inline-flex items-center justify-center"
+                      >
+                        <KeyRound className="w-3.5 h-3.5" />
+                      </button>
+                      <button
                         onClick={() => handleDeleteUser(item.id)}
                         disabled={item.id === 'admin-id-999' || item.id === currentSession?.id}
                         className={`p-1.5 rounded-lg border transition-colors inline-flex items-center justify-center ${item.id === 'admin-id-999' || item.id === currentSession?.id
@@ -357,14 +490,17 @@ export default function UsersAdminPage() {
                 <div className="space-y-1.5">
                   <label className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-widest font-bold flex items-center gap-1.5">
                     <Lock className="w-3.5 h-3.5" />
-                    Temporary Password
+                    Password
                   </label>
-                  <input
-                    type="text"
-                    disabled
-                    value="securemypassword123 (Auto)"
-                    className="w-full bg-slate-100/50 dark:bg-slate-900/40 border border-slate-200 dark:border-[#1f2130]/60 text-slate-400 rounded-lg px-3 py-2.5 text-xs font-mono cursor-not-allowed"
+                  <PasswordInput
+                    value={newPassword}
+                    onChange={setNewPassword}
+                    show={showNewPassword}
+                    setShow={setShowNewPassword}
+                    onGenerate={() => { setNewPassword(generatePassword()); setShowNewPassword(true); }}
+                    onCopy={() => copyToClipboard(newPassword)}
                   />
+                  <p className="text-[10px] text-slate-400 dark:text-slate-500">Share this with the user securely — they can change it later from Settings.</p>
                 </div>
 
                 <div className="space-y-1.5">
@@ -407,6 +543,78 @@ export default function UsersAdminPage() {
                     className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-600/55 rounded-lg text-white font-semibold text-xs transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
                   >
                     {submitting ? 'Adding...' : 'Add User'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Reset Password Modal */}
+      <AnimatePresence>
+        {resetUser && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setResetUser(null)}
+              className="absolute inset-0 bg-slate-950/40 backdrop-blur-xs"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] w-full max-w-md rounded-2xl p-6 shadow-2xl relative z-10"
+            >
+              <header className="flex justify-between items-center pb-4 border-b border-slate-100 dark:border-[#1c1d29] mb-4">
+                <div className="flex items-center gap-2">
+                  <KeyRound className="w-5 h-5 text-blue-500" />
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">Reset Password</h3>
+                </div>
+                <button
+                  onClick={() => setResetUser(null)}
+                  className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800/50 rounded-lg text-slate-400 dark:text-slate-500 transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </header>
+
+              <form onSubmit={handleResetPassword} className="space-y-4">
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Set a new password for <strong className="text-slate-900 dark:text-white">{resetUser.email}</strong>.
+                </p>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-widest font-bold flex items-center gap-1.5">
+                    <Lock className="w-3.5 h-3.5" />
+                    New Password
+                  </label>
+                  <PasswordInput
+                    value={resetPassword}
+                    onChange={setResetPassword}
+                    show={showResetPassword}
+                    setShow={setShowResetPassword}
+                    onGenerate={() => { setResetPassword(generatePassword()); setShowResetPassword(true); }}
+                    onCopy={() => copyToClipboard(resetPassword)}
+                  />
+                  <p className="text-[10px] text-slate-400 dark:text-slate-500">Share this with the user securely — they can change it later from Settings.</p>
+                </div>
+
+                <div className="pt-2 flex justify-end gap-3 border-t border-slate-100 dark:border-[#1c1d29] mt-6">
+                  <button
+                    type="button"
+                    onClick={() => setResetUser(null)}
+                    className="px-4 py-2 bg-slate-50 hover:bg-slate-100 dark:bg-[#12141d] dark:hover:bg-[#1b1d28] border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={resetting}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-600/55 rounded-lg text-white font-semibold text-xs transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  >
+                    {resetting ? 'Resetting...' : 'Reset Password'}
                   </button>
                 </div>
               </form>

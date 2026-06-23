@@ -778,6 +778,7 @@ describe('ArcReach Live API Integration Tests', () => {
           name: 'Integration Test User',
           email: 'test-user-api@arcreach.com',
           role: 'USER',
+          password: 'integration-test-pw-123',
         }),
       });
       expect(createRes.status).toBe(200);

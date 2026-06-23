@@ -28,7 +28,9 @@
 
 3. **Sender Accounts & Throttle Controls** ([app/accounts](file:///d:/Development/ArcReach/app/accounts))
    - Link multiple sender mailboxes (Microsoft 365, Google Workspace, custom SMTP/IMAP).
-   - Dynamic deliverability stats: reputations scores, warmup controls, replies count, and spam-save telemetry.
+   - Per-mailbox deliverability stats: emails sent/opened/clicked, replies, and bounces.
+   - Warmup volume ramp (gradually increases a new mailbox's daily cap; enforced by the send engine).
+   - *Planned (schema fields present but not yet computed):* reputation score and spam-save / warmup-network telemetry.
    - Fine-grained throttle configurations (minute limits, hourly limits, and daily caps) evaluated by the sending engine.
 
 4. **Lead CRM & Bulk Validation** ([app/leads](file:///d:/Development/ArcReach/app/leads))

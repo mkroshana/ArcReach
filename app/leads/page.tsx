@@ -632,7 +632,7 @@ export default function LeadsPage() {
       status: lead.status,
       validationStatus: lead.validationStatus,
       groups: (lead.groups || []).map((g: any) => g.group?.name).filter(Boolean).join(';'),
-      createdAt: ''
+      createdAt: lead.createdAt || ''
     }));
 
     const csvContent = toCsv(rows, columns);

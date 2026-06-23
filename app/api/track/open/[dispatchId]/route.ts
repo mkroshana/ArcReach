@@ -28,15 +28,20 @@ export async function GET(
       if (botFilter.drop) {
         console.log(`[Track Open] Bot filter: ${botFilter.reason || 'dropped'} for dispatch ${dispatchId} (UA: ${userAgent})`);
       } else {
-        // Record the open event (fire-and-forget — don't block the pixel response)
-        await prisma.emailEvent.create({
-          data: {
-            messageId: dispatch.messageId,
-            eventType: 'open',
-          },
-        }).catch((err) => {
-          console.error('[Track Open] Failed to record open event:', err);
+        // Dedupe: one 'open' event per dispatch (repeated pixel loads shouldn't pile up rows).
+        const existingOpen = await prisma.emailEvent.findFirst({
+          where: { messageId: dispatch.messageId, eventType: 'open' },
         });
+        if (!existingOpen) {
+          await prisma.emailEvent.create({
+            data: {
+              messageId: dispatch.messageId,
+              eventType: 'open',
+            },
+          }).catch((err) => {
+            console.error('[Track Open] Failed to record open event:', err);
+          });
+        }
       }
     } else {
       console.log(`[Track Open] Dispatch not found: ${dispatchId}`);

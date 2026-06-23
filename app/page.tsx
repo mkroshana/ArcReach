@@ -263,6 +263,9 @@ export default function Dashboard() {
         </div>
       ) : (
         <>
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium -mb-2">
+            Showing metrics for the last {range} days. Deltas compare against the prior {range}-day window.
+          </p>
           {/* Structured Stats Section */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <StatCard 

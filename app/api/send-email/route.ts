@@ -2,10 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { applyEmailTracking } from '@/lib/emailTracking';
 import { checkGlobalRateLimits } from '@/lib/rateLimits';
+import { getSession } from '@/lib/session';
 import nodemailer from 'nodemailer';
 
 export async function POST(req: NextRequest) {
   try {
+    // Authorize the caller (consistent with all sibling routes; middleware also gates this).
+    await getSession();
+
     const body = await req.json();
     const { campaignId, senderAccountId, leadData, subject, bodyText } = body;
 

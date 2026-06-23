@@ -55,16 +55,22 @@ export async function GET(
       if (botFilter.drop) {
         console.log(`[Track Click] Bot filter: ${botFilter.reason || 'dropped'} for dispatch ${dispatch.id} (UA: ${userAgent})`);
       } else {
-        // Record the click event
-        await prisma.emailEvent.create({
-          data: {
-            messageId: dispatch.messageId,
-            eventType: 'click',
-            clickedUrl: targetUrl,
-          },
-        }).catch((err) => {
-          console.error('[Track Click] Failed to record click event:', err);
+        // Dedupe per (dispatch, url): collapse repeat clicks of the same link, but keep
+        // distinct links so per-URL click data is preserved.
+        const existingClick = await prisma.emailEvent.findFirst({
+          where: { messageId: dispatch.messageId, eventType: 'click', clickedUrl: targetUrl },
         });
+        if (!existingClick) {
+          await prisma.emailEvent.create({
+            data: {
+              messageId: dispatch.messageId,
+              eventType: 'click',
+              clickedUrl: targetUrl,
+            },
+          }).catch((err) => {
+            console.error('[Track Click] Failed to record click event:', err);
+          });
+        }
       }
     } else {
       console.log(`[Track Click] Dispatch not found: ${dispatchId}`);

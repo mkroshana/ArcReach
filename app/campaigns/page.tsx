@@ -147,6 +147,7 @@ export default function CampaignsPage() {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [campaignName, setCampaignName] = useState('');
   const [selectedMailboxId, setSelectedMailboxId] = useState('');
+  const [selectedPoolIds, setSelectedPoolIds] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
   // Success message toast
@@ -232,6 +233,8 @@ export default function CampaignsPage() {
         body: JSON.stringify({
           name: campaignName,
           senderAccountId: selectedMailboxId,
+          // Rotation pool: primary plus any additional selected mailboxes (deduped).
+          senderAccountIds: Array.from(new Set([selectedMailboxId, ...selectedPoolIds])),
           status: 'Draft',
         }),
       });
@@ -243,6 +246,7 @@ export default function CampaignsPage() {
       const created = await res.json();
       showToast('Campaign sequence initiated successfully');
       setCampaignName('');
+      setSelectedPoolIds([]);
       setIsAddOpen(false);
       
       // Redirect to newly created campaign editor page!
@@ -711,6 +715,32 @@ export default function CampaignsPage() {
                     ))}
                   </select>
                 </div>
+
+                {accounts.filter((acc) => acc.id !== selectedMailboxId).length > 0 && (
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-widest font-bold flex items-center gap-1.5">
+                      <Mail className="w-3.5 h-3.5" />
+                      Rotate Across Additional Mailboxes (optional)
+                    </label>
+                    <div className="max-h-32 overflow-y-auto space-y-0.5 border border-slate-200 dark:border-[#1f2130] rounded-lg p-2 bg-slate-50 dark:bg-[#12141d]">
+                      {accounts.filter((acc) => acc.id !== selectedMailboxId).map((acc) => (
+                        <label key={acc.id} className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 px-1.5 py-1 cursor-pointer rounded hover:bg-slate-100 dark:hover:bg-slate-800/40">
+                          <input
+                            type="checkbox"
+                            checked={selectedPoolIds.includes(acc.id)}
+                            onChange={(e) =>
+                              setSelectedPoolIds((prev) =>
+                                e.target.checked ? [...prev, acc.id] : prev.filter((id) => id !== acc.id)
+                              )
+                            }
+                          />
+                          <span>{acc.emailAddress} ({acc.provider})</span>
+                        </label>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-slate-400 dark:text-slate-500">Sending volume is spread across the primary plus any selected mailboxes (least-loaded first).</p>
+                  </div>
+                )}
 
                 <div className="p-3 bg-blue-50/80 dark:bg-blue-950/10 border border-blue-200 dark:border-blue-500/10 rounded-lg flex gap-3 text-[11px] leading-relaxed text-blue-700 dark:text-blue-300">
                   <Sparkles className="w-4 h-4 flex-shrink-0 text-blue-600 dark:text-blue-400" />

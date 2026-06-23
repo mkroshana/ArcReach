@@ -245,7 +245,7 @@ export default function TemplatesPage() {
       <header className="flex justify-between items-center pb-4 border-b border-slate-200 dark:border-slate-800">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white mb-0.5">Copy Library</h1>
-          <p className="text-slate-500 dark:text-slate-400 text-xs font-semibold">Write and manage high-converting cold email COPY strings with dynamic spintax spins.</p>
+          <p className="text-slate-500 dark:text-slate-400 text-xs font-semibold">Write and manage reusable email templates with personalization variables and Spintax.</p>
         </div>
         <button 
           onClick={createNewTemplate}
@@ -264,7 +264,7 @@ export default function TemplatesPage() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-slate-400" />
             <input 
               type="text" 
-              placeholder="Search templates folder..."
+              placeholder="Search templates..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full bg-slate-50 dark:bg-[#0e1017] border border-slate-200 dark:border-[#1b1c26] rounded-lg pl-9 pr-4 py-2 text-xs text-slate-800 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none focus:ring-2 focus:ring-blue-500/40 shadow-xs"
@@ -356,7 +356,7 @@ export default function TemplatesPage() {
                     }`}
                   >
                     <Eye className="w-3.5 h-3.5" />
-                    {previewResolved ? 'Edit Mode' : 'Sandbox Preview'}
+                    {previewResolved ? 'Edit Mode' : 'Preview'}
                   </button>
                   <button 
                     onClick={() => deleteTemplate(editingTemplate.id)}
@@ -409,18 +409,18 @@ export default function TemplatesPage() {
                   <div className="bg-blue-50 dark:bg-blue-950/15 border border-blue-200 dark:border-blue-500/15 p-4 rounded-lg flex items-start gap-3">
                     <Sparkles className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
                     <div>
-                      <p className="text-[10px] text-blue-700 dark:text-blue-400 font-bold uppercase tracking-wider">Dynamic Resolve Active (Step {activeStepIndex + 1})</p>
-                      <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 font-medium leading-relaxed">Resolving variables for contact address <strong className="text-slate-900 dark:text-white">Emily</strong> at company <strong className="text-slate-950 dark:text-white">Stark Industries</strong> with Spintax resolved.</p>
+                      <p className="text-[10px] text-blue-700 dark:text-blue-400 font-bold uppercase tracking-wider">Live Preview (Step {activeStepIndex + 1})</p>
+                      <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 font-medium leading-relaxed">Variables and Spintax resolved for sample contact <strong className="text-slate-900 dark:text-white">Emily</strong> at <strong className="text-slate-950 dark:text-white">Stark Industries</strong>.</p>
                     </div>
                   </div>
 
                   <div className="space-y-4 font-sans bg-slate-50 dark:bg-[#12141d] border border-slate-100 dark:border-[#1f2130] p-4 rounded-lg">
                     <div className="border-b border-slate-200 dark:border-[#1b1c26] pb-3">
-                      <span className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-widest font-bold font-mono">Subject Outcome:</span>
+                      <span className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-widest font-bold font-mono">Subject Preview:</span>
                       <p className="text-xs font-semibold text-slate-900 dark:text-white mt-1">{resolveTemplateText(editingTemplate.steps?.[activeStepIndex]?.subject || '')}</p>
                     </div>
                     <div>
-                      <span className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-widest font-bold font-mono mb-2 block">Message Outcome:</span>
+                      <span className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-widest font-bold font-mono mb-2 block">Message Preview:</span>
                       {isHtml(resolveTemplateText(editingTemplate.steps?.[activeStepIndex]?.body || '')) ? (
                         <iframe 
                           srcDoc={resolveTemplateText(editingTemplate.steps?.[activeStepIndex]?.body || '')}
@@ -448,7 +448,7 @@ export default function TemplatesPage() {
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Campaign Segment Category</label>
+                      <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Category</label>
                       <input 
                         type="text"
                         list="categories-list"
@@ -479,7 +479,7 @@ export default function TemplatesPage() {
                   )}
 
                   <div className="space-y-1.5">
-                    <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Email Subject line</label>
+                    <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Subject Line</label>
                     <input 
                       type="text" 
                       value={editingTemplate.steps?.[activeStepIndex]?.subject || ''}
@@ -496,7 +496,7 @@ export default function TemplatesPage() {
                   </div>
 
                   <div className="space-y-1.5">
-                    <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Body copy & variables (Supports HTML/Text)</label>
+                    <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Email Body (HTML or plain text)</label>
                     <textarea 
                       value={editingTemplate.steps?.[activeStepIndex]?.body || ''}
                       onChange={(e) => updateStepField(activeStepIndex, 'body', e.target.value)}

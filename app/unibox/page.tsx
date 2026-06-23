@@ -4,6 +4,7 @@
 import { Search, MoreVertical, CornerUpLeft, Send, Trash2, MailOpen, Pause, FileText, ChevronDown, X, RefreshCw, Download } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { toCsv, downloadCsv } from '@/lib/csv';
+import { decodeMimeHeader } from '@/lib/mime';
 
 const statusColors: Record<string, string> = {
   'Interested': 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900/30',
@@ -346,9 +347,10 @@ export default function UniboxPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           leadId: selectedEmail.lead.id,
-          subject: /^re:/i.test(selectedEmail.subject.trim())
-            ? selectedEmail.subject
-            : `Re: ${selectedEmail.subject}`,
+          subject: (() => {
+            const decoded = decodeMimeHeader(selectedEmail.subject).trim();
+            return /^re:/i.test(decoded) ? decoded : `Re: ${decoded}`;
+          })(),
           body: currentReplyText,
           senderAccountId: selectedEmail.senderAccountId
         })
@@ -396,7 +398,7 @@ export default function UniboxPage() {
         <div className="p-4 border-b border-slate-200 dark:border-slate-800/80 bg-slate-50/20 dark:bg-slate-950/20 flex flex-col gap-3">
           <div className="flex justify-between items-center">
             <h2 className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-widest flex items-center justify-between w-full">
-              Unibox Inbox
+              Unified Inbox
               <span className="bg-blue-600 text-white text-[10px] font-bold px-2.5 py-0.5 rounded-full font-mono shrink-0 ml-2">
                 {replies.filter(e => e.unread).length} NEW
               </span>
@@ -459,7 +461,7 @@ export default function UniboxPage() {
                     <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 font-medium">{dateStr}</span>
                   </div>
                   <div className="flex justify-between items-center mb-1.5">
-                     <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate mr-2 w-32">{item.subject}</div>
+                     <div className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate mr-2 w-32">{decodeMimeHeader(item.subject)}</div>
                      <div className="flex items-center gap-1 shrink-0">
                        {leadPaused && (
                          <span className="text-[8px] bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 font-bold px-1.5 py-0.5 rounded border border-rose-200 dark:border-rose-900/30">PAUSED</span>
@@ -492,7 +494,7 @@ export default function UniboxPage() {
             {/* Thread Header */}
             <div className="p-5 border-b border-slate-200 dark:border-slate-800 flex justify-between items-start bg-slate-50/20 dark:bg-slate-950/10">
               <div>
-                <h2 className="text-base font-bold text-slate-900 dark:text-white mb-2 leading-tight">{selectedEmail.subject}</h2>
+                <h2 className="text-base font-bold text-slate-900 dark:text-white mb-2 leading-tight">{decodeMimeHeader(selectedEmail.subject)}</h2>
                 <div className="flex items-center gap-3">
                   <div className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex items-center justify-center text-blue-600 dark:text-blue-400 font-bold text-xs shadow-xs">
                     {(selectedEmail.lead?.name || 'P').charAt(0)}
@@ -644,7 +646,7 @@ export default function UniboxPage() {
                     className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-1.8 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
                   >
                     <Send className="w-3.5 h-3.5" />
-                    Dispatch Mail
+                    Send Reply
                   </button>
                 </div>
               </div>

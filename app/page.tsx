@@ -16,7 +16,8 @@ import {
   PieChart,
   Pie,
   Cell,
-  Legend
+  Legend,
+  LabelList
 } from 'recharts';
 import { Mail, MousePointerClick, Reply, SendHorizontal, RefreshCw, XCircle, AlertTriangle, UserMinus } from 'lucide-react';
 import { CardSkeleton } from '@/components/Skeleton';
@@ -263,37 +264,37 @@ export default function Dashboard() {
         </div>
       ) : (
         <>
-          <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium -mb-2">
-            Showing metrics for the last {range} days. Deltas compare against the prior {range}-day window.
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+            Showing the last {range} days · deltas compare against the prior {range}-day window.
           </p>
           {/* Structured Stats Section */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <StatCard 
-              title="Total Outbound Sent" 
-              value={stats.totalSent.toLocaleString()} 
-              change={stats.deltas?.sent} 
-              icon={SendHorizontal} 
-              accentColor="text-blue-600 dark:text-blue-400" 
+            <StatCard
+              title="Emails Sent"
+              value={stats.totalSent.toLocaleString()}
+              change={stats.deltas?.sent}
+              icon={SendHorizontal}
+              accentColor="text-blue-600 dark:text-blue-400"
               accentBg="bg-blue-50 dark:bg-blue-950/20"
             />
-            <StatCard 
-              title="Average Open Rate" 
-              value={`${stats.averageOpenRate}%`} 
-              change={stats.deltas?.openRate} 
-              icon={Mail} 
-              accentColor="text-teal-600 dark:text-teal-400" 
+            <StatCard
+              title="Open Rate"
+              value={`${stats.averageOpenRate}%`}
+              change={stats.deltas?.openRate}
+              icon={Mail}
+              accentColor="text-teal-600 dark:text-teal-400"
               accentBg="bg-teal-50 dark:bg-teal-950/20"
             />
-            <StatCard 
-              title="Dynamic Click Rate" 
-              value={`${stats.averageClickRate}%`} 
-              change={stats.deltas?.clickRate} 
-              icon={MousePointerClick} 
-              accentColor="text-amber-600 dark:text-amber-400" 
+            <StatCard
+              title="Click Rate"
+              value={`${stats.averageClickRate}%`}
+              change={stats.deltas?.clickRate}
+              icon={MousePointerClick}
+              accentColor="text-amber-600 dark:text-amber-400"
               accentBg="bg-amber-50 dark:bg-amber-950/20"
             />
             <StatCard
-              title="Sequences Replies"
+              title="Replies"
               value={stats.totalReplies.toLocaleString()}
               change={stats.deltas?.replies}
               icon={Reply}
@@ -327,7 +328,7 @@ export default function Dashboard() {
             <div className="flex justify-between items-center mb-6">
               <div>
                 <h2 className="text-sm font-bold text-slate-800 dark:text-slate-200 uppercase tracking-widest">Engagement Trends</h2>
-                <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Track key deliverability status metrics in real-time.</p>
+                <p className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">Daily emails sent, unique opens, and clicks over the selected period.</p>
               </div>
               <select 
                 value={range}
@@ -368,24 +369,26 @@ export default function Dashboard() {
                     tick={{ fill: '#64748b', fontSize: 11 }} 
                     dy={10}
                   />
-                  <YAxis 
-                    axisLine={false} 
-                    tickLine={false} 
-                    tick={{ fill: '#64748b', fontSize: 11 }} 
+                  <YAxis
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fill: '#64748b', fontSize: 11 }}
+                    allowDecimals={false}
                   />
-                  <Tooltip 
-                    contentStyle={{ 
-                      backgroundColor: 'var(--card-bg, #ffffff)', 
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'var(--card-bg, #ffffff)',
                       borderRadius: '12px',
                       border: '1px solid var(--border-card, #e2e8f0)',
                       boxShadow: '0 10px 15px -3px rgba(0,0,0,0.05)',
                       color: 'var(--text-white, #0f172a)'
-                    }} 
+                    }}
                     itemStyle={{ fontSize: 11 }}
                   />
-                  <Area type="monotone" dataKey="sent" stroke="#3b82f6" strokeWidth={2.5} fillOpacity={1} fill="url(#colorSent)" name="Sent Outbound" />
-                  <Area type="monotone" dataKey="opens" stroke="#2dd4bf" strokeWidth={2.5} fillOpacity={1} fill="url(#colorOpens)" name="Unique Opens" />
-                  <Area type="monotone" dataKey="clicks" stroke="#f43f5e" strokeWidth={2.5} fillOpacity={1} fill="url(#colorClicks)" name="Total Clicks" />
+                  <Legend verticalAlign="top" height={28} iconType="plainline" wrapperStyle={{ fontSize: 11 }} />
+                  <Area type="linear" dataKey="sent" stroke="#3b82f6" strokeWidth={2.5} fillOpacity={1} fill="url(#colorSent)" name="Emails Sent" dot={{ r: 2 }} />
+                  <Area type="linear" dataKey="opens" stroke="#2dd4bf" strokeWidth={2.5} fillOpacity={1} fill="url(#colorOpens)" name="Unique Opens" dot={{ r: 2 }} />
+                  <Area type="linear" dataKey="clicks" stroke="#f43f5e" strokeWidth={2.5} fillOpacity={1} fill="url(#colorClicks)" name="Total Clicks" dot={{ r: 2 }} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -403,9 +406,10 @@ export default function Dashboard() {
                     data={funnel}
                     margin={{ top: 10, right: 10, left: 20, bottom: 10 }}
                   >
-                    <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10 }} />
-                    <YAxis type="category" dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10 }} />
+                    <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10 }} allowDecimals={false} />
+                    <YAxis type="category" dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10 }} width={90} />
                     <Tooltip
+                      cursor={{ fill: 'rgba(148,163,184,0.08)' }}
                       contentStyle={{
                         backgroundColor: 'var(--card-bg, #ffffff)',
                         borderRadius: '12px',
@@ -414,7 +418,9 @@ export default function Dashboard() {
                       }}
                       itemStyle={{ fontSize: 11 }}
                     />
-                    <Bar dataKey="value" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={24} name="Leads" />
+                    <Bar dataKey="value" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={24} name="Leads">
+                      <LabelList dataKey="value" position="right" className="fill-slate-500 dark:fill-slate-400" style={{ fontSize: 10, fontWeight: 700 }} />
+                    </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               </div>

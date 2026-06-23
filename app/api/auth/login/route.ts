@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { setSession } from '@/lib/session';
-import { verifyPassword } from '@/lib/auth';
+import { verifyPassword, needsRehash, hashPassword } from '@/lib/auth';
 
 export async function POST(req: NextRequest) {
   try {
@@ -17,6 +17,19 @@ export async function POST(req: NextRequest) {
 
     if (!user || !verifyPassword(password, user.passwordHash)) {
       return NextResponse.json({ error: 'Invalid email or password.' }, { status: 401 });
+    }
+
+    // Transparently upgrade legacy / low-cost hashes to the current work factor.
+    if (needsRehash(user.passwordHash)) {
+      try {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { passwordHash: hashPassword(password) },
+        });
+      } catch (rehashErr) {
+        // Non-fatal: the login still succeeds even if the upgrade write fails.
+        console.error('[Login] Password rehash failed:', rehashErr);
+      }
     }
 
     const sessionData = {

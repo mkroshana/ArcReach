@@ -349,7 +349,7 @@ export default function SettingsPage() {
     const randL = randomLastNames[Math.floor(Math.random() * randomLastNames.length)];
     setFirstName(randF);
     setLastName(randL);
-    triggerToast(`Identity updated. Remember to Save Profiles!`);
+    triggerToast(`Avatar updated. Remember to Save Profile!`);
   };
 
 
@@ -380,8 +380,8 @@ export default function SettingsPage() {
       )}
 
       <header className="pb-4 border-b border-slate-200 dark:border-slate-800">
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white mb-0.5">Settings Preferences</h1>
-        <p className="text-slate-500 dark:text-slate-400 text-xs font-medium">Manage authenticated SMTP servers, API records, and team roles.</p>
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white mb-0.5">Settings</h1>
+        <p className="text-slate-500 dark:text-slate-400 text-xs font-medium">Manage your profile, password, and email delivery settings.</p>
       </header>
 
       <div className="flex flex-col md:flex-row gap-6">
@@ -390,7 +390,7 @@ export default function SettingsPage() {
           <nav className="flex md:flex-col gap-1 overflow-x-auto pb-2 md:pb-0">
             {[
               { id: 'profile', name: 'My Profile', icon: User },
-              { id: 'integrations', name: 'API Integrations', icon: Key },
+              { id: 'integrations', name: 'Email Delivery', icon: Key },
             ].map(tab => (
               <button 
                 key={tab.id}
@@ -427,9 +427,9 @@ export default function SettingsPage() {
                       onClick={handleRandomizeAvatar}
                       className="px-3 py-1.5 bg-white dark:bg-[#12141d] hover:bg-slate-50 dark:hover:bg-white/[0.01] border border-slate-200 dark:border-[#1f2130] text-slate-700 dark:text-gray-300 text-xs font-bold rounded-lg transition-all shadow-2xs mb-1 cursor-pointer"
                     >
-                      Randomize Identity
+                      Randomize Avatar
                     </button>
-                    <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">Generates visual initials dynamically in frontend workspace.</p>
+                    <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">Generates a placeholder avatar from random initials.</p>
                   </div>
                 </div>
 
@@ -466,7 +466,7 @@ export default function SettingsPage() {
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">Local Timezone Option</label>
+                      <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">Timezone</label>
                       <select 
                         value={timezone}
                         onChange={(e) => setTimezone(e.target.value)}
@@ -482,7 +482,7 @@ export default function SettingsPage() {
                   </div>
 
                   <div className="space-y-1.5 border-t border-slate-100 dark:border-slate-800 pt-4">
-                    <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">Registered E-Mail</label>
+                    <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">Email Address</label>
                     <input 
                       type="email" 
                       value={email}
@@ -505,18 +505,18 @@ export default function SettingsPage() {
                      className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg transition-all text-xs flex items-center gap-1.5 shadow-md"
                    >
                      <Save className="w-3.5 h-3.5" />
-                     Save Profiles
+                     Save Profile
                    </button>
                 </div>
               </form>
 
               {/* Change Password Card */}
               <form onSubmit={handleUpdatePassword} className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1b1c26] rounded-xl p-5 shadow-xs">
-                <h3 className="text-xs font-bold uppercase tracking-widest text-[#64748b] dark:text-slate-400 mb-4 pb-2 border-b border-slate-100 dark:border-[#1b1c26]">Change Secure Password</h3>
+                <h3 className="text-xs font-bold uppercase tracking-widest text-[#64748b] dark:text-slate-400 mb-4 pb-2 border-b border-slate-100 dark:border-[#1b1c26]">Change Password</h3>
                 
                 <div className="space-y-4">
                   <div className="space-y-1.5">
-                    <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">Current Active Password</label>
+                    <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">Current Password</label>
                     <div className="relative">
                       <input 
                         type={showPass ? "text" : "password"}
@@ -537,7 +537,7 @@ export default function SettingsPage() {
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-1.5">
-                      <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">New Secure Password</label>
+                      <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">New Password</label>
                       <div className="relative">
                         <input 
                           type={showNewPass ? "text" : "password"}
@@ -583,7 +583,7 @@ export default function SettingsPage() {
                     className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg transition-all text-xs flex items-center gap-1.5 shadow-md cursor-pointer"
                   >
                     <Lock className="w-3.5 h-3.5" />
-                    Apply Password Security
+                    Update Password
                   </button>
                 </div>
               </form>
@@ -597,12 +597,12 @@ export default function SettingsPage() {
               {/* Outbound Mail Delivery Service */}
               <div className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1b1c26] rounded-xl p-5 shadow-xs space-y-4">
                 <div className="pb-3 border-b border-slate-100 dark:border-slate-800">
-                  <h3 className="text-xs font-bold uppercase tracking-widest text-slate-800 dark:text-slate-200 mb-0.5 font-sans">Outbound Mail Delivery Service</h3>
-                  <p className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">Select your active outbound sending channel provider and authenticate connection pipelines.</p>
+                  <h3 className="text-xs font-bold uppercase tracking-widest text-slate-800 dark:text-slate-200 mb-0.5 font-sans">Email Delivery Provider</h3>
+                  <p className="text-[11px] text-slate-400 dark:text-slate-500 font-medium">Choose the provider used to send your outbound email.</p>
                 </div>
 
                 <div className="space-y-1.5 max-w-md">
-                  <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">Active Email Delivery Service</label>
+                  <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">Provider</label>
                   <select 
                     value={activeProvider}
                     onChange={(e) => handleProviderChange(e.target.value)}
@@ -857,13 +857,13 @@ export default function SettingsPage() {
 
               {/* Service-Level Rate Limits */}
               <div className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1b1c26] rounded-xl p-5 shadow-xs">
-                <h3 className="text-xs font-bold uppercase tracking-widest text-slate-800 dark:text-slate-200 mb-0.5">Service-Level Outbound Rate Limits</h3>
-                <p className="text-[11px] text-slate-400 dark:text-slate-500 mb-4 font-medium">Configure global limits for sending frequencies across all campaigns and active senders.</p>
+                <h3 className="text-xs font-bold uppercase tracking-widest text-slate-800 dark:text-slate-200 mb-0.5">Global Sending Rate Limits</h3>
+                <p className="text-[11px] text-slate-400 dark:text-slate-500 mb-4 font-medium">Caps total outbound volume across all campaigns and sender mailboxes.</p>
 
                 <form onSubmit={handleSaveRateLimits} className="space-y-4">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-1.5">
-                      <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">Requests Per Minute (RPM)</label>
+                      <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">Max Emails / Minute</label>
                       <input 
                         type="number" 
                         value={rateLimitMinute}
@@ -873,7 +873,7 @@ export default function SettingsPage() {
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">Requests Per Hour (RPH)</label>
+                      <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">Max Emails / Hour</label>
                       <input 
                         type="number" 
                         value={rateLimitHour}

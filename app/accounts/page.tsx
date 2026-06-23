@@ -509,8 +509,9 @@ export default function AccountsPage() {
                               <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{account.name} • {account.provider}</div>
                               <div className="text-[9px] text-slate-400 dark:text-slate-500 mt-1 flex items-center gap-2 font-mono">
                                 <span>Sent: <strong className="text-slate-700 dark:text-slate-400">{account.sentTotal ?? 0}</strong></span>
-                                <span>Opens: <strong className="text-slate-700 dark:text-slate-400">{account.opens ?? 0}</strong></span>
-                                <span>Clicks: <strong className="text-slate-700 dark:text-slate-400">{account.clicks ?? 0}</strong></span>
+                                <span>Delivered: <strong className="text-emerald-600 dark:text-emerald-400">{account.delivered ?? 0}</strong></span>
+                                <span>Opens: <strong className="text-slate-700 dark:text-slate-400">{account.opens ?? 0}</strong> <span className="text-slate-400 dark:text-slate-500">({account.openRate ?? 0}%)</span></span>
+                                <span>Clicks: <strong className="text-slate-700 dark:text-slate-400">{account.clicks ?? 0}</strong> <span className="text-slate-400 dark:text-slate-500">({account.clickRate ?? 0}%)</span></span>
                                 <span>Replies: <strong className="text-slate-700 dark:text-slate-400">{account.replies ?? 0}</strong></span>
                                 <span>Bounces: <strong className="text-rose-600 dark:text-rose-500">{account.bounced ?? 0}</strong></span>
                               </div>
@@ -637,12 +638,13 @@ export default function AccountsPage() {
           </div>
 
           {/* Deliverability Summary stats block */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 bg-slate-50 dark:bg-slate-900/40 p-4 border border-slate-200 dark:border-slate-800 rounded-xl">
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-4 bg-slate-50 dark:bg-slate-900/40 p-4 border border-slate-200 dark:border-slate-800 rounded-xl">
             {[
               { title: 'Total Sent', value: selectedWarmupAccount.sentTotal ?? 0, desc: 'All campaigns' },
-              { title: 'Unique Opens', value: selectedWarmupAccount.opens ?? 0, desc: `${selectedWarmupAccount.sentTotal > 0 ? ((selectedWarmupAccount.opens / selectedWarmupAccount.sentTotal) * 100).toFixed(1) : 0}% open rate` },
-              { title: 'Link Clicks', value: selectedWarmupAccount.clicks ?? 0, desc: `${selectedWarmupAccount.sentTotal > 0 ? ((selectedWarmupAccount.clicks / selectedWarmupAccount.sentTotal) * 100).toFixed(1) : 0}% clickthrough` },
-              { title: 'Customer Replies', value: selectedWarmupAccount.replies ?? 0, desc: `${selectedWarmupAccount.sentTotal > 0 ? ((selectedWarmupAccount.replies / selectedWarmupAccount.sentTotal) * 100).toFixed(1) : 0}% reply rate` },
+              { title: 'Delivered', value: selectedWarmupAccount.delivered ?? 0, desc: `${selectedWarmupAccount.deliveryRate ?? 0}% delivery rate` },
+              { title: 'Unique Opens', value: selectedWarmupAccount.opens ?? 0, desc: `${selectedWarmupAccount.openRate ?? 0}% open rate` },
+              { title: 'Link Clicks', value: selectedWarmupAccount.clicks ?? 0, desc: `${selectedWarmupAccount.clickRate ?? 0}% clickthrough` },
+              { title: 'Customer Replies', value: selectedWarmupAccount.replies ?? 0, desc: `${selectedWarmupAccount.replyRate ?? 0}% reply rate` },
               { title: 'Total Bounced', value: selectedWarmupAccount.bounced ?? 0, desc: 'Hard bounces' }
             ].map((s, idx) => (
               <div key={idx} className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-slate-800/60 rounded-lg p-3">

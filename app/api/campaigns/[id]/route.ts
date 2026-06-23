@@ -243,6 +243,51 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       }
     });
 
+    // Per-step breakdown. One query, aggregated in memory by stepOrder
+    // (uses the dispatch's recorded stepOrder — accurate, not subject-matched).
+    const stepDispatchRows = await prisma.emailDispatch.findMany({
+      where: { campaignId: id, stepOrder: { not: null } },
+      select: {
+        stepOrder: true,
+        status: true,
+        deliveredAt: true,
+        events: { select: { eventType: true } },
+      },
+    });
+
+    // Active leads currently sitting at each step (waiting to be sent).
+    const activeByStep = await prisma.campaignEnrollment.groupBy({
+      by: ['currentSequenceStep'],
+      where: { campaignId: id, status: 'Active' },
+      _count: { id: true },
+    });
+    const activeStepMap = new Map(activeByStep.map((a) => [a.currentSequenceStep, a._count.id]));
+
+    const stepStats = campaign.steps.map((s: any) => {
+      const rows = stepDispatchRows.filter((r) => r.stepOrder === s.stepOrder);
+      const sent = rows.filter((r) => r.status === 'Sent').length;
+      const failed = rows.filter((r) => r.status === 'Failed').length;
+      const delivered = rows.filter((r) => r.status === 'Sent' && r.deliveredAt).length;
+      const opened = rows.filter((r) => r.status === 'Sent' && r.events.some((e) => e.eventType === 'open')).length;
+      const clicked = rows.filter((r) => r.status === 'Sent' && r.events.some((e) => e.eventType === 'click')).length;
+      const active = activeStepMap.get(s.stepOrder) || 0;
+      const base = delivered > 0 ? delivered : sent;
+      return {
+        stepOrder: s.stepOrder,
+        subject: s.subject,
+        waitDays: s.waitDays,
+        active,
+        sent,
+        delivered,
+        opened,
+        clicked,
+        failed,
+        deliveryRate: sent > 0 ? Number(((delivered / sent) * 100).toFixed(1)) : 0,
+        openRate: base > 0 ? Number(((opened / base) * 100).toFixed(1)) : 0,
+        clickRate: base > 0 ? Number(((clicked / base) * 100).toFixed(1)) : 0,
+      };
+    });
+
     // Engagement rates are measured against delivered mail when delivery
     // confirmations are available, otherwise against actual sends.
     const engagementBase = deliveredCount > 0 ? deliveredCount : sentCount;
@@ -267,7 +312,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       bounceRate: sentCount > 0 ? Number(((bouncedCount / sentCount) * 100).toFixed(1)) : 0,
       trend,
       funnel,
-      sentiment: sentimentBreakdown
+      sentiment: sentimentBreakdown,
+      stepStats
     };
 
     return NextResponse.json({

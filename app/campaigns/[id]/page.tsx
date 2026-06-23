@@ -529,6 +529,48 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
         ))}
       </div>
 
+      {/* Per-Step Breakdown */}
+      {campaign?.telemetry?.stepStats && campaign.telemetry.stepStats.length > 0 && (
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xs overflow-hidden">
+          <div className="px-5 py-3 border-b border-slate-200 dark:border-slate-800">
+            <h2 className="text-xs font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Per-Step Performance</h2>
+          </div>
+          <div className="w-full overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-slate-200 dark:border-slate-800 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest bg-slate-50/40 dark:bg-slate-950/20">
+                  <th className="px-4 py-2.5">Step</th>
+                  <th className="px-4 py-2.5">Active</th>
+                  <th className="px-4 py-2.5">Sent</th>
+                  <th className="px-4 py-2.5">Delivered</th>
+                  <th className="px-4 py-2.5">Opened</th>
+                  <th className="px-4 py-2.5">Clicked</th>
+                  <th className="px-4 py-2.5">Failed</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-xs text-slate-700 dark:text-slate-300">
+                {campaign.telemetry.stepStats.map((s: any) => (
+                  <tr key={s.stepOrder} className="hover:bg-slate-50/50 dark:hover:bg-white/[0.01]">
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <span className="w-5 h-5 rounded bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 text-[10px] font-bold font-mono flex items-center justify-center border border-blue-100 dark:border-blue-500/15 flex-shrink-0">{s.stepOrder}</span>
+                        <span className="font-semibold text-slate-900 dark:text-white truncate max-w-[220px]" title={s.subject}>{s.subject || '(No subject)'}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 font-mono">{s.active}</td>
+                    <td className="px-4 py-3 font-mono font-bold text-slate-900 dark:text-white">{s.sent}</td>
+                    <td className="px-4 py-3 font-mono">{s.delivered} <span className="text-slate-400 dark:text-slate-500">({s.deliveryRate}%)</span></td>
+                    <td className="px-4 py-3 font-mono">{s.opened} <span className="text-slate-400 dark:text-slate-500">({s.openRate}%)</span></td>
+                    <td className="px-4 py-3 font-mono">{s.clicked} <span className="text-slate-400 dark:text-slate-500">({s.clickRate}%)</span></td>
+                    <td className={`px-4 py-3 font-mono ${s.failed > 0 ? 'text-rose-600 dark:text-rose-400 font-bold' : ''}`}>{s.failed}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* Tabs Menu Bar */}
       <div className="flex gap-1 p-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl w-fit shadow-xs">
         {['Sequence', 'Audience', 'Schedule', 'Options', 'Senders'].map((tab) => (

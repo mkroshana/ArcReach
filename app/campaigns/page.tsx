@@ -28,39 +28,6 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
-const isDispatchForStep = (dispatchSubject: string, stepSubject: string) => {
-  if (!dispatchSubject || !stepSubject) return false;
-  
-  const cleanStep = stepSubject.trim().toLowerCase();
-  const cleanDispatch = dispatchSubject.trim().toLowerCase();
-  
-  if (cleanDispatch === cleanStep) return true;
-  
-  // Convert step subject to a regex pattern
-  // 1. Escape special regex characters
-  let pattern = cleanStep.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-  
-  // 2. Make spaces flexible (allowing optional spaces only at word boundaries)
-  pattern = pattern.replace(/\s+/g, '(?:\\s+|\\b)');
-  
-  // 3. Replace escaped variable markers `\{\{[^}]+\}\}` with wildcards `.*`
-  pattern = pattern.replace(/\\\{\\\{[^}]+\\\}\\\}/g, '.*');
-  
-  // 4. Replace escaped spintax `\{option1\|option2\}` with regex group `(option1|option2)`
-  pattern = pattern.replace(/\\\{([^{}]+)\\\}/g, (match, optionsEscaped) => {
-    // Unescape the pipe character for the regex group
-    const options = optionsEscaped.replace(/\\\|/g, '|');
-    return `(${options})`;
-  });
-  
-  try {
-    const regex = new RegExp(`^${pattern}\\s*\\.*\\!*\\??$`);
-    return regex.test(cleanDispatch);
-  } catch (e) {
-    return cleanDispatch.includes(cleanStep.replace(/\{\{[^}]+\}\}/g, '').replace(/\{[^}]+\}/g, '').trim());
-  }
-};
-
 interface DbCampaign {
   id: string;
   name: string;
@@ -90,6 +57,9 @@ interface DbCampaign {
     id: string;
     subject: string | null;
     leadId: string;
+    stepOrder: number | null;
+    status: string;
+    deliveredAt: string | null;
   }[];
 }
 
@@ -504,11 +474,16 @@ export default function CampaignsPage() {
                                   const activeLeadsCount = stepLeads.length;
                                   const isActiveStep = activeLeadsCount > 0;
 
+                                  // Match dispatches by the dispatch's recorded stepOrder (accurate),
+                                  // not by fuzzy subject text.
                                   const stepDispatches = campaign.dispatches?.filter(
-                                    d => isDispatchForStep(d.subject || '', step.subject || '')
+                                    d => d.stepOrder === step.stepOrder
                                   ) || [];
-                                  const uniqueSentLeads = new Set(stepDispatches.map(d => d.leadId).filter(Boolean));
+                                  const sentDispatches = stepDispatches.filter(d => d.status === 'Sent');
+                                  const uniqueSentLeads = new Set(sentDispatches.map(d => d.leadId).filter(Boolean));
                                   const sentCount = uniqueSentLeads.size;
+                                  const deliveredCount = new Set(sentDispatches.filter(d => d.deliveredAt).map(d => d.leadId)).size;
+                                  const failedCount = stepDispatches.filter(d => d.status === 'Failed').length;
                                   const totalEnrolled = campaign.enrollments?.length || 0;
                                   const progressPercent = totalEnrolled > 0 ? Math.round((sentCount / totalEnrolled) * 100) : 0;
 
@@ -570,6 +545,18 @@ export default function CampaignsPage() {
                                               <span className="text-slate-400 dark:text-slate-500">Sent:</span>
                                               <span className="font-extrabold text-slate-700 dark:text-slate-400">{sentCount}</span>
                                             </div>
+                                            {sentCount > 0 && (
+                                              <div className="flex justify-between px-0.5">
+                                                <span className="text-slate-400 dark:text-slate-500">Delivered:</span>
+                                                <span className="font-extrabold text-emerald-600 dark:text-emerald-400">{deliveredCount}</span>
+                                              </div>
+                                            )}
+                                            {failedCount > 0 && (
+                                              <div className="flex justify-between px-0.5">
+                                                <span className="text-slate-400 dark:text-slate-500">Failed:</span>
+                                                <span className="font-extrabold text-rose-600 dark:text-rose-400">{failedCount}</span>
+                                              </div>
+                                            )}
                                             {sentCount > 0 && (
                                               <div className="flex justify-between px-0.5">
                                                 <span className="text-slate-400 dark:text-slate-500">Progress:</span>

@@ -135,7 +135,10 @@ export default function LeadsPage() {
       subject: d.subject || 'No Subject',
       body: d.body || '',
       campaign: d.campaign?.name || 'Manual Outreach',
-      events: d.events || []
+      events: d.events || [],
+      status: d.status,
+      deliveredAt: d.deliveredAt,
+      stepOrder: d.stepOrder
     }));
 
     const replies = (leadDetails.replies || []).map((r: any) => ({
@@ -2104,8 +2107,8 @@ export default function LeadsPage() {
                                   {/* Header */}
                                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[10px] text-slate-400 dark:text-slate-500">
                                     <span className="font-bold uppercase tracking-wider">
-                                      {isDispatch 
-                                        ? `Sent via ${event.campaign}`
+                                      {isDispatch
+                                        ? `Sent via ${event.campaign}${event.stepOrder ? ` · Step ${event.stepOrder}` : ''}`
                                         : 'Lead Inbound Reply'
                                       }
                                     </span>
@@ -2119,8 +2122,24 @@ export default function LeadsPage() {
                                   <h5 className="text-xs font-bold text-slate-800 dark:text-white leading-snug">{event.subject}</h5>
 
                                   {/* Telemetry Tracking Badges */}
-                                  {isDispatch && (opens > 0 || clicks > 0) && (
-                                    <div className="flex gap-2 pt-0.5">
+                                  {isDispatch && (
+                                    <div className="flex flex-wrap gap-2 pt-0.5">
+                                      {event.status === 'Failed' ? (
+                                        <span className="inline-flex items-center gap-1 bg-rose-50/70 dark:bg-rose-950/20 border border-rose-200/50 dark:border-rose-500/10 text-[9px] font-bold text-rose-600 dark:text-rose-400 px-2 py-0.5 rounded">
+                                          <Ban className="w-3 h-3" />
+                                          Failed
+                                        </span>
+                                      ) : event.deliveredAt ? (
+                                        <span className="inline-flex items-center gap-1 bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200/50 dark:border-emerald-500/10 text-[9px] font-bold text-emerald-600 dark:text-emerald-400 px-2 py-0.5 rounded">
+                                          <CheckCircle2 className="w-3 h-3" />
+                                          Delivered
+                                        </span>
+                                      ) : (
+                                        <span className="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/40 text-[9px] font-bold text-slate-500 dark:text-slate-400 px-2 py-0.5 rounded">
+                                          <Mail className="w-3 h-3" />
+                                          Sent
+                                        </span>
+                                      )}
                                       {opens > 0 && (
                                         <span className="inline-flex items-center gap-1 bg-blue-50/70 dark:bg-blue-950/20 border border-blue-200/50 dark:border-blue-500/10 text-[9px] font-bold text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded">
                                           <Eye className="w-3 h-3" />

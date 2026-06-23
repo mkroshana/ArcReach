@@ -61,6 +61,14 @@ export async function GET() {
         }
       });
 
+      const delivered = await prisma.emailDispatch.count({
+        where: {
+          ...dispatchWhereClause,
+          status: 'Sent',
+          deliveredAt: { not: null }
+        }
+      });
+
       const replies = await prisma.inboundResponse.count({
         where: { senderAccountId: account.id }
       });
@@ -71,6 +79,13 @@ export async function GET() {
           status: 'Bounced'
         }
       });
+
+      // Engagement rates against delivered mail when available, else against total sends.
+      const engagementBase = delivered > 0 ? delivered : sentTotal;
+      const deliveryRate = sentTotal > 0 ? Number(((delivered / sentTotal) * 100).toFixed(1)) : 0;
+      const openRate = engagementBase > 0 ? Number(((opens / engagementBase) * 100).toFixed(1)) : 0;
+      const clickRate = engagementBase > 0 ? Number(((clicks / engagementBase) * 100).toFixed(1)) : 0;
+      const replyRate = sentTotal > 0 ? Number(((replies / sentTotal) * 100).toFixed(1)) : 0;
 
       // Calculate effectiveDailyCap
       const now = new Date();
@@ -86,10 +101,15 @@ export async function GET() {
         ...account,
         sentToday,
         sentTotal,
+        delivered,
         opens,
         clicks,
         replies,
         bounced,
+        deliveryRate,
+        openRate,
+        clickRate,
+        replyRate,
         effectiveDailyCap
       };
     }));

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { checkGlobalRateLimits } from '@/lib/rateLimits';
+import { getVerifiedDomains, resolveAzureFromAddress } from '@/lib/azureDomains';
 import nodemailer from 'nodemailer';
 
 export async function POST(req: NextRequest) {
@@ -55,15 +56,13 @@ export async function POST(req: NextRequest) {
       console.log(`[Unibox Reply - Mock] Body: ${replyBody.substring(0, 100)}...`);
     } else if (provider === 'AZURE') {
       const connString = settings?.azureConnString;
-      const senderDomain = settings?.azureSenderDomain;
-      if (!connString || !senderDomain) {
-        throw new Error('Azure Communication Services is active, but Connection String or Sender Domain is missing.');
+      if (!connString || getVerifiedDomains(settings).length === 0) {
+        throw new Error('Azure Communication Services is active, but Connection String or verified domains are missing.');
       }
 
       const { EmailClient } = require("@azure/communication-email");
       const emailClient = new EmailClient(connString);
-      const [username] = senderEmail.split('@');
-      const fromAddress = `${username}@${senderDomain}`;
+      const fromAddress = resolveAzureFromAddress(senderEmail, settings);
 
       const message = {
         senderAddress: fromAddress,

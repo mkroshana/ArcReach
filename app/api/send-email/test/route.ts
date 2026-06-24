@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
+import { getVerifiedDomains, resolveAzureFromAddress } from '@/lib/azureDomains';
 import nodemailer from 'nodemailer';
 
 /**
@@ -67,12 +68,11 @@ export async function POST(req: NextRequest) {
     // Handle AZURE provider
     if (provider === 'AZURE') {
       const connString = settings?.azureConnString;
-      const senderDomain = settings?.azureSenderDomain;
 
-      if (!connString || !senderDomain) {
+      if (!connString || getVerifiedDomains(settings).length === 0) {
         return NextResponse.json({
           success: false,
-          error: 'Azure Communication Services is active, but Connection String or Sender Domain is not configured in settings.'
+          error: 'Azure Communication Services is active, but Connection String or verified sender domains are not configured in settings.'
         }, { status: 400 });
       }
 
@@ -80,8 +80,7 @@ export async function POST(req: NextRequest) {
         const { EmailClient } = require("@azure/communication-email");
         const emailClient = new EmailClient(connString);
 
-        const [username] = senderAccount.emailAddress.split('@');
-        const fromAddress = `${username}@${senderDomain}`;
+        const fromAddress = resolveAzureFromAddress(senderAccount.emailAddress, settings);
 
         const message = {
           senderAddress: fromAddress,

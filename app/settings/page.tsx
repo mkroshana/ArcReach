@@ -9,7 +9,7 @@ import { useTimezones } from '@/hooks/use-timezones';
 import {
   Box, Card, CardContent, Stack, Typography, Button, IconButton, TextField, Select, MenuItem,
   FormControl, InputLabel, Snackbar, Alert, InputAdornment, CircularProgress, Avatar,
-  Tabs, Tab,
+  Tabs, Tab, Autocomplete,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 
@@ -45,7 +45,7 @@ export default function SettingsPage() {
 
   const [activeProvider, setActiveProvider] = useState('MOCK');
   const [azureConnString, setAzureConnString] = useState('');
-  const [azureSenderDomain, setAzureSenderDomain] = useState('');
+  const [azureSenderDomains, setAzureSenderDomains] = useState<string[]>([]);
   const [showAzureConnString, setShowAzureConnString] = useState(false);
 
   const [smtpHost, setSmtpHost] = useState('');
@@ -81,7 +81,9 @@ export default function SettingsPage() {
         if (data.settings) {
           setActiveProvider(data.settings.activeProvider || 'MOCK');
           setAzureConnString(data.settings.azureConnString || '');
-          setAzureSenderDomain(data.settings.azureSenderDomain || '');
+          const domains = Array.isArray(data.settings.azureSenderDomains) ? data.settings.azureSenderDomains
+            : (data.settings.azureSenderDomain ? [data.settings.azureSenderDomain] : []);
+          setAzureSenderDomains(domains.map((d: string) => String(d).trim().toLowerCase()).filter(Boolean));
           setSmtpHost(data.settings.smtpHost || '');
           setSmtpPort(data.settings.smtpPort ? String(data.settings.smtpPort) : '');
           setSmtpUser(data.settings.smtpUser || '');
@@ -193,7 +195,7 @@ export default function SettingsPage() {
     try {
       const res = await fetch('/api/settings', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ azureConnString, azureSenderDomain }),
+        body: JSON.stringify({ azureConnString, azureSenderDomains }),
       });
       triggerToast(res.ok ? 'Azure Communication Services configuration saved successfully.' : 'Failed to save Azure settings.');
     } catch (err) { console.error(err); triggerToast('Error saving Azure settings.'); }
@@ -354,21 +356,28 @@ export default function SettingsPage() {
                       <CardContent>
                         <form onSubmit={handleSaveAzureConfig}>
                           <Stack spacing={2}>
-                            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-                              <TextField
-                                fullWidth size="small" required label="Azure Connection String"
-                                type={showAzureConnString ? 'text' : 'password'}
-                                value={azureConnString} onChange={(e) => setAzureConnString(e.target.value)}
-                                placeholder="endpoint=https://...;accesskey=..."
-                                slotProps={{ input: { sx: { fontFamily: 'monospace' }, endAdornment: (<InputAdornment position="end"><IconButton size="small" onClick={() => setShowAzureConnString(!showAzureConnString)}>{showAzureConnString ? <EyeOff size={14} /> : <Eye size={14} />}</IconButton></InputAdornment>) } }}
-                              />
-                              <TextField
-                                fullWidth size="small" required label="Verified Sender Domain"
-                                value={azureSenderDomain} onChange={(e) => setAzureSenderDomain(e.target.value)}
-                                placeholder="outbound.yourdomain.com"
-                                slotProps={{ input: { sx: { fontFamily: 'monospace' } } }}
-                              />
-                            </Stack>
+                            <TextField
+                              fullWidth size="small" required label="Azure Connection String"
+                              type={showAzureConnString ? 'text' : 'password'}
+                              value={azureConnString} onChange={(e) => setAzureConnString(e.target.value)}
+                              placeholder="endpoint=https://...;accesskey=..."
+                              slotProps={{ input: { sx: { fontFamily: 'monospace' }, endAdornment: (<InputAdornment position="end"><IconButton size="small" onClick={() => setShowAzureConnString(!showAzureConnString)}>{showAzureConnString ? <EyeOff size={14} /> : <Eye size={14} />}</IconButton></InputAdornment>) } }}
+                            />
+                            <Autocomplete
+                              multiple freeSolo options={[] as string[]}
+                              value={azureSenderDomains}
+                              onChange={(_, v) => setAzureSenderDomains(
+                                (v as string[]).map((d) => String(d).trim().toLowerCase()).filter(Boolean)
+                              )}
+                              renderInput={(params) => (
+                                <TextField
+                                  {...params} size="small" label="Verified Sender Domains"
+                                  placeholder="Type a domain and press Enter"
+                                  helperText="Each sender account sends from its own address; its domain must be verified here."
+                                  sx={{ '& .MuiInputBase-input': { fontFamily: 'monospace' } }}
+                                />
+                              )}
+                            />
                             <Stack direction="row" sx={{ justifyContent: 'flex-end' }}>
                               <Button type="submit" variant="contained" startIcon={<Save size={14} />}>Save Azure Configuration</Button>
                             </Stack>

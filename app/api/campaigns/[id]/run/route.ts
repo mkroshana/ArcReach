@@ -4,6 +4,7 @@ import { getSession } from '@/lib/session';
 import { applyEmailTracking } from '@/lib/emailTracking';
 import { checkGlobalRateLimits } from '@/lib/rateLimits';
 import { resolveCampaignSenders, pickSender, handleSendFailure } from '@/lib/sendEngine';
+import { getVerifiedDomains, resolveAzureFromAddress } from '@/lib/azureDomains';
 import nodemailer from 'nodemailer';
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -233,15 +234,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           console.log(`[Campaign Run - Mock] To: ${lead.email} | Subject: ${subject}`);
         } else if (provider === 'AZURE') {
           const connString = settings?.azureConnString;
-          const senderDomain = settings?.azureSenderDomain;
-          if (!connString || !senderDomain) {
-            throw new Error('Azure Communication Services is active, but Connection String or Sender Domain is missing.');
+          if (!connString || getVerifiedDomains(settings).length === 0) {
+            throw new Error('Azure Communication Services is active, but Connection String or verified domains are missing.');
           }
 
           const { EmailClient } = require("@azure/communication-email");
           const emailClient = new EmailClient(connString);
-          const [username] = chosenSender.emailAddress.split('@');
-          const fromAddress = `${username}@${senderDomain}`;
+          const fromAddress = resolveAzureFromAddress(chosenSender.emailAddress, settings);
 
           const message = {
             senderAddress: fromAddress,

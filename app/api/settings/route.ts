@@ -3,6 +3,13 @@ import { prisma } from '@/lib/db';
 import { getSession, setSession } from '@/lib/session';
 import { verifyPassword, hashPassword } from '@/lib/auth';
 
+/** Normalize a verified-domains payload into a trimmed, lowercased, de-duped string[]. */
+function normalizeDomains(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+  const cleaned = input.map((d) => String(d).trim().toLowerCase()).filter(Boolean);
+  return [...new Set(cleaned)];
+}
+
 export async function GET() {
   try {
     const session = await getSession();
@@ -55,7 +62,7 @@ export async function PUT(req: NextRequest) {
   try {
     const session = await getSession();
     const body = await req.json();
-    const { name, organization, timezone, activeProvider, azureConnString, azureSenderDomain, smtpHost, smtpPort, smtpUser, smtpPass, imapHost, imapPort, imapUser, imapPass, rateLimitMinute, rateLimitHour, currentPassword, newPassword } = body;
+    const { name, organization, timezone, activeProvider, azureConnString, azureSenderDomain, azureSenderDomains, smtpHost, smtpPort, smtpUser, smtpPass, imapHost, imapPort, imapUser, imapPass, rateLimitMinute, rateLimitHour, currentPassword, newPassword } = body;
 
     // 1. Update user profile details in the DB
     if (name !== undefined || organization !== undefined || timezone !== undefined) {
@@ -113,6 +120,7 @@ export async function PUT(req: NextRequest) {
     }
     if (azureConnString !== undefined) settingsData.azureConnString = azureConnString;
     if (azureSenderDomain !== undefined) settingsData.azureSenderDomain = azureSenderDomain;
+    if (azureSenderDomains !== undefined) settingsData.azureSenderDomains = normalizeDomains(azureSenderDomains);
     if (smtpHost !== undefined) settingsData.smtpHost = smtpHost;
     if (smtpPort !== undefined) settingsData.smtpPort = Number(smtpPort) || null;
     if (smtpUser !== undefined) settingsData.smtpUser = smtpUser;
@@ -140,6 +148,7 @@ export async function PUT(req: NextRequest) {
           activeProvider: activeProvider || 'MOCK',
           azureConnString: azureConnString || null,
           azureSenderDomain: azureSenderDomain || null,
+          azureSenderDomains: azureSenderDomains !== undefined ? normalizeDomains(azureSenderDomains) : undefined,
           smtpHost: smtpHost || null,
           smtpPort: Number(smtpPort) || null,
           smtpUser: smtpUser || null,

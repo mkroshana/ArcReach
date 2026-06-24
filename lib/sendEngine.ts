@@ -1,6 +1,7 @@
 import { prisma } from './db';
 import { checkGlobalRateLimits } from './rateLimits';
 import { applyEmailTracking } from './emailTracking';
+import { getVerifiedDomains, resolveAzureFromAddress } from './azureDomains';
 import nodemailer from 'nodemailer';
 
 // Memory store for campaigns paused due to quota limits
@@ -531,15 +532,13 @@ export async function processDueEmails() {
           console.log(`[SendEngine - Mock Send Success] To: ${lead.email} | Subject: ${subject}`);
         } else if (provider === 'AZURE') {
           const connString = settings?.azureConnString;
-          const senderDomain = settings?.azureSenderDomain;
-          if (!connString || !senderDomain) {
-            throw new Error('Azure Communication Services connection string or domain is not configured.');
+          if (!connString || getVerifiedDomains(settings).length === 0) {
+            throw new Error('Azure Communication Services connection string or verified domains are not configured.');
           }
 
           const { EmailClient } = require("@azure/communication-email");
           const emailClient = new EmailClient(connString);
-          const [username] = chosenSender.emailAddress.split('@');
-          const fromAddress = `${username}@${senderDomain}`;
+          const fromAddress = resolveAzureFromAddress(chosenSender.emailAddress, settings);
 
           const message = {
             senderAddress: fromAddress,

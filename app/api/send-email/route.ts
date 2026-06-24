@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db';
 import { applyEmailTracking } from '@/lib/emailTracking';
 import { checkGlobalRateLimits } from '@/lib/rateLimits';
 import { getSession } from '@/lib/session';
+import { getVerifiedDomains, resolveAzureFromAddress } from '@/lib/azureDomains';
 import nodemailer from 'nodemailer';
 
 export async function POST(req: NextRequest) {
@@ -109,19 +110,18 @@ export async function POST(req: NextRequest) {
 
     if (provider === 'AZURE') {
       const connString = settings?.azureConnString;
-      const senderDomain = settings?.azureSenderDomain;
 
-      if (!connString || !senderDomain) {
+      if (!connString || getVerifiedDomains(settings).length === 0) {
         return NextResponse.json({
           success: false,
-          error: 'Azure Communication Services is active, but Connection String or Sender Domain is not configured in settings.'
+          error: 'Azure Communication Services is active, but Connection String or verified sender domains are not configured in settings.'
         }, { status: 400 });
       }
 
       if (!activeSenderAccount) {
         return NextResponse.json({
           success: false,
-          error: 'Active sender account is required to determine the from username for Azure Communication Services.'
+          error: 'Active sender account is required to determine the from address for Azure Communication Services.'
         }, { status: 400 });
       }
 
@@ -129,8 +129,7 @@ export async function POST(req: NextRequest) {
         const { EmailClient } = require("@azure/communication-email");
         const emailClient = new EmailClient(connString);
 
-        const [username] = activeSenderAccount.emailAddress.split('@');
-        const fromAddress = `${username}@${senderDomain}`;
+        const fromAddress = resolveAzureFromAddress(activeSenderAccount.emailAddress, settings);
 
         const message = {
           senderAddress: fromAddress,

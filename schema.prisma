@@ -37,7 +37,8 @@ model GlobalSettings {
   id                String   @id @default(uuid())
   activeProvider    String   @default("MOCK")
   azureConnString   String?
-  azureSenderDomain String?
+  azureSenderDomain String?  // deprecated — read-only fallback for migration to azureSenderDomains
+  azureSenderDomains Json?   // string[] of verified sender domains
   smtpHost          String?
   smtpPort          Int?
   smtpUser          String?

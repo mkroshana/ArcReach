@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
+import { getVerifiedDomains } from '@/lib/azureDomains';
 
 export async function GET() {
   try {
@@ -37,8 +38,7 @@ export async function GET() {
     const activeProvider = globalSettings?.activeProvider || 'MOCK';
     if (activeProvider === 'AZURE') {
       const connString = globalSettings?.azureConnString;
-      const senderDomain = globalSettings?.azureSenderDomain;
-      if (!connString || !senderDomain) {
+      if (!connString || getVerifiedDomains(globalSettings).length === 0) {
         azureStatus = 'UNCONFIGURED';
       } else {
         azureStatus = 'OPERATIONAL';

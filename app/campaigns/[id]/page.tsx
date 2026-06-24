@@ -1,54 +1,26 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 'use client';
 
-import { 
-  ArrowLeft, 
-  Save, 
-  Send, 
-  Settings, 
-  Users, 
-  AlignLeft, 
-  Clock, 
-  ToggleLeft, 
-  Plus, 
-  Trash2, 
-  SplitSquareHorizontal,
-  Mail,
-  User,
-  CheckCircle2,
-  MousePointerClick,
-  Reply,
-  SendHorizontal,
-  PlayCircle,
-  Sparkles,
-  ChevronDown,
-  Play,
-  Loader2,
-  XCircle,
-  AlertTriangle,
-  UserMinus
+import {
+  ArrowLeft, Save, Send, Settings, Users, AlignLeft, Clock, ToggleLeft, Plus, Trash2,
+  SplitSquareHorizontal, Mail, CheckCircle2, MousePointerClick, Reply, SendHorizontal,
+  Sparkles, Play, Loader2, XCircle, AlertTriangle, UserMinus,
 } from 'lucide-react';
 import Link from 'next/link';
 import { use, useState, useEffect } from 'react';
 import { useTimezones } from '@/hooks/use-timezones';
-import { 
-  AreaChart, 
-  Area, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  PieChart,
-  Pie,
-  Cell,
-  Legend
+import {
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  BarChart, Bar, PieChart, Pie, Cell,
 } from 'recharts';
 import { useToast } from '@/components/Toast';
 import VariableToolbar from '@/components/VariableToolbar';
-import { CardSkeleton, Skeleton } from '@/components/Skeleton';
+import {
+  Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
+  Select, MenuItem, FormControl, InputLabel, Switch, Skeleton, ToggleButtonGroup, ToggleButton,
+  Table, TableHead, TableBody, TableRow, TableCell, Checkbox, FormControlLabel,
+} from '@mui/material';
+import { alpha } from '@mui/material/styles';
 
 export default function CampaignDetailsPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
@@ -62,13 +34,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
   const [activeTab, setActiveTab] = useState('Sequence');
   const [templates, setTemplates] = useState<any[]>([]);
   const [previewSteps, setPreviewSteps] = useState<Record<string, boolean>>({});
-
-  const toggleStepPreview = (stepIdOrIndex: string | number) => {
-    setPreviewSteps(prev => ({
-      ...prev,
-      [stepIdOrIndex]: !prev[stepIdOrIndex]
-    }));
-  };
+  const toggleStepPreview = (id: string | number) => setPreviewSteps(prev => ({ ...prev, [id]: !prev[id] }));
 
   const resolveTemplateText = (text: string) => {
     if (!text) return '';
@@ -80,27 +46,18 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
     result = result.replace(/\{\{email\}\}/g, 'emily@starkindustries.com');
     result = result.replace(/\{\{\s*\$json\.name\s*\|\|\s*'[^']*'\s*\}\}/g, 'Emily');
     result = result.replace(/\{\{\s*\$json\.name\s*\}\}/g, 'Emily');
-    
-    // Replace custom unsubscribe placeholders for live preview
     result = result.replace(/\[\[\s*unsubscribe_url\s*\]\]/gi, '#unsubscribe');
     result = result.replace(/\{\{\s*unsubscribe_url\s*\}\}/gi, '#unsubscribe');
-
-    const spintaxRegex = /\{([^{}]+)\}/g;
-    result = result.replace(spintaxRegex, (match, options) => {
-      const choices = options.split('|');
-      return choices[0] || '';
-    });
-
+    result = result.replace(/\{([^{}]+)\}/g, (m, opts) => opts.split('|')[0] || '');
     return result;
   };
 
   const isHtml = (text: string) => {
     if (!text) return false;
-    const clean = text.trim().toLowerCase();
-    return clean.startsWith('<!doctype html') || clean.startsWith('<html') || clean.startsWith('<body') || clean.includes('<div') || clean.includes('<table');
+    const c = text.trim().toLowerCase();
+    return c.startsWith('<!doctype html') || c.startsWith('<html') || c.startsWith('<body') || c.includes('<div') || c.includes('<table');
   };
 
-  // Input states
   const [campaignName, setCampaignName] = useState('');
   const [status, setStatus] = useState('Draft');
   const [audienceCohort, setAudienceCohort] = useState('Valid');
@@ -114,85 +71,28 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
   const [availableMailboxes, setAvailableMailboxes] = useState<any[]>([]);
   const [primarySenderId, setPrimarySenderId] = useState<string>('');
   const [selectedPoolIds, setSelectedPoolIds] = useState<string[]>([]);
-
-  // Schedule days & time window
   const [selectedDays, setSelectedDays] = useState<string[]>(['Mon', 'Tue', 'Wed', 'Thu', 'Fri']);
   const [startTime, setStartTime] = useState('09:00');
   const [endTime, setEndTime] = useState('17:00');
 
-
-
-  const loadTemplates = async () => {
-    try {
-      const res = await fetch('/api/templates');
-      if (res.ok) {
-        const data = await res.json();
-        setTemplates(data);
-      }
-    } catch (err) {
-      console.error('Failed to load templates:', err);
-    }
-  };
-
-  const loadGroups = async () => {
-    try {
-      const res = await fetch('/api/leads/groups');
-      if (res.ok) {
-        const data = await res.json();
-        setGroups(data);
-      }
-    } catch (err) {
-      console.error('Failed to load lead groups:', err);
-    }
-  };
+  const loadTemplates = async () => { try { const r = await fetch('/api/templates'); if (r.ok) setTemplates(await r.json()); } catch (e) { console.error(e); } };
+  const loadGroups = async () => { try { const r = await fetch('/api/leads/groups'); if (r.ok) setGroups(await r.json()); } catch (e) { console.error(e); } };
+  const loadMailboxes = async () => { try { const r = await fetch('/api/accounts'); if (r.ok) setAvailableMailboxes(await r.json()); } catch (e) { console.error(e); } };
 
   const applyTemplate = (templateId: string) => {
     if (!templateId) return;
     const selected = templates.find(t => t.id === templateId);
     if (!selected) return;
-
     let parsedSteps: any[] = [];
     if (selected.steps) {
-      try {
-        parsedSteps = typeof selected.steps === 'string' ? JSON.parse(selected.steps) : selected.steps;
-      } catch (e) {
-        console.error('Error parsing template steps:', e);
-      }
+      try { parsedSteps = typeof selected.steps === 'string' ? JSON.parse(selected.steps) : selected.steps; } catch (e) { console.error(e); }
     }
-
     if (parsedSteps && parsedSteps.length > 0) {
-      const newSteps = parsedSteps.map((step, idx) => ({
-        id: `temp-${Date.now()}-${idx}`,
-        waitDays: idx === 0 ? 0 : (step.waitDays || 3),
-        subject: step.subject || '',
-        body: step.body || '',
-        isABTest: false
-      }));
-      setSteps(newSteps);
+      setSteps(parsedSteps.map((step, idx) => ({ id: `temp-${Date.now()}-${idx}`, waitDays: idx === 0 ? 0 : (step.waitDays || 3), subject: step.subject || '', body: step.body || '', isABTest: false })));
     } else {
-      setSteps([
-        {
-          id: `temp-${Date.now()}`,
-          waitDays: 0,
-          subject: selected.subject || '',
-          body: selected.body || '',
-          isABTest: false
-        }
-      ]);
+      setSteps([{ id: `temp-${Date.now()}`, waitDays: 0, subject: selected.subject || '', body: selected.body || '', isABTest: false }]);
     }
     showToast(`Applied template: ${selected.name}`);
-  };
-
-  const loadMailboxes = async () => {
-    try {
-      const res = await fetch('/api/accounts');
-      if (res.ok) {
-        const data = await res.json();
-        setAvailableMailboxes(data);
-      }
-    } catch (err) {
-      console.error('Failed to load mailboxes:', err);
-    }
   };
 
   const loadCampaign = async () => {
@@ -202,8 +102,6 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
       if (res.ok) {
         const data = await res.json();
         setCampaign(data);
-        
-        // Populate inputs
         setCampaignName(data.name || '');
         setStatus(data.status || 'Draft');
         setTimezone(data.timezone || 'UTC');
@@ -212,34 +110,19 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
         setTrackOpens(data.trackOpens !== false);
         setTrackClicks(data.trackClicks !== false);
         setSteps(data.steps || []);
-        
-        // Senders & Pool
         setPrimarySenderId(data.senderAccountId || '');
-        const poolIds = data.senders ? data.senders.map((s: any) => s.senderAccountId) : [];
-        setSelectedPoolIds(poolIds);
-
-        // Populate schedule fields if JSON structure exists
+        setSelectedPoolIds(data.senders ? data.senders.map((s: any) => s.senderAccountId) : []);
         if (data.sendSchedule) {
           try {
             const sched = typeof data.sendSchedule === 'string' ? JSON.parse(data.sendSchedule) : data.sendSchedule;
             if (sched.days) setSelectedDays(sched.days);
-            if (sched.window) {
-              if (sched.window.start) setStartTime(sched.window.start);
-              if (sched.window.end) setEndTime(sched.window.end);
-            }
-          } catch (e) {
-            console.error('Error parsing campaign schedule:', e);
-          }
+            if (sched.window?.start) setStartTime(sched.window.start);
+            if (sched.window?.end) setEndTime(sched.window.end);
+          } catch (e) { console.error(e); }
         }
-      } else {
-        showToast('Failed to load campaign details.', 'error');
-      }
-    } catch (err) {
-      console.error(err);
-      showToast('Error loading campaign.', 'error');
-    } finally {
-      setLoading(false);
-    }
+      } else showToast('Failed to load campaign details.', 'error');
+    } catch (err) { console.error(err); showToast('Error loading campaign.', 'error'); }
+    finally { setLoading(false); }
   };
 
   const refreshCampaignTelemetry = async () => {
@@ -248,939 +131,580 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
       if (res.ok) {
         const data = await res.json();
         setCampaign(data);
-        if (data.status !== status) {
-          setStatus(data.status);
-        }
+        if (data.status !== status) setStatus(data.status);
       }
-    } catch (err) {
-      console.error('Failed to auto-refresh campaign telemetry:', err);
-    }
+    } catch (err) { console.error(err); }
   };
 
   useEffect(() => {
     if (!campaign) return;
-    const isCampaignActive = status === 'Active';
-    const isCampaignRunning = runningCampaign;
-
-    if (!isCampaignActive && !isCampaignRunning) return;
-
-    const interval = setInterval(() => {
-      if (document.visibilityState === 'visible') {
-        refreshCampaignTelemetry();
-      }
-    }, 30000);
-
+    if (status !== 'Active' && !runningCampaign) return;
+    const interval = setInterval(() => { if (document.visibilityState === 'visible') refreshCampaignTelemetry(); }, 30000);
     return () => clearInterval(interval);
   }, [campaignId, status, runningCampaign, !!campaign]);
 
-  useEffect(() => {
-    loadCampaign();
-    loadTemplates();
-    loadGroups();
-    loadMailboxes();
-  }, [campaignId]);
+  useEffect(() => { loadCampaign(); loadTemplates(); loadGroups(); loadMailboxes(); }, [campaignId]);
 
-  const addStep = () => {
-    setSteps([...steps, { id: `temp-${Date.now()}`, waitDays: 3, subject: '', body: '', isABTest: false }]);
-  };
-
-  const removeStep = (indexToRemove: number) => {
-    if (steps.length > 1) {
-      setSteps(steps.filter((_, idx) => idx !== indexToRemove));
-    }
-  };
-
-  const updateStepField = (index: number, field: string, value: any) => {
-    setSteps(prev => prev.map((s, idx) => idx === index ? { ...s, [field]: value } : s));
-  };
-
-  const insertVariable = (variable: string, index: number) => {
-    const currentBody = steps[index]?.body || '';
-    updateStepField(index, 'body', currentBody + variable);
-  };
+  const addStep = () => setSteps([...steps, { id: `temp-${Date.now()}`, waitDays: 3, subject: '', body: '', isABTest: false }]);
+  const removeStep = (i: number) => { if (steps.length > 1) setSteps(steps.filter((_, idx) => idx !== i)); };
+  const updateStepField = (i: number, field: string, value: any) => setSteps(prev => prev.map((s, idx) => idx === i ? { ...s, [field]: value } : s));
+  const insertVariable = (variable: string, i: number) => updateStepField(i, 'body', (steps[i]?.body || '') + variable);
+  const toggleDaySelection = (day: string) => setSelectedDays(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]);
 
   const handleSaveCampaign = async (overrideStatus?: string) => {
     try {
       setSaving(true);
       const targetStatus = overrideStatus || status;
-
-      const scheduleJson = {
-        days: selectedDays,
-        window: {
-          start: startTime,
-          end: endTime
-        }
-      };
-
       const res = await fetch(`/api/campaigns/${campaignId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: campaignName,
-          status: targetStatus,
-          timezone,
-          sendSchedule: scheduleJson,
-          stopOnReply,
-          trackOpens,
-          trackClicks,
-          audienceCohort,
-          steps,
-          senderAccountId: primarySenderId,
-          senderAccountIds: selectedPoolIds
-        })
+          name: campaignName, status: targetStatus, timezone,
+          sendSchedule: { days: selectedDays, window: { start: startTime, end: endTime } },
+          stopOnReply, trackOpens, trackClicks, audienceCohort, steps,
+          senderAccountId: primarySenderId, senderAccountIds: selectedPoolIds,
+        }),
       });
-
       if (res.ok) {
         showToast('Outbound sequence configuration successfully saved!');
         if (overrideStatus) setStatus(overrideStatus);
-        await loadCampaign(); // Reload stats and steps
-      } else {
-        showToast('Failed to update campaign configuration.', 'error');
-      }
-    } catch (err) {
-      console.error(err);
-      showToast('Error occurred saving sequence configuration.', 'error');
-    } finally {
-      setSaving(false);
-    }
+        await loadCampaign();
+      } else showToast('Failed to update campaign configuration.', 'error');
+    } catch (err) { console.error(err); showToast('Error occurred saving sequence configuration.', 'error'); }
+    finally { setSaving(false); }
   };
 
   const handleRunCampaign = async () => {
     try {
       setRunningCampaign(true);
-      const res = await fetch(`/api/campaigns/${campaignId}/run`, {
-        method: 'POST'
-      });
+      const res = await fetch(`/api/campaigns/${campaignId}/run`, { method: 'POST' });
       const data = await res.json();
-      if (res.ok && data.success) {
-        showToast(`Campaign processed! Sent ${data.dispatchedCount} emails.`);
-        await loadCampaign(); // Refresh metrics
-      } else {
-        showToast(data.error || 'Failed to process campaign cycle.', 'error');
-      }
-    } catch (err) {
-      console.error(err);
-      showToast('Error occurred while executing campaign.', 'error');
-    } finally {
-      setRunningCampaign(false);
-    }
+      if (res.ok && data.success) { showToast(`Campaign processed! Sent ${data.dispatchedCount} emails.`); await loadCampaign(); }
+      else showToast(data.error || 'Failed to process campaign cycle.', 'error');
+    } catch (err) { console.error(err); showToast('Error occurred while executing campaign.', 'error'); }
+    finally { setRunningCampaign(false); }
   };
-
-  const toggleDaySelection = (day: string) => {
-    if (selectedDays.includes(day)) {
-      setSelectedDays(selectedDays.filter(d => d !== day));
-    } else {
-      setSelectedDays([...selectedDays, day]);
-    }
-  };
-
-
 
   if (loading) {
     return (
-      <div className="space-y-6 max-w-5xl mx-auto pb-16 animate-in fade-in">
-        <header className="flex justify-between items-center pb-4 border-b border-slate-200 dark:border-slate-800">
-          <div className="flex gap-4 items-center">
-            <Skeleton className="w-9 h-9" />
-            <div className="space-y-2">
-              <Skeleton className="h-6 w-48" />
-              <Skeleton className="h-4 w-32" />
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <Skeleton className="h-9 w-24" />
-            <Skeleton className="h-9 w-24" />
-          </div>
-        </header>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <CardSkeleton />
-          <CardSkeleton />
-          <CardSkeleton />
-          <CardSkeleton />
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="col-span-2 space-y-6">
-            <div className="border border-slate-200 dark:border-slate-800 rounded-xl p-5 bg-white dark:bg-slate-900 h-64 animate-pulse" />
-            <div className="border border-slate-200 dark:border-slate-800 rounded-xl p-5 bg-white dark:bg-slate-900 h-64 animate-pulse" />
-          </div>
-          <div className="space-y-6">
-            <div className="border border-slate-200 dark:border-slate-800 rounded-xl p-5 bg-white dark:bg-slate-900 h-40 animate-pulse" />
-            <div className="border border-slate-200 dark:border-slate-800 rounded-xl p-5 bg-white dark:bg-slate-900 h-64 animate-pulse" />
-          </div>
-        </div>
-      </div>
+      <Box sx={{ maxWidth: 1100, mx: 'auto', pb: 8, display: 'flex', flexDirection: 'column', gap: 3 }}>
+        <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', pb: 2, borderBottom: 1, borderColor: 'divider' }}>
+          <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
+            <Skeleton variant="rounded" width={36} height={36} />
+            <Box><Skeleton width={200} height={28} /><Skeleton width={140} /></Box>
+          </Stack>
+          <Stack direction="row" spacing={1}><Skeleton variant="rounded" width={100} height={36} /><Skeleton variant="rounded" width={120} height={36} /></Stack>
+        </Stack>
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', lg: 'repeat(4, 1fr)' }, gap: 2 }}>
+          {[0,1,2,3].map(i => <Skeleton key={i} variant="rounded" height={120} sx={{ borderRadius: '24px' }} />)}
+        </Box>
+        <Skeleton variant="rounded" height={300} sx={{ borderRadius: '24px' }} />
+      </Box>
     );
   }
 
+  const metrics = [
+    { title: 'Total Sent Requests', value: campaign?.telemetry?.sentRequests, icon: SendHorizontal, color: '#64748b', sub: 'Includes retries & failures' },
+    { title: 'Emails Sent', value: campaign?.telemetry?.sent, icon: Send, color: '#2563EB', sub: 'Accepted by provider' },
+    { title: 'Delivered', value: campaign?.telemetry?.delivered, icon: CheckCircle2, color: '#059669', sub: `${campaign?.telemetry?.deliveryRate ?? 0}% delivery rate` },
+    { title: 'Opens', value: campaign?.telemetry?.opens, icon: Mail, color: '#2563EB', sub: `${campaign?.telemetry?.openRate ?? 0}% open rate` },
+    { title: 'Clicks', value: campaign?.telemetry?.clicks, icon: MousePointerClick, color: '#D97706', sub: `${campaign?.telemetry?.clickRate ?? 0}% click rate` },
+    { title: 'Replies', value: campaign?.telemetry?.replies, icon: Reply, color: '#7C3AED', sub: `${campaign?.telemetry?.replyRate ?? 0}% reply rate` },
+  ];
+
+  const healthCards = [
+    { title: 'Failed Sends', value: campaign?.telemetry?.failed, icon: XCircle, color: '#DC2626', sub: 'Delivery errors at send time' },
+    { title: 'Bounced', value: campaign?.telemetry?.bounced, icon: AlertTriangle, color: '#D97706', sub: `${campaign?.telemetry?.bounceRate ?? 0}% bounce rate` },
+    { title: 'Unsubscribed', value: campaign?.telemetry?.unsubscribed, icon: UserMinus, color: '#64748b', sub: 'Opted out of mailings' },
+  ];
+
+  const statusColor = status === 'Active' ? 'success' : status === 'Paused' ? 'warning' : 'default';
+
   return (
-    <div className="space-y-6 animate-in fade-in duration-500 max-w-5xl mx-auto pb-16">
-      
-
-
+    <Box sx={{ maxWidth: 1100, mx: 'auto', pb: 8, display: 'flex', flexDirection: 'column', gap: 3 }}>
       {/* Header */}
-      <header className="flex justify-between items-start pb-4 border-b border-slate-200 dark:border-slate-800">
-        <div className="flex gap-4">
-          <Link href="/campaigns" className="p-2 h-fit bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800 rounded-lg transition-colors border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-white shadow-xs">
-            <ArrowLeft className="w-4 h-4" />
-          </Link>
-          <div>
-            <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">{campaignName || 'Sequence Setup'}</h1>
-              <div className="relative inline-block">
-                <select 
+      <Stack direction={{ xs: 'column', md: 'row' }} sx={{ justifyContent: 'space-between', alignItems: { md: 'flex-start' }, gap: 2, pb: 2, borderBottom: 1, borderColor: 'divider' }}>
+        <Stack direction="row" spacing={2} sx={{ alignItems: 'flex-start' }}>
+          <IconButton component={Link as any} href="/campaigns" sx={{ border: 1, borderColor: 'divider' }}>
+            <ArrowLeft size={16} />
+          </IconButton>
+          <Box>
+            <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+              <Typography variant="h5" sx={{ fontWeight: 700 }}>{campaignName || 'Sequence Setup'}</Typography>
+              <FormControl size="small">
+                <Select
                   value={status}
                   onChange={(e) => handleSaveCampaign(e.target.value)}
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded text-[10px] uppercase font-bold border cursor-pointer outline-none ${
-                    status === 'Active' 
-                      ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900/30'
-                      : status === 'Paused'
-                      ? 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-900/30'
-                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700'
-                  }`}
+                  sx={{
+                    height: 26, fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+                    bgcolor: (t) => statusColor !== 'default' ? alpha(t.palette[statusColor as 'success' | 'warning'].main, 0.14) : 'action.hover',
+                    color: statusColor !== 'default' ? `${statusColor}.main` : 'text.secondary',
+                    '& .MuiOutlinedInput-notchedOutline': { borderColor: statusColor !== 'default' ? `${statusColor}.main` : 'divider' },
+                  }}
                 >
-                  <option value="Draft">Draft</option>
-                  <option value="Active">Active</option>
-                  <option value="Paused">Paused</option>
-                </select>
-              </div>
-            </div>
-             <p className="text-slate-500 dark:text-slate-400 text-xs mt-1">
+                  <MenuItem value="Draft">Draft</MenuItem>
+                  <MenuItem value="Active">Active</MenuItem>
+                  <MenuItem value="Paused">Paused</MenuItem>
+                </Select>
+              </FormControl>
+            </Stack>
+            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5 }}>
               Primary Mailbox: {campaign?.senderAccount?.emailAddress || 'N/A'}
               {campaign?.senders && campaign.senders.length > 0 && ` (+${campaign.senders.length} rotated)`}
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
+            </Typography>
+          </Box>
+        </Stack>
+        <Stack direction="row" spacing={1}>
           {status === 'Active' && (
-            <button 
-              onClick={handleRunCampaign}
-              disabled={runningCampaign}
-              className="px-3.5 py-2 bg-amber-600 hover:bg-amber-500 disabled:bg-amber-600/50 text-white font-semibold rounded-lg text-xs flex items-center gap-1.5 cursor-pointer shadow-sm transition-colors"
-            >
-              {runningCampaign ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <Play className="w-3.5 h-3.5" />
-              )}
-              {runningCampaign ? 'Running...' : 'Run Campaign'}
-            </button>
+            <Button variant="contained" color="warning" disabled={runningCampaign} startIcon={runningCampaign ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />} onClick={handleRunCampaign}>
+              {runningCampaign ? 'Running…' : 'Run Campaign'}
+            </Button>
           )}
-          <button 
-            onClick={() => handleSaveCampaign()}
-            disabled={saving}
-            className="px-3.5 py-2 bg-white hover:bg-slate-50 dark:bg-slate-950 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 font-semibold rounded-lg text-xs flex items-center gap-1.5 cursor-pointer shadow-xs"
-          >
-            <Save className="w-3.5 h-3.5 text-slate-400" />
-            {saving ? 'Saving...' : 'Save Draft'}
-          </button>
-          <button 
-            onClick={() => handleSaveCampaign('Active')}
-            disabled={saving}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg text-xs flex items-center gap-1.5 cursor-pointer shadow-sm transition-colors"
-          >
-            <Send className="w-3.5 h-3.5" />
-            Publish Sequence
-          </button>
-        </div>
-      </header>
+          <Button variant="outlined" color="inherit" disabled={saving} startIcon={<Save size={14} />} onClick={() => handleSaveCampaign()} sx={{ borderColor: 'divider', color: 'text.secondary' }}>
+            {saving ? 'Saving…' : 'Save Draft'}
+          </Button>
+          <Button variant="contained" disabled={saving} startIcon={<Send size={14} />} onClick={() => handleSaveCampaign('Active')}>Publish Sequence</Button>
+        </Stack>
+      </Stack>
 
-      {/* Telemetry Metrics Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          { title: 'Total Sent Requests', value: (campaign?.telemetry?.sentRequests ?? 0).toLocaleString(), icon: SendHorizontal, color: 'text-slate-600 dark:text-slate-300', bg: 'bg-slate-100 dark:bg-slate-800/40', border: 'border-slate-200 dark:border-slate-700/40', pct: 'Includes retries & failures' },
-          { title: 'Emails Sent', value: (campaign?.telemetry?.sent ?? 0).toLocaleString(), icon: Send, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-950/25', border: 'border-blue-100 dark:border-blue-500/10', pct: 'Accepted by provider' },
-          { title: 'Delivered', value: (campaign?.telemetry?.delivered ?? 0).toLocaleString(), icon: CheckCircle2, color: 'text-emerald-700 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-950/25', border: 'border-emerald-100 dark:border-emerald-500/10', pct: `${campaign?.telemetry?.deliveryRate ?? 0}% delivery rate` },
-          { title: 'Opens', value: (campaign?.telemetry?.opens ?? 0).toLocaleString(), icon: Mail, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-950/25', border: 'border-blue-100 dark:border-blue-500/10', pct: `${campaign?.telemetry?.openRate ?? 0}% open rate` },
-          { title: 'Clicks', value: (campaign?.telemetry?.clicks ?? 0).toLocaleString(), icon: MousePointerClick, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-950/25', border: 'border-blue-100 dark:border-blue-500/10', pct: `${campaign?.telemetry?.clickRate ?? 0}% click rate` },
-          { title: 'Replies', value: (campaign?.telemetry?.replies ?? 0).toLocaleString(), icon: Reply, color: 'text-emerald-700 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-950/25', border: 'border-emerald-100 dark:border-emerald-500/10', pct: `${campaign?.telemetry?.replyRate ?? 0}% reply rate` },
-        ].map((stat, i) => (
-          <div key={i} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-xs">
-            <div className="flex justify-between items-start mb-2">
-              <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">{stat.title}</p>
-              <div className={`w-8 h-8 rounded ${stat.bg} border ${stat.border} flex items-center justify-center ${stat.color}`}>
-                <stat.icon className="w-4 h-4" />
-              </div>
-            </div>
-            <h3 className="text-xl font-bold text-slate-900 dark:text-white">{stat.value}</h3>
-            {stat.pct && (
-              <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold mt-1.5 font-mono">{stat.pct}</p>
-            )}
-          </div>
+      {/* Metrics */}
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', lg: 'repeat(3, 1fr)', xl: 'repeat(6, 1fr)' }, gap: 2 }}>
+        {metrics.map((m, i) => (
+          <Card key={i}>
+            <CardContent>
+              <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <Typography variant="overline" sx={{ color: 'text.secondary', fontWeight: 700 }}>{m.title}</Typography>
+                <Box sx={{ width: 32, height: 32, borderRadius: '10px', display: 'grid', placeItems: 'center', bgcolor: alpha(m.color, 0.14), color: m.color }}>
+                  <m.icon size={16} />
+                </Box>
+              </Stack>
+              <Typography variant="h6" sx={{ fontWeight: 700, mt: 0.5 }}>{(m.value ?? 0).toLocaleString()}</Typography>
+              <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5, fontFamily: 'monospace', fontSize: 9 }}>{m.sub}</Typography>
+            </CardContent>
+          </Card>
         ))}
-      </div>
+      </Box>
 
-      {/* Deliverability Health Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        {[
-          { title: 'Failed Sends', value: (campaign?.telemetry?.failed ?? 0).toLocaleString(), icon: XCircle, color: 'text-rose-600 dark:text-rose-400', bg: 'bg-rose-50 dark:bg-rose-950/25', border: 'border-rose-100 dark:border-rose-500/10', sub: 'Delivery errors at send time' },
-          { title: 'Bounced', value: (campaign?.telemetry?.bounced ?? 0).toLocaleString(), icon: AlertTriangle, color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-50 dark:bg-amber-950/25', border: 'border-amber-100 dark:border-amber-500/10', sub: `${campaign?.telemetry?.bounceRate ?? 0}% bounce rate` },
-          { title: 'Unsubscribed', value: (campaign?.telemetry?.unsubscribed ?? 0).toLocaleString(), icon: UserMinus, color: 'text-slate-600 dark:text-slate-300', bg: 'bg-slate-100 dark:bg-slate-800/40', border: 'border-slate-200 dark:border-slate-700/40', sub: 'Opted out of mailings' },
-        ].map((stat, i) => (
-          <div key={i} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 shadow-xs">
-            <div className="flex justify-between items-start mb-2">
-              <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">{stat.title}</p>
-              <div className={`w-8 h-8 rounded ${stat.bg} border ${stat.border} flex items-center justify-center ${stat.color}`}>
-                <stat.icon className="w-4 h-4" />
-              </div>
-            </div>
-            <h3 className="text-xl font-bold text-slate-900 dark:text-white">{stat.value}</h3>
-            <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold mt-1.5 font-mono">{stat.sub}</p>
-          </div>
+      {/* Deliverability */}
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, 1fr)' }, gap: 2 }}>
+        {healthCards.map((m, i) => (
+          <Card key={i}>
+            <CardContent>
+              <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <Typography variant="overline" sx={{ color: 'text.secondary', fontWeight: 700 }}>{m.title}</Typography>
+                <Box sx={{ width: 32, height: 32, borderRadius: '10px', display: 'grid', placeItems: 'center', bgcolor: alpha(m.color, 0.14), color: m.color }}>
+                  <m.icon size={16} />
+                </Box>
+              </Stack>
+              <Typography variant="h6" sx={{ fontWeight: 700, mt: 0.5 }}>{(m.value ?? 0).toLocaleString()}</Typography>
+              <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5, fontFamily: 'monospace', fontSize: 9 }}>{m.sub}</Typography>
+            </CardContent>
+          </Card>
         ))}
-      </div>
+      </Box>
 
-      {/* Per-Step Breakdown */}
+      {/* Per-step table */}
       {campaign?.telemetry?.stepStats && campaign.telemetry.stepStats.length > 0 && (
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-xs overflow-hidden">
-          <div className="px-5 py-3 border-b border-slate-200 dark:border-slate-800">
-            <h2 className="text-xs font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Per-Step Performance</h2>
-          </div>
-          <div className="w-full overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-slate-200 dark:border-slate-800 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest bg-slate-50/40 dark:bg-slate-950/20">
-                  <th className="px-4 py-2.5">Step</th>
-                  <th className="px-4 py-2.5">Active</th>
-                  <th className="px-4 py-2.5">Sent</th>
-                  <th className="px-4 py-2.5">Delivered</th>
-                  <th className="px-4 py-2.5">Opened</th>
-                  <th className="px-4 py-2.5">Clicked</th>
-                  <th className="px-4 py-2.5">Failed</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-xs text-slate-700 dark:text-slate-300">
+        <Card>
+          <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
+            <Typography variant="overline" sx={{ fontWeight: 700 }}>Per-Step Performance</Typography>
+          </Box>
+          <Box sx={{ overflowX: 'auto' }}>
+            <Table size="small">
+              <TableHead>
+                <TableRow sx={{ '& th': { fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', fontSize: 10, color: 'text.secondary' } }}>
+                  <TableCell>Step</TableCell>
+                  <TableCell>Active</TableCell>
+                  <TableCell>Sent</TableCell>
+                  <TableCell>Delivered</TableCell>
+                  <TableCell>Opened</TableCell>
+                  <TableCell>Clicked</TableCell>
+                  <TableCell>Failed</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {campaign.telemetry.stepStats.map((s: any) => (
-                  <tr key={s.stepOrder} className="hover:bg-slate-50/50 dark:hover:bg-white/[0.01]">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <span className="w-5 h-5 rounded bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 text-[10px] font-bold font-mono flex items-center justify-center border border-blue-100 dark:border-blue-500/15 flex-shrink-0">{s.stepOrder}</span>
-                        <span className="font-semibold text-slate-900 dark:text-white truncate max-w-[220px]" title={s.subject}>{s.subject || '(No subject)'}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 font-mono">{s.active}</td>
-                    <td className="px-4 py-3 font-mono font-bold text-slate-900 dark:text-white">{s.sent}</td>
-                    <td className="px-4 py-3 font-mono">{s.delivered} <span className="text-slate-400 dark:text-slate-500">({s.deliveryRate}%)</span></td>
-                    <td className="px-4 py-3 font-mono">{s.opened} <span className="text-slate-400 dark:text-slate-500">({s.openRate}%)</span></td>
-                    <td className="px-4 py-3 font-mono">{s.clicked} <span className="text-slate-400 dark:text-slate-500">({s.clickRate}%)</span></td>
-                    <td className={`px-4 py-3 font-mono ${s.failed > 0 ? 'text-rose-600 dark:text-rose-400 font-bold' : ''}`}>{s.failed}</td>
-                  </tr>
+                  <TableRow key={s.stepOrder} hover>
+                    <TableCell>
+                      <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                        <Chip size="small" label={s.stepOrder} sx={{ height: 20, fontWeight: 700, fontFamily: 'monospace', bgcolor: (t) => alpha(t.palette.primary.main, 0.14), color: 'primary.main' }} />
+                        <Typography variant="body2" sx={{ fontWeight: 600, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={s.subject}>{s.subject || '(No subject)'}</Typography>
+                      </Stack>
+                    </TableCell>
+                    <TableCell sx={{ fontFamily: 'monospace' }}>{s.active}</TableCell>
+                    <TableCell sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{s.sent}</TableCell>
+                    <TableCell sx={{ fontFamily: 'monospace' }}>{s.delivered} <Box component="span" sx={{ color: 'text.secondary' }}>({s.deliveryRate}%)</Box></TableCell>
+                    <TableCell sx={{ fontFamily: 'monospace' }}>{s.opened} <Box component="span" sx={{ color: 'text.secondary' }}>({s.openRate}%)</Box></TableCell>
+                    <TableCell sx={{ fontFamily: 'monospace' }}>{s.clicked} <Box component="span" sx={{ color: 'text.secondary' }}>({s.clickRate}%)</Box></TableCell>
+                    <TableCell sx={{ fontFamily: 'monospace', color: s.failed > 0 ? 'error.main' : undefined, fontWeight: s.failed > 0 ? 700 : 400 }}>{s.failed}</TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+              </TableBody>
+            </Table>
+          </Box>
+        </Card>
       )}
 
-      {/* Tabs Menu Bar */}
-      <div className="flex gap-1 p-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl w-fit shadow-xs">
-        {['Sequence', 'Audience', 'Schedule', 'Options', 'Senders'].map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`px-4 py-1.5 rounded-lg text-[10px] font-bold transition-all uppercase tracking-widest cursor-pointer ${
-              activeTab === tab 
-                ? 'bg-blue-600 text-white shadow-xs' 
-                : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            {tab}
-          </button>
+      {/* Tabs */}
+      <ToggleButtonGroup value={activeTab} exclusive onChange={(_, v) => v && setActiveTab(v)} sx={{ width: 'fit-content' }}>
+        {['Sequence', 'Audience', 'Schedule', 'Options', 'Senders'].map(tab => (
+          <ToggleButton key={tab} value={tab} sx={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>{tab}</ToggleButton>
         ))}
-      </div>
+      </ToggleButtonGroup>
 
-      {/* Main Designer Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="col-span-2 space-y-6">
-          
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '2fr 1fr' }, gap: 3 }}>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
           {activeTab === 'Sequence' && (
-             <div className="space-y-6">
-                {/* Title Card */}
-                <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 shadow-xs">
-                  <h2 className="text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400 mb-3 flex items-center gap-2">
-                    <Settings className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                    Campaign Title
-                  </h2>
-                  <input 
-                    type="text" 
-                    placeholder="e.g. Q4 Inactive Leads Engagement"
-                    value={campaignName}
-                    onChange={(e) => setCampaignName(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2.5 outline-none focus:ring-2 focus:ring-blue-500/40 placeholder:text-slate-400 dark:placeholder:text-slate-500 shadow-xs"
-                  />
-                </section>
+            <>
+              <Card>
+                <CardContent>
+                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1.5 }}>
+                    <Settings size={16} color="#2563EB" />
+                    <Typography variant="overline" sx={{ fontWeight: 700 }}>Campaign Title</Typography>
+                  </Stack>
+                  <TextField fullWidth size="small" placeholder="e.g. Q4 Inactive Leads Engagement" value={campaignName} onChange={(e) => setCampaignName(e.target.value)} />
+                </CardContent>
+              </Card>
 
-                <div className="flex justify-between items-center pb-1 border-b border-slate-200 dark:border-slate-800">
-                  <div className="flex items-center gap-2">
-                    <AlignLeft className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                    <h2 className="text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">Steps Setup</h2>
-                  </div>
-                  {templates.length > 0 && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Use Template:</span>
-                      <select
-                        onChange={(e) => {
-                          applyTemplate(e.target.value);
-                          e.target.value = "";
-                        }}
-                        defaultValue=""
-                        className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 text-xs rounded-lg px-2 py-1 outline-none font-medium"
-                      >
-                        <option value="" disabled>-- Select Template --</option>
-                        {templates.map(t => (
-                          <option key={t.id} value={t.id}>{t.name} ({t.category})</option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-                </div>
+              <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', pb: 0.5, borderBottom: 1, borderColor: 'divider' }}>
+                <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                  <AlignLeft size={16} color="#2563EB" />
+                  <Typography variant="overline" sx={{ fontWeight: 700 }}>Steps Setup</Typography>
+                </Stack>
+                {templates.length > 0 && (
+                  <FormControl size="small" sx={{ minWidth: 220 }}>
+                    <Select displayEmpty value="" onChange={(e) => applyTemplate(e.target.value)}>
+                      <MenuItem value="" disabled>— Use Template —</MenuItem>
+                      {templates.map(t => <MenuItem key={t.id} value={t.id}>{t.name} ({t.category})</MenuItem>)}
+                    </Select>
+                  </FormControl>
+                )}
+              </Stack>
 
-                {/* Automation Steps Stack */}
-                {steps.map((step, index) => (
-                  <section key={step.id || index} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 relative transition-all shadow-xs">
-                    {index > 0 && (
-                      <div className="absolute -top-6 left-9 h-6 w-[1.5px] bg-slate-200 dark:bg-slate-800"></div>
-                    )}
-                    
-                    <div className="flex justify-between items-center mb-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-7 h-7 rounded bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 font-bold flex items-center justify-center text-xs border border-blue-100 dark:border-blue-500/15 font-mono">
-                          {index + 1}
-                        </div>
-                        {index > 0 ? (
-                          <div className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-400">
-                            Wait for
-                            <input 
-                              type="number" 
-                              value={step.waitDays} 
-                              onChange={(e) => updateStepField(index, 'waitDays', parseInt(e.target.value) || 0)}
-                              className="w-14 bg-slate-50 dark:bg-slate-950 py-1 px-2 border border-slate-200 dark:border-slate-800 rounded text-center text-xs font-mono outline-none text-slate-800 dark:text-white focus:border-blue-500" 
+              {steps.map((step, index) => {
+                const showPreview = previewSteps[step.id || index] !== false;
+                return (
+                  <Card key={step.id || index}>
+                    <CardContent>
+                      <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 2, flexWrap: 'wrap', gap: 1 }}>
+                        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+                          <Box sx={{ width: 28, height: 28, borderRadius: '8px', display: 'grid', placeItems: 'center', bgcolor: (t) => alpha(t.palette.primary.main, 0.14), color: 'primary.main', fontWeight: 700, fontFamily: 'monospace' }}>{index + 1}</Box>
+                          {index > 0 ? (
+                            <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                              <Typography variant="body2" sx={{ fontWeight: 600 }}>Wait for</Typography>
+                              <TextField size="small" type="number" value={step.waitDays} onChange={(e) => updateStepField(index, 'waitDays', parseInt(e.target.value) || 0)} sx={{ width: 72 }} slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: 12 } } }} />
+                              <Typography variant="body2" sx={{ fontWeight: 600 }}>days</Typography>
+                            </Stack>
+                          ) : (<Typography variant="overline" sx={{ fontWeight: 700, color: 'text.secondary' }}>Initial Dispatch</Typography>)}
+                        </Stack>
+                        <Stack direction="row" spacing={1}>
+                          <Button size="small" variant={showPreview ? 'contained' : 'outlined'} color={showPreview ? 'primary' : 'inherit'} onClick={() => toggleStepPreview(step.id || index)} sx={{ borderColor: showPreview ? undefined : 'divider', color: showPreview ? undefined : 'text.secondary', fontSize: 10 }}>
+                            {showPreview ? 'Edit Mode' : 'Preview Mode'}
+                          </Button>
+                          <Button size="small" variant={step.isABTest ? 'contained' : 'outlined'} color={step.isABTest ? 'primary' : 'inherit'} startIcon={<SplitSquareHorizontal size={12} />} onClick={() => updateStepField(index, 'isABTest', !step.isABTest)} sx={{ borderColor: step.isABTest ? undefined : 'divider', color: step.isABTest ? undefined : 'text.secondary', fontSize: 10 }}>
+                            A/B Test
+                          </Button>
+                          {steps.length > 1 && (
+                            <IconButton size="small" onClick={() => removeStep(index)} sx={{ border: 1, borderColor: 'divider', color: 'text.secondary', '&:hover': { color: 'error.main', borderColor: 'error.main' } }}>
+                              <Trash2 size={14} />
+                            </IconButton>
+                          )}
+                        </Stack>
+                      </Stack>
+
+                      {showPreview ? (
+                        <Stack spacing={2}>
+                          <Card sx={{ bgcolor: (t) => alpha(t.palette.primary.main, 0.06), borderColor: (t) => alpha(t.palette.primary.main, 0.2) }}>
+                            <CardContent sx={{ display: 'flex', gap: 1.5, alignItems: 'flex-start' }}>
+                              <Sparkles size={16} color="#2563EB" style={{ marginTop: 2, flexShrink: 0 }} />
+                              <Box>
+                                <Typography variant="overline" sx={{ color: 'primary.main', fontWeight: 700 }}>Dynamic Resolve Preview</Typography>
+                                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>Showing output for contact <strong>Emily</strong> at <strong>Stark Industries</strong>.</Typography>
+                              </Box>
+                            </CardContent>
+                          </Card>
+                          <Card sx={{ bgcolor: 'action.hover' }}>
+                            <CardContent>
+                              <Box sx={{ pb: 1, borderBottom: 1, borderColor: 'divider', mb: 1 }}>
+                                <Typography variant="overline" sx={{ color: 'text.secondary', fontFamily: 'monospace' }}>Subject:</Typography>
+                                <Typography variant="body2" sx={{ fontWeight: 600, mt: 0.5 }}>{resolveTemplateText(step.subject || '')}</Typography>
+                              </Box>
+                              <Typography variant="overline" sx={{ color: 'text.secondary', fontFamily: 'monospace', display: 'block', mb: 1 }}>Message:</Typography>
+                              {isHtml(resolveTemplateText(step.body || '')) ? (
+                                <Box component="iframe" srcDoc={resolveTemplateText(step.body || '')} title="Email Preview" sandbox="allow-same-origin" sx={{ width: '100%', height: 500, border: 1, borderColor: 'divider', borderRadius: '12px', bgcolor: '#fff' }} />
+                              ) : (
+                                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{resolveTemplateText(step.body || '')}</Typography>
+                              )}
+                            </CardContent>
+                          </Card>
+                        </Stack>
+                      ) : (
+                        <Stack spacing={1.5}>
+                          <TextField fullWidth size="small" placeholder="Subject Line" value={step.subject} onChange={(e) => updateStepField(index, 'subject', e.target.value)} />
+                          <Box sx={{ border: 1, borderColor: 'divider', borderRadius: '12px', overflow: 'hidden', bgcolor: 'action.hover' }}>
+                            <Box sx={{ px: 1.5, py: 1, borderBottom: 1, borderColor: 'divider', bgcolor: 'background.paper' }}>
+                              <VariableToolbar onInsert={(v) => insertVariable(v, index)} onInsertSubject={(v) => updateStepField(index, 'subject', (step.subject || '') + ' ' + v)} />
+                            </Box>
+                            <TextField multiline minRows={6} fullWidth value={step.body} onChange={(e) => updateStepField(index, 'body', e.target.value)} placeholder="Write your custom copy stream here..." variant="standard"
+                              slotProps={{ input: { disableUnderline: true, sx: { px: 1.5, py: 1, fontFamily: 'monospace', fontSize: 12, lineHeight: 1.6 } } }}
                             />
-                            days
-                          </div>
-                        ) : (
-                          <span className="text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">Initial Dispatch</span>
-                        )}
-                      </div>
-                      
-                      <div className="flex gap-2">
-                        <button 
-                          type="button"
-                          onClick={() => toggleStepPreview(step.id || index)}
-                          className={`px-2.5 py-1.5 border rounded text-[10px] font-bold transition-colors flex items-center gap-1 cursor-pointer ${
-                            previewSteps[step.id || index] !== false
-                              ? 'bg-blue-50 dark:bg-blue-600/10 border-blue-200 dark:border-blue-500/20 text-blue-600 dark:text-blue-400' 
-                              : 'bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'
-                          }`}
-                        >
-                          {previewSteps[step.id || index] !== false ? 'Edit Mode' : 'Preview Mode'}
-                        </button>
-                        <button 
-                          type="button"
-                          onClick={() => updateStepField(index, 'isABTest', !step.isABTest)}
-                          className={`px-2.5 py-1.5 border rounded text-[10px] font-bold transition-colors flex items-center gap-1 cursor-pointer ${
-                            step.isABTest 
-                              ? 'bg-blue-50 dark:bg-blue-600/10 border-blue-200 dark:border-blue-500/20 text-blue-600 dark:text-blue-400' 
-                              : 'bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'
-                          }`}
-                        >
-                          <SplitSquareHorizontal className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
-                          A/B TEST Variant
-                        </button>
-                        {steps.length > 1 && (
-                          <button 
-                            type="button"
-                            onClick={() => removeStep(index)} 
-                            className="p-1.5 bg-slate-50 border border-slate-200 hover:bg-rose-500/10 hover:text-rose-600 dark:bg-slate-950 dark:border-slate-800 dark:hover:bg-rose-500/10 dark:hover:text-rose-400 rounded text-slate-400 dark:text-slate-500 transition-colors cursor-pointer"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
+                          </Box>
+                        </Stack>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
 
-                    {previewSteps[step.id || index] !== false ? (
-                      /* Live Preview Representation */
-                      <div className="space-y-4 animate-in fade-in">
-                        <div className="bg-blue-50/50 dark:bg-blue-950/10 border border-blue-100 dark:border-blue-500/10 p-3 rounded-lg flex items-start gap-2.5">
-                          <div>
-                            <p className="text-[10px] text-blue-700 dark:text-blue-400 font-extrabold uppercase tracking-wider">Dynamic Resolve Preview</p>
-                            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Showing output resolved for contact: <strong className="text-slate-900 dark:text-white">Emily</strong> at <strong className="text-slate-900 dark:text-white">Stark Industries</strong>.</p>
-                          </div>
-                        </div>
-
-                        <div className="space-y-3 font-sans bg-slate-50 dark:bg-[#12141d] border border-slate-100 dark:border-[#1f2130] p-4 rounded-lg">
-                          <div className="border-b border-slate-200 dark:border-[#1b1c26] pb-2">
-                            <span className="text-[9px] text-slate-400 dark:text-slate-500 uppercase tracking-widest font-bold font-mono">Subject Outcome:</span>
-                            <p className="text-xs font-semibold text-slate-900 dark:text-white mt-1">{resolveTemplateText(step.subject || '')}</p>
-                          </div>
-                          <div>
-                            <span className="text-[9px] text-slate-400 dark:text-slate-500 uppercase tracking-widest font-bold font-mono mb-1.5 block">Message Outcome:</span>
-                            {isHtml(resolveTemplateText(step.body || '')) ? (
-                              <iframe 
-                                srcDoc={resolveTemplateText(step.body || '')}
-                                title="Email Preview"
-                                className="w-full h-[500px] border border-slate-200 dark:border-slate-800 rounded-lg bg-white"
-                                sandbox="allow-same-origin"
-                              />
-                            ) : (
-                              <p className="text-xs text-slate-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed font-sans">{resolveTemplateText(step.body || '')}</p>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      /* Main Editor Inputs */
-                      <div className="space-y-3">
-                        <input 
-                          type="text" 
-                          placeholder="Subject Line"
-                          value={step.subject}
-                          onChange={(e) => updateStepField(index, 'subject', e.target.value)}
-                          className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-white text-xs rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500/40 placeholder:text-slate-400 dark:placeholder:text-slate-500 shadow-xs"
-                        />
-                        
-                        <div className="border border-slate-200 dark:border-slate-800 rounded-lg bg-slate-50 dark:bg-slate-950 flex flex-col">
-                          <div className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-3 py-1.5 flex items-center text-[11px] rounded-t-lg">
-                            <VariableToolbar
-                              onInsert={(v) => insertVariable(v, index)}
-                              onInsertSubject={(v) => updateStepField(index, 'subject', (step.subject || '') + ' ' + v)}
-                            />
-                          </div>
-                          <textarea 
-                            className="w-full h-36 p-3 outline-none bg-transparent text-slate-800 dark:text-white text-xs placeholder:text-slate-400 dark:placeholder:text-slate-500 resize-none font-mono leading-relaxed rounded-b-lg"
-                            placeholder="Write your custom copy stream here..."
-                            value={step.body}
-                            onChange={(e) => updateStepField(index, 'body', e.target.value)}
-                          ></textarea>
-                        </div>
-                      </div>
-                    )}
-                  </section>
-                ))}
-
-                <button 
-                  type="button"
-                  onClick={addStep}
-                  className="w-full py-3.5 bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200 border-dashed rounded-lg text-xs font-bold uppercase text-slate-500 dark:text-slate-400 transition-colors flex items-center justify-center gap-1.5 cursor-pointer dark:border-slate-800"
-                >
-                  <Plus className="w-4 h-4" />
-                  Add Journey Step
-                </button>
-             </div>
+              <Button fullWidth variant="outlined" color="inherit" startIcon={<Plus size={16} />} onClick={addStep} sx={{ py: 1.5, borderStyle: 'dashed', borderColor: 'divider', color: 'text.secondary', fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                Add Journey Step
+              </Button>
+            </>
           )}
 
           {activeTab === 'Schedule' && (
-             <div className="space-y-6 animate-in fade-in duration-200">
-                <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 shadow-xs">
-                  <h2 className="text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400 mb-5 flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
-                    <Clock className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                    Target Cadence Window
-                  </h2>
-                  
-                  <div className="space-y-5">
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">Outbox Timezone</label>
-                      <select 
-                        value={timezone}
-                        onChange={(e) => setTimezone(e.target.value)}
-                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 text-xs rounded-lg px-3 py-2 outline-none font-medium cursor-pointer"
-                      >
-                        {timezoneOptions.map(option => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">Permitted Active Days</label>
-                      <div className="flex gap-1.5">
-                         {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => (
-                            <label key={day} className="flex-1 cursor-pointer">
-                               <input 
-                                 type="checkbox" 
-                                 checked={selectedDays.includes(day)}
-                                 onChange={() => toggleDaySelection(day)}
-                                 className="peer sr-only" 
-                               />
-                               <div className="py-2 text-center rounded border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-[10px] font-bold text-slate-500 dark:text-slate-400 peer-checked:bg-blue-50 dark:peer-checked:bg-blue-950/40 peer-checked:border-blue-200 dark:peer-checked:border-blue-500/20 peer-checked:text-blue-600 dark:peer-checked:text-blue-400 transition-all uppercase tracking-wider">
-                                  {day}
-                               </div>
-                            </label>
-                         ))}
-                      </div>
-                    </div>
-
-                    <div className="space-y-4">
-                      <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">Cadence Delivery Window (Local Senders Clock)</label>
-                      <div className="flex items-center gap-3">
-                         <input 
-                           type="time" 
-                           value={startTime}
-                           onChange={(e) => setStartTime(e.target.value)}
-                           className="flex-1 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 text-slate-800 dark:text-white text-xs outline-none font-mono" 
-                         />
-                         <span className="text-slate-400 dark:text-slate-500 text-xs">to</span>
-                         <input 
-                           type="time" 
-                           value={endTime}
-                           onChange={(e) => setEndTime(e.target.value)}
-                           className="flex-1 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 text-slate-800 dark:text-white text-xs outline-none font-mono" 
-                         />
-                      </div>
-                    </div>
-                  </div>
-                </section>
-             </div>
+            <Card>
+              <CardContent>
+                <Stack direction="row" spacing={1} sx={{ alignItems: 'center', pb: 1.5, mb: 2.5, borderBottom: 1, borderColor: 'divider' }}>
+                  <Clock size={16} color="#2563EB" />
+                  <Typography variant="overline" sx={{ fontWeight: 700 }}>Target Cadence Window</Typography>
+                </Stack>
+                <Stack spacing={2.5}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>Outbox Timezone</InputLabel>
+                    <Select label="Outbox Timezone" value={timezone} onChange={(e) => setTimezone(e.target.value)}>
+                      {timezoneOptions.map(o => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
+                    </Select>
+                  </FormControl>
+                  <Box>
+                    <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Permitted Active Days</Typography>
+                    <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap' }}>
+                      {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => (
+                        <ToggleButton key={day} value={day} selected={selectedDays.includes(day)} onChange={() => toggleDaySelection(day)} sx={{ flex: 1, py: 0.75, fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>
+                          {day}
+                        </ToggleButton>
+                      ))}
+                    </Stack>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Cadence Delivery Window (Local Senders Clock)</Typography>
+                    <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+                      <TextField fullWidth size="small" type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
+                      <Typography variant="caption" sx={{ color: 'text.secondary' }}>to</Typography>
+                      <TextField fullWidth size="small" type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
+                    </Stack>
+                  </Box>
+                </Stack>
+              </CardContent>
+            </Card>
           )}
 
           {activeTab === 'Options' && (
-             <div className="space-y-6 animate-in fade-in duration-200">
-                <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 shadow-xs">
-                  <h2 className="text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400 mb-4 flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
-                    <ToggleLeft className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                    Delivery Autopilot Flags
-                  </h2>
-                  
-                  <div className="space-y-3">
-                    <label className="flex items-center justify-between p-3.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-800/30 transition-colors">
-                       <div>
-                          <div className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-widest">Pause Sequence on Reply (Stop on Reply)</div>
-                          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Stop further emails once a customer expresses interest.</div>
-                       </div>
-                       <input 
-                         type="checkbox" 
-                         checked={stopOnReply}
-                         onChange={(e) => setStopOnReply(e.target.checked)}
-                         className="toggle-checkbox sr-only peer" 
-                       />
-                       <div className="w-10 h-6 bg-slate-200 dark:bg-slate-800 rounded-full peer peer-checked:bg-blue-600 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all relative border border-slate-300 dark:border-slate-700"></div>
-                    </label>
-
-                    <label className="flex items-center justify-between p-3.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-800/30 transition-colors">
-                       <div>
-                          <div className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-widest">Track Read Opens status</div>
-                          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Embed standard safe tracking pixel mechanisms.</div>
-                       </div>
-                       <input 
-                         type="checkbox" 
-                         checked={trackOpens}
-                         onChange={(e) => setTrackOpens(e.target.checked)}
-                         className="toggle-checkbox sr-only peer" 
-                       />
-                       <div className="w-10 h-6 bg-slate-200 dark:bg-slate-800 rounded-full peer peer-checked:bg-blue-600 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all relative border border-slate-300 dark:border-slate-700"></div>
-                    </label>
-
-                    <label className="flex items-center justify-between p-3.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-800/30 transition-colors">
-                       <div>
-                          <div className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-widest">Track Hyperlink Engagements</div>
-                          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Wrap static body content links using custom domains.</div>
-                       </div>
-                       <input 
-                         type="checkbox" 
-                         checked={trackClicks}
-                         onChange={(e) => setTrackClicks(e.target.checked)}
-                         className="toggle-checkbox sr-only peer" 
-                       />
-                       <div className="w-10 h-6 bg-slate-200 dark:bg-slate-800 rounded-full peer peer-checked:bg-blue-600 peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all relative border border-slate-300 dark:border-slate-700"></div>
-                    </label>
-                  </div>
-                </section>
-             </div>
+            <Card>
+              <CardContent>
+                <Stack direction="row" spacing={1} sx={{ alignItems: 'center', pb: 1.5, mb: 2, borderBottom: 1, borderColor: 'divider' }}>
+                  <ToggleLeft size={16} color="#2563EB" />
+                  <Typography variant="overline" sx={{ fontWeight: 700 }}>Delivery Autopilot Flags</Typography>
+                </Stack>
+                <Stack spacing={1.5}>
+                  {[
+                    { label: 'Pause Sequence on Reply', desc: 'Stop further emails once a customer expresses interest.', val: stopOnReply, set: setStopOnReply },
+                    { label: 'Track Opens', desc: 'Embed standard safe tracking pixel mechanisms.', val: trackOpens, set: setTrackOpens },
+                    { label: 'Track Link Clicks', desc: 'Wrap body content links to track engagement.', val: trackClicks, set: setTrackClicks },
+                  ].map((f, i) => (
+                    <Stack key={i} direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', p: 1.5, borderRadius: '14px', border: 1, borderColor: 'divider', bgcolor: 'action.hover' }}>
+                      <Box>
+                        <Typography variant="body2" sx={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{f.label}</Typography>
+                        <Typography variant="caption" sx={{ color: 'text.secondary' }}>{f.desc}</Typography>
+                      </Box>
+                      <Switch checked={f.val} onChange={(e) => f.set(e.target.checked)} />
+                    </Stack>
+                  ))}
+                </Stack>
+              </CardContent>
+            </Card>
           )}
 
           {activeTab === 'Audience' && (
-             <div className="space-y-6 animate-in fade-in duration-200">
-               <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 shadow-xs">
-                 <h2 className="text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400 mb-5 flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
-                   <Users className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                   Audience Selection
-                 </h2>
-                 <div className="space-y-4">
-                   <div className="space-y-1.5">
-                      <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-widest">Target CRM List Folder</label>
-                      <select 
-                        value={audienceCohort}
-                        onChange={(e) => setAudienceCohort(e.target.value)}
-                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 text-xs rounded-lg px-3 py-2 outline-none cursor-pointer"
-                      >
-                        <option value="Valid">All Active Valid Leads ({campaign?.telemetry?.validLeadsCount || 0})</option>
-                        <option value="Unverified">All Unverified Leads ({campaign?.telemetry?.unverifiedLeadsCount || 0})</option>
-                        {groups.map(group => (
-                          <option key={group.id} value={group.id}>
-                            Segment: {group.name} ({group._count?.leads || 0})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                   <div className="p-4 bg-blue-50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-500/15 rounded-lg">
-                     <p className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-widest">Selected Prospects Estimate</p>
-                     <p className="text-2xl font-bold text-slate-900 dark:text-white mt-1">{campaign?.telemetry?.enrollments || 0}</p>
-                     <p className="text-xs text-blue-500 dark:text-blue-300 font-medium mt-1">Active enrollments in sequence execution queue</p>
-                   </div>
-                 </div>
-               </section>
-             </div>
+            <Card>
+              <CardContent>
+                <Stack direction="row" spacing={1} sx={{ alignItems: 'center', pb: 1.5, mb: 2.5, borderBottom: 1, borderColor: 'divider' }}>
+                  <Users size={16} color="#2563EB" />
+                  <Typography variant="overline" sx={{ fontWeight: 700 }}>Audience Selection</Typography>
+                </Stack>
+                <Stack spacing={2}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>Target CRM List</InputLabel>
+                    <Select label="Target CRM List" value={audienceCohort} onChange={(e) => setAudienceCohort(e.target.value)}>
+                      <MenuItem value="Valid">All Active Valid Leads ({campaign?.telemetry?.validLeadsCount || 0})</MenuItem>
+                      <MenuItem value="Unverified">All Unverified Leads ({campaign?.telemetry?.unverifiedLeadsCount || 0})</MenuItem>
+                      {groups.map((g: any) => <MenuItem key={g.id} value={g.id}>Segment: {g.name} ({g._count?.leads || 0})</MenuItem>)}
+                    </Select>
+                  </FormControl>
+                  <Card sx={{ bgcolor: (t) => alpha(t.palette.primary.main, 0.06), borderColor: (t) => alpha(t.palette.primary.main, 0.2) }}>
+                    <CardContent>
+                      <Typography variant="overline" sx={{ color: 'primary.main', fontWeight: 700 }}>Selected Prospects Estimate</Typography>
+                      <Typography variant="h4" sx={{ fontWeight: 700, mt: 0.5 }}>{campaign?.telemetry?.enrollments || 0}</Typography>
+                      <Typography variant="caption" sx={{ color: 'primary.main' }}>Active enrollments in sequence execution queue</Typography>
+                    </CardContent>
+                  </Card>
+                </Stack>
+              </CardContent>
+            </Card>
           )}
 
           {activeTab === 'Senders' && (
-             <div className="space-y-6 animate-in fade-in duration-200">
-               <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 shadow-xs">
-                 <div className="flex justify-between items-center mb-5 border-b border-slate-200 dark:border-slate-800 pb-2">
-                   <h2 className="text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400 flex items-center gap-2">
-                     <Mail className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                     Campaign Senders Pool & Rotation
-                   </h2>
-                   <span className="text-[9px] bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded font-extrabold uppercase tracking-wider">
-                     {selectedPoolIds.length || 1} Active {(selectedPoolIds.length || 1) === 1 ? 'Sender' : 'Senders'}
-                   </span>
-                 </div>
-                 
-                 <p className="text-[11px] text-slate-500 dark:text-slate-400 mb-6 leading-relaxed">
-                   Balanced sending across multiple mailboxes spreads outbound volume, protects mailbox reputation, and circumvents daily service provider caps. Check mailboxes to include them in the campaign's rotation pool. The send engine will automatically route each dispatch via the least-loaded mailbox.
-                 </p>
-                 
-                 <div className="space-y-3">
-                   {availableMailboxes.map((mailbox) => {
-                     const isPrimary = primarySenderId === mailbox.id;
-                     const isChecked = selectedPoolIds.includes(mailbox.id) || isPrimary;
-                     
-                     const toggleCheckbox = () => {
-                       if (isPrimary) {
-                         showToast('The primary sender is always included in the rotation pool.', 'error');
-                         return;
-                       }
-                       if (isChecked) {
-                         setSelectedPoolIds(prev => prev.filter(id => id !== mailbox.id));
-                       } else {
-                         setSelectedPoolIds(prev => [...prev, mailbox.id]);
-                       }
-                     };
-                     
-                     const makePrimary = () => {
-                       setPrimarySenderId(mailbox.id);
-                       if (!selectedPoolIds.includes(mailbox.id)) {
-                         setSelectedPoolIds(prev => [...prev, mailbox.id]);
-                       }
-                     };
-
-                     return (
-                       <div 
-                         key={mailbox.id} 
-                         className={`p-4 border rounded-xl flex items-center justify-between transition-all ${
-                           isPrimary 
-                             ? 'bg-blue-50/20 dark:bg-blue-950/10 border-blue-200 dark:border-blue-500/25' 
-                             : isChecked 
-                             ? 'bg-slate-50/50 dark:bg-slate-900/40 border-slate-300 dark:border-slate-800' 
-                             : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 opacity-60 hover:opacity-90'
-                         }`}
-                       >
-                         <div className="flex items-center gap-3.5">
-                           <input 
-                             type="checkbox"
-                             checked={isChecked}
-                             onChange={toggleCheckbox}
-                             disabled={isPrimary}
-                             className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer"
-                           />
-                           
-                           <div>
-                             <div className="flex items-center gap-2">
-                               <p className="text-xs font-bold text-slate-800 dark:text-white">{mailbox.name || 'SMTP Account'}</p>
-                               <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">({mailbox.emailAddress})</span>
-                               {isPrimary && (
-                                 <span className="text-[8px] bg-blue-600 text-white font-extrabold px-1.5 py-0.5 rounded-full uppercase tracking-widest">
-                                   Primary
-                                 </span>
-                               )}
-                               {mailbox.warmupEnabled && (
-                                 <span className="text-[8px] bg-amber-500 text-white font-extrabold px-1.5 py-0.5 rounded-full uppercase tracking-widest animate-pulse">
-                                   Warmup
-                                 </span>
-                               )}
-                             </div>
-                             
-                             <div className="flex items-center gap-4 mt-2 text-[10px] text-slate-500 dark:text-slate-400">
-                               <span>Provider: <strong className="text-slate-700 dark:text-slate-300 uppercase">{mailbox.provider}</strong></span>
-                               <span>Sent Today: <strong>{mailbox.sentToday} / {mailbox.effectiveDailyCap}</strong></span>
-                               <span>Total Sent: <strong>{mailbox.sentTotal}</strong></span>
-                             </div>
-                           </div>
-                         </div>
-                         
-                         {!isPrimary && (
-                           <button
-                             type="button"
-                             onClick={makePrimary}
-                             className="px-2.5 py-1 text-[10px] font-bold text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 border border-slate-200 dark:border-slate-800 hover:border-blue-300 dark:hover:border-blue-500/30 rounded-lg cursor-pointer transition-colors"
-                           >
-                             Set as Primary
-                           </button>
-                         )}
-                       </div>
-                     );
-                   })}
-                   
-                   {availableMailboxes.length === 0 && (
-                     <div className="text-center py-8 text-slate-400 dark:text-slate-500 text-xs">
-                       No sender accounts found. Create mailboxes in the Senders configuration first.
-                     </div>
-                   )}
-                 </div>
-               </section>
-             </div>
+            <Card>
+              <CardContent>
+                <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', pb: 1.5, mb: 2.5, borderBottom: 1, borderColor: 'divider' }}>
+                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                    <Mail size={16} color="#2563EB" />
+                    <Typography variant="overline" sx={{ fontWeight: 700 }}>Campaign Senders Pool & Rotation</Typography>
+                  </Stack>
+                  <Chip size="small" label={`${selectedPoolIds.length || 1} Active ${(selectedPoolIds.length || 1) === 1 ? 'Sender' : 'Senders'}`} color="primary" variant="outlined" sx={{ fontWeight: 700 }} />
+                </Stack>
+                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 2, lineHeight: 1.6 }}>
+                  Spreading outbound across multiple mailboxes protects sender reputation and circumvents daily provider caps. The send engine routes each dispatch via the least-loaded mailbox.
+                </Typography>
+                <Stack spacing={1.5}>
+                  {availableMailboxes.map((mailbox) => {
+                    const isPrimary = primarySenderId === mailbox.id;
+                    const isChecked = selectedPoolIds.includes(mailbox.id) || isPrimary;
+                    const toggleCheckbox = () => {
+                      if (isPrimary) { showToast('The primary sender is always included.', 'error'); return; }
+                      setSelectedPoolIds(prev => isChecked ? prev.filter(id => id !== mailbox.id) : [...prev, mailbox.id]);
+                    };
+                    const makePrimary = () => {
+                      setPrimarySenderId(mailbox.id);
+                      if (!selectedPoolIds.includes(mailbox.id)) setSelectedPoolIds(prev => [...prev, mailbox.id]);
+                    };
+                    return (
+                      <Card key={mailbox.id} variant="outlined" sx={{ bgcolor: isPrimary ? (t) => alpha(t.palette.primary.main, 0.06) : isChecked ? 'action.hover' : 'background.paper', borderColor: isPrimary ? 'primary.main' : 'divider', opacity: isChecked ? 1 : 0.6 }}>
+                        <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+                          <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', gap: 1.5 }}>
+                            <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flex: 1 }}>
+                              <Checkbox size="small" checked={isChecked} disabled={isPrimary} onChange={toggleCheckbox} />
+                              <Box>
+                                <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+                                  <Typography variant="body2" sx={{ fontWeight: 700 }}>{mailbox.name || 'SMTP Account'}</Typography>
+                                  <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace' }}>({mailbox.emailAddress})</Typography>
+                                  {isPrimary && <Chip size="small" label="PRIMARY" color="primary" sx={{ height: 16, fontSize: 8, fontWeight: 800 }} />}
+                                  {mailbox.warmupEnabled && <Chip size="small" label="WARMUP" color="warning" sx={{ height: 16, fontSize: 8, fontWeight: 800 }} />}
+                                </Stack>
+                                <Stack direction="row" spacing={2} sx={{ mt: 0.5, color: 'text.secondary', fontSize: 10 }}>
+                                  <span>Provider: <Box component="strong" sx={{ color: 'text.primary' }}>{mailbox.provider}</Box></span>
+                                  <span>Today: <Box component="strong">{mailbox.sentToday} / {mailbox.effectiveDailyCap}</Box></span>
+                                  <span>Total: <Box component="strong">{mailbox.sentTotal}</Box></span>
+                                </Stack>
+                              </Box>
+                            </Stack>
+                            {!isPrimary && (
+                              <Button size="small" variant="outlined" color="inherit" onClick={makePrimary} sx={{ fontSize: 10, borderColor: 'divider', color: 'text.secondary' }}>
+                                Set as Primary
+                              </Button>
+                            )}
+                          </Stack>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                  {availableMailboxes.length === 0 && (
+                    <Typography variant="caption" sx={{ color: 'text.secondary', textAlign: 'center', py: 4, display: 'block' }}>
+                      No sender accounts. Create mailboxes in the Accounts page first.
+                    </Typography>
+                  )}
+                </Stack>
+              </CardContent>
+            </Card>
           )}
+        </Box>
 
-        </div>
+        {/* Sidebar */}
+        <Stack spacing={2.5}>
+          <Card sx={{ bgcolor: (t) => alpha(t.palette.primary.main, 0.06), borderColor: (t) => alpha(t.palette.primary.main, 0.2) }}>
+            <CardContent>
+              <Typography variant="overline" sx={{ color: 'primary.main', fontWeight: 700, display: 'block', mb: 1.5 }}>Campaign Outline</Typography>
+              <Stack spacing={1} sx={{ fontSize: 12 }}>
+                <Stack direction="row" sx={{ justifyContent: 'space-between', pb: 0.75, borderBottom: 1, borderColor: 'divider' }}><span>Total Emails</span><Box component="strong">{steps.length} Steps</Box></Stack>
+                <Stack direction="row" sx={{ justifyContent: 'space-between', pb: 0.75, borderBottom: 1, borderColor: 'divider' }}><span>Duration</span><Box component="strong">{steps.reduce((acc, step) => acc + (step.waitDays || 0), 0)} Days</Box></Stack>
+                <Stack direction="row" sx={{ justifyContent: 'space-between' }}><span>Active Cohort</span><Box component="strong" sx={{ color: 'primary.main', fontFamily: 'monospace' }}>{campaign?.telemetry?.enrollments || 0} leads</Box></Stack>
+              </Stack>
+            </CardContent>
+          </Card>
 
-        {/* Info Sidebar Summary info */}
-        <div className="space-y-6">
-           <div className="p-4 bg-blue-50/50 dark:bg-blue-950/10 border border-blue-100 dark:border-blue-500/10 rounded-xl shadow-xs">
-              <h3 className="text-[10px] font-extrabold text-blue-600 dark:text-blue-400 uppercase tracking-widest mb-3.5">Campaign Outline</h3>
-              <ul className="space-y-2.5 text-xs text-slate-600 dark:text-slate-300">
-                 <li className="flex justify-between border-b border-slate-100 dark:border-slate-800/60 pb-1.5">
-                    <span>Total Emails</span> <span className="font-bold text-slate-900 dark:text-white">{steps.length} Steps</span>
-                 </li>
-                 <li className="flex justify-between border-b border-slate-100 dark:border-slate-800/60 pb-1.5">
-                    <span>Duration delay</span> <span className="font-bold text-slate-900 dark:text-white">{steps.reduce((acc, step) => acc + (step.waitDays || 0), 0)} Days</span>
-                 </li>
-                 <li className="flex justify-between">
-                    <span>Active Cohort</span> <span className="font-bold text-blue-600 dark:text-blue-400 font-mono">{campaign?.telemetry?.enrollments || 0} leads</span>
-                 </li>
-              </ul>
-           </div>
-
-           {/* Telemetry Chart details */}
-           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 flex flex-col shadow-xs">
-             <h2 className="text-[10px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400 mb-6">Engagement Over Time</h2>
-             <div className="h-[200px] w-full">
-               <ResponsiveContainer width="100%" height="100%">
-                 <AreaChart data={campaign?.telemetry?.trend || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                   <defs>
-                     <linearGradient id="colorO" x1="0" y1="0" x2="0" y2="1">
-                       <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.2}/>
-                       <stop offset="95%" stopColor="#4f46e5" stopOpacity={0}/>
-                     </linearGradient>
-                     <linearGradient id="colorC" x1="0" y1="0" x2="0" y2="1">
-                       <stop offset="5%" stopColor="#818cf8" stopOpacity={0.15}/>
-                       <stop offset="95%" stopColor="#818cf8" stopOpacity={0}/>
-                     </linearGradient>
-                   </defs>
-                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="currentColor" className="text-slate-200 dark:text-slate-800/80" />
-                   <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10 }} dy={10} />
-                   <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10 }} />
-                   <Tooltip 
-                     contentStyle={{ 
-                       backgroundColor: 'var(--card-bg, #ffffff)', 
-                       borderRadius: '12px', 
-                       border: '1px solid var(--border-card, #e2e8f0)', 
-                       color: 'var(--text-white, #0f172a)', 
-                       fontSize: '11px' 
-                     }} 
-                   />
-                   <Area type="monotone" dataKey="opens" stroke="#4f46e5" strokeWidth={2} fillOpacity={1} fill="url(#colorO)" />
-                   <Area type="monotone" dataKey="clicks" stroke="#818cf8" strokeWidth={2} fillOpacity={1} fill="url(#colorC)" />
-                 </AreaChart>
-               </ResponsiveContainer>
-            </div>
-           </div>
-
-            {/* Conversion Funnel */}
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 flex flex-col shadow-xs">
-              <h2 className="text-[10px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400 mb-6">Conversion Funnel</h2>
-              <div className="h-[200px] w-full">
+          <Card>
+            <CardContent>
+              <Typography variant="overline" sx={{ fontWeight: 700, mb: 2, display: 'block' }}>Engagement Over Time</Typography>
+              <Box sx={{ height: 200 }}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    layout="vertical"
-                    data={campaign?.telemetry?.funnel || []}
-                    margin={{ top: 5, right: 5, left: 10, bottom: 5 }}
-                  >
-                    <XAxis type="number" hide />
+                  <AreaChart data={campaign?.telemetry?.trend || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="cd-o" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#4f46e5" stopOpacity={0.2}/><stop offset="95%" stopColor="#4f46e5" stopOpacity={0}/></linearGradient>
+                      <linearGradient id="cd-c" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#818cf8" stopOpacity={0.15}/><stop offset="95%" stopColor="#818cf8" stopOpacity={0}/></linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="currentColor" className="text-slate-200 dark:text-slate-800/80" />
+                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10 }} dy={10} />
+                    <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10 }} allowDecimals={false} />
+                    <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid rgba(100,116,139,0.2)', fontSize: 11 }} />
+                    <Area type="monotone" dataKey="opens" stroke="#4f46e5" strokeWidth={2} fillOpacity={1} fill="url(#cd-o)" />
+                    <Area type="monotone" dataKey="clicks" stroke="#818cf8" strokeWidth={2} fillOpacity={1} fill="url(#cd-c)" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </Box>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent>
+              <Typography variant="overline" sx={{ fontWeight: 700, mb: 2, display: 'block' }}>Conversion Funnel</Typography>
+              <Box sx={{ height: 200 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart layout="vertical" data={campaign?.telemetry?.funnel || []} margin={{ top: 5, right: 5, left: 10, bottom: 5 }}>
+                    <XAxis type="number" hide allowDecimals={false} />
                     <YAxis type="category" dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 9 }} width={75} />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: 'var(--card-bg, #ffffff)',
-                        borderRadius: '12px',
-                        border: '1px solid var(--border-card, #e2e8f0)',
-                        color: 'var(--text-white, #0f172a)',
-                        fontSize: '11px'
-                      }}
-                    />
-                    <Bar dataKey="value" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={14} name="Leads" />
+                    <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid rgba(100,116,139,0.2)', fontSize: 11 }} />
+                    <Bar dataKey="value" fill="#2563EB" radius={[0, 8, 8, 0]} barSize={14} name="Leads" />
                   </BarChart>
                 </ResponsiveContainer>
-              </div>
-            </div>
+              </Box>
+            </CardContent>
+          </Card>
 
-            {/* Sentiment breakdown */}
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 flex flex-col shadow-xs">
-              <h2 className="text-[10px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400 mb-6">Sentiment Distribution</h2>
-              <div className="h-[200px] w-full flex items-center justify-center relative">
+          <Card>
+            <CardContent>
+              <Typography variant="overline" sx={{ fontWeight: 700, mb: 2, display: 'block' }}>Sentiment Distribution</Typography>
+              <Box sx={{ height: 200, position: 'relative' }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie
-                      data={(campaign?.telemetry?.sentiment || []).filter((s: any) => s.value > 0)}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={45}
-                      outerRadius={65}
-                      paddingAngle={3}
-                      dataKey="value"
-                      nameKey="name"
-                    >
+                    <Pie data={(campaign?.telemetry?.sentiment || []).filter((s: any) => s.value > 0)} cx="50%" cy="50%" innerRadius={45} outerRadius={65} paddingAngle={3} dataKey="value" nameKey="name">
                       {(campaign?.telemetry?.sentiment || []).filter((s: any) => s.value > 0).map((entry: any, index: number) => {
-                        const colors: Record<string, string> = {
-                          'Neutral': '#94a3b8',
-                          'Interested': '#10b981',
-                          'Not Interested': '#f43f5e',
-                          'Meeting Booked': '#6366f1',
-                          'Out of Office': '#f59e0b',
-                          'Bounced': '#8b5cf6',
-                          'Unsubscribed': '#475569'
-                        };
+                        const colors: Record<string, string> = { 'Neutral': '#94a3b8', 'Interested': '#10b981', 'Not Interested': '#f43f5e', 'Meeting Booked': '#6366f1', 'Out of Office': '#f59e0b', 'Bounced': '#8b5cf6', 'Unsubscribed': '#475569' };
                         return <Cell key={`cell-${index}`} fill={colors[entry.name] || '#3b82f6'} />;
                       })}
                     </Pie>
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: 'var(--card-bg, #ffffff)',
-                        borderRadius: '12px',
-                        border: '1px solid var(--border-card, #e2e8f0)',
-                        color: 'var(--text-white, #0f172a)',
-                        fontSize: '11px'
-                      }}
-                    />
+                    <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid rgba(100,116,139,0.2)', fontSize: 11 }} />
                   </PieChart>
                 </ResponsiveContainer>
                 {(!campaign?.telemetry?.sentiment || campaign?.telemetry?.sentiment.every((s: any) => s.value === 0)) && (
-                  <div className="absolute inset-0 flex items-center justify-center text-slate-400 dark:text-slate-500 text-[10px]">
-                    No leads enrolled.
-                  </div>
+                  <Box sx={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center' }}>
+                    <Typography variant="caption" sx={{ color: 'text.secondary' }}>No leads enrolled.</Typography>
+                  </Box>
                 )}
-              </div>
-              <div className="grid grid-cols-2 gap-1.5 mt-2 text-[9px] text-slate-500 dark:text-slate-400">
+              </Box>
+              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 0.75, mt: 1, fontSize: 9 }}>
                 {campaign?.telemetry?.sentiment?.filter((s: any) => s.value > 0).map((s: any, idx: number) => {
-                  const colors: Record<string, string> = {
-                    'Neutral': 'bg-slate-400',
-                    'Interested': 'bg-emerald-500',
-                    'Not Interested': 'bg-rose-500',
-                    'Meeting Booked': 'bg-indigo-500',
-                    'Out of Office': 'bg-amber-500',
-                    'Bounced': 'bg-purple-500',
-                    'Unsubscribed': 'bg-slate-600'
-                  };
+                  const colors: Record<string, string> = { 'Neutral': '#94a3b8', 'Interested': '#10b981', 'Not Interested': '#f43f5e', 'Meeting Booked': '#6366f1', 'Out of Office': '#f59e0b', 'Bounced': '#8b5cf6', 'Unsubscribed': '#475569' };
                   return (
-                    <div key={idx} className="flex items-center gap-1">
-                      <span className={`w-1.5 h-1.5 rounded-full ${colors[s.name] || 'bg-blue-500'}`} />
-                      <span className="truncate">{s.name}: {s.value}</span>
-                    </div>
+                    <Stack key={idx} direction="row" spacing={0.5} sx={{ alignItems: 'center', color: 'text.secondary' }}>
+                      <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: colors[s.name] || '#3b82f6' }} />
+                      <Typography variant="caption" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}: {s.value}</Typography>
+                    </Stack>
                   );
                 })}
-              </div>
-            </div>
-         </div>
-      </div>
-    </div>
+              </Box>
+            </CardContent>
+          </Card>
+        </Stack>
+      </Box>
+    </Box>
   );
 }

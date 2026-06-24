@@ -4,65 +4,33 @@
 import { useState, useEffect, Fragment } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { 
-  Plus, 
-  CheckCircle2, 
-  PlayCircle, 
-  Search, 
-  X, 
-  Layers, 
-  Filter, 
-  FileSpreadsheet,
-  RefreshCw,
-  Mail,
-  User,
-  ChevronRight,
-  ChevronDown,
-  Sparkles,
-  Inbox,
-  Trash2,
-  Play,
-  Pause,
-  Send,
-  Check
+import {
+  Plus, PlayCircle, Search, Layers, Filter, FileSpreadsheet, RefreshCw,
+  Mail, User, ChevronRight, ChevronDown, Sparkles, Inbox, Trash2, Play, Pause, Send, Check,
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import {
+  Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
+  Dialog, DialogTitle, DialogContent, DialogActions, Table, TableHead, TableBody, TableRow, TableCell,
+  Snackbar, Alert, InputAdornment, CircularProgress, Tooltip as MuiTooltip, Select, MenuItem,
+  Checkbox, FormControlLabel,
+} from '@mui/material';
+import { alpha } from '@mui/material/styles';
 
 interface DbCampaign {
   id: string;
   name: string;
   status: 'Active' | 'Draft' | 'Paused';
   senderAccountId: string;
-  senderAccount?: {
-    emailAddress: string;
-  };
+  senderAccount?: { emailAddress: string };
   userId: string | null;
   user?: { id: string; name: string | null; email: string } | null;
   createdAt: string;
-  steps?: {
-    id: string;
-    stepOrder: number;
-    waitDays: number;
-    subject: string;
-    body: string;
-  }[];
-  enrollments?: {
-    id: string;
-    leadId: string;
-    campaignId: string;
-    status: 'Active' | 'Completed' | 'Bounced' | 'Stopped';
-    currentSequenceStep: number;
-    nextActionDate: string | null;
-  }[];
-  dispatches?: {
-    id: string;
-    subject: string | null;
-    leadId: string;
-    stepOrder: number | null;
-    status: string;
-    deliveredAt: string | null;
-  }[];
+  steps?: { id: string; stepOrder: number; waitDays: number; subject: string; body: string }[];
+  enrollments?: { id: string; leadId: string; campaignId: string; status: 'Active' | 'Completed' | 'Bounced' | 'Stopped'; currentSequenceStep: number; nextActionDate: string | null }[];
+  dispatches?: { id: string; subject: string | null; leadId: string; stepOrder: number | null; status: string; deliveredAt: string | null }[];
 }
+
+const statusColorMap = { Active: 'success', Draft: 'default', Paused: 'warning' } as const;
 
 export default function CampaignsPage() {
   const router = useRouter();
@@ -74,24 +42,29 @@ export default function CampaignsPage() {
   const [expandedCampaignId, setExpandedCampaignId] = useState<string | null>(null);
   const [executingId, setExecutingId] = useState<string | null>(null);
 
+  const [isAddOpen, setIsAddOpen] = useState(false);
+  const [campaignName, setCampaignName] = useState('');
+  const [selectedMailboxId, setSelectedMailboxId] = useState('');
+  const [selectedPoolIds, setSelectedPoolIds] = useState<string[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3050);
+  };
+
   const handleToggleStatus = async (id: string, currentStatus: string, e: React.MouseEvent) => {
     e.stopPropagation();
     const newStatus = currentStatus === 'Active' ? 'Paused' : 'Active';
     try {
       const res = await fetch('/api/campaigns', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, status: newStatus })
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, status: newStatus }),
       });
-      if (res.ok) {
-        showToast(`Sequence status updated to ${newStatus}`);
-        loadData();
-      } else {
-        showToast('Failed to update status.', 'error');
-      }
-    } catch {
-      showToast('Error updating status.', 'error');
-    }
+      if (res.ok) { showToast(`Sequence status updated to ${newStatus}`); loadData(); }
+      else showToast('Failed to update status.', 'error');
+    } catch { showToast('Error updating status.', 'error'); }
   };
 
   const handleRunCampaign = async (id: string, stepOrder?: number) => {
@@ -101,91 +74,45 @@ export default function CampaignsPage() {
       const url = `/api/campaigns/${id}/run` + (stepOrder ? `?stepOrder=${stepOrder}` : '');
       const res = await fetch(url, { method: 'POST' });
       const data = await res.json();
-      if (res.ok && data.success) {
-        showToast(`Manual cycle completed! Sent ${data.dispatchedCount} emails.`);
-        loadData();
-      } else {
-        showToast(data.error || 'Failed to dispatch manual cycle.', 'error');
-      }
-    } catch {
-      showToast('Failed to execute dispatch cycle.', 'error');
-    } finally {
-      setExecutingId(null);
-    }
-  };
-
-  // Add campaign form
-  const [isAddOpen, setIsAddOpen] = useState(false);
-  const [campaignName, setCampaignName] = useState('');
-  const [selectedMailboxId, setSelectedMailboxId] = useState('');
-  const [selectedPoolIds, setSelectedPoolIds] = useState<string[]>([]);
-  const [submitting, setSubmitting] = useState(false);
-
-  // Success message toast
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-
-  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3050);
+      if (res.ok && data.success) { showToast(`Manual cycle completed! Sent ${data.dispatchedCount} emails.`); loadData(); }
+      else showToast(data.error || 'Failed to dispatch manual cycle.', 'error');
+    } catch { showToast('Failed to execute dispatch cycle.', 'error'); }
+    finally { setExecutingId(null); }
   };
 
   const loadData = async () => {
     try {
       setLoading(true);
-      // Load session
       const sessRes = await fetch('/api/session');
       const sessData = await sessRes.json();
       setSession(sessData);
-
-      // Load mailboxes for the dropdown
       const accRes = await fetch('/api/accounts');
       if (accRes.ok) {
         const accData = await accRes.json();
         setAccounts(accData);
-        if (accData.length > 0) {
-          setSelectedMailboxId(accData[0].id);
-        }
+        if (accData.length > 0) setSelectedMailboxId(accData[0].id);
       }
-
-      // Load campaigns with constraints
       const cmpRes = await fetch(`/api/campaigns?t=${Date.now()}`);
-      if (cmpRes.ok) {
-        const cmpData = await cmpRes.json();
-        setCampaigns(cmpData);
-      }
-    } catch {
-      showToast('Error syncing sequences', 'error');
-    } finally {
-      setLoading(false);
-    }
+      if (cmpRes.ok) setCampaigns(await cmpRes.json());
+    } catch { showToast('Error syncing sequences', 'error'); }
+    finally { setLoading(false); }
   };
 
   const refreshCampaigns = async () => {
     try {
       const cmpRes = await fetch(`/api/campaigns?t=${Date.now()}`);
-      if (cmpRes.ok) {
-        const cmpData = await cmpRes.json();
-        setCampaigns(cmpData);
-      }
-    } catch (err) {
-      console.error('Failed to auto-refresh campaigns:', err);
-    }
+      if (cmpRes.ok) setCampaigns(await cmpRes.json());
+    } catch (err) { console.error('Failed to auto-refresh campaigns:', err); }
   };
 
-  useEffect(() => {
-    loadData();
-  }, []);
+  useEffect(() => { loadData(); }, []);
 
   const anyCampaignActive = campaigns.some(c => c.status === 'Active');
   const isRunning = executingId !== null;
 
   useEffect(() => {
     if (!anyCampaignActive && !isRunning) return;
-
-    const interval = setInterval(() => {
-      refreshCampaigns();
-    }, 2000);
-
+    const interval = setInterval(() => refreshCampaigns(), 2000);
     return () => clearInterval(interval);
   }, [anyCampaignActive, isRunning]);
 
@@ -195,570 +122,321 @@ export default function CampaignsPage() {
       showToast('Name and physical Sender Mailbox are required.', 'error');
       return;
     }
-
     try {
       setSubmitting(true);
       const res = await fetch('/api/campaigns', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: campaignName,
           senderAccountId: selectedMailboxId,
-          // Rotation pool: primary plus any additional selected mailboxes (deduped).
           senderAccountIds: Array.from(new Set([selectedMailboxId, ...selectedPoolIds])),
           status: 'Draft',
         }),
       });
-
-      if (!res.ok) {
-        throw new Error(await res.text() || 'Failed to establish campaign.');
-      }
-
+      if (!res.ok) throw new Error(await res.text() || 'Failed to establish campaign.');
       const created = await res.json();
       showToast('Campaign sequence initiated successfully');
-      setCampaignName('');
-      setSelectedPoolIds([]);
-      setIsAddOpen(false);
-      
-      // Redirect to newly created campaign editor page!
+      setCampaignName(''); setSelectedPoolIds([]); setIsAddOpen(false);
       router.push(`/campaigns/${created.id}`);
     } catch (err: any) {
       showToast(err.message || 'Error occurred', 'error');
-    } finally {
-      setSubmitting(false);
-    }
+    } finally { setSubmitting(false); }
   };
 
   const handleDeleteCampaign = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm('Are you sure you want to permanently delete this campaign? All step templates and metrics will be purged.')) {
-      return;
-    }
-
+    if (!confirm('Are you sure you want to permanently delete this campaign? All step templates and metrics will be purged.')) return;
     try {
-      const res = await fetch(`/api/campaigns?id=${id}`, {
-        method: 'DELETE'
-      });
-      if (res.ok) {
-        setCampaigns(campaigns.filter(c => c.id !== id));
-        showToast('Campaign sequence deleted.');
-      } else {
-        showToast('Failed to delete campaign sequence.', 'error');
-      }
-    } catch (err) {
-      showToast('Error occurred deleting campaign.', 'error');
-    }
+      const res = await fetch(`/api/campaigns?id=${id}`, { method: 'DELETE' });
+      if (res.ok) { setCampaigns(campaigns.filter(c => c.id !== id)); showToast('Campaign sequence deleted.'); }
+      else showToast('Failed to delete campaign sequence.', 'error');
+    } catch (err) { showToast('Error occurred deleting campaign.', 'error'); }
   };
 
-  const filteredCampaigns = campaigns.filter(c => 
-    c.name.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredCampaigns = campaigns.filter(c => c.name.toLowerCase().includes(search.toLowerCase()));
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-501 relative max-w-5xl mx-auto pb-10">
-      
-      {/* Dynamic Toast Feedback */}
-      <AnimatePresence>
-        {toast && (
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.95, y: -20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            className={`fixed top-4 right-4 z-50 flex items-center gap-3 px-4 py-3 rounded-xl border backdrop-blur-md shadow-2xl min-w-[280px] ${
-              toast.type === 'success' 
-                ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-500' 
-                : 'bg-rose-500/10 border-rose-500/20 text-rose-600 dark:text-rose-500'
-            }`}
-          >
-            <CheckCircle2 className="w-5 h-5 flex-shrink-0" />
-            <p className="text-xs font-semibold leading-normal">{toast.message}</p>
-          </motion.div>
-        )}
-      </AnimatePresence>
+    <Box sx={{ maxWidth: 1100, mx: 'auto', pb: 4, display: 'flex', flexDirection: 'column', gap: 3 }}>
+      <Snackbar open={!!toast} anchorOrigin={{ vertical: 'top', horizontal: 'right' }} autoHideDuration={3000} onClose={() => setToast(null)}>
+        {toast ? <Alert severity={toast.type} variant="filled" sx={{ borderRadius: '12px' }}>{toast.message}</Alert> : undefined}
+      </Snackbar>
 
       {/* Header */}
-      <header className="flex justify-between items-center pb-4 border-b border-slate-200 dark:border-slate-800">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white mb-0.5">Campaign Sequences</h1>
-          <p className="text-slate-500 dark:text-slate-400 text-xs">Build cold email sequences, connect sender mailboxes, and automate your follow-ups.</p>
-        </div>
-        <button 
+      <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ justifyContent: 'space-between', alignItems: { xs: 'flex-start', sm: 'center' }, gap: 2, pb: 2, borderBottom: 1, borderColor: 'divider' }}>
+        <Box>
+          <Typography variant="h4" sx={{ fontWeight: 700 }}>Campaign Sequences</Typography>
+          <Typography variant="body2" sx={{ color: 'text.secondary' }}>Build cold email sequences, connect sender mailboxes, and automate your follow-ups.</Typography>
+        </Box>
+        <Button
+          variant="contained" startIcon={<Plus size={16} />}
           onClick={() => {
-            if (accounts.length === 0) {
-              showToast('Please first connect at least one Mailbox in the Senders view before starting a campaign.', 'error');
-              return;
-            }
+            if (accounts.length === 0) { showToast('Please first connect at least one Mailbox in the Senders view before starting a campaign.', 'error'); return; }
             setIsAddOpen(true);
           }}
-          className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg font-semibold flex items-center gap-2 transition-colors text-xs shadow-xs cursor-pointer"
-        >
-          <Plus className="w-4 h-4" />
-          Create Sequence
-        </button>
-      </header>
+        >Create Sequence</Button>
+      </Stack>
 
-      {/* Main Table Panel */}
-      <div className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1b1c26] rounded-xl overflow-hidden shadow-xs mt-4">
-        {/* Table Management Bar */}
-        <div className="p-4 border-b border-slate-200 dark:border-[#1b1c26] flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-slate-50/40 dark:bg-slate-950/20">
-          <div className="relative w-full sm:w-72">
-            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
-            <input 
-              type="text" 
-              placeholder="Search campaigns..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-[#20222e] text-slate-800 dark:text-white text-xs rounded-lg pl-9 pr-4 py-2 outline-none focus:ring-2 focus:ring-blue-500/15 placeholder:text-slate-400 dark:placeholder:text-slate-500 transition-all shadow-xs"
-            />
-          </div>
-          <div className="flex gap-2 w-full sm:w-auto justify-end">
-            <button 
-              onClick={() => showToast('Campaign criteria filters loaded')}
-              className="px-3 py-1.8 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-400 transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer"
-            >
-              <Filter className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
-              Filter
-            </button>
-            <button 
-              onClick={() => showToast('Campaign stats CSV report ready for download')}
-              className="px-3 py-1.8 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/50 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-semibold text-slate-700 dark:text-slate-400 transition-colors flex items-center gap-1.5 shadow-2xs cursor-pointer"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
-              Export Directory CSV
-            </button>
-          </div>
-        </div>
+      <Card>
+        {/* Toolbar */}
+        <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ justifyContent: 'space-between', alignItems: { xs: 'flex-start', sm: 'center' }, gap: 1.5, p: 2, borderBottom: 1, borderColor: 'divider' }}>
+          <TextField
+            size="small" sx={{ width: { xs: '100%', sm: 280 } }} placeholder="Search campaigns..."
+            value={search} onChange={e => setSearch(e.target.value)}
+            slotProps={{ input: { startAdornment: <InputAdornment position="start"><Search size={14} /></InputAdornment> } }}
+          />
+          <Stack direction="row" spacing={1}>
+            <Button size="small" variant="outlined" color="inherit" startIcon={<Filter size={14} />} onClick={() => showToast('Campaign criteria filters loaded')} sx={{ borderColor: 'divider', color: 'text.secondary' }}>Filter</Button>
+            <Button size="small" variant="outlined" color="inherit" startIcon={<FileSpreadsheet size={14} />} onClick={() => showToast('Campaign stats CSV report ready for download')} sx={{ borderColor: 'divider', color: 'text.secondary' }}>Export CSV</Button>
+          </Stack>
+        </Stack>
 
-        {/* Structured Table */}
         {loading ? (
-          <div className="py-20 text-center text-slate-400 dark:text-slate-500 text-xs space-y-3">
-            <div className="w-6 h-6 border-2 border-slate-300 dark:border-slate-700 border-t-blue-500 animate-spin rounded-full mx-auto" />
-            <p className="font-medium tracking-wide">Querying corporate campaigns list secure nodes...</p>
-          </div>
+          <Stack sx={{ alignItems: 'center', py: 8, gap: 2 }}>
+            <CircularProgress size={24} />
+            <Typography variant="caption" sx={{ color: 'text.secondary' }}>Loading campaigns…</Typography>
+          </Stack>
         ) : (
-          <div className="w-full overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-slate-200 dark:border-[#1b1c26] text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest bg-slate-50/10 dark:bg-slate-950/20">
-                  <th className="px-5 py-3">Sequence Details</th>
-                  <th className="px-5 py-3">Sender Mailbox</th>
-                  <th className="px-5 py-3">Owner</th>
-                  <th className="px-5 py-3">Status</th>
-                  <th className="px-5 py-3 text-right">Configure</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-[#1b1c26]/60 text-slate-700 dark:text-slate-300">
-                {filteredCampaigns.map((campaign) => (
-                  <Fragment key={campaign.id}>
-                    <tr 
-                      onClick={() => setExpandedCampaignId(expandedCampaignId === campaign.id ? null : campaign.id)}
-                      className={`hover:bg-slate-50/50 dark:hover:bg-white/[0.01] transition-colors group cursor-pointer ${
-                        expandedCampaignId === campaign.id ? 'bg-slate-50/60 dark:bg-[#12141d]/40' : ''
-                      }`}
-                    >
-                      <td className="px-5 py-3.5">
-                        <div className="font-semibold text-slate-900 dark:text-white text-xs group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors flex items-center gap-2">
-                          {expandedCampaignId === campaign.id ? (
-                            <ChevronDown className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 shrink-0" />
-                          ) : (
-                            <ChevronRight className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 shrink-0" />
-                          )}
-                          <Layers className="w-4 h-4 text-slate-400 dark:text-slate-500 group-hover:text-blue-500 dark:group-hover:text-blue-400 transition-colors shrink-0" />
-                          {campaign.name}
-                        </div>
-                        <div className="text-[10px] text-slate-400 dark:text-slate-500 font-mono mt-1 pl-5">
-                          ID: {campaign.id} • Created {new Date(campaign.createdAt).toLocaleDateString()}
-                        </div>
-                      </td>
-                      <td className="px-5 py-3.5 text-xs text-slate-600 dark:text-slate-400 font-mono">
-                        <span className="flex items-center gap-1.5">
-                          <Mail className="w-3.5 h-3.5 text-slate-400" />
-                          {campaign.senderAccount?.emailAddress || 'N/A'}
-                        </span>
-                      </td>
-                      <td className="px-5 py-3.5 text-xs text-slate-600 dark:text-slate-400">
-                        <span className="flex items-center gap-1.5 font-medium">
-                          <User className="w-3.5 h-3.5 text-slate-400" />
-                          {campaign.userId === session?.id ? `Me (${session?.name})` : (campaign.user?.name || campaign.user?.email || 'Company Admin')}
-                        </span>
-                      </td>
-                      <td className="px-5 py-3.5">
-                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wider
-                          ${campaign.status === 'Active' ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-500 border-emerald-200 dark:border-emerald-500/20' : ''}
-                          ${campaign.status === 'Draft' ? 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800' : ''}
-                          ${campaign.status === 'Paused' ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-500/20' : ''}
-                        `}>
-                          {campaign.status === 'Active' && <PlayCircle className="w-3 h-3 text-emerald-500" />}
-                          {campaign.status}
-                        </span>
-                      </td>
-                      <td className="px-5 py-3.5 text-right" onClick={e => e.stopPropagation()}>
-                        <div className="flex items-center justify-end gap-2">
-                          <button 
-                            onClick={(e) => handleDeleteCampaign(campaign.id, e)}
-                            className="p-1.5 hover:bg-rose-500/10 text-slate-400 hover:text-rose-600 rounded transition-colors"
-                            title="Delete Outbound Sequence"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                          <Link 
-                            href={`/campaigns/${campaign.id}`}
-                            className="text-slate-500 dark:text-slate-400 group-hover:text-slate-900 dark:group-hover:text-white p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-white/[0.02] transition-colors flex items-center gap-1 text-xs font-semibold"
-                          >
-                            Configure
-                            <ChevronRight className="w-4 h-4 text-slate-400" />
-                          </Link>
-                        </div>
-                      </td>
-                    </tr>
-                    {expandedCampaignId === campaign.id && (
-                      <tr className="bg-slate-50/50 dark:bg-[#0c0d12]/35 border-t border-b border-slate-100 dark:border-[#1b1c26]/60">
-                        <td colSpan={5} className="px-6 py-5">
-                          <div className="space-y-5">
-                            
-                            {/* Summary row */}
-                            <div className="flex flex-wrap justify-between items-center gap-3 border-b border-slate-200 dark:border-slate-800/50 pb-3">
-                              <div>
-                                <span className="text-[10px] text-slate-400 dark:text-slate-500 font-extrabold uppercase tracking-widest">Sequence Tracking Overview</span>
-                                <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 mt-0.5">
-                                  {campaign.name} is currently in <span className="text-blue-600 dark:text-blue-400 font-extrabold">{campaign.status}</span> mode.
-                                </h4>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <button
-                                  type="button"
-                                  onClick={(e) => handleToggleStatus(campaign.id, campaign.status, e)}
-                                  className="px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[10px] font-bold text-slate-700 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg flex items-center gap-1.5 transition-all shadow-3xs cursor-pointer"
-                                >
-                                  {campaign.status === 'Active' ? (
-                                    <>
-                                      <Pause className="w-3 h-3 text-amber-500" />
-                                      Pause Campaign
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Play className="w-3 h-3 text-emerald-500" />
-                                      Activate Campaign
-                                    </>
-                                  )}
-                                </button>
-                                {campaign.status === 'Active' && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleRunCampaign(campaign.id)}
-                                    disabled={executingId !== null}
-                                    className="px-3 py-1.5 bg-blue-600 text-white hover:bg-blue-500 text-[10px] font-bold rounded-lg flex items-center gap-1.5 transition-all shadow-3xs cursor-pointer disabled:opacity-50"
-                                  >
-                                    {executingId === campaign.id ? (
-                                      <RefreshCw className="w-3 h-3 animate-spin" />
-                                    ) : (
-                                      <PlayCircle className="w-3 h-3" />
-                                    )}
-                                    {executingId === campaign.id ? 'Running...' : 'Run Now'}
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-
-                            {/* Tracking Flow Bar */}
-                            {(!campaign.steps || campaign.steps.length === 0) ? (
-                              <div className="py-6 text-center text-slate-400 dark:text-slate-500 text-xs">
-                                No email steps configured yet. Please configure the campaign sequence to add dispatches.
-                              </div>
-                            ) : (
-                              <div className="py-2 flex items-center w-full min-w-[500px] overflow-x-auto">
-                                
-                                {campaign.steps.map((step, idx) => {
-                                  const stepLeads = campaign.enrollments?.filter(
-                                    e => e.status === 'Active' && e.currentSequenceStep === step.stepOrder
-                                  ) || [];
-                                  const activeLeadsCount = stepLeads.length;
-                                  const isActiveStep = activeLeadsCount > 0;
-
-                                  // Match dispatches by the dispatch's recorded stepOrder (accurate),
-                                  // not by fuzzy subject text.
-                                  const stepDispatches = campaign.dispatches?.filter(
-                                    d => d.stepOrder === step.stepOrder
-                                  ) || [];
-                                  const sentDispatches = stepDispatches.filter(d => d.status === 'Sent');
-                                  const uniqueSentLeads = new Set(sentDispatches.map(d => d.leadId).filter(Boolean));
-                                  const sentCount = uniqueSentLeads.size;
-                                  const deliveredCount = new Set(sentDispatches.filter(d => d.deliveredAt).map(d => d.leadId)).size;
-                                  const failedCount = stepDispatches.filter(d => d.status === 'Failed').length;
-                                  const totalEnrolled = campaign.enrollments?.length || 0;
-                                  const progressPercent = totalEnrolled > 0 ? Math.round((sentCount / totalEnrolled) * 100) : 0;
-
-                                  return (
-                                    <Fragment key={step.id}>
-                                      {/* Connecting Line */}
-                                      {idx > 0 && (
-                                        <div className="flex-1 min-w-[40px] px-2">
-                                          <div className={`h-[3px] rounded transition-all duration-500 ${
-                                            isActiveStep 
-                                              ? 'bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)] animate-pulse' 
-                                              : 'bg-slate-200 dark:bg-slate-800'
-                                          }`} />
-                                        </div>
-                                      )}
-
-                                      {/* Step Node Card */}
-                                      <div className="flex flex-col items-center text-center space-y-2 relative">
-                                        {/* Leads Badge above the node */}
-                                        <div className="h-5 flex items-center">
-                                          {activeLeadsCount > 0 ? (
-                                            <span className="bg-blue-50 dark:bg-blue-900/60 text-blue-600 dark:text-blue-300 text-[9px] font-extrabold px-1.5 py-0.5 rounded border border-blue-100 dark:border-blue-800 animate-bounce">
-                                              {activeLeadsCount} active
-                                            </span>
-                                          ) : (
-                                            <span className="text-slate-400 dark:text-slate-600 text-[9px] font-semibold">
-                                              0 active
-                                            </span>
-                                          )}
-                                        </div>
-
-                                        {/* Step Circle Node */}
-                                        <div className={`w-9 h-9 rounded-full flex items-center justify-center font-mono text-xs font-bold transition-all duration-300 ${
-                                          isActiveStep 
-                                            ? 'bg-blue-600 text-white border-2 border-blue-400 shadow-[0_0_12px_rgba(59,130,246,0.5)] scale-105' 
-                                            : 'bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-800 text-slate-700 dark:text-slate-400'
-                                        }`}>
-                                          {step.stepOrder}
-                                        </div>
-
-                                        {/* Step Info below the node */}
-                                        <div className="space-y-1 min-w-[110px] max-w-[140px] bg-white dark:bg-slate-900/60 p-2 rounded-lg border border-slate-200 dark:border-slate-800/80 shadow-3xs">
-                                          <span className="text-[10px] text-slate-900 dark:text-white font-bold block truncate" title={step.subject}>
-                                            {step.subject || '(No Subject)'}
-                                          </span>
-                                          {idx > 0 && (
-                                            <span className="text-[9px] text-slate-400 dark:text-slate-500 font-semibold block uppercase font-mono">
-                                              Wait: {step.waitDays} days
-                                            </span>
-                                          )}
-                                          
-                                          {/* Step Metrics */}
-                                          <div className="mt-1.5 pt-1.5 border-t border-slate-100 dark:border-slate-800 text-[9px] space-y-0.5 text-left">
-                                            <div className="flex justify-between px-0.5">
-                                              <span className="text-slate-400 dark:text-slate-500">To Send:</span>
-                                              <span className="font-extrabold text-slate-700 dark:text-slate-400">{activeLeadsCount}</span>
-                                            </div>
-                                            <div className="flex justify-between px-0.5">
-                                              <span className="text-slate-400 dark:text-slate-500">Sent:</span>
-                                              <span className="font-extrabold text-slate-700 dark:text-slate-400">{sentCount}</span>
-                                            </div>
-                                            {sentCount > 0 && (
-                                              <div className="flex justify-between px-0.5">
-                                                <span className="text-slate-400 dark:text-slate-500">Delivered:</span>
-                                                <span className="font-extrabold text-emerald-600 dark:text-emerald-400">{deliveredCount}</span>
-                                              </div>
-                                            )}
-                                            {failedCount > 0 && (
-                                              <div className="flex justify-between px-0.5">
-                                                <span className="text-slate-400 dark:text-slate-500">Failed:</span>
-                                                <span className="font-extrabold text-rose-600 dark:text-rose-400">{failedCount}</span>
-                                              </div>
-                                            )}
-                                            {sentCount > 0 && (
-                                              <div className="flex justify-between px-0.5">
-                                                <span className="text-slate-400 dark:text-slate-500">Progress:</span>
-                                                <span className="font-extrabold text-blue-600 dark:text-blue-400">{progressPercent}%</span>
-                                              </div>
-                                            )}
-                                          </div>
-                                        </div>
-
-                                        {/* Manual Dispatch Trigger */}
-                                        {campaign.status === 'Active' && (
-                                          <button
-                                            type="button"
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              handleRunCampaign(campaign.id, step.stepOrder);
-                                            }}
-                                            disabled={executingId !== null}
-                                            className="text-[9px] text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/15 hover:bg-blue-100 hover:text-blue-700 dark:hover:bg-blue-900/35 px-2 py-0.8 rounded border border-blue-200 dark:border-blue-800 flex items-center gap-1 font-extrabold transition-all cursor-pointer shadow-3xs disabled:opacity-50 mt-1"
-                                            title={`Manually run dispatches for Step ${step.stepOrder}`}
-                                          >
-                                            <Send className="w-2.5 h-2.5" />
-                                            Send Step
-                                          </button>
-                                        )}
-                                      </div>
-                                    </Fragment>
-                                  );
-                                })}
-
-                                {/* Connection Line to Completed */}
-                                <div className="flex-1 min-w-[40px] px-2">
-                                  <div className="h-[3px] bg-slate-200 dark:bg-slate-800 rounded" />
-                                </div>
-
-                                {/* Final Completed Node */}
-                                <div className="flex flex-col items-center text-center space-y-2">
-                                  <div className="h-5 flex items-center">
-                                    <span className="text-slate-400 dark:text-slate-600 text-[9px] font-semibold">
-                                      End
-                                    </span>
-                                  </div>
-
-                                  <div className="w-9 h-9 rounded-full flex items-center justify-center bg-emerald-500 text-white shadow-[0_0_8px_rgba(16,185,129,0.2)]">
-                                    <Check className="w-4 h-4" />
-                                  </div>
-
-                                  <div className="space-y-0.5 min-w-[100px] max-w-[120px]">
-                                    <span className="text-[10px] text-slate-900 dark:text-white font-bold block">
-                                      Completed
-                                    </span>
-                                    <span className="text-[9px] text-emerald-600 dark:text-emerald-500 font-bold block uppercase font-mono">
-                                      {campaign.enrollments?.filter(e => e.status === 'Completed').length || 0} leads
-                                    </span>
-                                  </div>
-                                </div>
-
-                              </div>
-                            )}
-
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
-                ))}
-                {filteredCampaigns.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="text-center py-16 text-slate-500 dark:text-slate-500 text-xs">
-                       <Inbox className="w-6 h-6 mx-auto mb-2 opacity-50" />
-                       No sequences match your dynamic role view context.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* Campaign Create Modal */}
-      <AnimatePresence>
-        {isAddOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            {/* Backdrop */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsAddOpen(false)}
-              className="absolute inset-0 bg-slate-950/40 backdrop-blur-xs"
-            />
-
-            {/* Modal Box */}
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              className="bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-[#1f2130] w-full max-w-md rounded-2xl p-6 shadow-2xl relative z-10 overflow-hidden"
-            >
-              <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500/5 rounded-full blur-xl pointer-events-none" />
-
-              <header className="flex justify-between items-center pb-4 border-b border-slate-100 dark:border-[#1c1d29] mb-4">
-                <div className="flex items-center gap-2">
-                  <Plus className="w-5 h-5 text-blue-500" />
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">Launch Outreach Sequence</h3>
-                </div>
-                <button
-                  onClick={() => setIsAddOpen(false)}
-                  className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800/50 rounded-lg text-slate-400 dark:text-slate-500 transition-colors cursor-pointer"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </header>
-
-              <form onSubmit={handleCreateCampaign} className="space-y-4">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-widest font-bold">Sequence Campaign Name</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g., Enterprise SaaS Seed Funding Round"
-                    value={campaignName}
-                    onChange={(e) => setCampaignName(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-3 py-2.5 outline-none text-xs font-semibold"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-widest font-bold flex items-center gap-1.5">
-                    <Mail className="w-3.5 h-3.5" />
-                    Connect Sender Mailbox Node
-                  </label>
-                  <select
-                    value={selectedMailboxId}
-                    onChange={(e) => setSelectedMailboxId(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-[#12141d] border border-slate-200 dark:border-[#1f2130] text-slate-800 dark:text-white rounded-lg px-3 py-2.5 outline-none text-xs font-medium cursor-pointer"
-                  >
-                    {accounts.map((acc) => (
-                      <option key={acc.id} value={acc.id}>
-                        {acc.emailAddress} ({acc.provider})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {accounts.filter((acc) => acc.id !== selectedMailboxId).length > 0 && (
-                  <div className="space-y-1.5">
-                    <label className="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-widest font-bold flex items-center gap-1.5">
-                      <Mail className="w-3.5 h-3.5" />
-                      Rotate Across Additional Mailboxes (optional)
-                    </label>
-                    <div className="max-h-32 overflow-y-auto space-y-0.5 border border-slate-200 dark:border-[#1f2130] rounded-lg p-2 bg-slate-50 dark:bg-[#12141d]">
-                      {accounts.filter((acc) => acc.id !== selectedMailboxId).map((acc) => (
-                        <label key={acc.id} className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 px-1.5 py-1 cursor-pointer rounded hover:bg-slate-100 dark:hover:bg-slate-800/40">
-                          <input
-                            type="checkbox"
-                            checked={selectedPoolIds.includes(acc.id)}
-                            onChange={(e) =>
-                              setSelectedPoolIds((prev) =>
-                                e.target.checked ? [...prev, acc.id] : prev.filter((id) => id !== acc.id)
-                              )
-                            }
+          <Box sx={{ overflowX: 'auto' }}>
+            <Table size="small">
+              <TableHead>
+                <TableRow sx={{ '& th': { fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', fontSize: 10, color: 'text.secondary' } }}>
+                  <TableCell>Sequence Details</TableCell>
+                  <TableCell>Sender Mailbox</TableCell>
+                  <TableCell>Owner</TableCell>
+                  <TableCell>Status</TableCell>
+                  <TableCell align="right">Configure</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {filteredCampaigns.map(campaign => {
+                  const isExpanded = expandedCampaignId === campaign.id;
+                  return (
+                    <Fragment key={campaign.id}>
+                      <TableRow hover onClick={() => setExpandedCampaignId(isExpanded ? null : campaign.id)} sx={{ cursor: 'pointer', bgcolor: isExpanded ? 'action.hover' : undefined }}>
+                        <TableCell>
+                          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                            {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                            <Layers size={16} color="#94a3b8" />
+                            <Typography variant="body2" sx={{ fontWeight: 700 }}>{campaign.name}</Typography>
+                          </Stack>
+                          <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace', ml: 4, display: 'block' }}>
+                            ID: {campaign.id.slice(0, 12)}… · Created {new Date(campaign.createdAt).toLocaleDateString()}
+                          </Typography>
+                        </TableCell>
+                        <TableCell sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
+                          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                            <Mail size={14} /> {campaign.senderAccount?.emailAddress || 'N/A'}
+                          </Stack>
+                        </TableCell>
+                        <TableCell sx={{ color: 'text.secondary' }}>
+                          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                            <User size={14} /> {campaign.userId === session?.id ? `Me (${session?.name})` : (campaign.user?.name || campaign.user?.email || 'Company Admin')}
+                          </Stack>
+                        </TableCell>
+                        <TableCell>
+                          <Chip
+                            size="small"
+                            icon={campaign.status === 'Active' ? <PlayCircle size={10} /> : undefined}
+                            label={campaign.status}
+                            color={statusColorMap[campaign.status] as any === 'default' ? undefined : statusColorMap[campaign.status] as any}
+                            variant="outlined"
+                            sx={{ fontWeight: 700, fontSize: 10 }}
                           />
-                          <span>{acc.emailAddress} ({acc.provider})</span>
-                        </label>
-                      ))}
-                    </div>
-                    <p className="text-[10px] text-slate-400 dark:text-slate-500">Sending volume is spread across the primary plus any selected mailboxes (least-loaded first).</p>
-                  </div>
+                        </TableCell>
+                        <TableCell align="right" onClick={(e) => e.stopPropagation()}>
+                          <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
+                            <MuiTooltip title="Delete">
+                              <IconButton size="small" onClick={(e) => handleDeleteCampaign(campaign.id, e)} sx={{ color: 'error.main' }}>
+                                <Trash2 size={14} />
+                              </IconButton>
+                            </MuiTooltip>
+                            <Button component={Link as any} href={`/campaigns/${campaign.id}`} size="small" variant="text" endIcon={<ChevronRight size={14} />} color="inherit" sx={{ color: 'text.secondary' }}>
+                              Configure
+                            </Button>
+                          </Stack>
+                        </TableCell>
+                      </TableRow>
+                      {isExpanded && (
+                        <TableRow sx={{ bgcolor: 'action.hover' }}>
+                          <TableCell colSpan={5} sx={{ p: 3 }}>
+                            <Stack spacing={2.5}>
+                              <Stack direction={{ xs: 'column', md: 'row' }} sx={{ justifyContent: 'space-between', alignItems: { md: 'center' }, gap: 1.5, pb: 1.5, borderBottom: 1, borderColor: 'divider' }}>
+                                <Box>
+                                  <Typography variant="overline" sx={{ color: 'text.secondary', fontWeight: 700 }}>Sequence Tracking Overview</Typography>
+                                  <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                                    {campaign.name} is in <Box component="span" sx={{ color: 'primary.main', fontWeight: 800 }}>{campaign.status}</Box> mode.
+                                  </Typography>
+                                </Box>
+                                <Stack direction="row" spacing={1}>
+                                  <Button
+                                    size="small" variant="outlined" color="inherit"
+                                    startIcon={campaign.status === 'Active' ? <Pause size={12} color="#d97706" /> : <Play size={12} color="#10b981" />}
+                                    onClick={(e) => handleToggleStatus(campaign.id, campaign.status, e)}
+                                    sx={{ borderColor: 'divider' }}
+                                  >
+                                    {campaign.status === 'Active' ? 'Pause' : 'Activate'}
+                                  </Button>
+                                  {campaign.status === 'Active' && (
+                                    <Button
+                                      size="small" variant="contained"
+                                      startIcon={executingId === campaign.id ? <RefreshCw size={12} className="animate-spin" /> : <PlayCircle size={12} />}
+                                      onClick={() => handleRunCampaign(campaign.id)}
+                                      disabled={executingId !== null}
+                                    >
+                                      {executingId === campaign.id ? 'Running…' : 'Run Now'}
+                                    </Button>
+                                  )}
+                                </Stack>
+                              </Stack>
+
+                              {(!campaign.steps || campaign.steps.length === 0) ? (
+                                <Typography variant="caption" sx={{ color: 'text.secondary', textAlign: 'center', py: 4, display: 'block' }}>
+                                  No email steps configured yet. Please configure the campaign sequence to add dispatches.
+                                </Typography>
+                              ) : (
+                                <Box sx={{ display: 'flex', alignItems: 'center', minWidth: 500, overflowX: 'auto', py: 1 }}>
+                                  {campaign.steps.map((step, idx) => {
+                                    const stepLeads = campaign.enrollments?.filter(e => e.status === 'Active' && e.currentSequenceStep === step.stepOrder) || [];
+                                    const activeLeadsCount = stepLeads.length;
+                                    const isActiveStep = activeLeadsCount > 0;
+                                    const stepDispatches = campaign.dispatches?.filter(d => d.stepOrder === step.stepOrder) || [];
+                                    const sentDispatches = stepDispatches.filter(d => d.status === 'Sent');
+                                    const uniqueSentLeads = new Set(sentDispatches.map(d => d.leadId).filter(Boolean));
+                                    const sentCount = uniqueSentLeads.size;
+                                    const deliveredCount = new Set(sentDispatches.filter(d => d.deliveredAt).map(d => d.leadId)).size;
+                                    const failedCount = stepDispatches.filter(d => d.status === 'Failed').length;
+                                    const totalEnrolled = campaign.enrollments?.length || 0;
+                                    const progressPercent = totalEnrolled > 0 ? Math.round((sentCount / totalEnrolled) * 100) : 0;
+                                    return (
+                                      <Fragment key={step.id}>
+                                        {idx > 0 && <Box sx={{ flex: 1, minWidth: 40, height: 3, mx: 1, borderRadius: 999, bgcolor: isActiveStep ? 'primary.main' : 'divider' }} />}
+                                        <Stack sx={{ alignItems: 'center', textAlign: 'center', gap: 0.75, position: 'relative', minWidth: 130 }}>
+                                          <Chip size="small" label={`${activeLeadsCount} active`} color={isActiveStep ? 'primary' : 'default'} variant={isActiveStep ? 'filled' : 'outlined'} sx={{ height: 18, fontSize: 9, fontWeight: 800 }} />
+                                          <Box sx={{ width: 36, height: 36, borderRadius: '50%', display: 'grid', placeItems: 'center', fontFamily: 'monospace', fontWeight: 700, fontSize: 12,
+                                            bgcolor: isActiveStep ? 'primary.main' : 'background.paper',
+                                            color: isActiveStep ? 'primary.contrastText' : 'text.secondary',
+                                            border: isActiveStep ? 'none' : 1, borderColor: 'divider',
+                                            boxShadow: isActiveStep ? '0 0 12px rgba(37,99,235,0.4)' : 'none',
+                                          }}>{step.stepOrder}</Box>
+                                          <Card sx={{ minWidth: 130, maxWidth: 150, p: 1, borderRadius: '12px' }}>
+                                            <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
+                                              <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={step.subject}>{step.subject || '(No Subject)'}</Typography>
+                                              {idx > 0 && <Typography sx={{ fontSize: 9, color: 'text.secondary', fontFamily: 'monospace', textTransform: 'uppercase', display: 'block', mb: 0.5 }}>Wait: {step.waitDays}d</Typography>}
+                                              <Box sx={{ mt: 0.75, pt: 0.75, borderTop: 1, borderColor: 'divider', display: 'flex', flexDirection: 'column', gap: 0.25 }}>
+                                                <Stack direction="row" sx={{ justifyContent: 'space-between', fontSize: 9 }}><Box component="span" sx={{ color: 'text.secondary' }}>Sent:</Box><Box component="span" sx={{ fontWeight: 800 }}>{sentCount}</Box></Stack>
+                                                {sentCount > 0 && <Stack direction="row" sx={{ justifyContent: 'space-between', fontSize: 9 }}><Box component="span" sx={{ color: 'text.secondary' }}>Delivered:</Box><Box component="span" sx={{ fontWeight: 800, color: 'success.main' }}>{deliveredCount}</Box></Stack>}
+                                                {failedCount > 0 && <Stack direction="row" sx={{ justifyContent: 'space-between', fontSize: 9 }}><Box component="span" sx={{ color: 'text.secondary' }}>Failed:</Box><Box component="span" sx={{ fontWeight: 800, color: 'error.main' }}>{failedCount}</Box></Stack>}
+                                                {sentCount > 0 && <Stack direction="row" sx={{ justifyContent: 'space-between', fontSize: 9 }}><Box component="span" sx={{ color: 'text.secondary' }}>Progress:</Box><Box component="span" sx={{ fontWeight: 800, color: 'primary.main' }}>{progressPercent}%</Box></Stack>}
+                                              </Box>
+                                            </CardContent>
+                                          </Card>
+                                          {campaign.status === 'Active' && (
+                                            <Button size="small" variant="outlined" startIcon={<Send size={10} />} onClick={(e) => { e.stopPropagation(); handleRunCampaign(campaign.id, step.stepOrder); }} disabled={executingId !== null} sx={{ fontSize: 9, py: 0.25, mt: 0.5 }}>
+                                              Send Step
+                                            </Button>
+                                          )}
+                                        </Stack>
+                                      </Fragment>
+                                    );
+                                  })}
+                                  <Box sx={{ flex: 1, minWidth: 40, height: 3, mx: 1, borderRadius: 999, bgcolor: 'divider' }} />
+                                  <Stack sx={{ alignItems: 'center', textAlign: 'center', gap: 0.75 }}>
+                                    <Typography sx={{ fontSize: 9, color: 'text.secondary', fontWeight: 600 }}>End</Typography>
+                                    <Box sx={{ width: 36, height: 36, borderRadius: '50%', display: 'grid', placeItems: 'center', bgcolor: 'success.main', color: 'success.contrastText', boxShadow: '0 0 8px rgba(16,185,129,0.4)' }}>
+                                      <Check size={16} />
+                                    </Box>
+                                    <Box sx={{ minWidth: 100, maxWidth: 120 }}>
+                                      <Typography variant="caption" sx={{ fontWeight: 700, display: 'block' }}>Completed</Typography>
+                                      <Typography sx={{ fontSize: 9, color: 'success.main', fontWeight: 800, fontFamily: 'monospace', textTransform: 'uppercase' }}>
+                                        {campaign.enrollments?.filter(e => e.status === 'Completed').length || 0} leads
+                                      </Typography>
+                                    </Box>
+                                  </Stack>
+                                </Box>
+                              )}
+                            </Stack>
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </Fragment>
+                  );
+                })}
+                {filteredCampaigns.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={5} sx={{ textAlign: 'center', py: 8, color: 'text.secondary' }}>
+                      <Inbox size={24} style={{ margin: '0 auto', opacity: 0.5 }} />
+                      <Typography variant="caption" sx={{ display: 'block', mt: 1 }}>No sequences match your role view.</Typography>
+                    </TableCell>
+                  </TableRow>
                 )}
-
-                <div className="p-3 bg-blue-50/80 dark:bg-blue-950/10 border border-blue-200 dark:border-blue-500/10 rounded-lg flex gap-3 text-[11px] leading-relaxed text-blue-700 dark:text-blue-300">
-                  <Sparkles className="w-4 h-4 flex-shrink-0 text-blue-600 dark:text-blue-400" />
-                  <p className="font-sans font-medium">
-                    This sequence will follow sending frequencies and throttling limits associated with the connected mailbox.
-                  </p>
-                </div>
-
-                <div className="pt-2 flex justify-end gap-3 border-t border-slate-100 dark:border-[#1c1d29] mt-6">
-                  <button
-                    type="button"
-                    onClick={() => setIsAddOpen(false)}
-                    className="px-4 py-2 bg-slate-50 hover:bg-slate-100 dark:bg-[#12141d] dark:hover:bg-[#1b1d28] border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={submitting}
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-600/55 rounded-lg text-white font-semibold text-xs transition-colors cursor-pointer shadow-xs"
-                  >
-                    {submitting ? 'Constructing...' : 'Establish Sequence'}
-                  </button>
-                </div>
-              </form>
-            </motion.div>
-          </div>
+              </TableBody>
+            </Table>
+          </Box>
         )}
-      </AnimatePresence>
+      </Card>
 
-    </div>
+      {/* Create modal */}
+      <Dialog open={isAddOpen} onClose={() => setIsAddOpen(false)} maxWidth="sm" fullWidth slotProps={{ paper: { sx: { borderRadius: '20px' } } }}>
+        <form onSubmit={handleCreateCampaign}>
+          <DialogTitle>
+            <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+              <Plus size={20} color="#2563EB" />
+              <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Launch Outreach Sequence</Typography>
+            </Stack>
+          </DialogTitle>
+          <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <TextField label="Sequence Campaign Name" required value={campaignName} onChange={(e) => setCampaignName(e.target.value)} size="small" placeholder="e.g., Enterprise SaaS Seed Funding Round" />
+            <Box>
+              <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>
+                <Mail size={14} /> Connect Sender Mailbox
+              </Typography>
+              <Select size="small" fullWidth value={selectedMailboxId} onChange={(e) => setSelectedMailboxId(e.target.value)}>
+                {accounts.map((acc) => (
+                  <MenuItem key={acc.id} value={acc.id}>{acc.emailAddress} ({acc.provider})</MenuItem>
+                ))}
+              </Select>
+            </Box>
+            {accounts.filter((acc) => acc.id !== selectedMailboxId).length > 0 && (
+              <Box>
+                <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>
+                  <Mail size={14} /> Rotate Across Additional Mailboxes (optional)
+                </Typography>
+                <Box sx={{ maxHeight: 130, overflowY: 'auto', border: 1, borderColor: 'divider', borderRadius: '12px', p: 1, bgcolor: 'action.hover' }}>
+                  {accounts.filter((acc) => acc.id !== selectedMailboxId).map((acc) => (
+                    <FormControlLabel
+                      key={acc.id}
+                      sx={{ display: 'flex', m: 0 }}
+                      control={
+                        <Checkbox size="small" checked={selectedPoolIds.includes(acc.id)} onChange={(e) =>
+                          setSelectedPoolIds(prev => e.target.checked ? [...prev, acc.id] : prev.filter(id => id !== acc.id))
+                        } />
+                      }
+                      label={<Typography variant="caption">{acc.emailAddress} ({acc.provider})</Typography>}
+                    />
+                  ))}
+                </Box>
+                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5 }}>
+                  Sending volume spreads across the primary plus any selected mailboxes (least-loaded first).
+                </Typography>
+              </Box>
+            )}
+            <Card sx={{ bgcolor: (t) => alpha(t.palette.primary.main, 0.06), borderColor: (t) => alpha(t.palette.primary.main, 0.2) }}>
+              <CardContent sx={{ p: 2, '&:last-child': { pb: 2 }, display: 'flex', gap: 1.5, alignItems: 'flex-start' }}>
+                <Sparkles size={16} color="#2563EB" style={{ marginTop: 2, flexShrink: 0 }} />
+                <Typography variant="caption" sx={{ color: 'primary.main', lineHeight: 1.6 }}>
+                  This sequence will follow the sending limits configured on the connected mailbox(es).
+                </Typography>
+              </CardContent>
+            </Card>
+          </DialogContent>
+          <DialogActions sx={{ p: 2 }}>
+            <Button color="inherit" onClick={() => setIsAddOpen(false)}>Cancel</Button>
+            <Button type="submit" variant="contained" disabled={submitting}>
+              {submitting ? 'Creating…' : 'Create Sequence'}
+            </Button>
+          </DialogActions>
+        </form>
+      </Dialog>
+    </Box>
   );
 }

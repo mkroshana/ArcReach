@@ -15,7 +15,12 @@
   },
   "dependencies": {
     "@azure/communication-email": "^1.1.0",
+    "@emotion/cache": "^11.14.0",
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
     "@hookform/resolvers": "^5.2.1",
+    "@mui/material": "^9.1.2",
+    "@mui/material-nextjs": "^9.1.1",
     "@prisma/client": "^6.19.3",
     "@types/nodemailer": "^8.0.0",
     "autoprefixer": "^10.4.21",

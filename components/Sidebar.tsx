@@ -5,19 +5,13 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  LayoutDashboard,
-  Send,
-  Users,
-  Inbox,
-  Settings,
-  Mail,
-  FileText,
-  Sun,
-  Moon,
-  ShieldCheck,
+  LayoutDashboard, Send, Users, Inbox, Settings, Mail, FileText, Sun, Moon, ShieldCheck, LogOut,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
 import { useTheme } from '@/components/ThemeProvider';
+import {
+  Box, Stack, Typography, Avatar, Chip, Button, List, ListItemButton, ListItemIcon, ListItemText,
+} from '@mui/material';
+import { alpha } from '@mui/material/styles';
 
 const defaultNavItems = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
@@ -28,6 +22,18 @@ const defaultNavItems = [
   { name: 'Templates', href: '/templates', icon: FileText },
 ];
 
+function StatusRow({ label, color, text }: { label: string; color: string; text: string }) {
+  return (
+    <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
+      <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 500 }}>{label}</Typography>
+      <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
+        <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: color }} />
+        <Typography sx={{ fontSize: 10, fontWeight: 700, fontFamily: 'monospace', color, textTransform: 'uppercase' }}>{text}</Typography>
+      </Stack>
+    </Stack>
+  );
+}
+
 export function Sidebar() {
   const pathname = usePathname();
   const { theme, toggleTheme } = useTheme();
@@ -37,187 +43,129 @@ export function Sidebar() {
 
   useEffect(() => {
     setMounted(true);
-    fetch('/api/session')
-      .then(res => res.json())
-      .then(data => setSessionState(data))
-      .catch(() => {});
-
-    fetch('/api/system-status')
-      .then(res => res.json())
-      .then(data => setSystemStatus(data))
-      .catch(() => {});
+    fetch('/api/session').then(res => res.json()).then(data => setSessionState(data)).catch(() => {});
+    fetch('/api/system-status').then(res => res.json()).then(data => setSystemStatus(data)).catch(() => {});
   }, []);
 
   const handleLogout = async () => {
     try {
-      const res = await fetch('/api/auth/logout', {
-        method: 'POST',
-      });
-      if (res.ok) {
-        window.location.href = '/login';
-      }
+      const res = await fetch('/api/auth/logout', { method: 'POST' });
+      if (res.ok) window.location.href = '/login';
     } catch (e) {
       console.error(e);
     }
   };
 
-  // Compile active navigation items based on current session role
   const navItems = [...defaultNavItems];
-  if (session?.role === 'ADMIN') {
-    navItems.push({ name: 'Users Admin', href: '/admin/users', icon: ShieldCheck });
+  if (session?.role === 'ADMIN') navItems.push({ name: 'Users Admin', href: '/admin/users', icon: ShieldCheck });
+
+  // System status colors/labels (preserves prior logic)
+  const dbOk = systemStatus?.database === 'OPERATIONAL';
+  const dbColor = dbOk ? '#10b981' : systemStatus ? '#f43f5e' : '#94a3b8';
+  const dbText = systemStatus ? (dbOk ? 'Online' : 'Offline') : 'Loading';
+
+  let azureColor = '#94a3b8';
+  let azureText = 'Loading';
+  if (systemStatus) {
+    if (systemStatus.activeProvider === 'AZURE') {
+      if (systemStatus.azureStatus === 'OPERATIONAL') { azureColor = '#10b981'; azureText = 'Online'; }
+      else if (systemStatus.azureStatus === 'UNCONFIGURED') { azureColor = '#f59e0b'; azureText = 'Not Setup'; }
+      else { azureColor = '#f43f5e'; azureText = 'Offline'; }
+    } else { azureColor = '#3b82f6'; azureText = 'Sandbox'; }
   }
 
   return (
-    <aside className="w-64 h-screen fixed top-0 left-0 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 z-50 flex flex-col pt-8 pb-4 px-4 shadow-sm transition-colors duration-200">
-      {/* Brand Header */}
-      <div className="flex items-center gap-3 px-3 mb-6">
-        <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center shadow-md">
-          <Mail className="text-white w-4.5 h-4.5" />
-        </div>
-        <span className="text-lg font-bold tracking-tight text-slate-900 dark:text-white uppercase tracking-wider">ArcReach</span>
-      </div>
+    <Box
+      component="aside"
+      sx={{
+        width: 256, height: '100vh', position: 'fixed', top: 0, left: 0, zIndex: 50,
+        bgcolor: 'background.paper', borderRight: 1, borderColor: 'divider',
+        display: 'flex', flexDirection: 'column', px: 2, pt: 3, pb: 2,
+      }}
+    >
+      {/* Brand */}
+      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', px: 1, mb: 3 }}>
+        <Avatar variant="rounded" sx={{ bgcolor: 'primary.main', width: 36, height: 36, borderRadius: '10px', boxShadow: 2 }}>
+          <Mail size={18} color="#fff" />
+        </Avatar>
+        <Typography variant="h6" sx={{ fontWeight: 700, letterSpacing: '0.06em' }}>ARCREACH</Typography>
+      </Stack>
 
-      {/* Session Widget */}
-      <div className="mb-5 mx-1 p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/25 shadow-2xs">
-        <div className="flex items-center justify-between text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-1.5">
-          <span>Active Session</span>
-          <span className={cn(
-            "px-1.5 py-0.5 rounded text-[8px] font-mono tracking-normal",
-            session?.role === 'ADMIN' 
-              ? "bg-rose-500/10 text-rose-600 dark:text-rose-500 border border-rose-500/15" 
-              : "bg-blue-500/10 text-blue-600 dark:text-blue-500 border border-blue-500/15"
-          )}>
-            {session?.role || 'USER'}
-          </span>
-        </div>
-        <div className="text-xs font-bold text-slate-800 dark:text-white truncate">
-          {session?.name || 'Syncing Account...'}
-        </div>
-        <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate mt-0.5 mb-2.5">
-          {session?.email || 'Connecting...'}
-        </div>
-        <button
-          onClick={handleLogout}
-          className="w-full py-1.5 rounded-lg text-[9px] font-bold text-center border cursor-pointer border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/40 transition-colors uppercase tracking-wider"
-        >
+      {/* Session card */}
+      <Box sx={{ mb: 2.5, p: 1.75, borderRadius: '16px', bgcolor: 'action.hover', border: 1, borderColor: 'divider' }}>
+        <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 0.75 }}>
+          <Typography sx={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', color: 'text.secondary', textTransform: 'uppercase' }}>Active Session</Typography>
+          <Chip
+            size="small"
+            label={session?.role || 'USER'}
+            color={session?.role === 'ADMIN' ? 'error' : 'primary'}
+            variant="outlined"
+            sx={{ height: 18, '& .MuiChip-label': { px: 0.75, fontSize: 9, fontWeight: 700, fontFamily: 'monospace' } }}
+          />
+        </Stack>
+        <Typography variant="body2" sx={{ fontWeight: 700 }} noWrap>{session?.name || 'Syncing Account…'}</Typography>
+        <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 1.5 }} noWrap>{session?.email || 'Connecting…'}</Typography>
+        <Button onClick={handleLogout} fullWidth size="small" variant="outlined" color="inherit" startIcon={<LogOut size={14} />}
+          sx={{ borderColor: 'divider', color: 'text.secondary', fontSize: 11 }}>
           Log Out
-        </button>
-      </div>
+        </Button>
+      </Box>
 
-      {/* Navigation Stack */}
-      <nav className="flex-1 space-y-1 overflow-y-auto">
+      {/* Navigation */}
+      <List sx={{ flex: 1, overflowY: 'auto', py: 0, '& .MuiListItemButton-root': { mb: 0.5 } }}>
         {navItems.map((item) => {
           const isActive = pathname === item.href || (item.href !== '/' && pathname?.startsWith(item.href));
+          const Icon = item.icon;
           return (
-            <Link
+            <ListItemButton
               key={item.name}
+              component={Link as any}
               href={item.href}
-              className={cn(
-                'flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-sm font-medium border border-transparent',
-                isActive
-                  ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 border-blue-100 dark:border-blue-500/10 font-semibold'
-                  : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/40 hover:text-slate-900 dark:hover:text-white'
-              )}
+              selected={isActive}
+              sx={{
+                borderRadius: 999,
+                px: 1.5, py: 1,
+                color: 'text.secondary',
+                '& .MuiListItemIcon-root': { minWidth: 34, color: 'inherit' },
+                '&:hover': { bgcolor: 'action.hover', color: 'text.primary' },
+                '&.Mui-selected': {
+                  bgcolor: (t) => alpha(t.palette.primary.main, 0.14),
+                  color: 'primary.main',
+                  '&:hover': { bgcolor: (t) => alpha(t.palette.primary.main, 0.2) },
+                },
+              }}
             >
-              <item.icon className={cn('w-4 h-4 transition-colors', isActive ? 'text-blue-600 dark:text-blue-400' : 'text-slate-400 group-hover:text-slate-600 dark:text-slate-500')} />
-              <span>{item.name}</span>
-            </Link>
+              <ListItemIcon><Icon size={18} /></ListItemIcon>
+              <ListItemText primary={<Typography sx={{ fontSize: 14, fontWeight: isActive ? 700 : 500 }}>{item.name}</Typography>} />
+            </ListItemButton>
           );
         })}
-      </nav>
+      </List>
 
-      {/* Footer / Account / API Settings */}
-      <div className="mt-auto pt-4 space-y-2 border-t border-slate-100 dark:border-slate-800/50">
-        {/* Theme Toggle Button */}
-        <button
-          onClick={toggleTheme}
-          className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg transition-colors text-sm font-medium text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/40 hover:text-slate-900 dark:hover:text-white cursor-pointer border border-transparent"
-        >
-          <div className="flex items-center gap-3">
-            {!mounted ? (
-              <>
-                <div className="w-4 h-4 rounded-full bg-slate-200 dark:bg-slate-800 animate-pulse" />
-                <span className="w-16 h-4 bg-slate-100 dark:bg-slate-800 rounded animate-pulse" />
-              </>
-            ) : theme === 'dark' ? (
-              <>
-                <Sun className="w-4 h-4 text-amber-500" />
-                <span>Light Mode</span>
-              </>
-            ) : (
-              <>
-                <Moon className="w-4 h-4 text-blue-600" />
-                <span>Dark Mode</span>
-              </>
-            )}
-          </div>
-          <span className="text-[10px] font-mono bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 px-1.5 py-0.5 rounded-md uppercase tracking-wider font-bold">
-            {mounted ? theme : '...'}
-          </span>
-        </button>
+      {/* Footer */}
+      <Stack spacing={1} sx={{ mt: 'auto', pt: 1.5, borderTop: 1, borderColor: 'divider' }}>
+        <ListItemButton onClick={toggleTheme} sx={{ borderRadius: 999, px: 1.5, py: 1, color: 'text.secondary', '&:hover': { bgcolor: 'action.hover' } }}>
+          <ListItemIcon sx={{ minWidth: 34, color: 'inherit' }}>
+            {mounted && theme === 'dark' ? <Sun size={18} color="#f59e0b" /> : <Moon size={18} />}
+          </ListItemIcon>
+          <ListItemText primary={<Typography sx={{ fontSize: 14, fontWeight: 500 }}>{mounted ? (theme === 'dark' ? 'Light Mode' : 'Dark Mode') : 'Theme'}</Typography>} />
+          <Chip size="small" label={mounted ? theme : '…'} sx={{ height: 18, fontFamily: 'monospace', '& .MuiChip-label': { px: 0.75, fontSize: 9, fontWeight: 700, textTransform: 'uppercase' } }} />
+        </ListItemButton>
 
-        <Link
-          href="/settings"
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-sm font-medium text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/40 hover:text-slate-900 dark:hover:text-white border border-transparent"
-        >
-          <Settings className="w-4 h-4 text-slate-400 dark:text-slate-500" />
-          Settings
-        </Link>
-        
-        {/* Systems Status Plate */}
-        <div className="bg-slate-50 dark:bg-slate-950/40 border border-slate-100 dark:border-slate-800 rounded-xl p-3 shadow-xs space-y-2">
-          <p className="text-[9px] uppercase tracking-wider text-slate-400 dark:text-slate-500 font-bold mb-1">System Status</p>
-          
-          {/* Database */}
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-slate-600 dark:text-slate-400 font-medium">Database</span>
-            <div className="flex items-center gap-1.5">
-              <span className={cn(
-                "w-1.5 h-1.5 rounded-full",
-                systemStatus?.database === 'OPERATIONAL' ? "bg-emerald-500" : "bg-rose-500"
-              )}></span>
-              <span className={cn(
-                "text-[10px] font-bold font-mono uppercase",
-                systemStatus?.database === 'OPERATIONAL' ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
-              )}>
-                {systemStatus ? (systemStatus.database === 'OPERATIONAL' ? 'ONLINE' : 'OFFLINE') : 'LOADING...'}
-              </span>
-            </div>
-          </div>
+        <ListItemButton component={Link as any} href="/settings" sx={{ borderRadius: 999, px: 1.5, py: 1, color: 'text.secondary', '& .MuiListItemIcon-root': { minWidth: 34, color: 'inherit' }, '&:hover': { bgcolor: 'action.hover', color: 'text.primary' } }}>
+          <ListItemIcon><Settings size={18} /></ListItemIcon>
+          <ListItemText primary={<Typography sx={{ fontSize: 14, fontWeight: 500 }}>Settings</Typography>} />
+        </ListItemButton>
 
-          {/* Azure API */}
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-slate-600 dark:text-slate-400 font-medium">Azure API</span>
-            <div className="flex items-center gap-1.5">
-              <span className={cn(
-                "w-1.5 h-1.5 rounded-full",
-                systemStatus ? (
-                  systemStatus.activeProvider === 'AZURE' ? (
-                    systemStatus.azureStatus === 'OPERATIONAL' ? "bg-emerald-500" :
-                    systemStatus.azureStatus === 'UNCONFIGURED' ? "bg-amber-500" : "bg-rose-500"
-                  ) : "bg-blue-500"
-                ) : "bg-slate-400 dark:bg-slate-600"
-              )}></span>
-              <span className={cn(
-                "text-[10px] font-bold font-mono uppercase",
-                systemStatus ? (
-                  systemStatus.activeProvider === 'AZURE' ? (
-                    systemStatus.azureStatus === 'OPERATIONAL' ? "text-emerald-600 dark:text-emerald-400" :
-                    systemStatus.azureStatus === 'UNCONFIGURED' ? "text-amber-600 dark:text-amber-400" : "text-rose-600 dark:text-rose-400"
-                  ) : "text-blue-600 dark:text-blue-400"
-                ) : "text-slate-500 dark:text-slate-400"
-              )}>
-                {systemStatus ? (
-                  systemStatus.activeProvider === 'AZURE' ? (
-                    systemStatus.azureStatus === 'OPERATIONAL' ? 'ONLINE' :
-                    systemStatus.azureStatus === 'UNCONFIGURED' ? 'NOT SETUP' : 'OFFLINE'
-                  ) : 'SANDBOX'
-                ) : 'LOADING...'}
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </aside>
+        {/* System status */}
+        <Box sx={{ p: 1.5, borderRadius: '14px', bgcolor: 'action.hover', border: 1, borderColor: 'divider' }}>
+          <Typography sx={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', color: 'text.secondary', textTransform: 'uppercase', mb: 1 }}>System Status</Typography>
+          <Stack spacing={1}>
+            <StatusRow label="Database" color={dbColor} text={dbText} />
+            <StatusRow label="Azure API" color={azureColor} text={azureText} />
+          </Stack>
+        </Box>
+      </Stack>
+    </Box>
   );
 }

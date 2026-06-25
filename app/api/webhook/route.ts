@@ -2,33 +2,35 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import crypto from 'crypto';
 
+const SECRET_HEADER = 'x-arcreach-webhook-secret';
+
+/**
+ * Constant-time secret comparison. Returns false on length mismatch (which
+ * itself is timing-safe because the slow path never runs).
+ */
+function secretMatches(provided: string, expected: string): boolean {
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const { searchParams } = new URL(req.url);
-    const key = searchParams.get('key');
-
     const expectedSecret = process.env.WEBHOOK_SECRET;
-    if (!expectedSecret && process.env.NODE_ENV === 'production') {
-      console.error('[Webhook] WEBHOOK_SECRET is not configured in production. Rejecting request.');
+    if (!expectedSecret) {
+      console.error('[Webhook] WEBHOOK_SECRET is not configured. Rejecting request.');
       return NextResponse.json({ error: 'Webhook secret is not configured.' }, { status: 500 });
     }
-    // Dev-only fallback so local testing works without extra setup.
-    const resolvedSecret = expectedSecret || 'whsec_e9a182c38d4f7281';
 
-    if (!key) {
-      return NextResponse.json({ error: 'Unauthorized: Webhook key missing.' }, { status: 401 });
+    // Auth lives in a request header (configure as an Event Grid delivery property)
+    // so the secret never reaches access logs or URL telemetry.
+    const provided = req.headers.get(SECRET_HEADER);
+    if (!provided) {
+      return NextResponse.json({ error: 'Unauthorized: Webhook secret header missing.' }, { status: 401 });
     }
-
-    const keyBuf = Buffer.from(key);
-    const secretBuf = Buffer.from(resolvedSecret);
-
-    let isValid = false;
-    if (keyBuf.length === secretBuf.length) {
-      isValid = crypto.timingSafeEqual(keyBuf, secretBuf);
-    }
-
-    if (!isValid) {
-      return NextResponse.json({ error: 'Unauthorized: Webhook key invalid.' }, { status: 401 });
+    if (!secretMatches(provided, expectedSecret)) {
+      return NextResponse.json({ error: 'Unauthorized: Webhook secret invalid.' }, { status: 401 });
     }
 
     const events = await req.json();
@@ -96,8 +98,8 @@ export async function POST(req: NextRequest) {
               // Update active enrollments to Bounced
               await prisma.campaignEnrollment.updateMany({
                 where: { leadId: dispatch.leadId, status: 'Active' },
-                data: { 
-                  status: 'Bounced', 
+                data: {
+                  status: 'Bounced',
                   nextActionDate: null,
                   lastError: 'Azure webhook delivery report: Failed',
                   lastBounceType: 'hard'

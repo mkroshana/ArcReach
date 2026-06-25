@@ -58,7 +58,7 @@ The background email dispatch engine is located in [lib/sendEngine.ts](file:///d
 - Resolves templated variables and Spintax formats (e.g., `{Hi|Hello}`).
 - Interfaces with Azure Communication Services (stubbed in development) and logs dispatches.
 
-Azure Event Grid webhook events (delivery confirmations, opens, clicks) are captured and parsed by the webhook route in [app/api/webhook/route.ts](file:///d:/Development/ArcReach/app/api/webhook/route.ts).
+Azure Event Grid webhook events (delivery confirmations, opens, clicks) are captured and parsed by the webhook route in [app/api/webhook/route.ts](file:///d:/Development/ArcReach/app/api/webhook/route.ts). The route authenticates each request via the `X-ArcReach-Webhook-Secret` header (configured as an Event Grid delivery property), checked against the `WEBHOOK_SECRET` env var.
 
 ---
 

@@ -3,9 +3,7 @@ import { prisma } from '@/lib/db';
 import { applyEmailTracking } from '@/lib/emailTracking';
 import { checkGlobalRateLimits } from '@/lib/rateLimits';
 import { getSession } from '@/lib/session';
-import { getVerifiedDomains, resolveAzureFromAddress } from '@/lib/azureDomains';
-import { decryptSecret } from '@/lib/secrets';
-import nodemailer from 'nodemailer';
+import { sendMessage, EmailConfigError, EmailSendError } from '@/lib/emailProvider';
 
 export async function POST(req: NextRequest) {
   try {
@@ -109,138 +107,63 @@ export async function POST(req: NextRequest) {
     // Apply self-hosted tracking (pixel + link rewriting + unsubscribe link)
     const finalBody = applyEmailTracking(baseBody, dispatch.id, isHtml, trackOpens, trackClicks, lead.id);
 
-    if (provider === 'AZURE') {
-      const connString = decryptSecret(settings?.azureConnString);
+    if (provider === 'AZURE' && !activeSenderAccount) {
+      return NextResponse.json({
+        success: false,
+        error: 'Active sender account is required to determine the from address for Azure Communication Services.'
+      }, { status: 400 });
+    }
 
-      if (!connString || getVerifiedDomains(settings).length === 0) {
-        return NextResponse.json({
-          success: false,
-          error: 'Azure Communication Services is active, but Connection String or verified sender domains are not configured in settings.'
-        }, { status: 400 });
-      }
+    // For SMTP fallback without a sender account, synthesize one from global SMTP creds.
+    const senderForSend = activeSenderAccount || {
+      emailAddress: settings?.smtpUser || 'sender@arcreach.com',
+      replyTo: null,
+      name: 'ArcReach Outreach',
+      smtpHost: null, smtpPort: null, smtpUser: null, smtpPass: null,
+    };
 
-      if (!activeSenderAccount) {
-        return NextResponse.json({
-          success: false,
-          error: 'Active sender account is required to determine the from address for Azure Communication Services.'
-        }, { status: 400 });
-      }
+    const finalSubject = subject || 'Outreach from ArcReach';
 
-      try {
-        const { EmailClient } = require("@azure/communication-email");
-        const emailClient = new EmailClient(connString);
+    try {
+      const { providerMessageId } = await sendMessage(
+        {
+          to: leadData.email,
+          subject: finalSubject,
+          body: finalBody,
+          isHtml,
+          sender: senderForSend,
+          fromName: activeSenderAccount ? undefined : 'ArcReach Outreach',
+          trackOpens,
+        },
+        settings
+      );
 
-        const fromAddress = resolveAzureFromAddress(activeSenderAccount.emailAddress, settings);
-
-        const message = {
-          senderAddress: fromAddress,
-          content: isHtml 
-            ? { subject: subject || 'Outreach from ArcReach', html: finalBody }
-            : { subject: subject || 'Outreach from ArcReach', plainText: finalBody },
-          recipients: {
-            to: [{ address: leadData.email }],
-          },
-          replyTo: [
-            { address: activeSenderAccount.replyTo || activeSenderAccount.emailAddress }
-          ],
-          userEngagementTrackingDisabled: !trackOpens,
-        };
-
-        const poller = await emailClient.beginSend(message);
-        const result = await poller.pollUntilDone();
-
-        if (result.status === 'Failed') {
-          throw new Error(result.error?.message || 'Azure Communication Services reported send status: Failed.');
+      await prisma.emailDispatch.update({
+        where: { id: dispatch.id },
+        data: {
+          messageId: providerMessageId || syntheticMessageId,
+          body: finalBody,
         }
+      });
 
-        // Update dispatch with provider messageId and tracked body
-        await prisma.emailDispatch.update({
-          where: { id: dispatch.id },
-          data: {
-            messageId: result.id || syntheticMessageId,
-            body: finalBody,
-          }
-        });
-
-        console.log(`[Azure Send Success] Message ID: ${result.id} | From: ${fromAddress} → To: ${leadData.email}`);
-
-        return NextResponse.json({ 
-          success: true, 
-          message: 'Email successfully sent via Azure Communication Services.', 
-          messageId: result.id 
-        });
-      } catch (err: any) {
-        console.error('[Azure Send Error]', err);
+      return NextResponse.json({
+        success: true,
+        message: `Email successfully sent via ${provider === 'AZURE' ? 'Azure Communication Services' : 'SMTP'}.`,
+        messageId: providerMessageId || syntheticMessageId,
+      });
+    } catch (err: any) {
+      if (err instanceof EmailConfigError) {
+        return NextResponse.json({ success: false, error: err.message }, { status: 400 });
+      }
+      if (err instanceof EmailSendError) {
+        const label = provider === 'AZURE' ? 'Azure Communication Services' : 'SMTP';
         return NextResponse.json({
           success: false,
-          error: `Azure Communication Services failed to send email: ${err.message || err}`
+          error: `${label} failed to send email: ${err.message}`,
         }, { status: 550 });
       }
+      throw err;
     }
-
-    // SMTP settings selection: prefer individual sender account details, fallback to global
-    let smtpHost = settings?.smtpHost;
-    let smtpPort = settings?.smtpPort || 587;
-    let smtpUser = settings?.smtpUser;
-    let smtpPass = decryptSecret(settings?.smtpPass);
-
-    if (activeSenderAccount && activeSenderAccount.smtpHost && activeSenderAccount.smtpUser && activeSenderAccount.smtpPass) {
-      smtpHost = activeSenderAccount.smtpHost;
-      smtpPort = activeSenderAccount.smtpPort || 587;
-      smtpUser = activeSenderAccount.smtpUser;
-      smtpPass = decryptSecret(activeSenderAccount.smtpPass);
-    }
-
-    // SMTP-based delivery (SMTP, GOOGLE, MICROSOFT)
-    if (!smtpHost || !smtpUser || !smtpPass) {
-      return NextResponse.json({ success: false, error: 'Active provider requires SMTP configuration but details are missing.' }, { status: 400 });
-    }
-
-    // 4. Dispatch real outbound email using SMTP relay credentials
-    const portNum = Number(smtpPort) || 587;
-    const transport = nodemailer.createTransport({
-      host: smtpHost,
-      port: portNum,
-      secure: portNum === 465,
-      auth: {
-        user: smtpUser,
-        pass: smtpPass,
-      },
-    });
-
-    const mailOptions: any = {
-      from: `"ArcReach Outreach" <${smtpUser}>`,
-      to: leadData.email,
-      subject: subject || 'Outreach from ArcReach',
-    };
-    if (activeSenderAccount) {
-      mailOptions.replyTo = activeSenderAccount.replyTo || activeSenderAccount.emailAddress;
-    }
-
-    if (isHtml) {
-      mailOptions.html = finalBody;
-    } else {
-      mailOptions.text = finalBody;
-    }
-
-    const info = await transport.sendMail(mailOptions);
-
-    // Update dispatch with provider messageId and tracked body
-    await prisma.emailDispatch.update({
-      where: { id: dispatch.id },
-      data: {
-        messageId: info.messageId || syntheticMessageId,
-        body: finalBody,
-      }
-    });
-
-    console.log(`[SMTP Send Success] Message ID: ${info.messageId} sent to ${leadData.email} via ${smtpUser}`);
-
-    return NextResponse.json({ 
-      success: true, 
-      message: 'Email successfully sent via SMTP.', 
-      messageId: info.messageId 
-    });
   } catch (error: any) {
     console.error('Error sending email:', error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });

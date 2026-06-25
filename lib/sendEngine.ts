@@ -1,9 +1,7 @@
 import { prisma } from './db';
 import { checkGlobalRateLimits } from './rateLimits';
 import { applyEmailTracking } from './emailTracking';
-import { getVerifiedDomains, resolveAzureFromAddress } from './azureDomains';
-import { decryptSecret } from './secrets';
-import nodemailer from 'nodemailer';
+import { sendMessage } from './emailProvider';
 
 // Memory store for campaigns paused due to quota limits
 export const quotaPausedCampaigns = new Map<string, Date>();
@@ -406,7 +404,6 @@ export async function processDueEmails() {
 
     // 3. Fetch global settings
     const settings = await prisma.globalSettings.findFirst();
-    const provider = settings?.activeProvider || 'MOCK';
 
     for (const enrollment of dueEnrollments) {
       const campaign = enrollment.campaign;
@@ -527,88 +524,17 @@ export async function processDueEmails() {
         );
 
         // Send Email
-        let providerMessageId: string | null = null;
-
-        if (provider === 'MOCK') {
-          console.log(`[SendEngine - Mock Send Success] To: ${lead.email} | Subject: ${subject}`);
-        } else if (provider === 'AZURE') {
-          const connString = decryptSecret(settings?.azureConnString);
-          if (!connString || getVerifiedDomains(settings).length === 0) {
-            throw new Error('Azure Communication Services connection string or verified domains are not configured.');
-          }
-
-          const { EmailClient } = require("@azure/communication-email");
-          const emailClient = new EmailClient(connString);
-          const fromAddress = resolveAzureFromAddress(chosenSender.emailAddress, settings);
-
-          const message = {
-            senderAddress: fromAddress,
-            content: isHtml 
-              ? { subject, html: finalBody }
-              : { subject, plainText: finalBody },
-            recipients: {
-              to: [{ address: lead.email }],
-            },
-            replyTo: [
-              { address: chosenSender.replyTo || chosenSender.emailAddress }
-            ],
-            userEngagementTrackingDisabled: !campaign.trackOpens,
-          };
-
-          const poller = await emailClient.beginSend(message);
-          const result = await poller.pollUntilDone();
-          if (result && result.id) {
-            providerMessageId = result.id;
-          }
-          if (result && result.status === 'Failed') {
-            throw new Error(result.error?.message || 'Azure Communication Services reported send status: Failed.');
-          }
-          console.log(`[SendEngine - Azure Success] Message ID: ${providerMessageId || syntheticMessageId} | To: ${lead.email}`);
-        } else {
-          // SMTP Fallback
-          let smtpHost = settings?.smtpHost;
-          let smtpPort = settings?.smtpPort || 587;
-          let smtpUser = settings?.smtpUser;
-          let smtpPass = decryptSecret(settings?.smtpPass);
-
-          if (chosenSender.smtpHost && chosenSender.smtpUser && chosenSender.smtpPass) {
-            smtpHost = chosenSender.smtpHost;
-            smtpPort = chosenSender.smtpPort || 587;
-            smtpUser = chosenSender.smtpUser;
-            smtpPass = decryptSecret(chosenSender.smtpPass);
-          }
-
-          if (!smtpHost || !smtpUser || !smtpPass) {
-            throw new Error('SMTP credentials are missing.');
-          }
-
-          const portNum = Number(smtpPort) || 587;
-          const transport = nodemailer.createTransport({
-            host: smtpHost,
-            port: portNum,
-            secure: portNum === 465,
-            auth: { user: smtpUser, pass: smtpPass },
-          });
-
-          const mailOptions: any = {
-            from: `"${chosenSender.name || 'ArcReach Sender'}" <${smtpUser}>`,
+        const { providerMessageId } = await sendMessage(
+          {
             to: lead.email,
-            replyTo: chosenSender.replyTo || chosenSender.emailAddress,
             subject,
-          };
-
-          if (isHtml) {
-            mailOptions.html = finalBody;
-          } else {
-            mailOptions.text = finalBody;
-          }
-
-          const info = await transport.sendMail(mailOptions);
-          if (info && info.messageId) {
-            providerMessageId = info.messageId;
-          }
-          console.log(`[SendEngine - SMTP Success] Message ID: ${providerMessageId || syntheticMessageId} | To: ${lead.email}`);
-        }
+            body: finalBody,
+            isHtml,
+            sender: chosenSender,
+            trackOpens: campaign.trackOpens,
+          },
+          settings
+        );
 
         // Update dispatch with the final tracked body and messageId
         const updateData: any = { body: finalBody };

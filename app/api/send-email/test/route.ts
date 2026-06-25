@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
-import { getVerifiedDomains, resolveAzureFromAddress } from '@/lib/azureDomains';
-import { decryptSecret } from '@/lib/secrets';
-import nodemailer from 'nodemailer';
+import { sendMessage, EmailConfigError, EmailSendError } from '@/lib/emailProvider';
 
 /**
  * POST /api/send-email/test
@@ -55,120 +53,42 @@ export async function POST(req: NextRequest) {
       '— ArcReach Deliverability Engine',
     ].join('\n');
 
-    // Handle MOCK provider
-    if (provider === 'MOCK') {
-      console.log(`[Test Email - Mock] From: ${senderAccount.emailAddress} → To: ${recipientEmail}`);
+    try {
+      const { providerMessageId } = await sendMessage(
+        {
+          to: recipientEmail,
+          subject,
+          body: bodyText,
+          isHtml: false,
+          sender: senderAccount,
+          fromName: senderDisplayName,
+        },
+        settings
+      );
+
+      const fallbackId = `mock-test-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+      const messageId = providerMessageId || (provider === 'MOCK' ? fallbackId : fallbackId);
+      const label = provider === 'AZURE' ? ' via Azure Communication Services' : provider === 'MOCK' ? ' (Mock mode)' : '';
+
       return NextResponse.json({
         success: true,
-        message: `Test email simulated (Mock mode). Would send from ${senderAccount.emailAddress} to ${recipientEmail}.`,
-        messageId: `mock-test-${Date.now()}-${Math.random().toString(36).substring(7)}`,
+        message: `Test email successfully sent${label} to ${recipientEmail}.`,
+        messageId,
         recipient: recipientEmail,
       });
-    }
-
-    // Handle AZURE provider
-    if (provider === 'AZURE') {
-      const connString = decryptSecret(settings?.azureConnString);
-
-      if (!connString || getVerifiedDomains(settings).length === 0) {
-        return NextResponse.json({
-          success: false,
-          error: 'Azure Communication Services is active, but Connection String or verified sender domains are not configured in settings.'
-        }, { status: 400 });
+    } catch (err: any) {
+      if (err instanceof EmailConfigError) {
+        return NextResponse.json({ success: false, error: err.message }, { status: 400 });
       }
-
-      try {
-        const { EmailClient } = require("@azure/communication-email");
-        const emailClient = new EmailClient(connString);
-
-        const fromAddress = resolveAzureFromAddress(senderAccount.emailAddress, settings);
-
-        const message = {
-          senderAddress: fromAddress,
-          content: {
-            subject,
-            plainText: bodyText,
-          },
-          recipients: {
-            to: [{ address: recipientEmail }],
-          },
-          replyTo: [
-            { address: senderAccount.replyTo || senderAccount.emailAddress }
-          ],
-        };
-
-        const poller = await emailClient.beginSend(message);
-        const result = await poller.pollUntilDone();
-
-        if (result.status === 'Failed') {
-          throw new Error(result.error?.message || 'Azure Communication Services reported send status: Failed.');
-        }
-
-        console.log(`[Test Email - Azure Success] Message ID: ${result.id} | From: ${fromAddress} → To: ${recipientEmail}`);
-
-        return NextResponse.json({
-          success: true,
-          message: `Test email successfully sent via Azure Communication Services to ${recipientEmail}.`,
-          messageId: result.id,
-          recipient: recipientEmail,
-        });
-      } catch (err: any) {
-        console.error('[Test Email - Azure Error]', err);
+      if (err instanceof EmailSendError) {
+        const label = provider === 'AZURE' ? 'Azure Communication Services' : 'SMTP';
         return NextResponse.json({
           success: false,
-          error: `Azure Communication Services failed to send: ${err.message || err}`
+          error: `${label} failed to send: ${err.message}`,
         }, { status: 550 });
       }
+      throw err;
     }
-
-    // SMTP-based delivery: prefer individual account credentials, fallback to global
-    let smtpHost = settings?.smtpHost;
-    let smtpPort = settings?.smtpPort || 587;
-    let smtpUser = settings?.smtpUser;
-    let smtpPass = decryptSecret(settings?.smtpPass);
-
-    if (senderAccount.smtpHost && senderAccount.smtpUser && senderAccount.smtpPass) {
-      smtpHost = senderAccount.smtpHost;
-      smtpPort = senderAccount.smtpPort || 587;
-      smtpUser = senderAccount.smtpUser;
-      smtpPass = decryptSecret(senderAccount.smtpPass);
-    }
-
-    if (!smtpHost || !smtpUser || !smtpPass) {
-      return NextResponse.json({
-        success: false,
-        error: 'SMTP configuration is missing. Please configure SMTP credentials for this sender account or set global SMTP settings.',
-      }, { status: 400 });
-    }
-
-    // Send the real test email
-    const portNum = Number(smtpPort) || 587;
-    const transport = nodemailer.createTransport({
-      host: smtpHost,
-      port: portNum,
-      secure: portNum === 465,
-      auth: {
-        user: smtpUser,
-        pass: smtpPass,
-      },
-    });
-
-    const info = await transport.sendMail({
-      from: `"${senderDisplayName}" <${smtpUser}>`,
-      to: recipientEmail,
-      replyTo: senderAccount.replyTo || senderAccount.emailAddress,
-      subject,
-      text: bodyText,
-    });
-
-    console.log(`[Test Email - SMTP Success] Message ID: ${info.messageId} | From: ${senderAccount.emailAddress} → To: ${recipientEmail}`);
-
-    return NextResponse.json({
-      success: true,
-      message: `Test email successfully sent to ${recipientEmail}.`,
-      messageId: info.messageId,
-      recipient: recipientEmail,
-    });
   } catch (error: any) {
     console.error('[Test Email Error]', error);
     return NextResponse.json({ success: false, error: error.message || 'Failed to send test email.' }, { status: 500 });

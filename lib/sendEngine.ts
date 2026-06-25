@@ -3,8 +3,29 @@ import { checkGlobalRateLimits } from './rateLimits';
 import { applyEmailTracking } from './emailTracking';
 import { sendMessage } from './emailProvider';
 
-// Memory store for campaigns paused due to quota limits
-export const quotaPausedCampaigns = new Map<string, Date>();
+/**
+ * Auto-resumes campaigns whose quota-driven pause has elapsed. Idempotent and
+ * safe to run concurrently — `updateMany` is row-level atomic, so each due row
+ * flips to Active exactly once even if multiple workers race.
+ *
+ * Returns the number of campaigns resumed.
+ */
+export async function autoResumeQuotaPausedCampaigns(now: Date = new Date()): Promise<number> {
+  const { count } = await prisma.campaign.updateMany({
+    where: {
+      status: 'Paused',
+      pausedUntil: { lte: now },
+    },
+    data: {
+      status: 'Active',
+      pausedUntil: null,
+    },
+  });
+  if (count > 0) {
+    console.log(`[SendEngine] Auto-resumed ${count} campaign(s) after quota reset.`);
+  }
+  return count;
+}
 
 /**
  * Custom validation helper to ensure send limits (minuteLimit, hourlyLimit, dailyLimit) are not exceeded
@@ -188,22 +209,21 @@ export async function handleSendFailure(
     try {
       console.log(`[SendFailureHandler] Quota limit hit. Pausing campaign "${campaignName}" (${campaignId}) for 1 hour.`);
 
-      // 1. Pause the campaign in database
-      await prisma.campaign.update({
-        where: { id: campaignId },
-        data: { status: 'Paused' }
-      });
-
-      // 2. Schedule auto-resume
       const resumeTime = new Date();
       resumeTime.setHours(resumeTime.getHours() + 1);
-      quotaPausedCampaigns.set(campaignId, resumeTime);
 
-      // 3. Postpone next action date of the enrollment so it retries later
-      await prisma.campaignEnrollment.update({
-        where: { id: enrollment.id },
-        data: { nextActionDate: resumeTime }
-      });
+      // Atomically pause the campaign with its scheduled resume time and
+      // postpone the enrollment so it retries after the reset.
+      await prisma.$transaction([
+        prisma.campaign.update({
+          where: { id: campaignId },
+          data: { status: 'Paused', pausedUntil: resumeTime },
+        }),
+        prisma.campaignEnrollment.update({
+          where: { id: enrollment.id },
+          data: { nextActionDate: resumeTime },
+        }),
+      ]);
     } catch (pauseErr: any) {
       console.error('[SendFailureHandler] Failed to pause campaign on quota limit:', pauseErr.message);
     }
@@ -299,26 +319,14 @@ export async function handleSendFailure(
 export async function processDueEmails() {
   console.log('[SendEngine] Starting processing cycle...');
 
-  // Auto-resume campaigns paused due to quota limits after their reset time has passed
-  const nowTime = new Date();
-  for (const [campaignId, resumeAt] of quotaPausedCampaigns.entries()) {
-    if (nowTime >= resumeAt) {
-      try {
-        const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
-        if (campaign && campaign.status === 'Paused') {
-          await prisma.campaign.update({
-            where: { id: campaignId },
-            data: { status: 'Active' }
-          });
-          console.log(`[SendEngine] Auto-resumed campaign "${campaign.name}" (${campaignId}) after quota reset.`);
-        }
-      } catch (err) {
-        console.error(`[SendEngine] Failed to auto-resume campaign ${campaignId}:`, err);
-      }
-      quotaPausedCampaigns.delete(campaignId);
-    }
+  // Auto-resume campaigns whose quota-driven pause has elapsed. Restart-safe:
+  // pause state lives in the DB, so a process recycle doesn't strand campaigns.
+  try {
+    await autoResumeQuotaPausedCampaigns();
+  } catch (err) {
+    console.error('[SendEngine] Failed to auto-resume quota-paused campaigns:', err);
   }
-  
+
   try {
     const now = new Date();
 

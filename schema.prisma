@@ -117,6 +117,10 @@ model Campaign {
   createdAt       DateTime             @default(now())
   updatedAt       DateTime             @updatedAt
 
+  // When set, the send engine auto-resumes this campaign to Active once
+  // `pausedUntil <= now`. Null = paused indefinitely (manual pause).
+  pausedUntil     DateTime?
+
   // Advanced scheduling and options (From original schema & UI elements)
   timezone        String               @default("UTC")
   sendSchedule    Json?                // E.g., {"days": ["Mon","Tue","Wed","Thu","Fri"], "window": {"start": "09:00", "end": "17:00"}}

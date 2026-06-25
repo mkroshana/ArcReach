@@ -1,5 +1,13 @@
 # Deploy ArcReach to Azure App Service
 # Build happens in CI (fast GitHub runner), Azure just starts the app.
+#
+# Two jobs:
+#   - test:              installs deps, runs unit + integration suites against
+#                        a fresh Postgres service container and a backgrounded
+#                        `next dev` server. Runs on every push to `azure` and
+#                        on workflow_dispatch.
+#   - build-and-deploy:  needs `test`; only runs on push to `azure`, so manual
+#                        workflow_dispatch can re-run tests without redeploying.
 
 name: Build and deploy Node.js app to Azure Web App - arcreach-app
 
@@ -10,7 +18,82 @@ on:
   workflow_dispatch:
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: arcreach_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/arcreach_test
+      NODE_ENV: development
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Push Prisma schema to test database
+        run: npx prisma db push --skip-generate
+
+      - name: Run unit tests
+        run: npm run test:ci
+
+      - name: Start dev server
+        run: |
+          npm run dev > /tmp/devserver.log 2>&1 &
+          echo $! > /tmp/devserver.pid
+
+      - name: Wait for dev server to be ready
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:3000/api/system-status > /dev/null 2>&1; then
+              echo "Dev server is ready."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Dev server did not become ready in 120s. Last 100 lines of log:"
+          tail -n 100 /tmp/devserver.log || true
+          exit 1
+
+      - name: Run integration tests
+        run: npm run test:integration
+
+      - name: Stop dev server
+        if: always()
+        run: |
+          if [ -f /tmp/devserver.pid ]; then
+            kill $(cat /tmp/devserver.pid) 2>/dev/null || true
+          fi
+
+      - name: Upload dev server log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: devserver-log
+          path: /tmp/devserver.log
+          if-no-files-found: ignore
+
   build-and-deploy:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/azure'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -25,11 +108,10 @@ jobs:
           node-version: '22.x'
           cache: 'npm'
 
-      - name: Install, build, and test
+      - name: Install and build
         run: |
           npm ci
           npm run build
-          npm run test:ci
 
       - name: Create deployment package
         run: |

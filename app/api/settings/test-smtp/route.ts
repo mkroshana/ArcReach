@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import nodemailer from 'nodemailer';
+import { getSession } from '@/lib/session';
 
 export async function POST(req: NextRequest) {
   try {
+    const session = await getSession();
+    if (session.role !== 'ADMIN') {
+      return NextResponse.json({ error: 'Admin role required.' }, { status: 403 });
+    }
+
     const body = await req.json();
     const { smtpHost, smtpPort, smtpUser, smtpPass } = body;
 

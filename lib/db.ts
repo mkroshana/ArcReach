@@ -9,7 +9,7 @@ if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
 
 let initialized = false;
 
-async function ensureDefaultUsers() {
+export async function ensureDefaultUsers() {
   // Check if admin exists
   const adminExists = await prisma.user.findUnique({
     where: { email: 'admin@arcreach.com' }

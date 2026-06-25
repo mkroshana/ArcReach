@@ -52,6 +52,9 @@ jobs:
       - name: Push Prisma schema to test database
         run: npx prisma db push --skip-generate
 
+      - name: Seed default dev users (admin-id-999, user-id-111)
+        run: npm run seed:dev
+
       - name: Run unit tests
         run: npm run test:ci
 

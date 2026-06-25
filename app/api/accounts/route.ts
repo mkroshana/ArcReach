@@ -1,6 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db, prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
+import { MASKED_SECRET, encryptSecret } from '@/lib/secrets';
+
+/** Redact stored secrets in API responses; UI sends the mask back unchanged
+ *  for unedited fields, and PUT skips them so the real secret stays intact. */
+function redactAccount<T extends Record<string, any>>(acc: T): T {
+  return { ...acc, smtpPass: acc.smtpPass ? MASKED_SECRET : null, imapPass: acc.imapPass ? MASKED_SECRET : null };
+}
+
+/** Encrypt a plaintext secret, or pass null/empty through. */
+function encryptedOrNull(v: string | null | undefined): string | null {
+  return v ? encryptSecret(v) : null;
+}
 
 export async function GET() {
   try {
@@ -98,7 +110,7 @@ export async function GET() {
       }
 
       return {
-        ...account,
+        ...redactAccount(account),
         sentToday,
         sentTotal,
         delivered,
@@ -173,14 +185,14 @@ export async function POST(req: NextRequest) {
       smtpHost: smtpHost || null,
       smtpPort: smtpPort ? Number(smtpPort) : null,
       smtpUser: smtpUser || null,
-      smtpPass: smtpPass || null,
+      smtpPass: encryptedOrNull(smtpPass),
       imapHost: imapHost || null,
       imapPort: imapPort ? Number(imapPort) : null,
       imapUser: imapUser || null,
-      imapPass: imapPass || null,
+      imapPass: encryptedOrNull(imapPass),
     });
 
-    return NextResponse.json(newAccount);
+    return NextResponse.json(redactAccount(newAccount));
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
@@ -216,6 +228,15 @@ export async function PUT(req: NextRequest) {
       updates.imapPort = updates.imapPort ? Number(updates.imapPort) : null;
     }
 
+    // Secrets: drop if echoed mask (don't overwrite real value); else encrypt.
+    for (const f of ['smtpPass', 'imapPass'] as const) {
+      if (updates[f] === MASKED_SECRET) {
+        delete updates[f];
+      } else if (updates[f] !== undefined) {
+        updates[f] = encryptedOrNull(updates[f]);
+      }
+    }
+
     const existingAccount = await prisma.senderAccount.findUnique({ where: { id } });
     if (existingAccount) {
       if (updates.warmupEnabled === true && !existingAccount.warmupEnabled) {
@@ -226,7 +247,7 @@ export async function PUT(req: NextRequest) {
     }
 
     const updated = await db.updateAccount(id, updates);
-    return NextResponse.json(updated);
+    return NextResponse.json(redactAccount(updated));
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

@@ -2,6 +2,7 @@ import { prisma } from './db';
 import { checkGlobalRateLimits } from './rateLimits';
 import { applyEmailTracking } from './emailTracking';
 import { getVerifiedDomains, resolveAzureFromAddress } from './azureDomains';
+import { decryptSecret } from './secrets';
 import nodemailer from 'nodemailer';
 
 // Memory store for campaigns paused due to quota limits
@@ -531,7 +532,7 @@ export async function processDueEmails() {
         if (provider === 'MOCK') {
           console.log(`[SendEngine - Mock Send Success] To: ${lead.email} | Subject: ${subject}`);
         } else if (provider === 'AZURE') {
-          const connString = settings?.azureConnString;
+          const connString = decryptSecret(settings?.azureConnString);
           if (!connString || getVerifiedDomains(settings).length === 0) {
             throw new Error('Azure Communication Services connection string or verified domains are not configured.');
           }
@@ -568,13 +569,13 @@ export async function processDueEmails() {
           let smtpHost = settings?.smtpHost;
           let smtpPort = settings?.smtpPort || 587;
           let smtpUser = settings?.smtpUser;
-          let smtpPass = settings?.smtpPass;
+          let smtpPass = decryptSecret(settings?.smtpPass);
 
           if (chosenSender.smtpHost && chosenSender.smtpUser && chosenSender.smtpPass) {
             smtpHost = chosenSender.smtpHost;
             smtpPort = chosenSender.smtpPort || 587;
             smtpUser = chosenSender.smtpUser;
-            smtpPass = chosenSender.smtpPass;
+            smtpPass = decryptSecret(chosenSender.smtpPass);
           }
 
           if (!smtpHost || !smtpUser || !smtpPass) {

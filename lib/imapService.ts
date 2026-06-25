@@ -1,6 +1,7 @@
 import tls from 'tls';
 import { prisma } from './db';
 import { decodeMimeHeader } from './mime';
+import { decryptSecret } from './secrets';
 
 interface ImapMessage {
   from: string;
@@ -132,10 +133,11 @@ export async function syncMailboxReplies(mailboxId: string) {
         });
         
         // Build commands queue
-        // 1. LOGIN
+        // 1. LOGIN — decrypt stored password just-in-time for the protocol command.
+        const imapPassPlain = decryptSecret(mailbox.imapPass) || '';
         commandsQueue.push({
           tag: tagLogin,
-          cmd: `LOGIN "${mailbox.imapUser!.replace(/"/g, '\\"')}" "${mailbox.imapPass!.replace(/"/g, '\\"')}"`,
+          cmd: `LOGIN "${mailbox.imapUser!.replace(/"/g, '\\"')}" "${imapPassPlain.replace(/"/g, '\\"')}"`,
           handler: (resp) => {
             if (!resp.includes(`${tagLogin} OK`)) {
               throw new Error('IMAP Login failed: ' + resp);

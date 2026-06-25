@@ -4,6 +4,7 @@ import { applyEmailTracking } from '@/lib/emailTracking';
 import { checkGlobalRateLimits } from '@/lib/rateLimits';
 import { getSession } from '@/lib/session';
 import { getVerifiedDomains, resolveAzureFromAddress } from '@/lib/azureDomains';
+import { decryptSecret } from '@/lib/secrets';
 import nodemailer from 'nodemailer';
 
 export async function POST(req: NextRequest) {
@@ -109,7 +110,7 @@ export async function POST(req: NextRequest) {
     const finalBody = applyEmailTracking(baseBody, dispatch.id, isHtml, trackOpens, trackClicks, lead.id);
 
     if (provider === 'AZURE') {
-      const connString = settings?.azureConnString;
+      const connString = decryptSecret(settings?.azureConnString);
 
       if (!connString || getVerifiedDomains(settings).length === 0) {
         return NextResponse.json({
@@ -181,13 +182,13 @@ export async function POST(req: NextRequest) {
     let smtpHost = settings?.smtpHost;
     let smtpPort = settings?.smtpPort || 587;
     let smtpUser = settings?.smtpUser;
-    let smtpPass = settings?.smtpPass;
+    let smtpPass = decryptSecret(settings?.smtpPass);
 
     if (activeSenderAccount && activeSenderAccount.smtpHost && activeSenderAccount.smtpUser && activeSenderAccount.smtpPass) {
       smtpHost = activeSenderAccount.smtpHost;
       smtpPort = activeSenderAccount.smtpPort || 587;
       smtpUser = activeSenderAccount.smtpUser;
-      smtpPass = activeSenderAccount.smtpPass;
+      smtpPass = decryptSecret(activeSenderAccount.smtpPass);
     }
 
     // SMTP-based delivery (SMTP, GOOGLE, MICROSOFT)

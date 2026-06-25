@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { getVerifiedDomains, resolveAzureFromAddress } from '@/lib/azureDomains';
+import { decryptSecret } from '@/lib/secrets';
 import nodemailer from 'nodemailer';
 
 /**
@@ -67,7 +68,7 @@ export async function POST(req: NextRequest) {
 
     // Handle AZURE provider
     if (provider === 'AZURE') {
-      const connString = settings?.azureConnString;
+      const connString = decryptSecret(settings?.azureConnString);
 
       if (!connString || getVerifiedDomains(settings).length === 0) {
         return NextResponse.json({
@@ -124,13 +125,13 @@ export async function POST(req: NextRequest) {
     let smtpHost = settings?.smtpHost;
     let smtpPort = settings?.smtpPort || 587;
     let smtpUser = settings?.smtpUser;
-    let smtpPass = settings?.smtpPass;
+    let smtpPass = decryptSecret(settings?.smtpPass);
 
     if (senderAccount.smtpHost && senderAccount.smtpUser && senderAccount.smtpPass) {
       smtpHost = senderAccount.smtpHost;
       smtpPort = senderAccount.smtpPort || 587;
       smtpUser = senderAccount.smtpUser;
-      smtpPass = senderAccount.smtpPass;
+      smtpPass = decryptSecret(senderAccount.smtpPass);
     }
 
     if (!smtpHost || !smtpUser || !smtpPass) {

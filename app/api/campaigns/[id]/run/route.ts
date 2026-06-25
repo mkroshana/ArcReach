@@ -5,6 +5,7 @@ import { applyEmailTracking } from '@/lib/emailTracking';
 import { checkGlobalRateLimits } from '@/lib/rateLimits';
 import { resolveCampaignSenders, pickSender, handleSendFailure } from '@/lib/sendEngine';
 import { getVerifiedDomains, resolveAzureFromAddress } from '@/lib/azureDomains';
+import { decryptSecret } from '@/lib/secrets';
 import nodemailer from 'nodemailer';
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -233,7 +234,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         if (provider === 'MOCK') {
           console.log(`[Campaign Run - Mock] To: ${lead.email} | Subject: ${subject}`);
         } else if (provider === 'AZURE') {
-          const connString = settings?.azureConnString;
+          const connString = decryptSecret(settings?.azureConnString);
           if (!connString || getVerifiedDomains(settings).length === 0) {
             throw new Error('Azure Communication Services is active, but Connection String or verified domains are missing.');
           }
@@ -269,13 +270,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           let smtpHost = settings?.smtpHost;
           let smtpPort = settings?.smtpPort || 587;
           let smtpUser = settings?.smtpUser;
-          let smtpPass = settings?.smtpPass;
+          let smtpPass = decryptSecret(settings?.smtpPass);
 
           if (chosenSender.smtpHost && chosenSender.smtpUser && chosenSender.smtpPass) {
             smtpHost = chosenSender.smtpHost;
             smtpPort = chosenSender.smtpPort || 587;
             smtpUser = chosenSender.smtpUser;
-            smtpPass = chosenSender.smtpPass;
+            smtpPass = decryptSecret(chosenSender.smtpPass);
           }
 
           if (!smtpHost || !smtpUser || !smtpPass) {

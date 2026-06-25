@@ -2,10 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getSession, setSession } from '@/lib/session';
 import { verifyPassword, hashPassword } from '@/lib/auth';
-
-/** Sentinel returned in place of stored secrets; PUT ignores this value so a
- * round-tripped masked field never overwrites the real secret. */
-const MASKED_SECRET = '••••••••';
+import { MASKED_SECRET, encryptSecret } from '@/lib/secrets';
 
 /** Fields that are never returned in plaintext and must be skipped on PUT when
  * the client echoes back the mask. */
@@ -163,20 +160,23 @@ export async function PUT(req: NextRequest) {
       }
       settingsData.activeProvider = activeProvider;
     }
+    /** Encrypt unless the value is null/empty (which clears the field). */
+    const encrypted = (v: string | null | undefined) => (v ? encryptSecret(v) : v ?? null);
+
     const liveAzureConn = liveSecret(azureConnString);
     const liveSmtpPass = liveSecret(smtpPass);
     const liveImapPass = liveSecret(imapPass);
-    if (liveAzureConn !== undefined) settingsData.azureConnString = liveAzureConn;
+    if (liveAzureConn !== undefined) settingsData.azureConnString = encrypted(liveAzureConn);
     if (azureSenderDomain !== undefined) settingsData.azureSenderDomain = azureSenderDomain;
     if (azureSenderDomains !== undefined) settingsData.azureSenderDomains = normalizeDomains(azureSenderDomains);
     if (smtpHost !== undefined) settingsData.smtpHost = smtpHost;
     if (smtpPort !== undefined) settingsData.smtpPort = Number(smtpPort) || null;
     if (smtpUser !== undefined) settingsData.smtpUser = smtpUser;
-    if (liveSmtpPass !== undefined) settingsData.smtpPass = liveSmtpPass;
+    if (liveSmtpPass !== undefined) settingsData.smtpPass = encrypted(liveSmtpPass);
     if (imapHost !== undefined) settingsData.imapHost = imapHost;
     if (imapPort !== undefined) settingsData.imapPort = Number(imapPort) || null;
     if (imapUser !== undefined) settingsData.imapUser = imapUser;
-    if (liveImapPass !== undefined) settingsData.imapPass = liveImapPass;
+    if (liveImapPass !== undefined) settingsData.imapPass = encrypted(liveImapPass);
     if (rateLimitMinute !== undefined) {
       settingsData.rateLimitMinute = rateLimitMinute === null ? null : Number(rateLimitMinute);
     }
@@ -194,17 +194,17 @@ export async function PUT(req: NextRequest) {
       updatedSettings = await prisma.globalSettings.create({
         data: {
           activeProvider: activeProvider || 'MOCK',
-          azureConnString: liveAzureConn ?? null,
+          azureConnString: encrypted(liveAzureConn),
           azureSenderDomain: azureSenderDomain || null,
           azureSenderDomains: azureSenderDomains !== undefined ? normalizeDomains(azureSenderDomains) : undefined,
           smtpHost: smtpHost || null,
           smtpPort: Number(smtpPort) || null,
           smtpUser: smtpUser || null,
-          smtpPass: liveSmtpPass ?? null,
+          smtpPass: encrypted(liveSmtpPass),
           imapHost: imapHost || null,
           imapPort: Number(imapPort) || null,
           imapUser: imapUser || null,
-          imapPass: liveImapPass ?? null,
+          imapPass: encrypted(liveImapPass),
           rateLimitMinute: rateLimitMinute === undefined ? 60 : (rateLimitMinute === null ? null : Number(rateLimitMinute)),
           rateLimitHour: rateLimitHour === undefined ? 1000 : (rateLimitHour === null ? null : Number(rateLimitHour))
         }

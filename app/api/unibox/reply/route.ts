@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { checkGlobalRateLimits } from '@/lib/rateLimits';
 import { getVerifiedDomains, resolveAzureFromAddress } from '@/lib/azureDomains';
+import { decryptSecret } from '@/lib/secrets';
 import nodemailer from 'nodemailer';
 
 export async function POST(req: NextRequest) {
@@ -55,7 +56,7 @@ export async function POST(req: NextRequest) {
       console.log(`[Unibox Reply - Mock] From: ${senderEmail} → To: ${lead.email} | Subject: ${subject}`);
       console.log(`[Unibox Reply - Mock] Body: ${replyBody.substring(0, 100)}...`);
     } else if (provider === 'AZURE') {
-      const connString = settings?.azureConnString;
+      const connString = decryptSecret(settings?.azureConnString);
       if (!connString || getVerifiedDomains(settings).length === 0) {
         throw new Error('Azure Communication Services is active, but Connection String or verified domains are missing.');
       }
@@ -93,13 +94,13 @@ export async function POST(req: NextRequest) {
       let smtpHost = settings?.smtpHost;
       let smtpPort = settings?.smtpPort || 587;
       let smtpUser = settings?.smtpUser;
-      let smtpPass = settings?.smtpPass;
+      let smtpPass = decryptSecret(settings?.smtpPass);
 
       if (senderAccount?.smtpHost && senderAccount?.smtpUser && senderAccount?.smtpPass) {
         smtpHost = senderAccount.smtpHost;
         smtpPort = senderAccount.smtpPort || 587;
         smtpUser = senderAccount.smtpUser;
-        smtpPass = senderAccount.smtpPass;
+        smtpPass = decryptSecret(senderAccount.smtpPass);
       }
 
       if (!smtpHost || !smtpUser || !smtpPass) {

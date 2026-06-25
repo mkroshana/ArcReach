@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import nodemailer from 'nodemailer';
 import { getSession } from '@/lib/session';
+import { prisma } from '@/lib/db';
+import { MASKED_SECRET, decryptSecret } from '@/lib/secrets';
 
 export async function POST(req: NextRequest) {
   try {
@@ -10,7 +12,14 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { smtpHost, smtpPort, smtpUser, smtpPass } = body;
+    let { smtpHost, smtpPort, smtpUser, smtpPass } = body;
+
+    // If the form sent the redacted sentinel (password not edited), fall back to
+    // the stored encrypted value so the test can actually authenticate.
+    if (smtpPass === MASKED_SECRET) {
+      const stored = await prisma.globalSettings.findFirst({ select: { smtpPass: true } });
+      smtpPass = decryptSecret(stored?.smtpPass) || '';
+    }
 
     if (!smtpHost || !smtpPort) {
       return NextResponse.json({ error: 'SMTP Host and Port are required.' }, { status: 400 });

@@ -9,20 +9,6 @@ export interface UserSession {
   role: 'ADMIN' | 'USER';
 }
 
-export const DEFAULT_ADMIN: UserSession = {
-  id: 'admin-id-999',
-  name: 'ArcReach Admin',
-  email: 'admin@arcreach.com',
-  role: 'ADMIN',
-};
-
-export const DEFAULT_USER: UserSession = {
-  id: 'user-id-111',
-  name: 'Standard Marketer',
-  email: 'mkroshana@gmail.com',
-  role: 'USER',
-};
-
 const secretKey = sessionSecretKey;
 
 /**

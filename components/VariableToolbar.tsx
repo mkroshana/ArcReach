@@ -2,13 +2,21 @@
 
 import { useState } from 'react';
 import { ChevronDown, Type, FileText } from 'lucide-react';
+import {
+  Stack, Button, ToggleButtonGroup, ToggleButton, Menu, MenuItem,
+  ListSubheader, Typography, Box,
+} from '@mui/material';
+import { alpha } from '@mui/material/styles';
 
 /**
  * VariableToolbar — Reusable toolbar for inserting personalization variables
  * into subject line and body fields across templates and campaign editors.
  *
  * Features a field target selector (Subject/Body) when onInsertSubject is provided,
- * quick-access buttons for common variables, and a "More" dropdown for all options.
+ * quick-access buttons for common variables, and a "More" menu for all options.
+ *
+ * Built on MUI primitives so the "More" menu portals to <body> and inherits the
+ * app's z-index scale (avoids clipping / stacking issues inside MUI layouts).
  */
 
 interface Variable {
@@ -35,19 +43,10 @@ const CATEGORY_LABELS: Record<string, string> = {
   spintax: 'Spintax',
 };
 
-const CATEGORY_COLORS: Record<string, { bg: string; text: string; border: string; hoverBg: string }> = {
-  personalization: {
-    bg: 'bg-blue-50 dark:bg-blue-950/40',
-    text: 'text-blue-700 dark:text-blue-400',
-    border: 'border-blue-200 dark:border-blue-500/15',
-    hoverBg: 'hover:bg-blue-100 dark:hover:bg-blue-900/40',
-  },
-  spintax: {
-    bg: 'bg-violet-50 dark:bg-violet-950/40',
-    text: 'text-violet-700 dark:text-violet-400',
-    border: 'border-violet-200 dark:border-violet-500/15',
-    hoverBg: 'hover:bg-violet-100 dark:hover:bg-violet-900/40',
-  },
+// MUI palette key per category — personalization=primary (blue), spintax=secondary (violet).
+const CATEGORY_COLOR: Record<Variable['category'], 'primary' | 'secondary'> = {
+  personalization: 'primary',
+  spintax: 'secondary',
 };
 
 interface VariableToolbarProps {
@@ -60,8 +59,9 @@ interface VariableToolbarProps {
 }
 
 export default function VariableToolbar({ onInsert, onInsertSubject }: VariableToolbarProps) {
-  const [showDropdown, setShowDropdown] = useState(false);
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [target, setTarget] = useState<'body' | 'subject'>('body');
+  const open = Boolean(anchorEl);
 
   const handleInsert = (value: string) => {
     if (target === 'subject' && onInsertSubject) {
@@ -77,9 +77,7 @@ export default function VariableToolbar({ onInsert, onInsertSubject }: VariableT
   );
 
   // All remaining variables in the dropdown
-  const dropdownVars = VARIABLES.filter(v =>
-    !quickVars.includes(v)
-  );
+  const dropdownVars = VARIABLES.filter(v => !quickVars.includes(v));
 
   // Group dropdown vars by category
   const grouped = dropdownVars.reduce<Record<string, Variable[]>>((acc, v) => {
@@ -87,109 +85,125 @@ export default function VariableToolbar({ onInsert, onInsertSubject }: VariableT
     return acc;
   }, {});
 
+  const chipSx = (category: Variable['category']) => {
+    const color = CATEGORY_COLOR[category];
+    return {
+      minHeight: 24,
+      py: 0.25,
+      px: 1,
+      fontSize: 9,
+      fontWeight: 700,
+      textTransform: 'uppercase' as const,
+      letterSpacing: '0.04em',
+      borderRadius: '8px',
+      color: `${color}.main`,
+      borderColor: (t: any) => alpha(t.palette[color].main, 0.25),
+      bgcolor: (t: any) => alpha(t.palette[color].main, 0.08),
+      '&:hover': { bgcolor: (t: any) => alpha(t.palette[color].main, 0.16), borderColor: `${color}.main` },
+    };
+  };
+
   return (
-    <div className="flex items-center gap-1.5 flex-wrap relative">
+    <Stack direction="row" sx={{ flexWrap: 'wrap', alignItems: 'center', gap: 0.75 }}>
       {/* Target selector — only show when both handlers are provided */}
       {onInsertSubject && (
-        <div className="flex items-center bg-slate-100 dark:bg-slate-800 rounded-md p-0.5 mr-1">
-          <button
-            type="button"
-            onClick={() => setTarget('subject')}
-            title="Insert into Subject Line"
-            className={`flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
-              target === 'subject'
-                ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-xs'
-                : 'text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-            }`}
-          >
-            <Type className="w-2.5 h-2.5" />
-            Subject
-          </button>
-          <button
-            type="button"
-            onClick={() => setTarget('body')}
-            title="Insert into Body"
-            className={`flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
-              target === 'body'
-                ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-xs'
-                : 'text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-            }`}
-          >
-            <FileText className="w-2.5 h-2.5" />
-            Body
-          </button>
-        </div>
+        <ToggleButtonGroup
+          size="small"
+          exclusive
+          value={target}
+          onChange={(_, v) => v && setTarget(v)}
+          sx={{
+            mr: 0.5,
+            '& .MuiToggleButton-root': {
+              py: 0.25, px: 1, fontSize: 9, fontWeight: 700, textTransform: 'uppercase',
+              letterSpacing: '0.04em', border: 'none', borderRadius: '8px', color: 'text.secondary',
+              gap: 0.5,
+            },
+            '& .Mui-selected': { bgcolor: 'background.paper', color: 'text.primary' },
+            bgcolor: 'action.selected', borderRadius: '10px', p: 0.25,
+          }}
+        >
+          <ToggleButton value="subject" title="Insert into Subject Line">
+            <Type size={11} /> Subject
+          </ToggleButton>
+          <ToggleButton value="body" title="Insert into Body">
+            <FileText size={11} /> Body
+          </ToggleButton>
+        </ToggleButtonGroup>
       )}
 
       {/* Quick-access buttons */}
-      {quickVars.map((v) => {
-        const colors = CATEGORY_COLORS[v.category];
-        return (
-          <button
-            key={v.label}
-            type="button"
-            onClick={() => handleInsert(v.value)}
-            title={`Insert ${v.value} — ${v.description}`}
-            className={`text-[9px] ${colors.bg} ${colors.text} ${colors.border} ${colors.hoverBg} px-2 py-0.5 rounded border uppercase font-bold transition-colors cursor-pointer active:scale-95`}
-          >
-            + {v.label}
-          </button>
-        );
-      })}
-
-      {/* More dropdown toggle */}
-      <div className="relative">
-        <button
-          type="button"
-          onClick={() => setShowDropdown(!showDropdown)}
-          className="text-[9px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700 px-2 py-0.5 rounded uppercase font-bold transition-colors cursor-pointer flex items-center gap-0.5 active:scale-95"
+      {quickVars.map((v) => (
+        <Button
+          key={v.label}
+          size="small"
+          variant="outlined"
+          onClick={() => handleInsert(v.value)}
+          title={`Insert ${v.value} — ${v.description}`}
+          sx={chipSx(v.category)}
         >
-          More
-          <ChevronDown className={`w-2.5 h-2.5 transition-transform ${showDropdown ? 'rotate-180' : ''}`} />
-        </button>
+          + {v.label}
+        </Button>
+      ))}
 
-        {showDropdown && (
-          <>
-            {/* Backdrop */}
-            <div className="fixed inset-0 z-40" onClick={() => setShowDropdown(false)} />
+      {/* More menu toggle */}
+      <Button
+        size="small"
+        variant="outlined"
+        color="inherit"
+        onClick={(e) => setAnchorEl(e.currentTarget)}
+        endIcon={<ChevronDown size={11} style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />}
+        sx={{
+          minHeight: 24, py: 0.25, px: 1, fontSize: 9, fontWeight: 700, textTransform: 'uppercase',
+          letterSpacing: '0.04em', borderRadius: '8px', color: 'text.secondary', borderColor: 'divider',
+        }}
+      >
+        More
+      </Button>
 
-            {/* Dropdown */}
-            <div className="absolute right-0 top-full mt-1 z-50 w-72 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150">
-              {Object.entries(grouped).map(([category, vars]) => (
-                <div key={category}>
-                  <div className="px-3 py-1.5 bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800">
-                    <span className="text-[9px] uppercase font-bold tracking-widest text-slate-500 dark:text-slate-400">
-                      {CATEGORY_LABELS[category] || category}
-                    </span>
-                  </div>
-                  {vars.map((v) => {
-                    const colors = CATEGORY_COLORS[v.category];
-                    return (
-                      <button
-                        key={v.label}
-                        type="button"
-                        onClick={() => {
-                          handleInsert(v.value);
-                          setShowDropdown(false);
-                        }}
-                        className="w-full text-left px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors flex items-center justify-between gap-2 group"
-                      >
-                        <div className="min-w-0">
-                          <span className={`text-[10px] font-bold ${colors.text}`}>+ {v.label}</span>
-                          <span className="text-[9px] text-slate-400 dark:text-slate-500 ml-2">{v.description}</span>
-                        </div>
-                        <code className="text-[8px] text-slate-400 dark:text-slate-600 font-mono bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded flex-shrink-0 max-w-[120px] truncate">
-                          {v.value}
-                        </code>
-                      </button>
-                    );
-                  })}
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-      </div>
-    </div>
+      <Menu
+        anchorEl={anchorEl}
+        open={open}
+        onClose={() => setAnchorEl(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+        slotProps={{ paper: { sx: { width: 320, maxWidth: '90vw', borderRadius: '12px', mt: 0.5 } } }}
+      >
+        {Object.entries(grouped).flatMap(([category, vars]) => [
+          <ListSubheader
+            key={`${category}-header`}
+            sx={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', lineHeight: 2.4, color: 'text.secondary', bgcolor: 'action.hover' }}
+          >
+            {CATEGORY_LABELS[category] || category}
+          </ListSubheader>,
+          ...vars.map((v) => (
+            <MenuItem
+              key={v.label}
+              onClick={() => { handleInsert(v.value); setAnchorEl(null); }}
+              sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1, py: 1 }}
+            >
+              <Box sx={{ minWidth: 0 }}>
+                <Typography component="span" sx={{ fontSize: 11, fontWeight: 700, color: `${CATEGORY_COLOR[v.category]}.main` }}>
+                  + {v.label}
+                </Typography>
+                <Typography component="span" sx={{ fontSize: 10, color: 'text.secondary', ml: 1 }}>
+                  {v.description}
+                </Typography>
+              </Box>
+              <Box
+                component="code"
+                sx={{
+                  fontSize: 9, fontFamily: 'monospace', color: 'text.secondary', bgcolor: 'action.hover',
+                  px: 0.75, py: 0.25, borderRadius: '6px', flexShrink: 0, maxWidth: 120,
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}
+              >
+                {v.value}
+              </Box>
+            </MenuItem>
+          )),
+        ])}
+      </Menu>
+    </Stack>
   );
 }

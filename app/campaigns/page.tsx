@@ -341,9 +341,13 @@ export default function CampaignsPage() {
                                             </CardContent>
                                           </Card>
                                           {campaign.status === 'Active' && (
-                                            <Button size="small" variant="outlined" startIcon={<Send size={10} />} onClick={(e) => { e.stopPropagation(); handleRunCampaign(campaign.id, step.stepOrder); }} disabled={executingId !== null} sx={{ fontSize: 9, py: 0.25, mt: 0.5 }}>
-                                              Send Step
-                                            </Button>
+                                            <MuiTooltip title={activeLeadsCount === 0 ? 'No leads are queued at this step' : `Send to ${activeLeadsCount} queued lead${activeLeadsCount === 1 ? '' : 's'}`}>
+                                              <Box component="span" sx={{ mt: 0.5 }}>
+                                                <Button size="small" variant="outlined" startIcon={<Send size={10} />} onClick={(e) => { e.stopPropagation(); handleRunCampaign(campaign.id, step.stepOrder); }} disabled={executingId !== null || activeLeadsCount === 0} sx={{ fontSize: 9, py: 0.25 }}>
+                                                  Send Step
+                                                </Button>
+                                              </Box>
+                                            </MuiTooltip>
                                           )}
                                         </Stack>
                                       </Fragment>

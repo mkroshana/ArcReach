@@ -47,6 +47,37 @@ describe('sendMessage', () => {
     expect(result.providerMessageId).toBe('azure-id-1');
   });
 
+  it('AZURE omits replyTo when the sender has none configured', async () => {
+    beginSend.mockResolvedValue({ pollUntilDone: async () => ({ id: 'azure-id-2', status: 'Succeeded' }) });
+    await sendMessage(
+      { to: 'lead@x.com', subject: 's', body: 'b', isHtml: false, sender },
+      {
+        activeProvider: 'AZURE',
+        azureConnString: encryptSecret('endpoint=https://x;accesskey=y'),
+        azureSenderDomains: ['thejobshelpers.com'],
+      }
+    );
+    const message = beginSend.mock.calls[0][0];
+    expect(message.replyTo).toBeUndefined();
+  });
+
+  it('AZURE includes replyTo only when explicitly set', async () => {
+    beginSend.mockResolvedValue({ pollUntilDone: async () => ({ id: 'azure-id-3', status: 'Succeeded' }) });
+    await sendMessage(
+      {
+        to: 'lead@x.com', subject: 's', body: 'b', isHtml: false,
+        sender: { ...sender, replyTo: 'inbox@thejobshelpers.com' },
+      },
+      {
+        activeProvider: 'AZURE',
+        azureConnString: encryptSecret('endpoint=https://x;accesskey=y'),
+        azureSenderDomains: ['thejobshelpers.com'],
+      }
+    );
+    const message = beginSend.mock.calls[0][0];
+    expect(message.replyTo).toEqual([{ address: 'inbox@thejobshelpers.com' }]);
+  });
+
   it('AZURE without verified domains throws EmailConfigError', async () => {
     await expect(
       sendMessage(
@@ -89,6 +120,37 @@ describe('sendMessage', () => {
     const call = sendMail.mock.calls[0][0];
     expect(call.from).toContain('override@sender.com');
     expect(call.to).toBe('lead@x.com');
+  });
+
+  it('SMTP omits replyTo when the sender has none configured', async () => {
+    sendMail.mockResolvedValue({ messageId: '<smtp-msg-2>' });
+    await sendMessage(
+      { to: 'lead@x.com', subject: 's', body: 'b', isHtml: false, sender },
+      {
+        activeProvider: 'SMTP',
+        smtpHost: 'smtp.global.com', smtpPort: 587,
+        smtpUser: 'global@x.com', smtpPass: encryptSecret('secret'),
+      }
+    );
+    const call = sendMail.mock.calls[0][0];
+    expect(call.replyTo).toBeUndefined();
+  });
+
+  it('SMTP includes replyTo only when explicitly set', async () => {
+    sendMail.mockResolvedValue({ messageId: '<smtp-msg-3>' });
+    await sendMessage(
+      {
+        to: 'lead@x.com', subject: 's', body: 'b', isHtml: false,
+        sender: { ...sender, replyTo: 'inbox@x.com' },
+      },
+      {
+        activeProvider: 'SMTP',
+        smtpHost: 'smtp.global.com', smtpPort: 587,
+        smtpUser: 'global@x.com', smtpPass: encryptSecret('secret'),
+      }
+    );
+    const call = sendMail.mock.calls[0][0];
+    expect(call.replyTo).toBe('inbox@x.com');
   });
 
   it('SMTP without any credentials throws EmailConfigError', async () => {

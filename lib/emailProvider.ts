@@ -110,15 +110,21 @@ async function sendViaAzure(
 
   const emailClient = new EmailClient(connString);
 
-  const message = {
+  const message: any = {
     senderAddress: fromAddress,
     content: input.isHtml
       ? { subject: input.subject, html: input.body }
       : { subject: input.subject, plainText: input.body },
     recipients: { to: [{ address: input.to }] },
-    replyTo: [{ address: input.sender.replyTo || input.sender.emailAddress }],
     userEngagementTrackingDisabled: !input.trackOpens,
   };
+
+  // Only set Reply-To when one is explicitly configured; otherwise omit the
+  // header so replies go to the From address by default.
+  const replyTo = input.sender.replyTo?.trim();
+  if (replyTo) {
+    message.replyTo = [{ address: replyTo }];
+  }
 
   let result: any;
   try {
@@ -171,9 +177,12 @@ async function sendViaSmtp(
   const mailOptions: any = {
     from: `"${fromName}" <${smtpUser}>`,
     to: input.to,
-    replyTo: s.replyTo || s.emailAddress,
     subject: input.subject,
   };
+  // Only set Reply-To when one is explicitly configured; otherwise omit it so
+  // replies go to the From address by default.
+  const replyTo = s.replyTo?.trim();
+  if (replyTo) mailOptions.replyTo = replyTo;
   if (input.isHtml) mailOptions.html = input.body;
   else mailOptions.text = input.body;
 

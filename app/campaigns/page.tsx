@@ -303,7 +303,7 @@ export default function CampaignsPage() {
                                   No email steps configured yet. Please configure the campaign sequence to add dispatches.
                                 </Typography>
                               ) : (
-                                <Box sx={{ display: 'flex', alignItems: 'center', minWidth: 500, overflowX: 'auto', py: 1 }}>
+                                <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', gap: 1.5, py: 1 }}>
                                   {campaign.steps.map((step, idx) => {
                                     const stepLeads = campaign.enrollments?.filter(e => e.status === 'Active' && e.currentSequenceStep === step.stepOrder) || [];
                                     const activeLeadsCount = stepLeads.length;
@@ -317,49 +317,46 @@ export default function CampaignsPage() {
                                     const totalEnrolled = campaign.enrollments?.length || 0;
                                     const progressPercent = totalEnrolled > 0 ? Math.round((sentCount / totalEnrolled) * 100) : 0;
                                     return (
-                                      <Fragment key={step.id}>
-                                        {idx > 0 && <Box sx={{ flex: 1, minWidth: 40, height: 3, mx: 1, borderRadius: 999, bgcolor: isActiveStep ? 'primary.main' : 'divider' }} />}
-                                        <Stack sx={{ alignItems: 'center', textAlign: 'center', gap: 0.75, position: 'relative', minWidth: 130 }}>
-                                          <Chip size="small" label={`${activeLeadsCount} active`} color={isActiveStep ? 'primary' : 'default'} variant={isActiveStep ? 'filled' : 'outlined'} sx={{ height: 18, fontSize: 9, fontWeight: 800 }} />
-                                          <Box sx={{ width: 36, height: 36, borderRadius: '50%', display: 'grid', placeItems: 'center', fontFamily: 'monospace', fontWeight: 700, fontSize: 12,
-                                            bgcolor: isActiveStep ? 'primary.main' : 'background.paper',
-                                            color: isActiveStep ? 'primary.contrastText' : 'text.secondary',
-                                            border: isActiveStep ? 'none' : 1, borderColor: 'divider',
-                                            boxShadow: isActiveStep ? '0 0 12px rgba(37,99,235,0.4)' : 'none',
-                                          }}>{step.stepOrder}</Box>
-                                          <Card sx={{ minWidth: 130, maxWidth: 150, p: 1, borderRadius: '12px' }}>
-                                            <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
-                                              <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={step.subject}>{step.subject || '(No Subject)'}</Typography>
-                                              {idx > 0 && <Typography sx={{ fontSize: 9, color: 'text.secondary', fontFamily: 'monospace', textTransform: 'uppercase', display: 'block', mb: 0.5 }}>Wait: {step.waitDays}d</Typography>}
-                                              <Box sx={{ mt: 0.75, pt: 0.75, borderTop: 1, borderColor: 'divider', display: 'flex', flexDirection: 'column', gap: 0.25 }}>
-                                                <Stack direction="row" sx={{ justifyContent: 'space-between', fontSize: 9 }}><Box component="span" sx={{ color: 'text.secondary' }}>To send:</Box><Box component="span" sx={{ fontWeight: 800, color: activeLeadsCount > 0 ? 'warning.main' : 'text.disabled' }}>{activeLeadsCount}</Box></Stack>
-                                                <Stack direction="row" sx={{ justifyContent: 'space-between', fontSize: 9 }}><Box component="span" sx={{ color: 'text.secondary' }}>Sent:</Box><Box component="span" sx={{ fontWeight: 800 }}>{sentCount}</Box></Stack>
-                                                {sentCount > 0 && <Stack direction="row" sx={{ justifyContent: 'space-between', fontSize: 9 }}><Box component="span" sx={{ color: 'text.secondary' }}>Delivered:</Box><Box component="span" sx={{ fontWeight: 800, color: 'success.main' }}>{deliveredCount}</Box></Stack>}
-                                                {failedCount > 0 && <Stack direction="row" sx={{ justifyContent: 'space-between', fontSize: 9 }}><Box component="span" sx={{ color: 'text.secondary' }}>Failed:</Box><Box component="span" sx={{ fontWeight: 800, color: 'error.main' }}>{failedCount}</Box></Stack>}
-                                                {sentCount > 0 && <Stack direction="row" sx={{ justifyContent: 'space-between', fontSize: 9 }}><Box component="span" sx={{ color: 'text.secondary' }}>Progress:</Box><Box component="span" sx={{ fontWeight: 800, color: 'primary.main' }}>{progressPercent}%</Box></Stack>}
-                                              </Box>
-                                            </CardContent>
-                                          </Card>
-                                          {campaign.status === 'Active' && (
-                                            <MuiTooltip title={activeLeadsCount === 0 ? 'No leads are queued at this step' : `Send to ${activeLeadsCount} queued lead${activeLeadsCount === 1 ? '' : 's'}`}>
-                                              <Box component="span" sx={{ mt: 0.5 }}>
-                                                <Button size="small" variant="outlined" startIcon={<Send size={10} />} onClick={(e) => { e.stopPropagation(); handleRunCampaign(campaign.id, step.stepOrder); }} disabled={executingId !== null || activeLeadsCount === 0} sx={{ fontSize: 9, py: 0.25 }}>
-                                                  Send Step
-                                                </Button>
-                                              </Box>
-                                            </MuiTooltip>
-                                          )}
-                                        </Stack>
-                                      </Fragment>
+                                      <Stack key={step.id} sx={{ alignItems: 'center', textAlign: 'center', gap: 0.75, position: 'relative', width: 150 }}>
+                                        <Chip size="small" label={`${activeLeadsCount} active`} color={isActiveStep ? 'primary' : 'default'} variant={isActiveStep ? 'filled' : 'outlined'} sx={{ height: 18, fontSize: 9, fontWeight: 800 }} />
+                                        <Box sx={{ width: 36, height: 36, borderRadius: '50%', display: 'grid', placeItems: 'center', fontFamily: 'monospace', fontWeight: 700, fontSize: 12,
+                                          bgcolor: isActiveStep ? 'primary.main' : 'background.paper',
+                                          color: isActiveStep ? 'primary.contrastText' : 'text.secondary',
+                                          border: isActiveStep ? 'none' : 1, borderColor: 'divider',
+                                          boxShadow: isActiveStep ? '0 0 12px rgba(37,99,235,0.4)' : 'none',
+                                        }}>{step.stepOrder}</Box>
+                                        <Card sx={{ width: '100%', p: 1, borderRadius: '12px' }}>
+                                          <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
+                                            <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={step.subject}>{step.subject || '(No Subject)'}</Typography>
+                                            {idx > 0 && <Typography sx={{ fontSize: 9, color: 'text.secondary', fontFamily: 'monospace', textTransform: 'uppercase', display: 'block', mb: 0.5 }}>Wait: {step.waitDays}d</Typography>}
+                                            <Box sx={{ mt: 0.75, pt: 0.75, borderTop: 1, borderColor: 'divider', display: 'flex', flexDirection: 'column', gap: 0.25 }}>
+                                              <Stack direction="row" sx={{ justifyContent: 'space-between', fontSize: 9 }}><Box component="span" sx={{ color: 'text.secondary' }}>To send:</Box><Box component="span" sx={{ fontWeight: 800, color: activeLeadsCount > 0 ? 'warning.main' : 'text.disabled' }}>{activeLeadsCount}</Box></Stack>
+                                              <Stack direction="row" sx={{ justifyContent: 'space-between', fontSize: 9 }}><Box component="span" sx={{ color: 'text.secondary' }}>Sent:</Box><Box component="span" sx={{ fontWeight: 800 }}>{sentCount}</Box></Stack>
+                                              {sentCount > 0 && <Stack direction="row" sx={{ justifyContent: 'space-between', fontSize: 9 }}><Box component="span" sx={{ color: 'text.secondary' }}>Delivered:</Box><Box component="span" sx={{ fontWeight: 800, color: 'success.main' }}>{deliveredCount}</Box></Stack>}
+                                              {failedCount > 0 && <Stack direction="row" sx={{ justifyContent: 'space-between', fontSize: 9 }}><Box component="span" sx={{ color: 'text.secondary' }}>Failed:</Box><Box component="span" sx={{ fontWeight: 800, color: 'error.main' }}>{failedCount}</Box></Stack>}
+                                              {sentCount > 0 && <Stack direction="row" sx={{ justifyContent: 'space-between', fontSize: 9 }}><Box component="span" sx={{ color: 'text.secondary' }}>Progress:</Box><Box component="span" sx={{ fontWeight: 800, color: 'primary.main' }}>{progressPercent}%</Box></Stack>}
+                                            </Box>
+                                          </CardContent>
+                                        </Card>
+                                        {campaign.status === 'Active' && (
+                                          <MuiTooltip title={activeLeadsCount === 0 ? 'No leads are queued at this step' : `Send to ${activeLeadsCount} queued lead${activeLeadsCount === 1 ? '' : 's'}`}>
+                                            <Box component="span" sx={{ mt: 0.5 }}>
+                                              <Button size="small" variant="outlined" startIcon={<Send size={10} />} onClick={(e) => { e.stopPropagation(); handleRunCampaign(campaign.id, step.stepOrder); }} disabled={executingId !== null || activeLeadsCount === 0} sx={{ fontSize: 9, py: 0.25 }}>
+                                                Send Step
+                                              </Button>
+                                            </Box>
+                                          </MuiTooltip>
+                                        )}
+                                      </Stack>
                                     );
                                   })}
-                                  <Box sx={{ flex: 1, minWidth: 40, height: 3, mx: 1, borderRadius: 999, bgcolor: 'divider' }} />
-                                  <Stack sx={{ alignItems: 'center', textAlign: 'center', gap: 0.75 }}>
-                                    <Typography sx={{ fontSize: 9, color: 'text.secondary', fontWeight: 600 }}>End</Typography>
+                                  {/* End node */}
+                                  <Stack sx={{ alignItems: 'center', textAlign: 'center', gap: 0.75, width: 150 }}>
+                                    <Chip size="small" label="end" variant="outlined" sx={{ height: 18, fontSize: 9, fontWeight: 800, textTransform: 'uppercase', visibility: 'hidden' }} />
                                     <Box sx={{ width: 36, height: 36, borderRadius: '50%', display: 'grid', placeItems: 'center', bgcolor: 'success.main', color: 'success.contrastText', boxShadow: '0 0 8px rgba(16,185,129,0.4)' }}>
                                       <Check size={16} />
                                     </Box>
-                                    <Box sx={{ minWidth: 100, maxWidth: 120 }}>
+                                    <Box>
                                       <Typography variant="caption" sx={{ fontWeight: 700, display: 'block' }}>Completed</Typography>
                                       <Typography sx={{ fontSize: 9, color: 'success.main', fontWeight: 800, fontFamily: 'monospace', textTransform: 'uppercase' }}>
                                         {campaign.enrollments?.filter(e => e.status === 'Completed').length || 0} leads

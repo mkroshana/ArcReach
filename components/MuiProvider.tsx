@@ -12,7 +12,9 @@ import { theme } from '@/lib/theme';
 export function MuiProvider({ children }: { children: React.ReactNode }) {
   return (
     <AppRouterCacheProvider options={{ key: 'mui' }}>
-      <ThemeProvider theme={theme} defaultMode="light">
+      {/* storageManager={null} disables MUI's own mode persistence — the custom
+          ThemeProvider is the single source of truth and drives MUI's mode. */}
+      <ThemeProvider theme={theme} defaultMode="light" storageManager={null}>
         {children}
       </ThemeProvider>
     </AppRouterCacheProvider>

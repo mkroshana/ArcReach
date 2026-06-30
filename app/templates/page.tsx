@@ -4,6 +4,7 @@
 import { useState, useEffect } from 'react';
 import { FileText, Search, Plus, Eye, Sparkles, Copy, Check, Trash2, ArrowRight, X } from 'lucide-react';
 import VariableToolbar from '@/components/VariableToolbar';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import {
   Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
   ToggleButtonGroup, ToggleButton, Snackbar, Alert, InputAdornment, CircularProgress,
@@ -21,6 +22,7 @@ export default function TemplatesPage() {
   const [copiedId, setCopiedId] = useState<any>(null);
   const [previewResolved, setPreviewResolved] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
+  const [confirmState, setConfirmState] = useState<{ title: string; message: string; confirmLabel: string; onConfirm: () => void } | null>(null);
 
   const showToast = (message: string) => {
     setToastMessage(message);
@@ -156,8 +158,16 @@ export default function TemplatesPage() {
     }
   };
 
-  const deleteTemplate = async (id: any) => {
-    if (!confirm('Are you sure you want to delete this template?')) return;
+  const deleteTemplate = (id: any) => {
+    setConfirmState({
+      title: 'Delete template?',
+      message: 'This removes the template and all of its sequence steps. This cannot be undone.',
+      confirmLabel: 'Delete',
+      onConfirm: () => { setConfirmState(null); performDeleteTemplate(id); },
+    });
+  };
+
+  const performDeleteTemplate = async (id: any) => {
     try {
       const isNew = typeof id === 'number';
       if (isNew) {
@@ -433,6 +443,16 @@ export default function TemplatesPage() {
           )}
         </Box>
       </Box>
+
+      <ConfirmDialog
+        isOpen={!!confirmState}
+        title={confirmState?.title || ''}
+        message={confirmState?.message || ''}
+        confirmLabel={confirmState?.confirmLabel}
+        isDestructive
+        onConfirm={() => confirmState?.onConfirm()}
+        onCancel={() => setConfirmState(null)}
+      />
     </Box>
   );
 }

@@ -12,6 +12,7 @@ import {
   Avatar, CircularProgress,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 
 interface DbUser {
   id: string;
@@ -94,6 +95,7 @@ export default function UsersAdminPage() {
   const [resetting, setResetting] = useState(false);
 
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [confirmState, setConfirmState] = useState<{ title: string; message: string; confirmLabel: string; onConfirm: () => void } | null>(null);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -203,21 +205,28 @@ export default function UsersAdminPage() {
     }
   };
 
-  const handleDeleteUser = async (userId: string) => {
+  const handleDeleteUser = (userId: string) => {
     if (userId === 'admin-id-999') { showToast('Cannot delete root super administrative profile.', 'error'); return; }
     if (currentSession && userId === currentSession.id) { showToast('Cannot delete your own active session.', 'error'); return; }
-    if (!confirm('Are you sure you want to remove this user from ArcReach? All assigned mailboxes and campaigns will lock.')) return;
-    try {
-      const res = await fetch(`/api/users?id=${userId}`, { method: 'DELETE' });
-      if (!res.ok) {
-        const errObj = await res.json().catch(() => ({}));
-        throw new Error(errObj.error || 'Failed to revoke permissions.');
-      }
-      showToast('User deleted');
-      await fetchUsers();
-    } catch (err: any) {
-      showToast(err.message || 'Failed to delete user', 'error');
-    }
+    setConfirmState({
+      title: 'Remove user?',
+      message: 'This removes the user from ArcReach. All assigned mailboxes and campaigns will lock.',
+      confirmLabel: 'Remove',
+      onConfirm: async () => {
+        setConfirmState(null);
+        try {
+          const res = await fetch(`/api/users?id=${userId}`, { method: 'DELETE' });
+          if (!res.ok) {
+            const errObj = await res.json().catch(() => ({}));
+            throw new Error(errObj.error || 'Failed to revoke permissions.');
+          }
+          showToast('User deleted');
+          await fetchUsers();
+        } catch (err: any) {
+          showToast(err.message || 'Failed to delete user', 'error');
+        }
+      },
+    });
   };
 
   return (
@@ -422,6 +431,16 @@ export default function UsersAdminPage() {
           </DialogActions>
         </form>
       </Dialog>
+
+      <ConfirmDialog
+        isOpen={!!confirmState}
+        title={confirmState?.title || ''}
+        message={confirmState?.message || ''}
+        confirmLabel={confirmState?.confirmLabel}
+        isDestructive
+        onConfirm={() => confirmState?.onConfirm()}
+        onCancel={() => setConfirmState(null)}
+      />
     </Box>
   );
 }

@@ -15,6 +15,7 @@ import {
   Checkbox, FormControlLabel,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 
 interface DbCampaign {
   id: string;
@@ -49,6 +50,7 @@ export default function CampaignsPage() {
   const [submitting, setSubmitting] = useState(false);
 
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [confirmState, setConfirmState] = useState<{ title: string; message: string; confirmLabel: string; onConfirm: () => void } | null>(null);
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3050);
@@ -143,14 +145,21 @@ export default function CampaignsPage() {
     } finally { setSubmitting(false); }
   };
 
-  const handleDeleteCampaign = async (id: string, e: React.MouseEvent) => {
+  const handleDeleteCampaign = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm('Are you sure you want to permanently delete this campaign? All step templates and metrics will be purged.')) return;
-    try {
-      const res = await fetch(`/api/campaigns?id=${id}`, { method: 'DELETE' });
-      if (res.ok) { setCampaigns(campaigns.filter(c => c.id !== id)); showToast('Campaign sequence deleted.'); }
-      else showToast('Failed to delete campaign sequence.', 'error');
-    } catch (err) { showToast('Error occurred deleting campaign.', 'error'); }
+    setConfirmState({
+      title: 'Delete campaign sequence?',
+      message: 'This permanently deletes the campaign. All step templates and metrics will be purged.',
+      confirmLabel: 'Delete',
+      onConfirm: async () => {
+        setConfirmState(null);
+        try {
+          const res = await fetch(`/api/campaigns?id=${id}`, { method: 'DELETE' });
+          if (res.ok) { setCampaigns(campaigns.filter(c => c.id !== id)); showToast('Campaign sequence deleted.'); }
+          else showToast('Failed to delete campaign sequence.', 'error');
+        } catch (err) { showToast('Error occurred deleting campaign.', 'error'); }
+      },
+    });
   };
 
   const filteredCampaigns = campaigns.filter(c => c.name.toLowerCase().includes(search.toLowerCase()));
@@ -438,6 +447,16 @@ export default function CampaignsPage() {
           </DialogActions>
         </form>
       </Dialog>
+
+      <ConfirmDialog
+        isOpen={!!confirmState}
+        title={confirmState?.title || ''}
+        message={confirmState?.message || ''}
+        confirmLabel={confirmState?.confirmLabel}
+        isDestructive
+        onConfirm={() => confirmState?.onConfirm()}
+        onCancel={() => setConfirmState(null)}
+      />
     </Box>
   );
 }

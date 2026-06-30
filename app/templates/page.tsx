@@ -318,7 +318,7 @@ export default function TemplatesPage() {
                       {previewResolved ? 'Edit Mode' : 'Preview'}
                     </Button>
                     <MuiTooltip title="Delete template">
-                      <IconButton size="small" onClick={() => deleteTemplate(editingTemplate.id)} sx={{ border: 1, borderColor: (t) => alpha(t.palette.error.main, 0.3), color: 'error.main' }}>
+                      <IconButton aria-label="Delete template" size="small" onClick={() => deleteTemplate(editingTemplate.id)} sx={{ border: 1, borderColor: (t) => alpha(t.palette.error.main, 0.3), color: 'error.main' }}>
                         <Trash2 size={14} />
                       </IconButton>
                     </MuiTooltip>

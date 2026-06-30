@@ -255,7 +255,7 @@ export default function CampaignsPage() {
                         <TableCell align="right" onClick={(e) => e.stopPropagation()}>
                           <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
                             <MuiTooltip title="Delete">
-                              <IconButton size="small" onClick={(e) => handleDeleteCampaign(campaign.id, e)} sx={{ color: 'error.main' }}>
+                              <IconButton aria-label="Delete campaign" size="small" onClick={(e) => handleDeleteCampaign(campaign.id, e)} sx={{ color: 'error.main' }}>
                                 <Trash2 size={14} />
                               </IconButton>
                             </MuiTooltip>

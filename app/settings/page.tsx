@@ -298,18 +298,18 @@ export default function SettingsPage() {
                       <TextField
                         fullWidth size="small" label="Current Password" type={showPass ? 'text' : 'password'}
                         value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)}
-                        slotProps={{ input: { sx: { fontFamily: 'monospace' }, endAdornment: (<InputAdornment position="end"><IconButton size="small" onClick={() => setShowPass(!showPass)}>{showPass ? <EyeOff size={14} /> : <Eye size={14} />}</IconButton></InputAdornment>) } }}
+                        slotProps={{ input: { sx: { fontFamily: 'monospace' }, endAdornment: (<InputAdornment position="end"><IconButton aria-label={showPass ? 'Hide current password' : 'Show current password'} size="small" onClick={() => setShowPass(!showPass)}>{showPass ? <EyeOff size={14} /> : <Eye size={14} />}</IconButton></InputAdornment>) } }}
                       />
                       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
                         <TextField
                           fullWidth size="small" label="New Password" type={showNewPass ? 'text' : 'password'}
                           value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Min. 8 characters"
-                          slotProps={{ input: { sx: { fontFamily: 'monospace' }, endAdornment: (<InputAdornment position="end"><IconButton size="small" onClick={() => setShowNewPass(!showNewPass)}>{showNewPass ? <EyeOff size={14} /> : <Eye size={14} />}</IconButton></InputAdornment>) } }}
+                          slotProps={{ input: { sx: { fontFamily: 'monospace' }, endAdornment: (<InputAdornment position="end"><IconButton aria-label={showNewPass ? 'Hide new password' : 'Show new password'} size="small" onClick={() => setShowNewPass(!showNewPass)}>{showNewPass ? <EyeOff size={14} /> : <Eye size={14} />}</IconButton></InputAdornment>) } }}
                         />
                         <TextField
                           fullWidth size="small" label="Confirm New Password" type={showConfirmPass ? 'text' : 'password'}
                           value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Retype password"
-                          slotProps={{ input: { sx: { fontFamily: 'monospace' }, endAdornment: (<InputAdornment position="end"><IconButton size="small" onClick={() => setShowConfirmPass(!showConfirmPass)}>{showConfirmPass ? <EyeOff size={14} /> : <Eye size={14} />}</IconButton></InputAdornment>) } }}
+                          slotProps={{ input: { sx: { fontFamily: 'monospace' }, endAdornment: (<InputAdornment position="end"><IconButton aria-label={showConfirmPass ? 'Hide confirmation password' : 'Show confirmation password'} size="small" onClick={() => setShowConfirmPass(!showConfirmPass)}>{showConfirmPass ? <EyeOff size={14} /> : <Eye size={14} />}</IconButton></InputAdornment>) } }}
                         />
                       </Stack>
                     </Stack>
@@ -361,7 +361,7 @@ export default function SettingsPage() {
                               type={showAzureConnString ? 'text' : 'password'}
                               value={azureConnString} onChange={(e) => setAzureConnString(e.target.value)}
                               placeholder="endpoint=https://...;accesskey=..."
-                              slotProps={{ input: { sx: { fontFamily: 'monospace' }, endAdornment: (<InputAdornment position="end"><IconButton size="small" onClick={() => setShowAzureConnString(!showAzureConnString)}>{showAzureConnString ? <EyeOff size={14} /> : <Eye size={14} />}</IconButton></InputAdornment>) } }}
+                              slotProps={{ input: { sx: { fontFamily: 'monospace' }, endAdornment: (<InputAdornment position="end"><IconButton aria-label={showAzureConnString ? 'Hide connection string' : 'Show connection string'} size="small" onClick={() => setShowAzureConnString(!showAzureConnString)}>{showAzureConnString ? <EyeOff size={14} /> : <Eye size={14} />}</IconButton></InputAdornment>) } }}
                             />
                             <Autocomplete
                               multiple freeSolo options={[] as string[]}
@@ -401,7 +401,7 @@ export default function SettingsPage() {
                               <TextField fullWidth size="small" disabled={isGlobalSmtpDisabled(activeProvider)} label="Username" value={smtpUser} onChange={(e) => setSmtpUser(e.target.value)} placeholder="user@yourdomain.com" slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
                             </Stack>
                             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-                              <TextField fullWidth size="small" disabled={isGlobalSmtpDisabled(activeProvider)} label="Password" type={showSmtpPass ? 'text' : 'password'} value={smtpPass} onChange={(e) => setSmtpPass(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' }, endAdornment: !isGlobalSmtpDisabled(activeProvider) ? (<InputAdornment position="end"><IconButton size="small" onClick={() => setShowSmtpPass(!showSmtpPass)}>{showSmtpPass ? <EyeOff size={14} /> : <Eye size={14} />}</IconButton></InputAdornment>) : undefined } }} />
+                              <TextField fullWidth size="small" disabled={isGlobalSmtpDisabled(activeProvider)} label="Password" type={showSmtpPass ? 'text' : 'password'} value={smtpPass} onChange={(e) => setSmtpPass(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' }, endAdornment: !isGlobalSmtpDisabled(activeProvider) ? (<InputAdornment position="end"><IconButton aria-label={showSmtpPass ? 'Hide SMTP password' : 'Show SMTP password'} size="small" onClick={() => setShowSmtpPass(!showSmtpPass)}>{showSmtpPass ? <EyeOff size={14} /> : <Eye size={14} />}</IconButton></InputAdornment>) : undefined } }} />
                               <Button fullWidth variant="outlined" disabled={smtpLoading || isGlobalSmtpDisabled(activeProvider)} onClick={handleTestSmtpConnection} startIcon={<RefreshCw size={14} className={smtpLoading ? 'animate-spin' : ''} />}>
                                 {smtpLoading ? 'Connecting…' : 'Test SMTP Connection'}
                               </Button>
@@ -414,7 +414,7 @@ export default function SettingsPage() {
                               <TextField fullWidth size="small" disabled={isGlobalSmtpDisabled(activeProvider)} label="Port" value={imapPort} onChange={(e) => setImapPort(e.target.value)} placeholder="993" slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
                               <TextField fullWidth size="small" disabled={isGlobalSmtpDisabled(activeProvider)} label="Username" value={imapUser} onChange={(e) => setImapUser(e.target.value)} placeholder="user@yourdomain.com" slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
                             </Stack>
-                            <TextField size="small" disabled={isGlobalSmtpDisabled(activeProvider)} label="IMAP Password" type={showImapPass ? 'text' : 'password'} value={imapPass} onChange={(e) => setImapPass(e.target.value)} sx={{ maxWidth: { sm: '50%' } }} slotProps={{ input: { sx: { fontFamily: 'monospace' }, endAdornment: !isGlobalSmtpDisabled(activeProvider) ? (<InputAdornment position="end"><IconButton size="small" onClick={() => setShowImapPass(!showImapPass)}>{showImapPass ? <EyeOff size={14} /> : <Eye size={14} />}</IconButton></InputAdornment>) : undefined } }} />
+                            <TextField size="small" disabled={isGlobalSmtpDisabled(activeProvider)} label="IMAP Password" type={showImapPass ? 'text' : 'password'} value={imapPass} onChange={(e) => setImapPass(e.target.value)} sx={{ maxWidth: { sm: '50%' } }} slotProps={{ input: { sx: { fontFamily: 'monospace' }, endAdornment: !isGlobalSmtpDisabled(activeProvider) ? (<InputAdornment position="end"><IconButton aria-label={showImapPass ? 'Hide IMAP password' : 'Show IMAP password'} size="small" onClick={() => setShowImapPass(!showImapPass)}>{showImapPass ? <EyeOff size={14} /> : <Eye size={14} />}</IconButton></InputAdornment>) : undefined } }} />
                             <Stack direction="row" sx={{ justifyContent: 'flex-end', pt: 1.5, borderTop: 1, borderColor: 'divider' }}>
                               <Button type="submit" variant="contained" disabled={isGlobalSmtpDisabled(activeProvider)} startIcon={<Save size={14} />}>Save SMTP & IMAP</Button>
                             </Stack>

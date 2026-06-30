@@ -53,7 +53,7 @@ function PasswordInput({
             sx: { fontFamily: 'monospace' },
             endAdornment: (
               <InputAdornment position="end">
-                <IconButton size="small" onClick={() => setShow(!show)} edge="end">
+                <IconButton aria-label={show ? 'Hide password' : 'Show password'} size="small" onClick={() => setShow(!show)} edge="end">
                   {show ? <EyeOff size={16} /> : <Eye size={16} />}
                 </IconButton>
               </InputAdornment>
@@ -62,12 +62,12 @@ function PasswordInput({
         }}
       />
       <MuiTooltip title="Generate strong password">
-        <IconButton onClick={onGenerate} sx={{ border: 1, borderColor: 'divider', borderRadius: '12px' }}>
+        <IconButton aria-label="Generate strong password" onClick={onGenerate} sx={{ border: 1, borderColor: 'divider', borderRadius: '12px' }}>
           <RefreshCw size={16} />
         </IconButton>
       </MuiTooltip>
       <MuiTooltip title="Copy password">
-        <IconButton onClick={onCopy} sx={{ border: 1, borderColor: 'divider', borderRadius: '12px' }}>
+        <IconButton aria-label="Copy password" onClick={onCopy} sx={{ border: 1, borderColor: 'divider', borderRadius: '12px' }}>
           <Copy size={16} />
         </IconButton>
       </MuiTooltip>
@@ -323,13 +323,13 @@ export default function UsersAdminPage() {
                             {item.role === 'ADMIN' ? 'Demote' : 'Promote'}
                           </Button>
                           <MuiTooltip title="Reset password">
-                            <IconButton size="small" sx={{ border: 1, borderColor: 'divider' }} onClick={() => { setResetUser(item); setResetPassword(''); setShowResetPassword(true); }}>
+                            <IconButton aria-label="Reset password" size="small" sx={{ border: 1, borderColor: 'divider' }} onClick={() => { setResetUser(item); setResetPassword(''); setShowResetPassword(true); }}>
                               <KeyRound size={14} />
                             </IconButton>
                           </MuiTooltip>
                           <MuiTooltip title={isSelf ? 'Cannot delete yourself' : isRoot ? 'Cannot delete root admin' : 'Remove user'}>
                             <span>
-                              <IconButton size="small" disabled={isRoot || isSelf} onClick={() => handleDeleteUser(item.id)} sx={{ border: 1, borderColor: (t) => alpha(t.palette.error.main, 0.3), color: 'error.main' }}>
+                              <IconButton aria-label="Remove user" size="small" disabled={isRoot || isSelf} onClick={() => handleDeleteUser(item.id)} sx={{ border: 1, borderColor: (t) => alpha(t.palette.error.main, 0.3), color: 'error.main' }}>
                                 <Trash2 size={14} />
                               </IconButton>
                             </span>

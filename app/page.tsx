@@ -154,7 +154,7 @@ export default function Dashboard() {
         <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
           <Button component={Link as any} href="/campaigns" variant="contained" startIcon={<Plus size={16} />}>Create Campaign</Button>
           <MuiTooltip title="Refresh">
-            <IconButton onClick={() => fetchStats()} sx={{ border: 1, borderColor: 'divider' }}>
+            <IconButton aria-label="Refresh analytics" onClick={() => fetchStats()} sx={{ border: 1, borderColor: 'divider' }}>
               <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
             </IconButton>
           </MuiTooltip>

@@ -224,7 +224,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
       {/* Header */}
       <Stack direction={{ xs: 'column', md: 'row' }} sx={{ justifyContent: 'space-between', alignItems: { md: 'flex-start' }, gap: 2, pb: 2, borderBottom: 1, borderColor: 'divider' }}>
         <Stack direction="row" spacing={2} sx={{ alignItems: 'flex-start' }}>
-          <IconButton component={Link as any} href="/campaigns" sx={{ border: 1, borderColor: 'divider' }}>
+          <IconButton aria-label="Back to campaigns" component={Link as any} href="/campaigns" sx={{ border: 1, borderColor: 'divider' }}>
             <ArrowLeft size={16} />
           </IconButton>
           <Box>
@@ -404,7 +404,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                             A/B Test
                           </Button>
                           {steps.length > 1 && (
-                            <IconButton size="small" onClick={() => removeStep(index)} sx={{ border: 1, borderColor: 'divider', color: 'text.secondary', '&:hover': { color: 'error.main', borderColor: 'error.main' } }}>
+                            <IconButton aria-label="Remove step" size="small" onClick={() => removeStep(index)} sx={{ border: 1, borderColor: 'divider', color: 'text.secondary', '&:hover': { color: 'error.main', borderColor: 'error.main' } }}>
                               <Trash2 size={14} />
                             </IconButton>
                           )}

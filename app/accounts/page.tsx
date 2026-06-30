@@ -245,7 +245,7 @@ export default function AccountsPage() {
   const PwField = (props: { label: string; value: string; onChange: (v: string) => void; show: boolean; setShow: (v: boolean) => void; placeholder?: string; disabled?: boolean }) => (
     <TextField fullWidth size="small" label={props.label} type={props.show ? 'text' : 'password'} disabled={props.disabled}
       value={props.value} onChange={(e) => props.onChange(e.target.value)} placeholder={props.placeholder}
-      slotProps={{ input: { sx: { fontFamily: 'monospace' }, endAdornment: !props.disabled ? (<InputAdornment position="end"><IconButton size="small" onClick={() => props.setShow(!props.show)}>{props.show ? <EyeOff size={14} /> : <Eye size={14} />}</IconButton></InputAdornment>) : undefined } }}
+      slotProps={{ input: { sx: { fontFamily: 'monospace' }, endAdornment: !props.disabled ? (<InputAdornment position="end"><IconButton aria-label={props.show ? 'Hide password' : 'Show password'} size="small" onClick={() => props.setShow(!props.show)}>{props.show ? <EyeOff size={14} /> : <Eye size={14} />}</IconButton></InputAdornment>) : undefined } }}
     />
   );
 
@@ -362,7 +362,7 @@ export default function AccountsPage() {
         /* Detail view */
         <Stack spacing={3}>
           <Stack direction={{ xs: 'column', md: 'row' }} sx={{ gap: 2, alignItems: { md: 'center' }, pb: 2, borderBottom: 1, borderColor: 'divider' }}>
-            <IconButton onClick={() => setSelectedWarmupAccount(null)} sx={{ border: 1, borderColor: 'divider', alignSelf: 'flex-start' }}>
+            <IconButton aria-label="Back to mailbox list" onClick={() => setSelectedWarmupAccount(null)} sx={{ border: 1, borderColor: 'divider', alignSelf: 'flex-start' }}>
               <ArrowLeft size={16} />
             </IconButton>
             <Box sx={{ flex: 1 }}>

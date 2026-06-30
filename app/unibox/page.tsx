@@ -288,8 +288,8 @@ export default function UniboxPage() {
               <Chip size="small" label={`${replies.filter(e => e.unread).length} NEW`} color="primary" sx={{ height: 18, fontSize: 10, fontFamily: 'monospace', fontWeight: 700 }} />
             </Stack>
             <Stack direction="row" spacing={0.5}>
-              <MuiTooltip title="Export to CSV"><IconButton size="small" onClick={handleExportCSV}><Download size={14} /></IconButton></MuiTooltip>
-              <MuiTooltip title="Refresh"><IconButton size="small" onClick={() => fetchReplies(false)}><RefreshCw size={14} /></IconButton></MuiTooltip>
+              <MuiTooltip title="Export to CSV"><IconButton aria-label="Export to CSV" size="small" onClick={handleExportCSV}><Download size={14} /></IconButton></MuiTooltip>
+              <MuiTooltip title="Refresh"><IconButton aria-label="Refresh replies" size="small" onClick={() => fetchReplies(false)}><RefreshCw size={14} /></IconButton></MuiTooltip>
             </Stack>
           </Stack>
           <TextField
@@ -375,7 +375,7 @@ export default function UniboxPage() {
                 </Box>
                 <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
                   <MuiTooltip title={selectedEmail.lead?.enrollments?.some((e: any) => e.status === 'Paused') ? 'Resume Sequence' : 'Pause Sequence'}>
-                    <IconButton size="small" onClick={handleTogglePause} sx={{ border: 1, borderColor: 'divider', color: selectedEmail.lead?.enrollments?.some((e: any) => e.status === 'Paused') ? 'error.main' : 'text.secondary' }}>
+                    <IconButton aria-label={selectedEmail.lead?.enrollments?.some((e: any) => e.status === 'Paused') ? 'Resume sequence' : 'Pause sequence'} size="small" onClick={handleTogglePause} sx={{ border: 1, borderColor: 'divider', color: selectedEmail.lead?.enrollments?.some((e: any) => e.status === 'Paused') ? 'error.main' : 'text.secondary' }}>
                       <Pause size={14} />
                     </IconButton>
                   </MuiTooltip>

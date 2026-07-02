@@ -21,14 +21,23 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     return 'light';
   });
 
-  // Sole writer of the .dark/.light classes. MUI must never touch them:
-  // its colorSchemeSelector is the literal '.dark' (no scheme placeholder),
-  // so any setMode() call makes MUI apply the class `dark` even for light
-  // mode. MUI's own persistence is disabled via storageManager={null}; its
-  // CSS variables follow this class purely via the CSS cascade.
+  // Sole authority over the .dark/.light classes. MUI's provider applies its
+  // colorSchemeSelector class ('dark' — a literal with no scheme placeholder)
+  // once per document mount, AFTER this child effect, re-adding `dark` even in
+  // light mode. We can't stop that write, so enforce our state instead: apply
+  // on change and repair any external mutation via a MutationObserver. The
+  // observer only writes on mismatch, so it self-stabilizes (no loop).
   useEffect(() => {
-    document.documentElement.classList.toggle('dark', theme === 'dark');
-    document.documentElement.classList.toggle('light', theme === 'light');
+    const el = document.documentElement;
+    const enforce = () => {
+      const wantDark = theme === 'dark';
+      if (el.classList.contains('dark') !== wantDark) el.classList.toggle('dark', wantDark);
+      if (el.classList.contains('light') === wantDark) el.classList.toggle('light', !wantDark);
+    };
+    enforce();
+    const obs = new MutationObserver(enforce);
+    obs.observe(el, { attributes: true, attributeFilter: ['class'] });
+    return () => obs.disconnect();
   }, [theme]);
 
   const toggleTheme = () => {

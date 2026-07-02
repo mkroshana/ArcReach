@@ -1,7 +1,6 @@
 'use client';
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { useColorScheme } from '@mui/material/styles';
 
 type Theme = 'light' | 'dark';
 
@@ -22,16 +21,15 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     return 'light';
   });
 
-  // MUI renders inside this provider's parent, so we can drive its color scheme
-  // from the same state — keeping the .dark/.light classes (Tailwind + globals.css
-  // + MUI css vars) and MUI's runtime mode (theme.palette.mode) in lockstep.
-  const { setMode } = useColorScheme();
-
+  // Sole writer of the .dark/.light classes. MUI must never touch them:
+  // its colorSchemeSelector is the literal '.dark' (no scheme placeholder),
+  // so any setMode() call makes MUI apply the class `dark` even for light
+  // mode. MUI's own persistence is disabled via storageManager={null}; its
+  // CSS variables follow this class purely via the CSS cascade.
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
     document.documentElement.classList.toggle('light', theme === 'light');
-    setMode(theme);
-  }, [theme, setMode]);
+  }, [theme]);
 
   const toggleTheme = () => {
     const nextTheme = theme === 'dark' ? 'light' : 'dark';

@@ -13,6 +13,7 @@ import {
   Skeleton, Select, MenuItem, FormControl, Tooltip as MuiTooltip,
 } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
+import { useTheme as useAppTheme } from '@/components/ThemeProvider';
 
 const gridSx = (cols: number) => ({
   display: 'grid',
@@ -88,13 +89,18 @@ function ChartCard({ title, subtitle, action, height = 300, children }: any) {
 
 export default function Dashboard() {
   const muiTheme = useTheme();
-  const axisTickColor = muiTheme.palette.text.secondary;
-  const gridStroke = muiTheme.palette.divider;
+  const { theme: appMode } = useAppTheme();
+  // Charts read colors in JS (SVG attrs can't use CSS vars), and MUI's runtime
+  // theme always exposes the default (light) scheme — resolve from the scheme
+  // matching the app's actual mode instead.
+  const schemePalette = (muiTheme as any).colorSchemes?.[appMode]?.palette ?? muiTheme.palette;
+  const axisTickColor = schemePalette.text.secondary;
+  const gridStroke = schemePalette.divider;
   const chartTooltipStyle = {
     borderRadius: 12,
-    border: `1px solid ${muiTheme.palette.divider}`,
-    background: muiTheme.palette.background.paper,
-    color: muiTheme.palette.text.primary,
+    border: `1px solid ${schemePalette.divider}`,
+    background: schemePalette.background.paper,
+    color: schemePalette.text.primary,
   };
   const [range, setRange] = useState('7');
   const [stats, setStats] = useState<any>({
@@ -255,7 +261,7 @@ export default function Dashboard() {
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={gridStroke} />
                 <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: axisTickColor, fontSize: 11 }} dy={10} />
                 <YAxis axisLine={false} tickLine={false} tick={{ fill: axisTickColor, fontSize: 11 }} allowDecimals={false} />
-                <Tooltip contentStyle={chartTooltipStyle} labelStyle={{ color: muiTheme.palette.text.primary }} itemStyle={{ fontSize: 11 }} />
+                <Tooltip contentStyle={chartTooltipStyle} labelStyle={{ color: schemePalette.text.primary }} itemStyle={{ fontSize: 11 }} />
                 <Legend verticalAlign="top" height={28} iconType="plainline" wrapperStyle={{ fontSize: 11 }} />
                 <Area type="linear" dataKey="sent" stroke="#3b82f6" strokeWidth={2.5} fillOpacity={1} fill="url(#colorSent)" name="Emails Sent" dot={{ r: 2 }} />
                 <Area type="linear" dataKey="opens" stroke="#2dd4bf" strokeWidth={2.5} fillOpacity={1} fill="url(#colorOpens)" name="Unique Opens" dot={{ r: 2 }} />
@@ -270,8 +276,8 @@ export default function Dashboard() {
                 <BarChart layout="vertical" data={funnel} margin={{ top: 10, right: 24, left: 20, bottom: 10 }}>
                   <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: axisTickColor, fontSize: 10 }} allowDecimals={false} />
                   <YAxis type="category" dataKey="name" axisLine={false} tickLine={false} tick={{ fill: axisTickColor, fontSize: 10 }} width={90} />
-                  <Tooltip cursor={{ fill: alpha(muiTheme.palette.text.secondary, 0.08) }} contentStyle={chartTooltipStyle} labelStyle={{ color: muiTheme.palette.text.primary }} itemStyle={{ fontSize: 11 }} />
-                  <Bar dataKey="value" fill={muiTheme.palette.primary.main} radius={[0, 8, 8, 0]} barSize={24} name="Leads">
+                  <Tooltip cursor={{ fill: alpha(schemePalette.text.secondary, 0.08) }} contentStyle={chartTooltipStyle} labelStyle={{ color: schemePalette.text.primary }} itemStyle={{ fontSize: 11 }} />
+                  <Bar dataKey="value" fill={schemePalette.primary.main} radius={[0, 8, 8, 0]} barSize={24} name="Leads">
                     <LabelList dataKey="value" position="right" style={{ fontSize: 10, fontWeight: 700, fill: axisTickColor }} />
                   </Bar>
                 </BarChart>
@@ -288,7 +294,7 @@ export default function Dashboard() {
                         return <Cell key={`cell-${index}`} fill={colors[entry.name] || '#3b82f6'} />;
                       })}
                     </Pie>
-                    <Tooltip contentStyle={chartTooltipStyle} labelStyle={{ color: muiTheme.palette.text.primary }} itemStyle={{ fontSize: 11 }} />
+                    <Tooltip contentStyle={chartTooltipStyle} labelStyle={{ color: schemePalette.text.primary }} itemStyle={{ fontSize: 11 }} />
                     <Legend verticalAlign="bottom" height={36} iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 10 }} />
                   </PieChart>
                 </ResponsiveContainer>

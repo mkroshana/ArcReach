@@ -27,6 +27,20 @@ export class EmailSendError extends Error {
   }
 }
 
+// Reuse one EmailClient per connection string. Azure SDK clients hold HTTP
+// pipelines/keep-alive sockets and are designed to be long-lived; constructing
+// one per message churned memory in the always-on worker process.
+const azureClientCache = new Map<string, EmailClient>();
+function getAzureClient(connString: string): EmailClient {
+  let client = azureClientCache.get(connString);
+  if (!client) {
+    client = new EmailClient(connString);
+    azureClientCache.clear(); // at most one active config; drop stale entries
+    azureClientCache.set(connString, client);
+  }
+  return client;
+}
+
 /** Subset of GlobalSettings we actually need to send a message. */
 export interface ProviderSettings {
   activeProvider?: string | null;
@@ -108,7 +122,7 @@ async function sendViaAzure(
     throw new EmailConfigError(err.message || 'Invalid Azure sender address.');
   }
 
-  const emailClient = new EmailClient(connString);
+  const emailClient = getAzureClient(connString);
 
   const message: any = {
     senderAddress: fromAddress,

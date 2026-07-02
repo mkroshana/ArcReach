@@ -92,54 +92,68 @@ export const db = {
     });
   },
 
+  /**
+   * Campaign list with per-step/per-campaign stats computed via DB aggregation.
+   * Never ships raw enrollment/dispatch rows — with tens of thousands of rows
+   * those payloads OOM'd the server (Prisma JSON.parse of a multi-MB engine
+   * response per request). Four groupBy queries total, regardless of volume.
+   */
   async getCampaigns(userId: string, role: string) {
     await ensureInit();
-    if (role === 'ADMIN') {
-      return prisma.campaign.findMany({
-        include: { 
-          senderAccount: true,
-          senders: {
-            include: {
-              senderAccount: true
-            }
-          },
-          steps: { orderBy: { stepOrder: 'asc' } },
-          enrollments: true,
-          dispatches: {
-            select: {
-              id: true,
-              subject: true,
-              leadId: true
-            }
-          }
-        },
-        orderBy: { createdAt: 'desc' }
-      });
-    }
-    return prisma.campaign.findMany({
-      where: { userId },
-      include: { 
+    const campaigns = await prisma.campaign.findMany({
+      where: role === 'ADMIN' ? undefined : { userId },
+      include: {
         senderAccount: true,
-        senders: {
-          include: {
-            senderAccount: true
-          }
-        },
+        senders: { include: { senderAccount: true } },
         user: { select: { id: true, name: true, email: true } },
         steps: { orderBy: { stepOrder: 'asc' } },
-        enrollments: true,
-        dispatches: {
-          select: {
-            id: true,
-            subject: true,
-            leadId: true,
-            stepOrder: true,
-            status: true,
-            deliveredAt: true
-          }
-        }
       },
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
+    });
+    if (campaigns.length === 0) return campaigns;
+    const ids = campaigns.map((c) => c.id);
+
+    const [enrollByStatus, activeByStep, dispatchByStep, deliveredByStep] = await Promise.all([
+      prisma.campaignEnrollment.groupBy({
+        by: ['campaignId', 'status'],
+        where: { campaignId: { in: ids } },
+        _count: { id: true },
+      }),
+      prisma.campaignEnrollment.groupBy({
+        by: ['campaignId', 'currentSequenceStep'],
+        where: { campaignId: { in: ids }, status: 'Active' },
+        _count: { id: true },
+      }),
+      prisma.emailDispatch.groupBy({
+        by: ['campaignId', 'stepOrder', 'status'],
+        where: { campaignId: { in: ids }, stepOrder: { not: null } },
+        _count: { id: true },
+      }),
+      prisma.emailDispatch.groupBy({
+        by: ['campaignId', 'stepOrder'],
+        where: { campaignId: { in: ids }, stepOrder: { not: null }, status: 'Sent', deliveredAt: { not: null } },
+        _count: { id: true },
+      }),
+    ]);
+
+    return campaigns.map((c) => {
+      const enrollments = enrollByStatus.filter((e) => e.campaignId === c.id);
+      const stepStats = c.steps.map((s) => {
+        const active = activeByStep.find((a) => a.campaignId === c.id && a.currentSequenceStep === s.stepOrder)?._count.id || 0;
+        const sent = dispatchByStep.find((d) => d.campaignId === c.id && d.stepOrder === s.stepOrder && d.status === 'Sent')?._count.id || 0;
+        const failed = dispatchByStep.find((d) => d.campaignId === c.id && d.stepOrder === s.stepOrder && d.status === 'Failed')?._count.id || 0;
+        const delivered = deliveredByStep.find((d) => d.campaignId === c.id && d.stepOrder === s.stepOrder)?._count.id || 0;
+        return { stepOrder: s.stepOrder, active, sent, delivered, failed };
+      });
+      return {
+        ...c,
+        stepStats,
+        enrollmentSummary: {
+          total: enrollments.reduce((n, e) => n + e._count.id, 0),
+          active: enrollments.find((e) => e.status === 'Active')?._count.id || 0,
+          completed: enrollments.find((e) => e.status === 'Completed')?._count.id || 0,
+        },
+      };
     });
   },
 

@@ -27,8 +27,10 @@ interface DbCampaign {
   user?: { id: string; name: string | null; email: string } | null;
   createdAt: string;
   steps?: { id: string; stepOrder: number; waitDays: number; subject: string; body: string }[];
-  enrollments?: { id: string; leadId: string; campaignId: string; status: 'Active' | 'Completed' | 'Bounced' | 'Stopped'; currentSequenceStep: number; nextActionDate: string | null }[];
-  dispatches?: { id: string; subject: string | null; leadId: string; stepOrder: number | null; status: string; deliveredAt: string | null }[];
+  // Server-side aggregates — raw enrollment/dispatch rows are never shipped
+  // (payloads at scale OOM'd the server).
+  stepStats?: { stepOrder: number; active: number; sent: number; delivered: number; failed: number }[];
+  enrollmentSummary?: { total: number; active: number; completed: number };
 }
 
 const statusColorMap = { Active: 'success', Draft: 'default', Paused: 'warning' } as const;
@@ -305,16 +307,13 @@ export default function CampaignsPage() {
                               ) : (
                                 <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', gap: 1.5, py: 1 }}>
                                   {campaign.steps.map((step, idx) => {
-                                    const stepLeads = campaign.enrollments?.filter(e => e.status === 'Active' && e.currentSequenceStep === step.stepOrder) || [];
-                                    const activeLeadsCount = stepLeads.length;
+                                    const stats = campaign.stepStats?.find(s => s.stepOrder === step.stepOrder);
+                                    const activeLeadsCount = stats?.active || 0;
                                     const isActiveStep = activeLeadsCount > 0;
-                                    const stepDispatches = campaign.dispatches?.filter(d => d.stepOrder === step.stepOrder) || [];
-                                    const sentDispatches = stepDispatches.filter(d => d.status === 'Sent');
-                                    const uniqueSentLeads = new Set(sentDispatches.map(d => d.leadId).filter(Boolean));
-                                    const sentCount = uniqueSentLeads.size;
-                                    const deliveredCount = new Set(sentDispatches.filter(d => d.deliveredAt).map(d => d.leadId)).size;
-                                    const failedCount = stepDispatches.filter(d => d.status === 'Failed').length;
-                                    const totalEnrolled = campaign.enrollments?.length || 0;
+                                    const sentCount = stats?.sent || 0;
+                                    const deliveredCount = stats?.delivered || 0;
+                                    const failedCount = stats?.failed || 0;
+                                    const totalEnrolled = campaign.enrollmentSummary?.total || 0;
                                     const progressPercent = totalEnrolled > 0 ? Math.round((sentCount / totalEnrolled) * 100) : 0;
                                     return (
                                       <Stack key={step.id} sx={{ alignItems: 'center', textAlign: 'center', gap: 0.75, position: 'relative', width: 150 }}>
@@ -359,7 +358,7 @@ export default function CampaignsPage() {
                                     <Box>
                                       <Typography variant="caption" sx={{ fontWeight: 700, display: 'block' }}>Completed</Typography>
                                       <Typography sx={{ fontSize: 9, color: 'success.main', fontWeight: 800, fontFamily: 'monospace', textTransform: 'uppercase' }}>
-                                        {campaign.enrollments?.filter(e => e.status === 'Completed').length || 0} leads
+                                        {campaign.enrollmentSummary?.completed || 0} leads
                                       </Typography>
                                     </Box>
                                   </Stack>

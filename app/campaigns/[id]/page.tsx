@@ -267,7 +267,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
       </Stack>
 
       {/* Metrics */}
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', lg: 'repeat(3, 1fr)', xl: 'repeat(6, 1fr)' }, gap: 2 }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', lg: 'repeat(3, 1fr)' }, gap: 2 }}>
         {metrics.map((m, i) => (
           <Card key={i}>
             <CardContent>

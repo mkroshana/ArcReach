@@ -347,21 +347,13 @@ export async function processDueEmails() {
           validationStatus: { notIn: ['Invalid'] },
         },
       },
+      // Only the lead rides along per row. The campaign (whose steps carry
+      // large HTML bodies) is fetched ONCE per distinct id below — including
+      // it here serialized every step body once per enrollment row, which at
+      // volume produced multi-hundred-MB Prisma responses each 30s cycle and
+      // OOM'd the server.
       include: {
         lead: true,
-        campaign: {
-          include: {
-            steps: {
-              orderBy: { stepOrder: 'asc' }
-            },
-            senderAccount: true,
-            senders: {
-              include: {
-                senderAccount: true
-              }
-            }
-          }
-        }
       },
       take: 100, // Batch limit to prevent timeouts
     });
@@ -371,10 +363,21 @@ export async function processDueEmails() {
       return;
     }
 
+    // Fetch each distinct campaign once and join in memory.
+    const campaignIds = [...new Set(dueEnrollments.map((e) => e.campaignId))];
+    const dueCampaigns = await prisma.campaign.findMany({
+      where: { id: { in: campaignIds } },
+      include: {
+        steps: { orderBy: { stepOrder: 'asc' } },
+        senderAccount: true,
+        senders: { include: { senderAccount: true } },
+      },
+    });
+    const campaignMap = new Map(dueCampaigns.map((c) => [c.id, c]));
+
     // Build map of sent counts today for each unique sender in the batch
     const senderIds = new Set<string>();
-    for (const enrollment of dueEnrollments) {
-      const campaign = enrollment.campaign;
+    for (const campaign of dueCampaigns) {
       if (campaign.senderAccountId) {
         senderIds.add(campaign.senderAccountId);
       }
@@ -414,8 +417,9 @@ export async function processDueEmails() {
     const settings = await prisma.globalSettings.findFirst();
 
     for (const enrollment of dueEnrollments) {
-      const campaign = enrollment.campaign;
+      const campaign = campaignMap.get(enrollment.campaignId);
       const lead = enrollment.lead;
+      if (!campaign) continue; // campaign deleted between queries
       
       // Double check global rate limits dynamically for each email in the batch
       const incrementalRateCheck = await checkGlobalRateLimits();

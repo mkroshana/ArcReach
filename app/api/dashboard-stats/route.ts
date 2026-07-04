@@ -178,15 +178,20 @@ export async function GET(req: NextRequest) {
     const clickRateDelta = calculateDelta(averageClickRate, priorClickRate);
     const repliesDelta = calculateDelta(totalReplies, priorReplies);
 
-    // 3. Fetch daily trends for the selected range period
+    // 3. Fetch daily trends for the selected range period.
+    // Select ONLY what the bucketing needs — a bare findMany here returned
+    // every dispatch's full HTML body (~100KB each), which at thousands of
+    // sends per day meant ~GB-scale payloads on every 30s dashboard poll
+    // and OOM'd the server.
     const trendDispatches = await prisma.emailDispatch.findMany({
       where: {
         ...dispatchWhere,
         status: 'Sent',
         sentAt: { gte: startOfCurrentPeriod, lte: now }
       },
-      include: {
-        events: true
+      select: {
+        sentAt: true,
+        events: { select: { eventType: true } },
       }
     });
 

@@ -149,13 +149,16 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
     sevenDaysAgo.setHours(0, 0, 0, 0);
 
+    // Select ONLY what the bucketing needs — full rows carry each dispatch's
+    // HTML body (~100KB), which at volume produced GB-scale payloads and OOMs.
     const trendDispatches = await prisma.emailDispatch.findMany({
       where: {
         campaignId: id,
         sentAt: { gte: sevenDaysAgo }
       },
-      include: {
-        events: true
+      select: {
+        sentAt: true,
+        events: { select: { eventType: true } },
       }
     });
 

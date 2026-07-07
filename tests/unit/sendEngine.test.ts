@@ -268,6 +268,12 @@ describe('validateSendingFrequency', () => {
       expect(classifyFailure({ message: '421 Space limit exceeded' })).toBe('quota');
     });
 
+    it('should classify Azure clock-skew rejections as quota (systemic pause, not per-lead retries)', () => {
+      expect(classifyFailure(new Error(
+        'The given request could not be resolved.\nThe time difference between the originating client and the server is greater than the allowed margin of 5 minutes.'
+      ))).toBe('quota');
+    });
+
     it('should classify response codes 500-559 (except 552) as hard failures', () => {
       expect(classifyFailure({ message: 'SMTP error', responseCode: 550 })).toBe('hard');
       expect(classifyFailure({ message: 'SMTP error', responseCode: 554 })).toBe('hard');

@@ -122,6 +122,16 @@ export const RETRY_BACKOFF_HOURS = [1, 6, 24]; // hour mapping: attempt 1 -> +1h
 export function classifyFailure(err: any): 'quota' | 'hard' | 'soft' {
   const errStr = (err.message || String(err)).toLowerCase();
 
+  // 0. Systemic provider outages — nothing is wrong with the lead, and every
+  // send this cycle will fail identically, so treat like quota: pause the
+  // campaign and auto-resume later instead of burning per-lead retries (which
+  // would eventually mark innocent leads Failed/Risky).
+  //  - Azure HMAC clock-skew rejection: host clock drifted >5 min, needs an
+  //    App Service restart; requests recover after resync.
+  if (errStr.includes('time difference between the originating client')) {
+    return 'quota';
+  }
+
   // 1. Quota check
   if (errStr.includes('quota') || errStr.includes('limit') || errStr.includes('rate') || errStr.includes('exceeded')) {
     return 'quota';

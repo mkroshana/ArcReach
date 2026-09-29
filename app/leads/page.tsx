@@ -37,6 +37,7 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { TableSkeleton } from '@/components/Skeleton';
 import { decodeMimeHeader } from '@/lib/mime';
+import { emailBodyToText } from '@/lib/emailText';
 import { useToast } from '@/components/Toast';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { toCsv, downloadCsv } from '@/lib/csv';
@@ -2174,12 +2175,13 @@ export default function LeadsPage() {
                                     )}
                                   </button>
 
-                                  {/* Body copy container */}
+                                  {/* Body copy container — plain text only; bodies are untrusted HTML */}
                                   {isExpanded && (
-                                    <div 
+                                    <div
                                       className="text-xs mt-2.5 p-3 rounded-lg bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 font-mono whitespace-pre-wrap max-h-56 overflow-y-auto break-words leading-relaxed"
-                                      dangerouslySetInnerHTML={{ __html: event.body }}
-                                    />
+                                    >
+                                      {emailBodyToText(event.body)}
+                                    </div>
                                   )}
                                 </div>
                               </div>

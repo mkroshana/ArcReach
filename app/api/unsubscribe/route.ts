@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 
+// The page is self-contained: inline styles and inline SVG only, no scripts,
+// external resources, forms or framing.
+const HTML_HEADERS = {
+  'Content-Type': 'text/html',
+  'Content-Security-Policy':
+    "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+};
+
 /**
  * GET /api/unsubscribe?id=<leadId>
  * 
@@ -16,7 +24,7 @@ export async function GET(req: NextRequest) {
     if (!leadId) {
       return new NextResponse(renderPage('Invalid Request', 'No lead identifier was provided.', false), {
         status: 400,
-        headers: { 'Content-Type': 'text/html' },
+        headers: HTML_HEADERS,
       });
     }
 
@@ -25,7 +33,7 @@ export async function GET(req: NextRequest) {
     if (!lead) {
       return new NextResponse(renderPage('Not Found', 'We could not find your subscription record.', false), {
         status: 404,
-        headers: { 'Content-Type': 'text/html' },
+        headers: HTML_HEADERS,
       });
     }
 
@@ -52,12 +60,13 @@ export async function GET(req: NextRequest) {
     return new NextResponse(
       renderPage(
         'Unsubscribed Successfully',
-        `<strong>${lead.email}</strong> has been removed from all future mailings. You will no longer receive emails from us.`,
-        true
+        'has been removed from all future mailings. You will no longer receive emails from us.',
+        true,
+        lead.email
       ),
       {
         status: 200,
-        headers: { 'Content-Type': 'text/html' },
+        headers: HTML_HEADERS,
       }
     );
   } catch (error: any) {
@@ -66,16 +75,27 @@ export async function GET(req: NextRequest) {
       renderPage('Something Went Wrong', 'We were unable to process your unsubscribe request. Please try again later.', false),
       {
         status: 500,
-        headers: { 'Content-Type': 'text/html' },
+        headers: HTML_HEADERS,
       }
     );
   }
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 /**
- * Renders a self-contained styled HTML confirmation page.
+ * Renders a self-contained styled HTML confirmation page. Every caller-supplied
+ * value is HTML-escaped; `highlight` (e.g. the lead's email) is shown in bold
+ * before the message.
  */
-function renderPage(title: string, message: string, success: boolean): string {
+function renderPage(title: string, message: string, success: boolean, highlight?: string): string {
   const accentColor = success ? '#10b981' : '#ef4444';
   const icon = success
     ? `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="${accentColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`
@@ -86,7 +106,7 @@ function renderPage(title: string, message: string, success: boolean): string {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${title}</title>
+  <title>${escapeHtml(title)}</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -126,8 +146,8 @@ function renderPage(title: string, message: string, success: boolean): string {
 <body>
   <div class="card">
     <div class="icon">${icon}</div>
-    <h1>${title}</h1>
-    <p>${message}</p>
+    <h1>${escapeHtml(title)}</h1>
+    <p>${highlight ? `<strong>${escapeHtml(highlight)}</strong> ` : ''}${escapeHtml(message)}</p>
   </div>
 </body>
 </html>`;

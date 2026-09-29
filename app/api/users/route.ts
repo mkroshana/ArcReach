@@ -10,8 +10,7 @@ class AdminConflictError extends Error {}
  * Runs `write` (a demotion or deletion of user `id`) only if another ADMIN would remain, so the
  * workspace always keeps someone who can manage users. A non-admin target can not lower the admin
  * count, so its write runs directly. For an admin target the count and the write share one
- * serializable transaction, so two admins demoting each other at once can not both pass it; the
- * timeout is raised because deleting a user cascades through all of their campaign history.
+ * serializable transaction, so two admins demoting each other at once can not both pass it.
  */
 async function keepAnotherAdmin<T>(
   id: string,
@@ -36,6 +35,16 @@ async function keepAnotherAdmin<T>(
     }
     throw error;
   }
+}
+
+/** 409 text for a user who still owns `mailboxes` sender mailboxes and `campaigns` campaigns. */
+function userOwnsWorkMessage(mailboxes: number, campaigns: number): string {
+  const owned = [
+    mailboxes > 0 ? `${mailboxes} ${mailboxes === 1 ? 'mailbox' : 'mailboxes'}` : '',
+    campaigns > 0 ? `${campaigns} ${campaigns === 1 ? 'campaign' : 'campaigns'}` : '',
+  ].filter(Boolean).join(' and ');
+  const it = mailboxes + campaigns === 1 ? 'it' : 'them';
+  return `Cannot remove this user while they own ${owned}. Reassign ${it} to another user or delete ${it} first.`;
 }
 
 export async function GET() {
@@ -145,6 +154,16 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Cannot delete your own active session.' }, { status: 400 });
     }
 
+    // Refuse, deleting nothing, while the user still owns mailboxes or campaigns, so removing a
+    // user never takes their work and its history with it.
+    const [mailboxes, campaigns] = await Promise.all([
+      prisma.senderAccount.count({ where: { userId: id } }),
+      prisma.campaign.count({ where: { userId: id } }),
+    ]);
+    if (mailboxes > 0 || campaigns > 0) {
+      return NextResponse.json({ error: userOwnsWorkMessage(mailboxes, campaigns), mailboxes, campaigns }, { status: 409 });
+    }
+
     const deleted = await keepAnotherAdmin(id, 'Cannot delete the last remaining admin. Promote another user to admin first.', (tx) => db.deleteUser(id, tx));
     if (!deleted) {
       return NextResponse.json({ error: 'Failed to delete user or user not found' }, { status: 404 });
@@ -154,6 +173,13 @@ export async function DELETE(req: NextRequest) {
   } catch (error: any) {
     if (error instanceof AdminConflictError) {
       return NextResponse.json({ error: error.message }, { status: 409 });
+    }
+    // P2003: the user was given a mailbox or campaign after the check above, and the Restrict
+    // foreign keys refused the delete.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
+      return NextResponse.json({
+        error: 'Cannot remove this user while they own mailboxes or campaigns. Reassign them to another user or delete them first.',
+      }, { status: 409 });
     }
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

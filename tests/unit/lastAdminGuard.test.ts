@@ -10,6 +10,8 @@ vi.mock('../../lib/db', () => ({
   },
   prisma: {
     user: { findUnique: vi.fn(), count: vi.fn() },
+    senderAccount: { count: vi.fn() },
+    campaign: { count: vi.fn() },
     $transaction: vi.fn(),
   },
 }));
@@ -64,6 +66,9 @@ beforeEach(() => {
   mockedDb.updateUserRole.mockImplementation(async (id: string, role: string) => ({ id, role }));
   mockedDb.updateUserPassword.mockImplementation(async (id: string) => ({ id }));
   mockedDb.deleteUser.mockImplementation(async (id: string) => ({ id }));
+  // No one owns mailboxes or campaigns here; the ownership guard is covered in userDeleteOwnership.test.ts.
+  mockedPrisma.senderAccount.count.mockResolvedValue(0);
+  mockedPrisma.campaign.count.mockResolvedValue(0);
 });
 
 describe('PUT /api/users (L12)', () => {

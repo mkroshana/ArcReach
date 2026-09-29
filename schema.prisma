@@ -65,7 +65,8 @@ model SenderAccount {
   
   // Ownership
   userId          String
-  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Restrict: deleting a user must never take their mailboxes with them.
+  user            User              @relation(fields: [userId], references: [id], onDelete: Restrict)
   
   // Granular Sending Frequency & Limits
   minuteLimit     Int               @default(2)
@@ -110,7 +111,8 @@ model Campaign {
   
   // Ownership
   userId          String
-  user            User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Restrict: deleting a user must never take their campaigns and their history with them.
+  user            User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
   senderAccountId String
   // Restrict: deleting a mailbox must never take its campaigns and their history with it.
   senderAccount   SenderAccount        @relation(fields: [senderAccountId], references: [id], onDelete: Restrict)

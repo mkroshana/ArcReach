@@ -211,8 +211,8 @@ export default function UsersAdminPage() {
   const handleDeleteUser = (userId: string) => {
     if (currentSession && userId === currentSession.id) { showToast('Cannot delete your own active session.', 'error'); return; }
     setConfirmState({
-      title: 'Remove user?',
-      message: 'This removes the user from ArcReach. All assigned mailboxes and campaigns will lock.',
+      title: 'Remove User?',
+      message: `Permanently delete the account for ${users.find((u) => u.id === userId)?.email || 'this user'}? This cannot be undone. If they still own any mailboxes or campaigns, nothing is deleted until those are reassigned to another user or deleted.`,
       confirmLabel: 'Remove',
       onConfirm: async () => {
         setConfirmState(null);

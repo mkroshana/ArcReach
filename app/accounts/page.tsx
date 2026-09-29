@@ -211,9 +211,11 @@ export default function AccountsPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ senderAccountId: selectedWarmupAccount.id }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to send test email.');
-      showToast(`Test email sent to ${data.recipient || session?.email}`);
+      const data = await res.json().catch(() => ({}));
+      // 409 means sending is disabled: nothing was sent, which is a warning rather than a failure.
+      if (res.status === 409) { showToast(data.error || 'Sending is disabled. No test email was sent.', 'warning'); return; }
+      if (!res.ok || !data.success) throw new Error(data.error || 'Failed to send test email.');
+      showToast(data.message || `Test email sent to ${data.recipient || session?.email}.`);
     } catch (err: any) { showToast(err.message || 'Failed to send test email.', 'error'); }
     finally { setSendingTestEmail(false); }
   };

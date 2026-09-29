@@ -10,7 +10,7 @@ import { MIN_PASSWORD_LENGTH, passwordPolicyError } from '@/lib/passwordPolicy';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import {
   Box, Card, CardContent, Stack, Typography, Button, IconButton, TextField, Select, MenuItem,
-  FormControl, InputLabel, Snackbar, Alert, InputAdornment, CircularProgress, Avatar,
+  FormControl, InputLabel, Snackbar, Alert, AlertTitle, InputAdornment, CircularProgress, Avatar,
   Tabs, Tab, Autocomplete,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
@@ -28,6 +28,10 @@ export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<'profile' | 'integrations'>('profile');
   const [toastMessage, setToastMessage] = useState<string>('');
   const [loading, setLoading] = useState(true);
+  // A failed load shows an error state; rendering the form would present defaults as saved values.
+  const [loadError, setLoadError] = useState('');
+  // Delivery settings are admin-only (GET returns none for other roles), so only admins see that tab.
+  const [isAdmin, setIsAdmin] = useState(false);
   const timezoneOptions = useTimezones();
   const triggerToast = (msg: string) => { setToastMessage(msg); setTimeout(() => setToastMessage(''), 4000); };
 
@@ -72,9 +76,14 @@ export default function SettingsPage() {
   const loadSettings = async () => {
     try {
       setLoading(true);
+      setLoadError('');
       const res = await fetch('/api/settings');
-      if (res.ok) {
-        const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      // The server returns settings exactly when the session role is ADMIN, the same check PUT enforces,
+      // so that decides the admin view (the DB role can be ahead of a not-yet-refreshed session).
+      const admin = data.settings != null;
+      if (res.ok && data.user) {
+        setIsAdmin(admin);
         const fullName = data.user.name || '';
         const parts = fullName.split(' ');
         setFirstName(parts[0] || '');
@@ -100,8 +109,10 @@ export default function SettingsPage() {
           setRateLimitMinute(data.settings.rateLimitMinute != null ? String(data.settings.rateLimitMinute) : '60');
           setRateLimitHour(data.settings.rateLimitHour != null ? String(data.settings.rateLimitHour) : '1000');
         }
+      } else {
+        setLoadError(data.error || 'The server did not return your settings.');
       }
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); setLoadError('The settings request failed. Check your connection and try again.'); }
     finally { setLoading(false); }
   };
 
@@ -233,6 +244,20 @@ export default function SettingsPage() {
     );
   }
 
+  if (loadError) {
+    return (
+      <Box sx={{ maxWidth: 900, mx: 'auto', py: 8 }}>
+        <Alert
+          severity="error"
+          action={<Button color="inherit" size="small" startIcon={<RefreshCw size={14} />} onClick={() => loadSettings()}>Retry</Button>}
+        >
+          <AlertTitle>Settings Could Not Be Loaded</AlertTitle>
+          {loadError}
+        </Alert>
+      </Box>
+    );
+  }
+
   return (
     <Box sx={{ maxWidth: 900, mx: 'auto', pb: 8, display: 'flex', flexDirection: 'column', gap: 3 }}>
       <ConfirmDialog
@@ -252,7 +277,9 @@ export default function SettingsPage() {
 
       <Box sx={{ pb: 2, borderBottom: 1, borderColor: 'divider' }}>
         <Typography variant="h4" sx={{ fontWeight: 700 }}>Settings</Typography>
-        <Typography variant="body2" sx={{ color: 'text.secondary' }}>Manage your profile, password, and email delivery settings.</Typography>
+        <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+          {isAdmin ? 'Manage your profile, password, and email delivery settings.' : 'Manage your profile and password. Email delivery is managed by your admin.'}
+        </Typography>
       </Box>
 
       <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, gap: 3 }}>
@@ -269,7 +296,7 @@ export default function SettingsPage() {
             }}
           >
             <Tab value="profile" icon={<User size={16} />} iconPosition="start" label="My Profile" />
-            <Tab value="integrations" icon={<Key size={16} />} iconPosition="start" label="Email Delivery" />
+            {isAdmin && <Tab value="integrations" icon={<Key size={16} />} iconPosition="start" label="Email Delivery" />}
           </Tabs>
         </Box>
 
@@ -348,7 +375,7 @@ export default function SettingsPage() {
             </>
           )}
 
-          {activeTab === 'integrations' && (
+          {isAdmin && activeTab === 'integrations' && (
             <>
               <Card>
                 <CardContent sx={{ p: 3 }}>

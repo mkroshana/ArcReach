@@ -173,3 +173,30 @@ describe('send routes return 409 unless Azure is configured (H1)', () => {
     expect(mockedSend).toHaveBeenCalledTimes(3);
   });
 });
+
+describe('POST /api/send-email/test result the Accounts page shows (L22)', () => {
+  const test = () => postTestEmail(makeReq('/api/send-email/test', { senderAccountId: 'mb-1' }));
+
+  it('reports success only after Azure accepts the send, naming Azure and the recipient', async () => {
+    useSettings(AZURE_SETTINGS);
+
+    const res = await test();
+    const data = await res.json();
+    expect(res.status).toBe(200);
+    expect(data.success).toBe(true);
+    expect(data.message).toBe('Test email successfully sent via Azure Communication Services to admin@example.com.');
+    expect(mockedSend).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns 409 with success false and the reason when sending is disabled, so the page warns instead of confirming', async () => {
+    useSettings({ ...AZURE_SETTINGS, activeProvider: 'DISABLED' });
+
+    const res = await test();
+    const data = await res.json();
+    expect(res.status).toBe(409);
+    expect(data.success).toBe(false);
+    expect(data.message).toBeUndefined();
+    expect(data.error).toBe('Sending is disabled. An admin must select Azure Communication Services as the delivery provider in Settings.');
+    expect(mockedSend).not.toHaveBeenCalled();
+  });
+});

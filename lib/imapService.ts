@@ -15,6 +15,15 @@ interface ImapMessage {
 
 const activeSyncs = new Set<string>();
 
+/**
+ * Log-safe form of an outgoing IMAP command: tag and verb only. Arguments are
+ * never logged because LOGIN carries the decrypted mailbox password.
+ */
+export function describeImapCommand(tag: string, cmd: string): string {
+  const verb = cmd.trim().split(/\s+/)[0] || '';
+  return `${tag} ${verb}`;
+}
+
 export async function syncMailboxReplies(mailboxId: string) {
   if (activeSyncs.has(mailboxId)) {
     console.log(`[IMAP Sync] Sync for mailbox ${mailboxId} is already in progress. Skipping.`);
@@ -66,7 +75,7 @@ export async function syncMailboxReplies(mailboxId: string) {
           currentCommandIdx++;
           if (currentCommandIdx < commandsQueue.length) {
             const item = commandsQueue[currentCommandIdx];
-            console.log(`[IMAP Sync] Sending: ${item.tag} ${item.cmd}`);
+            console.log(`[IMAP Sync] Sending: ${describeImapCommand(item.tag, item.cmd)}`);
             socket!.write(`${item.tag} ${item.cmd}\r\n`);
           } else {
             // Finished all commands, close connection

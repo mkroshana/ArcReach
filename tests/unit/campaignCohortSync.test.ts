@@ -9,7 +9,7 @@ import { NextRequest } from 'next/server';
 const fake = vi.hoisted(() => ({
   campaign: { findUnique: vi.fn(), update: vi.fn() },
   campaignSenderAccount: { deleteMany: vi.fn(), createMany: vi.fn() },
-  campaignStep: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
+  campaignStep: { findMany: vi.fn(), update: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
   campaignEnrollment: { count: vi.fn(), findMany: vi.fn(), deleteMany: vi.fn(), updateMany: vi.fn(), createMany: vi.fn() },
   emailDispatch: { findMany: vi.fn() },
   lead: { findMany: vi.fn() },
@@ -74,6 +74,12 @@ function makeReq(method: string, path: string, body: unknown): NextRequest {
   });
 }
 
+/** The campaign's stored steps, which the page loads and sends back with their ids. */
+const STEPS = [
+  { id: 'step-1', stepOrder: 1, waitDays: 0, subject: 'Hi', body: 'Hello' },
+  { id: 'step-2', stepOrder: 2, waitDays: 3, subject: 'Re: Hi', body: 'Following up' },
+];
+
 const params = { params: Promise.resolve({ id: 'cmp-1' }) };
 const save = (body: Record<string, unknown>) => putCampaign(makeReq('PUT', '/api/campaigns/cmp-1', body), params);
 
@@ -83,7 +89,7 @@ const pageSave = (overrides: Record<string, unknown> = {}) => save({
   sendSchedule: { days: ['Mon'], window: { start: '09:00', end: '17:00' } },
   stopOnReply: true, trackOpens: true, trackClicks: true,
   audienceCohort: campaign.audienceCohort,
-  steps: [{ waitDays: 0, subject: 'Hi', body: 'Hello' }, { waitDays: 3, subject: 'Re: Hi', body: 'Following up' }],
+  steps: STEPS,
   senderAccountId: 'mb-1', senderAccountIds: ['mb-1'],
   ...overrides,
 });
@@ -134,7 +140,7 @@ beforeEach(() => {
     return campaign;
   });
   fake.senderAccount.findMany.mockImplementation(async ({ where }: any) => where.id.in.map((id: string) => ({ id })));
-  fake.campaignStep.findMany.mockResolvedValue([{ stepOrder: 1, waitDays: 0, subject: 'Hi', body: 'Hello' }]);
+  fake.campaignStep.findMany.mockResolvedValue(STEPS);
   fake.leadGroup.findUnique.mockImplementation(async ({ where }: any) => (GROUP_IDS.includes(where.id) ? { id: where.id } : null));
   fake.lead.findMany.mockImplementation(async ({ where }: any) =>
     leads

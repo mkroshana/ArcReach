@@ -8,7 +8,7 @@ import { NextRequest } from 'next/server';
  */
 const fake = vi.hoisted(() => ({
   campaign: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
-  campaignStep: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
+  campaignStep: { findMany: vi.fn(), update: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
   campaignSenderAccount: { deleteMany: vi.fn(), createMany: vi.fn() },
   campaignEnrollment: { count: vi.fn(), update: vi.fn() },
   emailDispatch: { update: vi.fn() },
@@ -34,7 +34,7 @@ import { PUT as putCampaignList } from '../../app/api/campaigns/route';
 const mockedDb = db as any;
 
 const USER = { id: 'user-1', name: 'User', email: 'user@example.com', role: 'USER' as const };
-const STEPS = [{ stepOrder: 1, waitDays: 0, subject: 'Hi', body: 'Hello there' }];
+const STEPS = [{ id: 'step-1', stepOrder: 1, waitDays: 0, subject: 'Hi', body: 'Hello there' }];
 const HOUR_MS = 60 * 60 * 1000;
 
 type CampaignRow = {

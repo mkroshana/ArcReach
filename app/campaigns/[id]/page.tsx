@@ -4,7 +4,7 @@
 import {
   ArrowLeft, Save, Send, Settings, Users, AlignLeft, Clock, ToggleLeft, Plus, Trash2,
   SplitSquareHorizontal, Mail, CheckCircle2, MousePointerClick, Reply, SendHorizontal,
-  Sparkles, Play, Loader2, XCircle, AlertTriangle, UserMinus, TimerOff,
+  Sparkles, Play, Loader2, XCircle, AlertTriangle, UserMinus, TimerOff, Lock,
 } from 'lucide-react';
 import Link from 'next/link';
 import { use, useState, useEffect } from 'react';
@@ -272,6 +272,10 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
   const statusColor = status === 'Active' ? 'success' : status === 'Paused' ? 'warning' : 'default';
   const resumeNote = campaign ? autoResumeNote(campaign) : null;
   const incompleteSteps = showStepErrors ? findIncompleteSteps(steps) : [];
+  // Once the campaign has started sending, saved steps may be edited in place
+  // but not removed or replaced by a template; new steps go after them.
+  const stepsLocked = !!campaign?.stepsLocked;
+  const savedStepIds = new Set<string>((campaign?.steps || []).map((s: any) => s.id));
 
   return (
     <Box sx={{ maxWidth: 1100, mx: 'auto', pb: 8, display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -436,13 +440,22 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                 </Stack>
                 {templates.length > 0 && (
                   <FormControl size="small" sx={{ minWidth: 220 }}>
-                    <Select displayEmpty value="" onChange={(e) => applyTemplate(e.target.value)}>
+                    <Select displayEmpty value="" disabled={stepsLocked} onChange={(e) => applyTemplate(e.target.value)}>
                       <MenuItem value="" disabled>— Use Template —</MenuItem>
                       {templates.map(t => <MenuItem key={t.id} value={t.id}>{t.name} ({t.category})</MenuItem>)}
                     </Select>
                   </FormControl>
                 )}
               </Stack>
+
+              {stepsLocked && (
+                <Stack direction="row" spacing={1} sx={{ alignItems: 'center', color: 'text.secondary' }}>
+                  <Lock size={14} style={{ flexShrink: 0 }} />
+                  <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                    This campaign has started sending, so saved steps can&apos;t be removed or replaced with a template: leads already in the sequence would get the wrong step. Edit steps in place or add new ones at the end.
+                  </Typography>
+                </Stack>
+              )}
 
               {steps.map((step, index) => {
                 const showPreview = previewSteps[step.id || index] !== false;
@@ -469,7 +482,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                             A/B Test
                           </Button>
                           {steps.length > 1 && (
-                            <IconButton aria-label="Remove step" size="small" onClick={() => removeStep(index)} sx={{ border: 1, borderColor: 'divider', color: 'text.secondary', '&:hover': { color: 'error.main', borderColor: 'error.main' } }}>
+                            <IconButton aria-label="Remove step" size="small" disabled={stepsLocked && savedStepIds.has(step.id)} onClick={() => removeStep(index)} sx={{ border: 1, borderColor: 'divider', color: 'text.secondary', '&:hover': { color: 'error.main', borderColor: 'error.main' } }}>
                               <Trash2 size={14} />
                             </IconButton>
                           )}

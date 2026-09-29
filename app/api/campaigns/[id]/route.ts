@@ -4,9 +4,23 @@ import { getSession } from '@/lib/session';
 import { checkCampaignSenders } from '@/lib/senderOwnership';
 import { MAILBOX_SECRET_OMIT } from '@/lib/mailboxSecrets';
 import { checkAudienceCohort, REMOVED_ENROLLMENT_STATUS, syncCohortEnrollments } from '@/lib/campaignCohort';
-import { activationBlocker } from '@/lib/campaignSteps';
+import { activationBlocker, changesStepStructure, matchStoredSteps, STEP_STRUCTURE_LOCKED_ERROR } from '@/lib/campaignSteps';
 import { userStatusPause } from '@/lib/campaignPause';
 import { parseSendSchedule, sendScheduleError, timezoneError } from '@/lib/sendSchedule';
+
+/**
+ * Whether the campaign has started sending: a lead has moved past step 1 or
+ * the campaign has a dispatch. From then on its steps may only be edited in
+ * place or added after the last one (see STEP_STRUCTURE_LOCKED_ERROR).
+ */
+async function hasSequenceStarted(campaignId: string): Promise<boolean> {
+  const advanced = await prisma.campaignEnrollment.count({
+    where: { campaignId, currentSequenceStep: { gt: 1 } }
+  });
+  if (advanced > 0) return true;
+  const dispatched = await prisma.emailDispatch.count({ where: { campaignId } });
+  return dispatched > 0;
+}
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -283,6 +297,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
     return NextResponse.json({
       ...campaign,
+      // The campaign page disables removing steps and Use Template while this is true.
+      stepsLocked: await hasSequenceStarted(id),
       telemetry
     });
   } catch (error: any) {
@@ -357,6 +373,22 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       }
     }
 
+    // Steps are saved over the stored ones by id, keeping their ids and
+    // stepOrder. Once the campaign has started sending, a save may only edit
+    // stored steps in place and add new ones after them.
+    let storedStepIds: string[] = [];
+    if (steps && Array.isArray(steps)) {
+      const storedSteps = await prisma.campaignStep.findMany({
+        where: { campaignId: id },
+        orderBy: { stepOrder: 'asc' },
+        select: { id: true }
+      });
+      storedStepIds = storedSteps.map((s) => s.id);
+      if (changesStepStructure(storedStepIds, steps) && await hasSequenceStarted(id)) {
+        return NextResponse.json({ error: STEP_STRUCTURE_LOCKED_ERROR }, { status: 409 });
+      }
+    }
+
     const updates: any = {};
     if (name !== undefined) updates.name = name;
     if (status !== undefined) updates.status = status;
@@ -395,23 +427,36 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         }
       }
 
-      // 2. If steps are provided, delete and recreate campaign step items
+      // 2. If steps are provided, save them at their positions: a stored step is
+      // updated in place, a new one created and a stored one left out deleted
       if (steps && Array.isArray(steps)) {
-        await tx.campaignStep.deleteMany({
-          where: { campaignId: id }
-        });
-
-        if (steps.length > 0) {
-          await tx.campaignStep.createMany({
-            data: steps.map((step: any, index: number) => ({
-              campaignId: id,
-              stepOrder: index + 1,
-              waitDays: Number(step.waitDays) || 0,
-              subject: step.subject || '',
-              body: step.body || '',
-              isABTest: !!step.isABTest
-            }))
+        const matchedIds = matchStoredSteps(storedStepIds, steps);
+        const removedIds = storedStepIds.filter((storedId) => !matchedIds.includes(storedId));
+        if (removedIds.length > 0) {
+          await tx.campaignStep.deleteMany({
+            where: { campaignId: id, id: { in: removedIds } }
           });
+        }
+
+        const newSteps: any[] = [];
+        for (let index = 0; index < steps.length; index++) {
+          const step = steps[index];
+          const data = {
+            stepOrder: index + 1,
+            waitDays: Number(step.waitDays) || 0,
+            subject: step.subject || '',
+            body: step.body || '',
+            isABTest: !!step.isABTest
+          };
+          const storedId = matchedIds[index];
+          if (storedId) {
+            await tx.campaignStep.update({ where: { id: storedId }, data });
+          } else {
+            newSteps.push({ campaignId: id, ...data });
+          }
+        }
+        if (newSteps.length > 0) {
+          await tx.campaignStep.createMany({ data: newSteps });
         }
       }
 

@@ -36,6 +36,40 @@ export function activationBlocker(steps: StepContent[]): string | null {
 }
 
 /**
+ * Enrollments, dispatches and per-step stats point at a step by its stepOrder.
+ * Once a campaign has started sending (a lead is past step 1 or it has any
+ * dispatch), a save may only edit stored steps in place and add steps after
+ * them: removing, reordering or inserting would move leads onto the wrong step.
+ */
+export const STEP_STRUCTURE_LOCKED_ERROR =
+  "This campaign has started sending, so its steps can't be removed, reordered or inserted before existing ones. Edit steps in place or add new steps at the end.";
+
+/**
+ * The stored step each of `steps` saves over, matched by id, or null for a
+ * new step. A stored id matches once, so a repeat of it is a new step.
+ */
+export function matchStoredSteps(storedIds: string[], steps: Array<{ id?: unknown } | null | undefined>): Array<string | null> {
+  const stored = new Set(storedIds);
+  const matched = new Set<string>();
+  return steps.map((step) => {
+    const id = step?.id;
+    if (typeof id !== 'string' || !stored.has(id) || matched.has(id)) return null;
+    matched.add(id);
+    return id;
+  });
+}
+
+/**
+ * Whether saving `steps` over the stored steps (ids in stepOrder) removes,
+ * reorders or inserts before a stored step, rather than keeping every stored
+ * step at its position and adding any new ones after them.
+ */
+export function changesStepStructure(storedIds: string[], steps: Array<{ id?: unknown } | null | undefined>): boolean {
+  const matched = matchStoredSteps(storedIds, steps);
+  return storedIds.some((id, index) => matched[index] !== id);
+}
+
+/**
  * What Run Now (no `stepOrder`: it queues due leads) and Send Step (`stepOrder`)
  * report once the run route has queued `queued` leads for the worker to send.
  */

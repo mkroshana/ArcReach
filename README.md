@@ -80,7 +80,9 @@ Each outbound email writes an `EmailDispatch` row. To keep the campaign metrics
   rate limits, but not as sent.
 - Every campaign dispatch records its `stepOrder`, and the send engine guards
   against sending the **same step to the same lead twice**. Run Now and Send
-  Step only queue leads (mark them due); the send engine sends them.
+  Step only queue leads (mark them due); the send engine sends them. Run Now
+  queues leads that are due or that the campaign has not emailed yet, never a
+  follow-up before its wait days pass; Send Step queues every lead at its step.
 - `deliveredAt` is stamped by the Azure delivery webhook for the "Delivered" metric.
 
 The send engine enforces the dedup guard automatically, so under

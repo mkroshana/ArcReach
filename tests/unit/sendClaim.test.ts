@@ -47,6 +47,7 @@ import { processDueEmails, BOOKKEEPING_RETRIES } from '../../lib/sendEngine';
 import { SEND_CLAIM_TTL_MS, claimEnrollmentForSend, releaseEnrollmentClaim, sendableEnrollmentWhere } from '../../lib/sendEligibility';
 import { reconcileStaleSendingDispatches, STALE_SENDING_MS, NOT_FOUND_RETRY_MAX_AGE_MS, RECONCILE_BATCH } from '../../lib/sendReconciler';
 import { POST as postRun } from '../../app/api/campaigns/[id]/run/route';
+import { queuedLeadsMessage } from '../../lib/campaignSteps';
 
 const mockedSend = vi.mocked(sendMessage);
 const mockedStatus = vi.mocked(getAzureSendStatus);
@@ -118,8 +119,17 @@ function matchesEnrollment(e: EnrollmentRow, where: Record<string, any>): boolea
     if (key === 'AND') return cond.every((w: any) => matchesEnrollment(e, w));
     if (key === 'OR') return cond.some((w: any) => matchesEnrollment(e, w));
     if (key === 'campaign') return e.campaignId === campaign.id && matchesFields(campaign, cond);
-    if (key === 'lead') return matchesFields(leads.get(e.leadId), cond);
+    if (key === 'lead') return matchesLead(e.leadId, cond);
     return matchesValue((e as any)[key], cond);
+  });
+}
+
+/** Evaluates a lead filter, including `dispatches: { none }` against the in-memory dispatches. */
+function matchesLead(leadId: string, where: Record<string, any>): boolean {
+  return Object.entries(where).every(([key, cond]) => {
+    if (key !== 'dispatches') return matchesValue((leads.get(leadId) as any)[key], cond);
+    if (Object.keys(cond).join() !== 'none') throw new Error(`Unmodelled filter: ${JSON.stringify(cond)}`);
+    return !dispatches.some((d) => d.leadId === leadId && matchesFields(d, cond.none));
   });
 }
 
@@ -468,38 +478,84 @@ describe('POST /api/campaigns/[id]/run only queues leads for the worker (H3, M66
     Object.assign(enrollmentOf(leadId), { currentSequenceStep: step, nextActionDate, retryCount });
   }
 
-  it('marks every sendable lead due at its current step, sends nothing itself, and the worker sends them', async () => {
+  it('queues due leads and leads not emailed yet, sends nothing itself, and the worker sends them', async () => {
     addLead('lead-2');
     addLead('lead-3');
-    waitAt('lead-1', 1);
-    waitAt('lead-2', 2);
-    waitAt('lead-3', 3); // past the last step: nothing left to send
+    addLead('lead-4');
+    waitAt('lead-1', 1); // its first email was held back (sending window, sender cap)
+    addDispatch({ status: 'Sent', leadId: 'lead-2', stepOrder: 1 });
+    waitAt('lead-2', 2, PAST); // its follow-up is due
+    addDispatch({ status: 'Sent', leadId: 'lead-3', stepOrder: 1 });
+    waitAt('lead-3', 2, null);
+    waitAt('lead-4', 3); // past the last step: nothing left to send
 
     const before = Date.now();
     const res = await run();
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ queued: 2 });
+    expect(await res.json()).toEqual({ queued: 3 });
     expect(mockedSend).not.toHaveBeenCalled();
-    expect(dispatches).toHaveLength(0);
-    for (const leadId of ['lead-1', 'lead-2']) {
+    expect(dispatches).toHaveLength(2);
+    for (const leadId of ['lead-1', 'lead-2', 'lead-3']) {
       expect(enrollmentOf(leadId).nextActionDate!.getTime()).toBeGreaterThanOrEqual(before);
       expect(enrollmentOf(leadId).nextActionDate!.getTime()).toBeLessThanOrEqual(Date.now());
     }
-    expect(enrollmentOf('lead-3').nextActionDate!.getTime()).toBeGreaterThan(Date.now());
+    expect(enrollmentOf('lead-4').nextActionDate!.getTime()).toBeGreaterThan(Date.now());
 
     await processDueEmails();
 
-    expect(mockedSend).toHaveBeenCalledTimes(2);
-    expect(dispatches.map((d) => [d.leadId, d.stepOrder, d.status])).toEqual([
+    expect(mockedSend).toHaveBeenCalledTimes(3);
+    expect(dispatches.slice(2).map((d) => [d.leadId, d.stepOrder, d.status])).toEqual([
       ['lead-1', 1, 'Sent'],
       ['lead-2', 2, 'Sent'],
+      ['lead-3', 2, 'Sent'],
     ]);
   });
 
-  it('Send Step queues only the leads at the requested step', async () => {
+  it('never pulls a follow-up forward: Run Now again after step 1 went out queues nothing until its wait days pass', async () => {
+    expect(await (await run()).json()).toEqual({ queued: 1 });
+    await processDueEmails();
+    expect(dispatches.map((d) => [d.stepOrder, d.status])).toEqual([[1, 'Sent']]);
+    const followUpAt = enrollmentOf('lead-1').nextActionDate!;
+    expect(enrollmentOf('lead-1').currentSequenceStep).toBe(2);
+    expect(followUpAt.getTime()).toBeGreaterThan(Date.now());
+
+    const res = await run();
+
+    expect(await res.json()).toEqual({ queued: 0 });
+    expect(enrollmentOf('lead-1').nextActionDate).toEqual(followUpAt);
+
+    await processDueEmails();
+
+    expect(mockedSend).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['Sent', 'Sending', 'Unknown'])('does not pull a follow-up forward when step 1 is %s', async (status) => {
+    addDispatch({ status, stepOrder: 1 });
+    const followUpAt = FUTURE();
+    waitAt('lead-1', 2, followUpAt);
+
+    const res = await run();
+
+    expect(await res.json()).toEqual({ queued: 0 });
+    expect(enrollmentOf('lead-1').nextActionDate).toEqual(followUpAt);
+  });
+
+  it("counts a lead as not emailed yet when its only dispatches are another campaign's or Failed (a quota pause)", async () => {
+    addDispatch({ status: 'Sent', campaignId: 'cmp-other', stepOrder: 1 });
+    addDispatch({ status: 'Failed', stepOrder: 1 });
+    waitAt('lead-1', 1);
+
+    const res = await run();
+
+    expect(await res.json()).toEqual({ queued: 1 });
+    expect(enrollmentOf('lead-1').nextActionDate!.getTime()).toBeLessThanOrEqual(Date.now());
+  });
+
+  it('Send Step queues every lead at the requested step, skipping its wait days, and no other', async () => {
     addLead('lead-2');
     waitAt('lead-1', 1);
+    addDispatch({ status: 'Sent', leadId: 'lead-2', stepOrder: 1 });
     waitAt('lead-2', 2);
 
     const res = await run('?stepOrder=2');
@@ -510,13 +566,13 @@ describe('POST /api/campaigns/[id]/run only queues leads for the worker (H3, M66
     expect(mockedSend).not.toHaveBeenCalled();
   });
 
-  it('leaves a lead in soft-failure backoff at its retry time', async () => {
+  it.each(['', '?stepOrder=1'])('leaves a lead in soft-failure backoff at its retry time (%s)', async (query) => {
     addLead('lead-2');
     const retryAt = new Date(Date.now() + 3600000);
     waitAt('lead-1', 1, retryAt, 1);
     waitAt('lead-2', 1, PAST, 1); // its retry is already due
 
-    const res = await run();
+    const res = await run(query);
 
     expect(await res.json()).toEqual({ queued: 1 });
     expect(enrollmentOf('lead-1').nextActionDate).toEqual(retryAt);
@@ -524,7 +580,8 @@ describe('POST /api/campaigns/[id]/run only queues leads for the worker (H3, M66
   });
 
   it.each<[string, string, Partial<EnrollmentRow>]>([
-    ['the worker sends its step and schedules the next one', '?stepOrder=1', { currentSequenceStep: 2 }],
+    ['the worker sends its step and schedules the next one (Run Now)', '', { currentSequenceStep: 2 }],
+    ['the worker sends its step and schedules the next one (Send Step)', '?stepOrder=1', { currentSequenceStep: 2 }],
     ['a soft failure backs it off', '', { retryCount: 1 }],
   ])('does not queue a lead when %s between the read and the write', async (_label, query, change) => {
     addLead('lead-2');
@@ -622,6 +679,15 @@ describe('POST /api/campaigns/[id]/run only queues leads for the worker (H3, M66
     expect(res.status).toBe(200);
     expect(mockedSend).not.toHaveBeenCalled();
     expect(enrollmentOf('lead-1')).toMatchObject({ currentSequenceStep: 1, claimToken: 'worker' });
+  });
+
+  it('reports Run Now as queuing due leads and Send Step by its step', () => {
+    const sending = "Sending starts within 30 seconds, inside the campaign's sending window.";
+    expect(queuedLeadsMessage(0)).toBe('No leads are due. Follow-ups are sent once their wait days pass.');
+    expect(queuedLeadsMessage(1)).toBe(`Queued 1 due lead. ${sending}`);
+    expect(queuedLeadsMessage(12)).toBe(`Queued 12 due leads. ${sending}`);
+    expect(queuedLeadsMessage(0, 2)).toBe('No leads to queue at step 2.');
+    expect(queuedLeadsMessage(3, 2)).toBe(`Queued 3 leads at step 2. ${sending}`);
   });
 });
 

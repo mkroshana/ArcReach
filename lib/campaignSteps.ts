@@ -35,8 +35,17 @@ export function activationBlocker(steps: StepContent[]): string | null {
   return `${details}. Complete every step before activating this campaign.`;
 }
 
-/** What Run Now and Send Step report once the run route has queued `queued` leads for the worker to send. */
-export function queuedLeadsMessage(queued: number): string {
-  if (queued === 0) return 'No leads to queue.';
-  return `Queued ${queued} lead${queued === 1 ? '' : 's'}. Sending starts within 30 seconds, inside the campaign's sending window.`;
+/**
+ * What Run Now (no `stepOrder`: it queues due leads) and Send Step (`stepOrder`)
+ * report once the run route has queued `queued` leads for the worker to send.
+ */
+export function queuedLeadsMessage(queued: number, stepOrder?: number): string {
+  const leads = `lead${queued === 1 ? '' : 's'}`;
+  const sending = "Sending starts within 30 seconds, inside the campaign's sending window.";
+  if (stepOrder !== undefined) {
+    if (queued === 0) return `No leads to queue at step ${stepOrder}.`;
+    return `Queued ${queued} ${leads} at step ${stepOrder}. ${sending}`;
+  }
+  if (queued === 0) return 'No leads are due. Follow-ups are sent once their wait days pass.';
+  return `Queued ${queued} due ${leads}. ${sending}`;
 }

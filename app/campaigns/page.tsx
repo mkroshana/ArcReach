@@ -83,7 +83,7 @@ export default function CampaignsPage() {
       const res = await fetch(url, { method: 'POST' });
       const data = await res.json().catch(() => null);
       // The route only queues leads; the background worker sends them.
-      if (res.ok && typeof data?.queued === 'number') { showToast(queuedLeadsMessage(data.queued)); loadData(); }
+      if (res.ok && typeof data?.queued === 'number') { showToast(queuedLeadsMessage(data.queued, stepOrder)); loadData(); }
       else showToast(data?.error || 'Failed to queue leads.', 'error');
     } catch { showToast('Failed to queue leads.', 'error'); }
     finally { setExecutingId(null); }

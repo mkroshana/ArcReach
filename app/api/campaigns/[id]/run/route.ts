@@ -10,10 +10,11 @@ import { sendableEnrollmentWhere } from '@/lib/sendEligibility';
 const QUEUE_WRITE_CHUNK = 1000;
 
 /**
- * Run Now (every lead's current step) and Send Step (?stepOrder=N) queue leads;
- * they never send. Eligible enrollments are marked due now and the background
- * worker sends them, in batches, inside the campaign's sending window and under
- * the rate limits, sender caps and send claims every send goes through.
+ * Run Now (leads that are due, or that this campaign has not emailed yet) and
+ * Send Step (?stepOrder=N, every lead at that step) queue leads; they never
+ * send. Eligible enrollments are marked due now and the background worker
+ * sends them, in batches, inside the campaign's sending window and under the
+ * rate limits, sender caps and send claims every send goes through.
  */
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -68,31 +69,51 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json({ success: false, error: 'This campaign has no such step.' }, { status: 400 });
     }
 
-    // Leads in soft-failure backoff keep their retry time. Sendable leads are
-    // read with sendableEnrollmentWhere(), which filters on the campaign and
-    // lead; the write then re-checks only the enrollment's own columns, which
-    // Postgres re-evaluates on each row it locks, so an enrollment the worker
-    // advances or backs off meanwhile is not queued. The send claim re-checks
-    // the campaign and lead before anything is sent.
+    // Leads in soft-failure backoff keep their retry time. Run Now never pulls
+    // a follow-up forward: it queues leads already due and leads with no
+    // Sent, Sending or Unknown dispatch in this campaign (a first email held
+    // back by the sending window or a sender cap), so a lead waiting out a
+    // step's wait days stays put. Send Step queues every lead at its step;
+    // skipping the wait is its purpose. Sendable leads are read with
+    // sendableEnrollmentWhere(), which filters on the campaign and lead; each
+    // write then re-checks only the enrollment's own columns, including the
+    // step it was read at, which Postgres re-evaluates on each row it locks,
+    // so an enrollment the worker sends, advances or backs off meanwhile is not
+    // queued. The send claim re-checks the campaign and lead before anything
+    // is sent.
     const now = new Date();
+    const due: Prisma.CampaignEnrollmentWhereInput[] = [{ nextActionDate: null }, { nextActionDate: { lte: now } }];
     const queueable: Prisma.CampaignEnrollmentWhereInput = {
       campaignId: id,
       status: 'Active',
-      currentSequenceStep: stepOrder !== null ? stepOrder : { in: stepOrders },
-      OR: [{ retryCount: 0 }, { nextActionDate: null }, { nextActionDate: { lte: now } }],
+      OR: [{ retryCount: 0 }, ...due],
     };
+    const selected: Prisma.CampaignEnrollmentWhereInput[] = stepOrder !== null
+      ? [{ currentSequenceStep: stepOrder }]
+      : [
+        { currentSequenceStep: { in: stepOrders } },
+        { OR: [...due, { lead: { dispatches: { none: { campaignId: id, status: { in: ['Sent', 'Sending', 'Unknown'] } } } } }] },
+      ];
     const sendable = await prisma.campaignEnrollment.findMany({
-      where: { AND: [queueable, sendableEnrollmentWhere()] },
-      select: { id: true },
+      where: { AND: [queueable, ...selected, sendableEnrollmentWhere()] },
+      select: { id: true, currentSequenceStep: true },
     });
+    const idsByStep = new Map<number, string[]>();
+    for (const e of sendable) {
+      const ids = idsByStep.get(e.currentSequenceStep) ?? [];
+      ids.push(e.id);
+      idsByStep.set(e.currentSequenceStep, ids);
+    }
     // In chunks, so a large campaign's id list stays under Postgres's bind-parameter limit.
     let queued = 0;
-    for (let i = 0; i < sendable.length; i += QUEUE_WRITE_CHUNK) {
-      const { count } = await prisma.campaignEnrollment.updateMany({
-        where: { ...queueable, id: { in: sendable.slice(i, i + QUEUE_WRITE_CHUNK).map((e) => e.id) } },
-        data: { nextActionDate: now },
-      });
-      queued += count;
+    for (const [step, ids] of idsByStep) {
+      for (let i = 0; i < ids.length; i += QUEUE_WRITE_CHUNK) {
+        const { count } = await prisma.campaignEnrollment.updateMany({
+          where: { ...queueable, currentSequenceStep: step, id: { in: ids.slice(i, i + QUEUE_WRITE_CHUNK) } },
+          data: { nextActionDate: now },
+        });
+        queued += count;
+      }
     }
 
     return NextResponse.json({ queued });

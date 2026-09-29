@@ -150,8 +150,8 @@ export default function CampaignsPage() {
   const handleDeleteCampaign = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setConfirmState({
-      title: 'Delete campaign sequence?',
-      message: 'This permanently deletes the campaign. All step templates and metrics will be purged.',
+      title: 'Delete Campaign?',
+      message: 'Permanently delete this campaign, its steps and its lead enrollments? This cannot be undone. Emails it already sent and the replies they received are kept but unlinked from it, so they stay in lead timelines and Unibox and the links in those emails keep working.',
       confirmLabel: 'Delete',
       onConfirm: async () => {
         setConfirmState(null);

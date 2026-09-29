@@ -138,7 +138,8 @@ export default function LeadsPage() {
       date: new Date(d.sentAt),
       subject: d.subject || 'No Subject',
       body: d.body || '',
-      campaign: d.campaign?.name || 'Manual Outreach',
+      // Only sequence sends carry a stepOrder, so a step with no campaign means the campaign was deleted.
+      campaign: d.campaign?.name || (d.stepOrder ? 'Deleted Campaign' : 'Manual Outreach'),
       events: d.events || [],
       status: d.status,
       deliveredAt: d.deliveredAt,

@@ -246,7 +246,8 @@ model EmailDispatch {
   senderAccountId String?
   senderAccount   SenderAccount? @relation(fields: [senderAccountId], references: [id], onDelete: SetNull)
   campaignId  String?
-  campaign    Campaign?     @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  // SetNull: deleting a campaign keeps what it sent, so tracked links and send caps survive.
+  campaign    Campaign?     @relation(fields: [campaignId], references: [id], onDelete: SetNull)
   messageId   String        @unique
   sentAt      DateTime      @default(now())
   subject     String?
@@ -282,7 +283,8 @@ model InboundResponse {
   leadId          String
   lead            Lead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
   campaignId      String?
-  campaign        Campaign?      @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  // SetNull: deleting a campaign must never take the prospect's replies out of Unibox.
+  campaign        Campaign?      @relation(fields: [campaignId], references: [id], onDelete: SetNull)
   senderAccountId String?        // Captures which account received the inbound reply
   senderAccount   SenderAccount? @relation(fields: [senderAccountId], references: [id], onDelete: SetNull)
   subject         String

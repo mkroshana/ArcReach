@@ -256,7 +256,7 @@ describe('PUT /api/accounts', () => {
 
   it('resets the IMAP reply-sync checkpoint only when the IMAP host or login changes (H32)', async () => {
     mockedPrisma.senderAccount.findUnique.mockResolvedValue({
-      id: 'acc-1', warmupEnabled: false, imapHost: 'imap.old.test', imapUser: 'sales@old.test', imapUidValidity: 7, imapLastUid: 900,
+      id: 'acc-1', warmupEnabled: false, imapHost: 'imap.old.test', imapPort: 993, imapUser: 'sales@old.test', imapUidValidity: 7, imapLastUid: 900,
     });
 
     const same = { imapHost: 'imap.old.test', imapPort: 993, imapUser: 'sales@old.test' };
@@ -265,12 +265,40 @@ describe('PUT /api/accounts', () => {
 
     for (const change of [{ imapHost: 'imap.new.test' }, { imapUser: 'other@old.test' }, { imapHost: null }]) {
       expect((await putAccount(makeReq('/api/accounts', { id: 'acc-1', ...change }))).status).toBe(200);
-      expect(mockedDb.updateAccount).toHaveBeenLastCalledWith('acc-1', { ...change, imapUidValidity: null, imapLastUid: null });
+      expect(mockedDb.updateAccount).toHaveBeenLastCalledWith('acc-1', {
+        ...change, imapUidValidity: null, imapLastUid: null, imapLastSyncAt: null, imapLastSyncError: null,
+      });
     }
 
     // The checkpoint itself is server-managed.
     mockedDb.updateAccount.mockClear();
     expect((await putAccount(makeReq('/api/accounts', { id: 'acc-1', imapLastUid: 0 }))).status).toBe(400);
+    expect(mockedDb.updateAccount).not.toHaveBeenCalled();
+  });
+
+  it('resets the reply-sync status when any IMAP connection detail changes, and only then (M57)', async () => {
+    mockedPrisma.senderAccount.findUnique.mockResolvedValue({
+      id: 'acc-1', warmupEnabled: false, imapHost: 'imap.old.test', imapPort: 993, imapUser: 'sales@old.test',
+      imapPass: 'enc:v1:stored', imapAllowSelfSigned: false,
+      imapLastSyncAt: new Date('2026-09-29T10:00:00Z'), imapLastSyncError: 'Login refused by imap.old.test: NO. Check the IMAP username and password.',
+    });
+
+    // The credentials form sends every field back, the password as the mask, when only Reply-To changed.
+    const unchanged = { replyTo: 'replies@old.test', imapHost: 'imap.old.test', imapPort: 993, imapUser: 'sales@old.test', imapPass: MASKED_SECRET, imapAllowSelfSigned: false };
+    expect((await putAccount(makeReq('/api/accounts', { id: 'acc-1', ...unchanged }))).status).toBe(200);
+    const [, kept] = mockedDb.updateAccount.mock.lastCall;
+    expect(kept).not.toHaveProperty('imapLastSyncAt');
+    expect(kept).not.toHaveProperty('imapLastSyncError');
+
+    for (const change of [{ imapPort: 143 }, { imapPass: 'new-app-password' }, { imapAllowSelfSigned: true }, { imapHost: 'imap.new.test' }]) {
+      expect((await putAccount(makeReq('/api/accounts', { id: 'acc-1', ...unchanged, ...change }))).status).toBe(200);
+      expect(mockedDb.updateAccount.mock.lastCall[1]).toMatchObject({ imapLastSyncAt: null, imapLastSyncError: null });
+    }
+
+    // The status itself is server-managed.
+    mockedDb.updateAccount.mockClear();
+    expect((await putAccount(makeReq('/api/accounts', { id: 'acc-1', imapLastSyncError: null }))).status).toBe(400);
+    expect((await putAccount(makeReq('/api/accounts', { id: 'acc-1', imapLastSyncAt: '2026-09-30T00:00:00Z' }))).status).toBe(400);
     expect(mockedDb.updateAccount).not.toHaveBeenCalled();
   });
 

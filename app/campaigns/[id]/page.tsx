@@ -19,6 +19,7 @@ import { activationBlocker, findIncompleteSteps, queuedLeadsMessage } from '@/li
 import { autoResumeNote } from '@/lib/campaignPause';
 import { sendScheduleError, timezoneError } from '@/lib/sendSchedule';
 import { personalizePreview, previewEmailBody } from '@/lib/personalize';
+import { IMAP_SYNC_LABELS, imapSyncState, stopOnReplyWarning } from '@/lib/imapSyncStatus';
 import {
   Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
   Select, MenuItem, FormControl, InputLabel, Switch, Skeleton, ToggleButtonGroup, ToggleButton,
@@ -139,6 +140,10 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
   const updateStepField = (i: number, field: string, value: any) => setSteps(prev => prev.map((s, idx) => idx === i ? { ...s, [field]: value } : s));
   const insertVariable = (variable: string, i: number) => updateStepField(i, 'body', (steps[i]?.body || '') + variable);
   const toggleDaySelection = (day: string) => setSelectedDays(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]);
+
+  // Pausing on reply needs a reply read from the pool's mailboxes (or their Reply-To mailbox) over IMAP.
+  const poolMailboxes = availableMailboxes.filter(m => m.id === primarySenderId || selectedPoolIds.includes(m.id));
+  const replySyncWarning = stopOnReplyWarning(stopOnReply, poolMailboxes, availableMailboxes);
 
   const handleSaveCampaign = async (overrideStatus?: string) => {
     const targetStatus = overrideStatus || status;
@@ -580,14 +585,20 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                 </Stack>
                 <Stack spacing={1.5}>
                   {[
-                    { label: 'Pause Sequence on Reply', desc: 'Stop further emails once a customer expresses interest.', val: stopOnReply, set: setStopOnReply },
-                    { label: 'Track Opens', desc: 'Embed a tracking pixel in HTML steps. Plain-text steps cannot track opens.', val: trackOpens, set: setTrackOpens },
-                    { label: 'Track Link Clicks', desc: 'Route links in HTML steps through the click tracker. Plain-text steps cannot track clicks.', val: trackClicks, set: setTrackClicks },
+                    { label: 'Pause Sequence on Reply', desc: 'Stop further emails once a customer expresses interest.', val: stopOnReply, set: setStopOnReply, warning: replySyncWarning },
+                    { label: 'Track Opens', desc: 'Embed a tracking pixel in HTML steps. Plain-text steps cannot track opens.', val: trackOpens, set: setTrackOpens, warning: null },
+                    { label: 'Track Link Clicks', desc: 'Route links in HTML steps through the click tracker. Plain-text steps cannot track clicks.', val: trackClicks, set: setTrackClicks, warning: null },
                   ].map((f, i) => (
                     <Stack key={i} direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', p: 1.5, borderRadius: '14px', border: 1, borderColor: 'divider', bgcolor: 'action.hover' }}>
                       <Box>
                         <Typography variant="body2" sx={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{f.label}</Typography>
                         <Typography variant="caption" sx={{ color: 'text.secondary' }}>{f.desc}</Typography>
+                        {f.warning && (
+                          <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', mt: 0.75, color: 'warning.main' }}>
+                            <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+                            <Typography variant="caption" sx={{ fontWeight: 600 }}>{f.warning}</Typography>
+                          </Stack>
+                        )}
                       </Box>
                       <Switch checked={f.val} onChange={(e) => f.set(e.target.checked)} />
                     </Stack>
@@ -638,6 +649,12 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                 <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 2, lineHeight: 1.6 }}>
                   Spreading outbound across multiple mailboxes protects sender reputation and circumvents daily provider caps. The send engine routes each dispatch via the least-loaded mailbox.
                 </Typography>
+                {replySyncWarning && (
+                  <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', mb: 2, color: 'warning.main' }}>
+                    <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+                    <Typography variant="caption" sx={{ fontWeight: 600 }}>{replySyncWarning}</Typography>
+                  </Stack>
+                )}
                 <Stack spacing={1.5}>
                   {availableMailboxes.map((mailbox) => {
                     const isPrimary = primarySenderId === mailbox.id;
@@ -665,6 +682,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                                 </Stack>
                                 <Stack direction="row" spacing={2} sx={{ mt: 0.5, color: 'text.secondary', fontSize: 10 }}>
                                   <span>Provider: <Box component="strong" sx={{ color: 'text.primary' }}>{mailbox.provider}</Box></span>
+                                  <Box component="strong" sx={{ color: imapSyncState(mailbox) === 'failing' ? 'error.main' : undefined }}>{IMAP_SYNC_LABELS[imapSyncState(mailbox)]}</Box>
                                   <span>Last 24 Hours: <Box component="strong">{mailbox.sentLast24Hours} / {mailbox.effectiveDailyCap}</Box></span>
                                   <span>Total: <Box component="strong">{mailbox.sentTotal}</Box></span>
                                 </Stack>

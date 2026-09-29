@@ -31,7 +31,7 @@ vi.mock('tls', () => {
 vi.mock('../../lib/db', () => ({
   db: { createAccount: vi.fn(), getAccounts: vi.fn(), updateAccount: vi.fn() },
   prisma: {
-    senderAccount: { findUnique: vi.fn(), updateMany: vi.fn() },
+    senderAccount: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     user: { findUnique: vi.fn() },
     globalSettings: { findUnique: vi.fn(), findFirst: vi.fn() },
   },
@@ -161,7 +161,8 @@ describe('Accounts API imapAllowSelfSigned (M47)', () => {
   it('saves the opt-in from the credentials form and refuses a non-boolean value', async () => {
     const on = await putAccount(makeReq('PUT', { id: 'mbx_1', imapAllowSelfSigned: true }));
     expect(on.status).toBe(200);
-    expect(mockedDb.updateAccount).toHaveBeenLastCalledWith('mbx_1', { imapAllowSelfSigned: true });
+    // It changes how the connection is made, so the reply-sync status starts over (M57).
+    expect(mockedDb.updateAccount).toHaveBeenLastCalledWith('mbx_1', { imapAllowSelfSigned: true, imapLastSyncAt: null, imapLastSyncError: null });
     expect((await on.json()).imapAllowSelfSigned).toBe(true);
 
     const bad = await putAccount(makeReq('PUT', { id: 'mbx_1', imapAllowSelfSigned: 'yes' }));

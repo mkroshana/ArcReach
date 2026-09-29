@@ -262,6 +262,16 @@ export async function PUT(req: NextRequest) {
         updates.imapUidValidity = null;
         updates.imapLastUid = null;
       }
+      // The reply-sync status describes the connection details it was read with, so
+      // any change to them shows the mailbox as pending until the next sync. A new
+      // password always counts: the stored one is encrypted and can't be compared.
+      const imapConnectionChanged = (['imapHost', 'imapPort', 'imapUser', 'imapPass', 'imapAllowSelfSigned'] as const).some(
+        (f) => updates[f] !== undefined && (updates[f] ?? null) !== (existingAccount[f] ?? null)
+      );
+      if (imapConnectionChanged) {
+        updates.imapLastSyncAt = null;
+        updates.imapLastSyncError = null;
+      }
     }
 
     const updated = await db.updateAccount(id, updates);

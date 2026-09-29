@@ -5,6 +5,7 @@ import { prisma } from './db';
 import { decodeCharset, decodeMimeHeader } from './mime';
 import { decryptSecret } from './secrets';
 import { leadEmailIn, normalizeEmail } from './leadEmail';
+import { MICROSOFT_IMAP_NOTE, isMicrosoftImapHost } from './imapSyncStatus';
 
 interface ImapMessage {
   from: string;
@@ -152,6 +153,73 @@ export function imapTlsOptions(host: string, port: number, allowSelfSigned: bool
     servername: net.isIP(host) ? undefined : host,
     rejectUnauthorized: !allowSelfSigned,
   };
+}
+
+/** A reply sync that failed at the IMAP level: LOGIN refused, the server went quiet, or it hung up early. */
+export class ImapSyncError extends Error {
+  constructor(readonly kind: 'login' | 'timeout' | 'closed', message: string, readonly serverReply = '') {
+    super(message);
+    this.name = 'ImapSyncError';
+  }
+}
+
+/** The text after the tag of the tagged completion line in `resp`, such as "NO [AUTHENTICATIONFAILED] Invalid credentials", on one line. */
+function completionText(resp: string, tag: string): string {
+  const line = resp.split(/\r?\n/).find(l => l.startsWith(`${tag} `)) ?? '';
+  return line.substring(tag.length + 1).replace(/[\x00-\x1f\x7f]+/g, ' ').trim();
+}
+
+/** Node error codes of a TLS certificate the connection refused to trust. */
+const TLS_CERT_CODE = /CERT|SELF_SIGNED|UNABLE_TO_VERIFY|UNABLE_TO_GET_ISSUER|LEAF_SIGNATURE/;
+
+/** Longest sync error saved on a mailbox. */
+const SYNC_ERROR_MAX_CHARS = 300;
+
+/**
+ * Why a reply sync failed, as saved on the mailbox and shown on the Accounts page:
+ * a refused login, a timeout, a TLS certificate that failed verification, a
+ * connection that could not be made or was closed early, or any other error.
+ */
+export function imapSyncFailureMessage(err: unknown, host: string, port: number): string {
+  const code = typeof (err as { code?: unknown } | null)?.code === 'string' ? (err as { code: string }).code : '';
+  const text = (err instanceof Error ? err.message : String(err)).replace(/\s+/g, ' ').trim();
+  let message: string;
+  if (err instanceof ImapSyncError && err.kind === 'login') {
+    message = `Login refused by ${host}: ${err.serverReply.replace(/\.+$/, '') || 'no reason given'}. Check the IMAP username and password.`;
+    if (isMicrosoftImapHost(host)) message += ` ${MICROSOFT_IMAP_NOTE}`;
+  } else if (err instanceof ImapSyncError && err.kind === 'timeout') {
+    message = `Timed out: ${host}:${port} did not answer within 15 seconds.`;
+  } else if (err instanceof ImapSyncError && err.kind === 'closed') {
+    message = `${host} closed the connection before the sync finished.`;
+  } else if (TLS_CERT_CODE.test(code)) {
+    message = `Certificate refused: the TLS certificate of ${host} could not be verified (${text}).`;
+    if (code.includes('SELF_SIGNED')) {
+      message += ' Turn on Allow Self-Signed Certificate only if you run this server yourself.';
+    }
+  } else if (code.startsWith('ERR_SSL_') || code === 'EPROTO') {
+    message = `TLS handshake with ${host}:${port} failed (${text}). Reply sync uses TLS from the start, usually on port 993.`;
+  } else if (/^E[A-Z_]+$/.test(code)) {
+    message = `Could not connect to ${host}:${port}: ${text}.`;
+  } else {
+    message = `Sync failed: ${text}`;
+  }
+  return message.length > SYNC_ERROR_MAX_CHARS ? `${message.substring(0, SYNC_ERROR_MAX_CHARS - 1)}…` : message;
+}
+
+/**
+ * Save how the latest reply sync of a mailbox ended: a success stamps imapLastSyncAt
+ * and clears the error, a failure saves its message. A failed save is only logged,
+ * so it never changes the sync's own result.
+ */
+async function recordImapSyncResult(mailboxId: string, error: string | null) {
+  try {
+    await prisma.senderAccount.update({
+      where: { id: mailboxId },
+      data: error === null ? { imapLastSyncAt: new Date(), imapLastSyncError: null } : { imapLastSyncError: error },
+    });
+  } catch (err) {
+    console.error(`[IMAP Sync] Could not save the sync result of mailbox ${mailboxId}:`, err);
+  }
 }
 
 /**
@@ -346,7 +414,10 @@ export async function syncMailboxReplies(mailboxId: string) {
                 const responseStr = buffer.substring(0, completionLineEnd);
                 buffer = buffer.substring(completionLineEnd);
                 
-                Promise.resolve(item.handler(responseStr))
+                // Run the handler inside the chain, so a throw (a refused LOGIN, say)
+                // rejects the sync instead of escaping the socket's data event
+                Promise.resolve()
+                  .then(() => item.handler(responseStr))
                   .then(() => {
                     executeNext();
                   })
@@ -363,7 +434,7 @@ export async function syncMailboxReplies(mailboxId: string) {
         socket!.on('timeout', () => {
           console.log('[IMAP Sync] Timeout reached.');
           socket!.destroy();
-          reject(new Error('IMAP connection timed out'));
+          reject(new ImapSyncError('timeout', 'IMAP connection timed out'));
         });
         
         socket!.on('error', (err) => {
@@ -371,9 +442,13 @@ export async function syncMailboxReplies(mailboxId: string) {
           reject(err);
         });
         
+        // The sync resolves once LOGOUT is sent. A close before that (the server
+        // hanging up, or the socket dying) fails the sync unless it already failed.
         socket!.on('close', () => {
           console.log('[IMAP Sync] Connection closed.');
-          resolve(fetchedMessages);
+          if (!batch.complete) {
+            reject(new ImapSyncError('closed', 'IMAP connection closed before the sync finished'));
+          }
         });
         
         // Build commands queue
@@ -386,7 +461,8 @@ export async function syncMailboxReplies(mailboxId: string) {
           continuation: loginContinuation,
           handler: (resp) => {
             if (!resp.includes(`${tagLogin} OK`)) {
-              throw new Error('IMAP Login failed: ' + resp);
+              const reply = completionText(resp, tagLogin);
+              throw new ImapSyncError('login', 'IMAP Login failed: ' + reply, reply);
             }
           }
         });
@@ -406,7 +482,7 @@ export async function syncMailboxReplies(mailboxId: string) {
           cmd: 'EXAMINE INBOX',
           handler: (resp) => {
             if (!resp.includes(`${tagExamine} OK`)) {
-              throw new Error('IMAP EXAMINE failed: ' + resp);
+              throw new Error('IMAP EXAMINE failed: ' + completionText(resp, tagExamine));
             }
             const validityMatch = resp.match(/\[UIDVALIDITY (\d+)\]/i);
             if (!validityMatch) {
@@ -437,7 +513,7 @@ export async function syncMailboxReplies(mailboxId: string) {
           cmd: '',
           handler: (resp: string) => {
             if (!resp.includes(`${tagSearch} OK`)) {
-              throw new Error('IMAP SEARCH failed: ' + resp);
+              throw new Error('IMAP SEARCH failed: ' + completionText(resp, tagSearch));
             }
             
             // "UID n:*" always lists the newest message, even when its UID is below n
@@ -462,7 +538,7 @@ export async function syncMailboxReplies(mailboxId: string) {
               cmd: `UID FETCH ${uids.join(',')} (UID INTERNALDATE BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES AUTO-SUBMITTED X-AUTOREPLY X-AUTORESPOND PRECEDENCE CONTENT-TYPE CONTENT-TRANSFER-ENCODING)])`,
               handler: async (headerResp) => {
                 if (!headerResp.includes(`${tagFetchHeaders} OK`)) {
-                  throw new Error('IMAP Fetch headers failed: ' + headerResp);
+                  throw new Error('IMAP Fetch headers failed: ' + completionText(headerResp, tagFetchHeaders));
                 }
                 const headerParsed = parseHeaderResponse(headerResp);
                 if (headerParsed.length === 0) return;
@@ -484,7 +560,7 @@ export async function syncMailboxReplies(mailboxId: string) {
                       cmd: `UID FETCH ${msg.uid} (BODY.PEEK[TEXT])`,
                       handler: (bodyResp: string) => {
                         if (!bodyResp.includes(`${tagFetchBody} OK`)) {
-                          throw new Error('IMAP Fetch body failed: ' + bodyResp);
+                          throw new Error('IMAP Fetch body failed: ' + completionText(bodyResp, tagFetchBody));
                         }
                         const bodyParsedText = parseBodyResponse(bodyResp);
                         fetchedMessages.push({
@@ -593,6 +669,7 @@ export async function syncMailboxReplies(mailboxId: string) {
       }
       
       console.log(`[IMAP Sync] Finished. Synced ${newRepliesCount} new replies.`);
+      await recordImapSyncResult(mailbox.id, null);
       return { success: true, syncedCount: newRepliesCount };
     } catch (err: any) {
       console.error(`[IMAP Sync] Sync error for mailbox ${mailboxId}:`, err);
@@ -601,6 +678,7 @@ export async function syncMailboxReplies(mailboxId: string) {
           (socket as any).destroy();
         } catch {}
       }
+      await recordImapSyncResult(mailbox.id, imapSyncFailureMessage(err, mailbox.imapHost, mailbox.imapPort));
       return { success: false, error: err.message };
     }
   } finally {
@@ -1183,12 +1261,13 @@ function stripHtmlTags(html: string): string {
   return text.trim();
 }
 
+// Any mailbox with IMAP details is synced whatever its provider label, which has no
+// effect on sending (Azure sends all mail).
 export async function getActiveImapAccounts(userId: string, role: string) {
   let accountsWhere: any = {
     status: 'Active',
     imapHost: { not: null },
-    imapPass: { not: null },
-    provider: { not: 'Azure Relay Node' }
+    imapPass: { not: null }
   };
   
   if (role !== 'ADMIN') {

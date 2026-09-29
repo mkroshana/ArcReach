@@ -89,7 +89,7 @@ vi.mock('tls', () => {
 
 vi.mock('../../lib/db', () => ({
   prisma: {
-    senderAccount: { findUnique: vi.fn(), updateMany: vi.fn() },
+    senderAccount: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
   },
 }));
 

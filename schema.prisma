@@ -110,6 +110,11 @@ model SenderAccount {
   // number (BigInt would break every API response that embeds the mailbox).
   imapUidValidity Float?
   imapLastUid     Float?
+  // Reply-sync health shown on the Accounts page: when a sync last succeeded, and why
+  // the latest one failed (null once one succeeds). Both reset when the IMAP connection
+  // details change, so they always describe the details saved.
+  imapLastSyncAt    DateTime?
+  imapLastSyncError String?
 }
 
 // ------------------------------------------------------

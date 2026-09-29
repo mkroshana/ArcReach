@@ -5,8 +5,10 @@ import { useState, useEffect } from 'react';
 import {
   Plus, CheckCircle2, AlertCircle, Mail, Flame, ArrowLeft, Sparkles, Sliders,
   ChevronRight, Gauge, User, Activity, Save, Send, Loader2, Trash2, Eye, EyeOff, ShieldAlert,
+  MailCheck, MailWarning, MailX, Clock,
 } from 'lucide-react';
 import { TableSkeleton } from '@/components/Skeleton';
+import { IMAP_SYNC_LABELS, MICROSOFT_IMAP_NOTE, imapSyncState, isMicrosoftImapHost } from '@/lib/imapSyncStatus';
 import { useToast } from '@/components/Toast';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import {
@@ -41,6 +43,30 @@ function AllowSelfSignedSwitch({ checked, onChange }: { checked: boolean; onChan
   );
 }
 
+const REPLY_SYNC_ICONS = { off: MailX, waiting: Clock, ok: MailCheck, failing: MailWarning } as const;
+const REPLY_SYNC_COLORS = { off: 'default', waiting: 'default', ok: 'success', failing: 'error' } as const;
+
+/** What a mailbox's reply-sync state means for it: when it last synced, or why it doesn't. */
+function replySyncDetail(account: any): string {
+  const lastSynced = account.imapLastSyncAt ? new Date(account.imapLastSyncAt).toLocaleString() : null;
+  switch (imapSyncState(account)) {
+    case 'ok': return `Last synced ${lastSynced}.`;
+    case 'failing': return `${account.imapLastSyncError} Last successful sync: ${lastSynced ?? 'never'}.`;
+    case 'waiting': return 'IMAP details saved. Replies are read once the first sync finishes.';
+    default: return account.status && account.status !== 'Active'
+      ? 'This mailbox is not Active, so its replies are not synced.'
+      : 'No IMAP details, so replies to this mailbox are not read and Pause Sequence on Reply cannot pause its leads.';
+  }
+}
+
+/** The mailbox's reply-sync state, read from its last sync result; the tooltip says what it means. */
+function ReplySyncChip({ account, withTooltip = true }: { account: any; withTooltip?: boolean }) {
+  const state = imapSyncState(account);
+  const Icon = REPLY_SYNC_ICONS[state];
+  const chip = <Chip size="small" icon={<Icon size={11} />} label={IMAP_SYNC_LABELS[state]} color={REPLY_SYNC_COLORS[state]} variant="outlined" sx={{ fontWeight: 700, fontSize: 10 }} />;
+  return withTooltip ? <MuiTooltip title={replySyncDetail(account)}>{chip}</MuiTooltip> : chip;
+}
+
 export default function AccountsPage() {
   const [accounts, setAccounts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -66,6 +92,7 @@ export default function AccountsPage() {
   const totalSentLast24Hours = accounts.reduce((sum, a) => sum + (a.sentLast24Hours || 0), 0);
   const totalDailyLimit = accounts.reduce((sum, a) => sum + (a.dailyLimit || 0), 0);
   const remainingCapacity = Math.max(0, totalDailyLimit - totalSentLast24Hours);
+  const failingSyncCount = accounts.filter(a => imapSyncState(a) === 'failing').length;
 
   const [smtpHost, setSmtpHost] = useState('');
   const [smtpPort, setSmtpPort] = useState('');
@@ -121,7 +148,8 @@ export default function AccountsPage() {
   const handleProviderChange = (selectedProvider: string) => {
     setProvider(selectedProvider);
     if (selectedProvider === 'Google Workspace') { setSmtpHost('smtp.gmail.com'); setSmtpPort('587'); setImapHost('imap.gmail.com'); setImapPort('993'); }
-    else if (selectedProvider === 'Microsoft 365') { setSmtpHost('smtp.office365.com'); setSmtpPort('587'); setImapHost('outlook.office365.com'); setImapPort('993'); }
+    // Microsoft 365 refuses password IMAP sign-in, so no IMAP host is filled in for it.
+    else if (selectedProvider === 'Microsoft 365') { setSmtpHost('smtp.office365.com'); setSmtpPort('587'); setImapHost(''); setImapPort(''); }
     else if (selectedProvider === 'SendGrid Relay Node') { setSmtpHost('smtp.sendgrid.net'); setSmtpPort('587'); setImapHost(''); setImapPort(''); }
     else { setSmtpHost(''); setSmtpPort(''); setImapHost(''); setImapPort(''); }
   };
@@ -322,14 +350,16 @@ export default function AccountsPage() {
             <Card>
               <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', p: 2, borderBottom: 1, borderColor: 'divider' }}>
                 <Typography variant="overline" sx={{ fontWeight: 700, letterSpacing: '0.1em' }}>Connected Outreach Senders</Typography>
-                <Chip size="small" label="SMTP & IMAP READY" color="primary" variant="outlined" sx={{ fontWeight: 700, fontSize: 9, fontFamily: 'monospace' }} />
+                {failingSyncCount > 0 && (
+                  <Chip size="small" icon={<MailWarning size={11} />} label={`${failingSyncCount} ${failingSyncCount === 1 ? 'Mailbox' : 'Mailboxes'} Failing Reply Sync`} color="error" variant="outlined" sx={{ fontWeight: 700, fontSize: 9, fontFamily: 'monospace' }} />
+                )}
               </Stack>
               <Box sx={{ overflowX: 'auto' }}>
                 <Table size="small">
                   <TableHead>
                     <TableRow sx={{ '& th': { fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', fontSize: 10, color: 'text.secondary' } }}>
                       <TableCell>Sender Mailbox</TableCell>
-                      <TableCell>Protocol</TableCell>
+                      <TableCell>Reply Sync</TableCell>
                       <TableCell>Daily Limit</TableCell>
                       <TableCell>Owner</TableCell>
                       <TableCell>Status</TableCell>
@@ -362,9 +392,7 @@ export default function AccountsPage() {
                           </Stack>
                         </TableCell>
                         <TableCell>
-                          <Chip size="small" label={(account.provider === 'SendGrid Relay Node' || account.provider === 'Azure Relay Node') ? 'Send-Only' : 'SMTP & IMAP'}
-                            color={(account.provider === 'SendGrid Relay Node' || account.provider === 'Azure Relay Node') ? 'warning' : 'primary'} variant="outlined"
-                            sx={{ fontWeight: 700, fontSize: 9, fontFamily: 'monospace' }} />
+                          <ReplySyncChip account={account} />
                         </TableCell>
                         <TableCell sx={{ fontFamily: 'monospace', fontSize: 12 }}>
                           {account.warmupEnabled ? (
@@ -474,24 +502,32 @@ export default function AccountsPage() {
                         </CardContent>
                       </Card>
                     )}
-                    {selectedWarmupAccount.provider !== 'SendGrid Relay Node' && selectedWarmupAccount.provider !== 'Azure Relay Node' && (
-                      <Card variant="outlined" sx={{ bgcolor: 'action.hover' }}>
-                        <CardContent>
-                          <Typography variant="overline" sx={{ color: 'text.secondary', fontWeight: 700, display: 'block', mb: 1.5 }}>Inbound Replies (IMAP)</Typography>
-                          <Stack spacing={1.5}>
-                            <Stack direction="row" spacing={1.5}>
-                              <TextField fullWidth size="small" label="IMAP Host" value={editImapHost} onChange={(e) => setEditImapHost(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-                              <TextField fullWidth size="small" label="Port" value={editImapPort} onChange={(e) => setEditImapPort(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-                            </Stack>
-                            <Stack direction="row" spacing={1.5}>
-                              <TextField fullWidth size="small" label="Username" value={editImapUser} onChange={(e) => setEditImapUser(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-                              <PwField label="Password" value={editImapPass} onChange={setEditImapPass} show={showEditImapPass} setShow={setShowEditImapPass} />
-                            </Stack>
-                            <AllowSelfSignedSwitch checked={editImapAllowSelfSigned} onChange={setEditImapAllowSelfSigned} />
+                    {/* Any mailbox can sync replies over IMAP, whatever its provider label */}
+                    <Card variant="outlined" sx={{ bgcolor: 'action.hover' }}>
+                      <CardContent>
+                        <Typography variant="overline" sx={{ color: 'text.secondary', fontWeight: 700, display: 'block', mb: 1.5 }}>Inbound Replies (IMAP)</Typography>
+                        <Stack spacing={1.5}>
+                          <Box>
+                            <ReplySyncChip account={selectedWarmupAccount} withTooltip={false} />
+                            <Typography variant="caption" sx={{ color: imapSyncState(selectedWarmupAccount) === 'failing' ? 'error.main' : 'text.secondary', display: 'block', mt: 0.75, overflowWrap: 'anywhere' }}>
+                              {replySyncDetail(selectedWarmupAccount)}
+                            </Typography>
+                          </Box>
+                          {(selectedWarmupAccount.provider === 'Microsoft 365' || isMicrosoftImapHost(editImapHost)) && (
+                            <Typography variant="caption" sx={{ color: 'warning.main', display: 'block' }}>{MICROSOFT_IMAP_NOTE}</Typography>
+                          )}
+                          <Stack direction="row" spacing={1.5}>
+                            <TextField fullWidth size="small" label="IMAP Host" value={editImapHost} onChange={(e) => setEditImapHost(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
+                            <TextField fullWidth size="small" label="Port" value={editImapPort} onChange={(e) => setEditImapPort(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
                           </Stack>
-                        </CardContent>
-                      </Card>
-                    )}
+                          <Stack direction="row" spacing={1.5}>
+                            <TextField fullWidth size="small" label="Username" value={editImapUser} onChange={(e) => setEditImapUser(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
+                            <PwField label="Password" value={editImapPass} onChange={setEditImapPass} show={showEditImapPass} setShow={setShowEditImapPass} />
+                          </Stack>
+                          <AllowSelfSignedSwitch checked={editImapAllowSelfSigned} onChange={setEditImapAllowSelfSigned} />
+                        </Stack>
+                      </CardContent>
+                    </Card>
                     <Stack direction="row" sx={{ justifyContent: 'flex-end', pt: 1 }}>
                       <Button type="submit" variant="contained" disabled={savingCredentials} startIcon={<Save size={14} />}>
                         {savingCredentials ? 'Saving…' : 'Save Credentials'}
@@ -627,24 +663,26 @@ export default function AccountsPage() {
               </Card>
             )}
 
-            {provider !== 'SendGrid Relay Node' && provider !== 'Azure Relay Node' && (
-              <Card variant="outlined" sx={{ bgcolor: 'action.hover' }}>
-                <CardContent>
-                  <Typography variant="overline" sx={{ color: 'text.secondary', fontWeight: 700, display: 'block', mb: 1.5 }}>Inbound Replies (IMAP)</Typography>
-                  <Stack spacing={1.5}>
-                    <Stack direction="row" spacing={1.5}>
-                      <TextField fullWidth size="small" label="IMAP Host" value={imapHost} onChange={(e) => setImapHost(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-                      <TextField fullWidth size="small" label="Port" value={imapPort} onChange={(e) => setImapPort(e.target.value)} placeholder="993" slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-                    </Stack>
-                    <Stack direction="row" spacing={1.5}>
-                      <TextField fullWidth size="small" label="Username" value={imapUser} onChange={(e) => setImapUser(e.target.value)} placeholder="user@domain.com" slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-                      <PwField label="Password" value={imapPass} onChange={setImapPass} show={showAddImapPass} setShow={setShowAddImapPass} placeholder="Password or App Key" />
-                    </Stack>
-                    <AllowSelfSignedSwitch checked={imapAllowSelfSigned} onChange={setImapAllowSelfSigned} />
+            {/* Any mailbox can sync replies over IMAP, whatever its provider label */}
+            <Card variant="outlined" sx={{ bgcolor: 'action.hover' }}>
+              <CardContent>
+                <Typography variant="overline" sx={{ color: 'text.secondary', fontWeight: 700, display: 'block', mb: 1.5 }}>Inbound Replies (IMAP)</Typography>
+                <Stack spacing={1.5}>
+                  {(provider === 'Microsoft 365' || isMicrosoftImapHost(imapHost)) && (
+                    <Typography variant="caption" sx={{ color: 'warning.main', display: 'block' }}>{MICROSOFT_IMAP_NOTE}</Typography>
+                  )}
+                  <Stack direction="row" spacing={1.5}>
+                    <TextField fullWidth size="small" label="IMAP Host" value={imapHost} onChange={(e) => setImapHost(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
+                    <TextField fullWidth size="small" label="Port" value={imapPort} onChange={(e) => setImapPort(e.target.value)} placeholder="993" slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
                   </Stack>
-                </CardContent>
-              </Card>
-            )}
+                  <Stack direction="row" spacing={1.5}>
+                    <TextField fullWidth size="small" label="Username" value={imapUser} onChange={(e) => setImapUser(e.target.value)} placeholder="user@domain.com" slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
+                    <PwField label="Password" value={imapPass} onChange={setImapPass} show={showAddImapPass} setShow={setShowAddImapPass} placeholder="Password or App Key" />
+                  </Stack>
+                  <AllowSelfSignedSwitch checked={imapAllowSelfSigned} onChange={setImapAllowSelfSigned} />
+                </Stack>
+              </CardContent>
+            </Card>
 
             <Card variant="outlined">
               <CardContent>

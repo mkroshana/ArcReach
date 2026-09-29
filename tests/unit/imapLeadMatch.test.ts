@@ -44,7 +44,7 @@ vi.mock('tls', () => {
 
 vi.mock('../../lib/db', () => {
   const prisma: any = {
-    senderAccount: { findUnique: vi.fn(), updateMany: vi.fn() },
+    senderAccount: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     lead: { findMany: vi.fn(), findFirst: vi.fn() },
     inboundResponse: { findFirst: vi.fn(), createMany: vi.fn() },
     campaignEnrollment: { findMany: vi.fn(), updateMany: vi.fn() },

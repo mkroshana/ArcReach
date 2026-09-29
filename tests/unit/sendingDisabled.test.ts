@@ -207,3 +207,27 @@ describe('POST /api/send-email/test result the Accounts page shows (L22)', () =>
     expect(mockedSend).not.toHaveBeenCalled();
   });
 });
+
+describe('POST /api/send-email/test body under Azure (M7)', () => {
+  const test = () => postTestEmail(makeReq('/api/send-email/test', { senderAccountId: 'mb-1' }));
+  const sentMessage = () => mockedSend.mock.calls[0][0];
+
+  it('shows the mailbox name as an internal label and says the From name comes from Azure', async () => {
+    useSettings(AZURE_SETTINGS);
+
+    expect((await test()).status).toBe(200);
+    const { body, fromName } = sentMessage();
+    expect(body).not.toMatch(/Display Name/);
+    expect(body).toContain('Internal Label: One');
+    expect(body).toContain('The From name on this email comes from the sender username configured in Azure Communication Services.');
+    expect(fromName).toBeUndefined();
+  });
+
+  it('says no label is set when the mailbox has no name', async () => {
+    useSettings(AZURE_SETTINGS);
+    mockedPrisma.senderAccount.findUnique.mockResolvedValue({ ...SENDER, name: '' });
+
+    expect((await test()).status).toBe(200);
+    expect(sentMessage().body).toContain('Internal Label: (not set)');
+  });
+});

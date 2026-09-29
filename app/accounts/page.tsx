@@ -554,7 +554,7 @@ export default function AccountsPage() {
           <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '2fr 1fr' }, gap: 2 }}>
               <TextField label="Sender Email Address" type="email" required value={emailAddress} onChange={(e) => setEmailAddress(e.target.value)} size="small" placeholder="outreach@mycompany.com" slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-              <TextField label="Display Name (From)" required value={senderName} onChange={(e) => setSenderName(e.target.value)} size="small" placeholder="Michael Scott" />
+              <TextField label="Internal Label" required value={senderName} onChange={(e) => setSenderName(e.target.value)} size="small" placeholder="Sales Outreach" helperText="Shown only in ArcReach. Recipients see the From name set on the sender username in Azure." />
               <TextField label="Reply-To (Optional)" type="email" value={replyTo} onChange={(e) => setReplyTo(e.target.value)} size="small" placeholder="replies@mycompany.com" slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
               <FormControl size="small">
                 <InputLabel>Email Provider</InputLabel>

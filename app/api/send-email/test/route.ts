@@ -35,9 +35,9 @@ export async function POST(req: NextRequest) {
     }
     const provider = settings?.activeProvider;
 
-    // Build the test email content
+    // Build the test email content. ACS takes the From name from the sender
+    // username configured in Azure, so the mailbox name is only an internal label.
     const recipientEmail = session.email;
-    const senderDisplayName = senderAccount.name || 'ArcReach Sender';
     const now = new Date().toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short' });
 
     const subject = `✅ ArcReach Test — ${senderAccount.emailAddress} is connected`;
@@ -47,9 +47,11 @@ export async function POST(req: NextRequest) {
       `This is a test email sent from ArcReach to verify that the sender mailbox "${senderAccount.emailAddress}" is configured correctly and able to dispatch outbound emails.`,
       '',
       `Sender: ${senderAccount.emailAddress}`,
-      `Display Name: ${senderDisplayName}`,
+      `Internal Label: ${senderAccount.name || '(not set)'}`,
       `Provider: ${senderAccount.provider}`,
       `Sent At: ${now}`,
+      '',
+      'The From name on this email comes from the sender username configured in Azure Communication Services. The internal label is shown only in ArcReach.',
       '',
       'If you received this email, the SMTP connection for this sender account is working as expected.',
       '',
@@ -64,7 +66,6 @@ export async function POST(req: NextRequest) {
           body: bodyText,
           isHtml: false,
           sender: senderAccount,
-          fromName: senderDisplayName,
         },
         settings
       );

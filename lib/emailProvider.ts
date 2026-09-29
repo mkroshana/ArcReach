@@ -73,6 +73,8 @@ export interface ProviderSettings {
 export interface SenderInput {
   emailAddress: string;
   replyTo?: string | null;
+  /** Internal label. Only the SMTP path uses it as the From name; ACS takes the
+   *  From name from the sender username configured in Azure. */
   name?: string | null;
   smtpHost?: string | null;
   smtpPort?: number | null;

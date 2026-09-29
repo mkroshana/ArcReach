@@ -9,7 +9,7 @@ import { senderCapDispatchWhere } from '@/lib/sendEngine';
 import { type FieldRule, fieldRules, isPlainObject, pickUpdateFields } from '@/lib/updateAllowList';
 
 /** Scalar columns the mailbox PUT may write: the throttle, warmup and credential
- *  controls on the Accounts page plus the display name. Counters, reputation and
+ *  controls on the Accounts page plus the internal label. Counters, reputation and
  *  warmupStartedAt are server-managed. */
 const ACCOUNT_UPDATE_FIELDS: Record<string, FieldRule> = {
   name: fieldRules.nullableString,

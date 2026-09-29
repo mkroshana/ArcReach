@@ -8,13 +8,13 @@ const server = vi.hoisted(() => ({
 }));
 
 const HEADERS = [
-  '* 1 FETCH (BODY[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES)] {90}',
+  '* 1 FETCH (UID 1 BODY[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES)] {90}',
   'From: Vendor News <news@vendor.test>',
   'Subject: Weekly digest',
   'Date: Tue, 29 Sep 2026 10:00:00 +0000',
   '',
   ')',
-  '* 2 FETCH (BODY[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES)] {110}',
+  '* 2 FETCH (UID 2 BODY[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES)] {110}',
   'From: John Smith <JOHN.smith@ACME.com>',
   'Subject: Re: Quick question',
   'Date: Tue, 29 Sep 2026 11:00:00 +0000',
@@ -30,13 +30,13 @@ vi.mock('tls', () => {
     socket.destroy = () => setImmediate(() => socket.emit('close'));
     socket.write = (data: string) => {
       server.written.push(data);
-      const [tag, verb] = data.trim().split(/\s+/);
+      const [tag, verb, sub] = data.trim().split(/\s+/);
       let reply = '';
       if (verb === 'LOGIN') reply = `${tag} OK LOGIN completed\r\n`;
-      else if (verb === 'SELECT') reply = `* 2 EXISTS\r\n${tag} OK [READ-WRITE] SELECT completed\r\n`;
-      else if (verb === 'SEARCH') reply = `* SEARCH 1 2\r\n${tag} OK SEARCH completed\r\n`;
-      else if (verb === 'FETCH' && data.includes('HEADER.FIELDS')) reply = `${HEADERS}\r\n${tag} OK FETCH completed\r\n`;
-      else if (verb === 'FETCH') reply = `* 2 FETCH (BODY[TEXT] {11}\r\nplease stop\r\n)\r\n${tag} OK FETCH completed\r\n`;
+      else if (verb === 'EXAMINE') reply = `* 2 EXISTS\r\n* OK [UIDVALIDITY 7] UIDs valid\r\n* OK [UIDNEXT 3] Predicted next UID\r\n${tag} OK [READ-ONLY] EXAMINE completed\r\n`;
+      else if (verb === 'UID' && sub === 'SEARCH') reply = `* SEARCH 1 2\r\n${tag} OK SEARCH completed\r\n`;
+      else if (verb === 'UID' && sub === 'FETCH' && data.includes('HEADER.FIELDS')) reply = `${HEADERS}\r\n${tag} OK FETCH completed\r\n`;
+      else if (verb === 'UID' && sub === 'FETCH') reply = `* 2 FETCH (UID 2 BODY[TEXT] {11}\r\nplease stop\r\n)\r\n${tag} OK FETCH completed\r\n`;
       if (reply) setImmediate(() => socket.emit('data', Buffer.from(reply)));
       return true;
     };
@@ -48,7 +48,7 @@ vi.mock('tls', () => {
 
 vi.mock('../../lib/db', () => ({
   prisma: {
-    senderAccount: { findUnique: vi.fn() },
+    senderAccount: { findUnique: vi.fn(), updateMany: vi.fn() },
     lead: { findMany: vi.fn(), findFirst: vi.fn() },
     inboundResponse: { findFirst: vi.fn(), create: vi.fn() },
     campaignEnrollment: { findMany: vi.fn(), update: vi.fn() },
@@ -103,7 +103,7 @@ describe('IMAP reply matching', () => {
     const result = await syncMailboxReplies('mbx_1');
 
     expect(result).toEqual({ success: true, syncedCount: 1 });
-    expect(server.written.some((w) => / FETCH 2 \(BODY\[TEXT\]\)/.test(w))).toBe(true);
+    expect(server.written.some((w) => / UID FETCH 2 \(BODY\.PEEK\[TEXT\]\)/.test(w))).toBe(true);
     expect(mocked.inboundResponse.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ leadId: 'lead-1', campaignId: 'cmp-1', senderAccountId: 'mbx_1', body: expect.stringContaining('please stop') }),
     });

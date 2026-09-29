@@ -253,6 +253,15 @@ export async function PUT(req: NextRequest) {
         updates.warmupStartedAt = new Date();
         updates.warmupSent = 0;
       }
+      // Another IMAP host or login is another mailbox, whose UIDs the reply-sync
+      // checkpoint says nothing about, so the next sync starts over.
+      const imapMoved = (['imapHost', 'imapUser'] as const).some(
+        (f) => updates[f] !== undefined && (updates[f] ?? null) !== (existingAccount[f] ?? null)
+      );
+      if (imapMoved) {
+        updates.imapUidValidity = null;
+        updates.imapLastUid = null;
+      }
     }
 
     const updated = await db.updateAccount(id, updates);

@@ -18,8 +18,7 @@ vi.mock('tls', () => {
       const [tag, verb] = data.trim().split(/\s+/);
       let reply = '';
       if (verb === 'LOGIN') reply = `${tag} OK LOGIN completed\r\n`;
-      else if (verb === 'SELECT') reply = `* 0 EXISTS\r\n${tag} OK [READ-WRITE] SELECT completed\r\n`;
-      else if (verb === 'SEARCH') reply = `* SEARCH\r\n${tag} OK SEARCH completed\r\n`;
+      else if (verb === 'EXAMINE') reply = `* 0 EXISTS\r\n* OK [UIDVALIDITY 7] UIDs valid\r\n* OK [UIDNEXT 1] Predicted next UID\r\n${tag} OK [READ-ONLY] EXAMINE completed\r\n`;
       if (reply) setImmediate(() => socket.emit('data', Buffer.from(reply)));
       return true;
     };
@@ -32,7 +31,7 @@ vi.mock('tls', () => {
 vi.mock('../../lib/db', () => ({
   db: { createAccount: vi.fn(), getAccounts: vi.fn(), updateAccount: vi.fn() },
   prisma: {
-    senderAccount: { findUnique: vi.fn() },
+    senderAccount: { findUnique: vi.fn(), updateMany: vi.fn() },
     user: { findUnique: vi.fn() },
     globalSettings: { findUnique: vi.fn(), findFirst: vi.fn() },
   },

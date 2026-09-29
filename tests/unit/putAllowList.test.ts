@@ -254,6 +254,26 @@ describe('PUT /api/accounts', () => {
     expect((await res.json()).imapPass).toBe(MASKED_SECRET);
   });
 
+  it('resets the IMAP reply-sync checkpoint only when the IMAP host or login changes (H32)', async () => {
+    mockedPrisma.senderAccount.findUnique.mockResolvedValue({
+      id: 'acc-1', warmupEnabled: false, imapHost: 'imap.old.test', imapUser: 'sales@old.test', imapUidValidity: 7, imapLastUid: 900,
+    });
+
+    const same = { imapHost: 'imap.old.test', imapPort: 993, imapUser: 'sales@old.test' };
+    expect((await putAccount(makeReq('/api/accounts', { id: 'acc-1', ...same }))).status).toBe(200);
+    expect(mockedDb.updateAccount).toHaveBeenLastCalledWith('acc-1', same);
+
+    for (const change of [{ imapHost: 'imap.new.test' }, { imapUser: 'other@old.test' }, { imapHost: null }]) {
+      expect((await putAccount(makeReq('/api/accounts', { id: 'acc-1', ...change }))).status).toBe(200);
+      expect(mockedDb.updateAccount).toHaveBeenLastCalledWith('acc-1', { ...change, imapUidValidity: null, imapLastUid: null });
+    }
+
+    // The checkpoint itself is server-managed.
+    mockedDb.updateAccount.mockClear();
+    expect((await putAccount(makeReq('/api/accounts', { id: 'acc-1', imapLastUid: 0 }))).status).toBe(400);
+    expect(mockedDb.updateAccount).not.toHaveBeenCalled();
+  });
+
   it('keeps the ownership check', async () => {
     const res = await putAccount(makeReq('/api/accounts', { id: 'acc-other', minuteLimit: 5 }));
     expect(res.status).toBe(403);

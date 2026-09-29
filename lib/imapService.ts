@@ -17,6 +17,48 @@ interface ImapMessage {
 
 const activeSyncs = new Set<string>();
 
+/** Most new INBOX messages one sync reads, oldest first; the rest wait for the next sync. */
+export const IMAP_SYNC_BATCH_SIZE = 200;
+
+/** A mailbox without a checkpoint (first sync, or the server reset UIDVALIDITY) starts with mail received in this many days. */
+export const IMAP_FIRST_SYNC_LOOKBACK_DAYS = 7;
+
+const IMAP_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** RFC 3501 SEARCH date (d-Mon-yyyy) of the UTC day of `d`. */
+export function imapSearchDate(d: Date): string {
+  return `${d.getUTCDate()}-${IMAP_MONTHS[d.getUTCMonth()]}-${d.getUTCFullYear()}`;
+}
+
+/**
+ * The UID SEARCH listing INBOX messages the sync has not read. The saved UID is
+ * only meaningful while the INBOX keeps the UIDVALIDITY it was saved under, so a
+ * missing or stale checkpoint falls back to mail from the lookback window.
+ */
+export function replySearchPlan(
+  checkpoint: { imapUidValidity: number | null; imapLastUid: number | null },
+  uidValidity: number,
+  now: Date
+): { cmd: string; afterUid: number; resumed: boolean } {
+  if (checkpoint.imapUidValidity === uidValidity && checkpoint.imapLastUid !== null) {
+    const afterUid = checkpoint.imapLastUid;
+    return { cmd: `UID SEARCH UID ${afterUid + 1}:*`, afterUid, resumed: true };
+  }
+  const since = new Date(now.getTime() - IMAP_FIRST_SYNC_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+  return { cmd: `UID SEARCH SINCE ${imapSearchDate(since)}`, afterUid: 0, resumed: false };
+}
+
+/** UIDs listed by the untagged SEARCH responses in `resp`. */
+export function parseSearchUids(resp: string): number[] {
+  const uids: number[] = [];
+  for (const match of resp.matchAll(/^\* SEARCH([ \d]*)/gim)) {
+    for (const n of match[1].trim().split(/\s+/)) {
+      if (n) uids.push(Number(n));
+    }
+  }
+  return uids;
+}
+
 /**
  * Log-safe form of an outgoing IMAP command: tag and verb only. Arguments are
  * never logged because LOGIN carries the decrypted mailbox password.
@@ -38,6 +80,25 @@ export function imapTlsOptions(host: string, port: number, allowSelfSigned: bool
     servername: net.isIP(host) ? undefined : host,
     rejectUnauthorized: !allowSelfSigned,
   };
+}
+
+/**
+ * Save the reply-sync checkpoint. The worker and a Unibox load can sync the same
+ * mailbox at once, so a save never moves the UID back under the same UIDVALIDITY.
+ */
+async function saveImapCheckpoint(mailboxId: string, uidValidity: number, lastUid: number) {
+  await prisma.senderAccount.updateMany({
+    where: {
+      id: mailboxId,
+      OR: [
+        { imapUidValidity: null },
+        { imapUidValidity: { not: uidValidity } },
+        { imapLastUid: null },
+        { imapLastUid: { lt: lastUid } },
+      ],
+    },
+    data: { imapUidValidity: uidValidity, imapLastUid: lastUid },
+  });
 }
 
 export async function syncMailboxReplies(mailboxId: string) {
@@ -63,6 +124,13 @@ export async function syncMailboxReplies(mailboxId: string) {
       console.warn(`[IMAP Sync] Certificate verification is off for ${mailbox.emailAddress} (Allow Self-Signed Certificate).`);
     }
     
+    // Where this sync leaves the checkpoint, known once the IMAP exchange has run.
+    const batch: { uidValidity: number | null; lastUid: number | null; complete: boolean } = {
+      uidValidity: null,
+      lastUid: null,
+      complete: false,
+    };
+    
     let socket: tls.TLSSocket | null = null;
     try {
       const messages = await new Promise<ImapMessage[]>((resolve, reject) => {
@@ -82,7 +150,7 @@ export async function syncMailboxReplies(mailboxId: string) {
         const makeTag = (prefix: string) => `${prefix}_${Math.random().toString(36).substring(2, 8)}`;
         
         const tagLogin = makeTag('A1_LOGIN');
-        const tagSelect = makeTag('A2_SELECT');
+        const tagExamine = makeTag('A2_EXAMINE');
         const tagSearch = makeTag('A3_SEARCH');
         
         const executeNext = () => {
@@ -93,6 +161,7 @@ export async function syncMailboxReplies(mailboxId: string) {
             socket!.write(`${item.tag} ${item.cmd}\r\n`);
           } else {
             // Finished all commands, close connection
+            batch.complete = true;
             const tagLogout = makeTag('A_LOGOUT');
             socket!.write(`${tagLogout} LOGOUT\r\n`);
             socket!.end();
@@ -168,83 +237,115 @@ export async function syncMailboxReplies(mailboxId: string) {
           }
         });
         
-        // 2. SELECT INBOX
+        // Reply-sync checkpoint state, set once EXAMINE reports the INBOX's UIDVALIDITY
+        let afterUid = 0;
+        let resumed = false;
+        let uidNext: number | null = null;
+        // Nothing to read without a checkpoint: start one at the newest message.
+        const checkpointAtNewest = () => {
+          if (!resumed && uidNext !== null) batch.lastUid = uidNext - 1;
+        };
+        
+        // 2. EXAMINE INBOX: read-only, so the sync never changes flags on the user's mail
         commandsQueue.push({
-          tag: tagSelect,
-          cmd: 'SELECT INBOX',
+          tag: tagExamine,
+          cmd: 'EXAMINE INBOX',
           handler: (resp) => {
-            if (!resp.includes(`${tagSelect} OK`)) {
-              throw new Error('IMAP SELECT failed: ' + resp);
+            if (!resp.includes(`${tagExamine} OK`)) {
+              throw new Error('IMAP EXAMINE failed: ' + resp);
             }
+            const validityMatch = resp.match(/\[UIDVALIDITY (\d+)\]/i);
+            if (!validityMatch) {
+              throw new Error('IMAP EXAMINE returned no UIDVALIDITY: ' + resp);
+            }
+            batch.uidValidity = Number(validityMatch[1]);
+            const uidNextMatch = resp.match(/\[UIDNEXT (\d+)\]/i);
+            uidNext = uidNextMatch ? Number(uidNextMatch[1]) : null;
+            
+            const plan = replySearchPlan(mailbox, batch.uidValidity, new Date());
+            afterUid = plan.afterUid;
+            resumed = plan.resumed;
+            
+            // An empty INBOX has nothing to search, and some servers refuse "UID n:*" there
+            const existsMatch = resp.match(/^\* (\d+) EXISTS/im);
+            if (existsMatch && Number(existsMatch[1]) === 0) {
+              checkpointAtNewest();
+              return;
+            }
+            searchCommand.cmd = plan.cmd;
+            commandsQueue.splice(currentCommandIdx + 1, 0, searchCommand);
           }
         });
         
-        // 3. SEARCH ALL
-        commandsQueue.push({
+        // 3. UID SEARCH for the messages after the checkpoint, queued by EXAMINE
+        const searchCommand = {
           tag: tagSearch,
-          cmd: 'SEARCH ALL',
-          handler: (resp) => {
+          cmd: '',
+          handler: (resp: string) => {
             if (!resp.includes(`${tagSearch} OK`)) {
               throw new Error('IMAP SEARCH failed: ' + resp);
             }
             
-            const match = resp.match(/\* SEARCH\s+([0-9\s]+)/i);
-            if (match && match[1].trim()) {
-              const numbers = match[1].trim().split(/\s+/).filter(Boolean);
-              if (numbers.length > 0) {
-                const last20 = numbers.slice(-20);
-                const range = last20.join(',');
-                const tagFetchHeaders = makeTag('A4_FETCH_HEADERS');
+            // "UID n:*" always lists the newest message, even when its UID is below n
+            const uids = Array.from(new Set(parseSearchUids(resp)))
+              .filter(uid => uid > afterUid)
+              .sort((a, b) => a - b)
+              .slice(0, IMAP_SYNC_BATCH_SIZE);
+            if (uids.length === 0) {
+              checkpointAtNewest();
+              return;
+            }
+            batch.lastUid = uids[uids.length - 1];
+            const tagFetchHeaders = makeTag('A4_FETCH_HEADERS');
+            
+            // Add header FETCH command dynamically. BODY.PEEK leaves the \Seen flag alone.
+            commandsQueue.splice(currentCommandIdx + 1, 0, {
+              tag: tagFetchHeaders,
+              cmd: `UID FETCH ${uids.join(',')} (UID BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES)])`,
+              handler: async (headerResp) => {
+                if (!headerResp.includes(`${tagFetchHeaders} OK`)) {
+                  throw new Error('IMAP Fetch headers failed: ' + headerResp);
+                }
+                const headerParsed = parseHeaderResponse(headerResp);
+                if (headerParsed.length === 0) return;
                 
-                // Add header FETCH command dynamically
-                commandsQueue.splice(currentCommandIdx + 1, 0, {
-                  tag: tagFetchHeaders,
-                  cmd: `FETCH ${range} (BODY[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES)])`,
-                  handler: async (headerResp) => {
-                    if (!headerResp.includes(`${tagFetchHeaders} OK`)) {
-                      throw new Error('IMAP Fetch headers failed: ' + headerResp);
-                    }
-                    const headerParsed = parseHeaderResponse(headerResp);
-                    if (headerParsed.length === 0) return;
-                    
-                    // Filter headers where the sender email matches an active Lead in our database, ignoring case
-                    const senderEmails = headerParsed.map(h => normalizeEmail(h.from));
-                    const matchedLeads = await prisma.lead.findMany({
-                      where: leadEmailIn(senderEmails)
-                    });
-                    const matchedLeadEmails = new Set(matchedLeads.map(l => normalizeEmail(l.email)));
-                    
-                    // For each matching message, dynamically queue a command to fetch its body
-                    for (const msg of headerParsed) {
-                      if (matchedLeadEmails.has(normalizeEmail(msg.from))) {
-                        const tagFetchBody = makeTag('A5_FETCH_BODY');
-                        commandsQueue.splice(currentCommandIdx + 1, 0, {
-                          tag: tagFetchBody,
-                          cmd: `FETCH ${msg.seq} (BODY[TEXT])`,
-                          handler: (bodyResp) => {
-                            if (!bodyResp.includes(`${tagFetchBody} OK`)) {
-                              throw new Error('IMAP Fetch body failed: ' + bodyResp);
-                            }
-                            const bodyParsedText = parseBodyResponse(bodyResp);
-                            fetchedMessages.push({
-                              from: msg.from,
-                              subject: msg.subject,
-                              date: msg.date,
-                              messageId: msg.messageId,
-                              inReplyTo: msg.inReplyTo,
-                              references: msg.references,
-                              body: cleanMimeBody(bodyParsedText)
-                            });
-                          }
+                // Filter headers where the sender email matches an active Lead in our database, ignoring case
+                const senderEmails = headerParsed.map(h => normalizeEmail(h.from));
+                const matchedLeads = await prisma.lead.findMany({
+                  where: leadEmailIn(senderEmails)
+                });
+                const matchedLeadEmails = new Set(matchedLeads.map(l => normalizeEmail(l.email)));
+                
+                // For each matching message, oldest first, queue a command to fetch its body
+                const bodyCommands = headerParsed
+                  .filter(msg => matchedLeadEmails.has(normalizeEmail(msg.from)))
+                  .map(msg => {
+                    const tagFetchBody = makeTag('A5_FETCH_BODY');
+                    return {
+                      tag: tagFetchBody,
+                      cmd: `UID FETCH ${msg.uid} (BODY.PEEK[TEXT])`,
+                      handler: (bodyResp: string) => {
+                        if (!bodyResp.includes(`${tagFetchBody} OK`)) {
+                          throw new Error('IMAP Fetch body failed: ' + bodyResp);
+                        }
+                        const bodyParsedText = parseBodyResponse(bodyResp);
+                        fetchedMessages.push({
+                          from: msg.from,
+                          subject: msg.subject,
+                          date: msg.date,
+                          messageId: msg.messageId,
+                          inReplyTo: msg.inReplyTo,
+                          references: msg.references,
+                          body: cleanMimeBody(bodyParsedText)
                         });
                       }
-                    }
-                  }
-                });
+                    };
+                  });
+                commandsQueue.splice(currentCommandIdx + 1, 0, ...bodyCommands);
               }
-            }
+            });
           }
-        });
+        };
       });
       
       console.log(`[IMAP Sync] Fetched ${messages.length} messages from mail server.`);
@@ -316,6 +417,12 @@ export async function syncMailboxReplies(mailboxId: string) {
         }
       }
       
+      // Move the checkpoint only after every message of the batch was fetched and
+      // recorded, so a dropped connection or a failed write reads the batch again.
+      if (batch.complete && batch.uidValidity !== null && batch.lastUid !== null) {
+        await saveImapCheckpoint(mailbox.id, batch.uidValidity, batch.lastUid);
+      }
+      
       console.log(`[IMAP Sync] Finished. Synced ${newRepliesCount} new replies.`);
       return { success: true, syncedCount: newRepliesCount };
     } catch (err: any) {
@@ -333,7 +440,7 @@ export async function syncMailboxReplies(mailboxId: string) {
 }
 
 interface HeaderInfo {
-  seq: string;
+  uid: number;
   from: string;
   subject: string;
   date: Date;
@@ -342,18 +449,36 @@ interface HeaderInfo {
   references: string;
 }
 
+/**
+ * The UID data item of one FETCH response. Servers put it before or after the
+ * header literal: "* 3 FETCH (UID 42 BODY[...] {n}" or "... {n}\r\n<headers>\r\n\r\n UID 42)".
+ */
+function fetchResponseUid(block: string): number | null {
+  const literal = block.match(/\{\d+\}\r\n/);
+  const prelude = literal ? block.slice(0, literal.index) : block;
+  let uidMatch = prelude.match(/\bUID\s+(\d+)/i);
+  if (!uidMatch && literal && literal.index !== undefined) {
+    const headersEnd = block.indexOf('\r\n\r\n', literal.index);
+    if (headersEnd !== -1) uidMatch = block.slice(headersEnd).match(/\bUID\s+(\d+)/i);
+  }
+  return uidMatch ? Number(uidMatch[1]) : null;
+}
+
 export function parseHeaderResponse(fetchResp: string): HeaderInfo[] {
   const result: HeaderInfo[] = [];
-  const msgBlocks = fetchResp.split(/\r\n\* /i);
+  // One block per untagged response, each starting with "* ", the first one included
+  const msgBlocks = fetchResp.split(/\r\n(?=\* )/);
   
   for (const block of msgBlocks) {
     const trimmed = block.trim();
     if (!trimmed) continue;
     
-    const match = trimmed.match(/^(\d+)\s+FETCH\s+\(/i);
+    const match = trimmed.match(/^\*\s+\d+\s+FETCH\s+\(/i);
     if (!match) continue;
     
-    const seq = match[1];
+    // Without a UID the body can't be fetched (an unsolicited flag update, say)
+    const uid = fetchResponseUid(trimmed);
+    if (uid === null) continue;
     
     const fromMatch = trimmed.match(/From:\s*([^\r\n]+)/i);
     const subjectMatch = trimmed.match(/Subject:\s*([^\r\n]+)/i);
@@ -376,7 +501,7 @@ export function parseHeaderResponse(fetchResp: string): HeaderInfo[] {
     const references = refsMatch ? refsMatch[1].trim() : '';
     
     result.push({
-      seq,
+      uid,
       from: fromEmail.toLowerCase(),
       subject,
       date,

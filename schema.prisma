@@ -104,6 +104,12 @@ model SenderAccount {
   imapPass        String?
   // Opt-in per mailbox: skip TLS certificate verification for an IMAP host with a self-signed certificate.
   imapAllowSelfSigned Boolean   @default(false)
+  // Reply-sync checkpoint: the INBOX UIDVALIDITY and the highest UID already read under it.
+  // Null until the first sync, and reset when the IMAP host or login changes. UIDs are
+  // unsigned 32-bit, past Int's range; Float holds them exactly and stays a JSON-safe
+  // number (BigInt would break every API response that embeds the mailbox).
+  imapUidValidity Float?
+  imapLastUid     Float?
 }
 
 // ------------------------------------------------------

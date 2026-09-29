@@ -15,11 +15,11 @@ vi.mock('tls', () => {
     socket.destroy = () => setImmediate(() => socket.emit('close'));
     socket.write = (data: string) => {
       server.written.push(data);
-      const [tag, verb] = data.trim().split(/\s+/);
+      const [tag, verb, sub] = data.trim().split(/\s+/);
       let reply = '';
       if (verb === 'LOGIN') reply = `${tag} OK LOGIN completed\r\n`;
-      else if (verb === 'SELECT') reply = `* 0 EXISTS\r\n${tag} OK [READ-WRITE] SELECT completed\r\n`;
-      else if (verb === 'SEARCH') reply = `* SEARCH\r\n${tag} OK SEARCH completed\r\n`;
+      else if (verb === 'EXAMINE') reply = `* 1 EXISTS\r\n* OK [UIDVALIDITY 7] UIDs valid\r\n* OK [UIDNEXT 2] Predicted next UID\r\n${tag} OK [READ-ONLY] EXAMINE completed\r\n`;
+      else if (verb === 'UID' && sub === 'SEARCH') reply = `* SEARCH\r\n${tag} OK SEARCH completed\r\n`;
       if (reply) setImmediate(() => socket.emit('data', Buffer.from(reply)));
       return true;
     };
@@ -31,7 +31,7 @@ vi.mock('tls', () => {
 
 vi.mock('../../lib/db', () => ({
   prisma: {
-    senderAccount: { findUnique: vi.fn() },
+    senderAccount: { findUnique: vi.fn(), updateMany: vi.fn() },
   },
 }));
 
@@ -104,7 +104,7 @@ describe('syncMailboxReplies logging', () => {
       });
     const sendLines = loggedLines().filter(l => l.startsWith('[IMAP Sync] Sending:'));
     expect(sendLines).toEqual(expectedSendLines);
-    expect(sendLines.map(l => l.split(' ').pop())).toEqual(['LOGIN', 'SELECT', 'SEARCH']);
+    expect(sendLines.map(l => l.split(' ').pop())).toEqual(['LOGIN', 'EXAMINE', 'UID']);
 
     for (const line of loggedLines()) {
       expect(line).not.toContain(PASSWORD);

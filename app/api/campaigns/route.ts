@@ -1,6 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db, prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
+import { type FieldRule, fieldRules, isPlainObject, pickUpdateFields } from '@/lib/updateAllowList';
+
+/** Campaign statuses the app sets and the UI offers. */
+const CAMPAIGN_STATUSES = ['Draft', 'Active', 'Paused'];
+
+/** Scalar columns the collection PUT may write. Sender mailboxes, audience and
+ *  steps are edited through /api/campaigns/[id]; pausedUntil belongs to the send engine. */
+const CAMPAIGN_UPDATE_FIELDS: Record<string, FieldRule> = {
+  name: fieldRules.nonEmptyString,
+  status: fieldRules.oneOf(CAMPAIGN_STATUSES),
+  timezone: fieldRules.nonEmptyString,
+  stopOnReply: fieldRules.boolean,
+  trackOpens: fieldRules.boolean,
+  trackClicks: fieldRules.boolean,
+  userId: fieldRules.nonEmptyString,
+};
 
 export async function GET() {
   try {
@@ -91,11 +107,21 @@ export async function PUT(req: NextRequest) {
   try {
     const session = await getSession();
     const data = await req.json();
-    const { id, ...updates } = data;
+    if (!isPlainObject(data)) {
+      return NextResponse.json({ error: 'Request body must be a JSON object.' }, { status: 400 });
+    }
+    const { id, ...fields } = data;
 
-    if (!id) {
+    if (!id || typeof id !== 'string') {
       return NextResponse.json({ error: 'Campaign ID is required.' }, { status: 400 });
     }
+
+    // Only listed scalar columns reach Prisma; object values would be nested writes.
+    const picked = pickUpdateFields(fields, CAMPAIGN_UPDATE_FIELDS);
+    if (!picked.ok) {
+      return NextResponse.json({ error: picked.error }, { status: 400 });
+    }
+    const updates = picked.data;
 
     // Verify ownership
     const campaignsList = await db.getCampaigns(session.id, session.role);
@@ -105,8 +131,15 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized to modify this campaign.' }, { status: 403 });
     }
 
-    if (session.role !== 'ADMIN') {
-      delete updates.userId;
+    if (updates.userId !== undefined) {
+      if (session.role !== 'ADMIN') {
+        delete updates.userId;
+      } else {
+        const owner = await prisma.user.findUnique({ where: { id: updates.userId as string }, select: { id: true } });
+        if (!owner) {
+          return NextResponse.json({ error: 'Assigned user does not exist.' }, { status: 400 });
+        }
+      }
     }
 
     const updated = await db.updateCampaign(id, updates);

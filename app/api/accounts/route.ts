@@ -2,6 +2,30 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db, prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { MASKED_SECRET, encryptSecret } from '@/lib/secrets';
+import { type FieldRule, fieldRules, isPlainObject, pickUpdateFields } from '@/lib/updateAllowList';
+
+/** Scalar columns the mailbox PUT may write: the throttle, warmup and credential
+ *  controls on the Accounts page plus the display name. Counters, reputation and
+ *  warmupStartedAt are server-managed. */
+const ACCOUNT_UPDATE_FIELDS: Record<string, FieldRule> = {
+  name: fieldRules.nullableString,
+  replyTo: fieldRules.nullableString,
+  minuteLimit: fieldRules.nonNegativeInt,
+  hourlyLimit: fieldRules.nonNegativeInt,
+  dailyLimit: fieldRules.nonNegativeInt,
+  warmupEnabled: fieldRules.boolean,
+  warmupLimit: fieldRules.nonNegativeInt,
+  warmupRamp: fieldRules.nonNegativeInt,
+  smtpHost: fieldRules.nullableString,
+  smtpPort: fieldRules.port,
+  smtpUser: fieldRules.nullableString,
+  smtpPass: fieldRules.nullableString,
+  imapHost: fieldRules.nullableString,
+  imapPort: fieldRules.port,
+  imapUser: fieldRules.nullableString,
+  imapPass: fieldRules.nullableString,
+  userId: fieldRules.nonEmptyString,
+};
 
 /** Redact stored secrets in API responses; UI sends the mask back unchanged
  *  for unedited fields, and PUT skips them so the real secret stays intact. */
@@ -202,11 +226,21 @@ export async function PUT(req: NextRequest) {
   try {
     const session = await getSession();
     const data = await req.json();
-    const { id, ...updates } = data;
+    if (!isPlainObject(data)) {
+      return NextResponse.json({ error: 'Request body must be a JSON object.' }, { status: 400 });
+    }
+    const { id, ...fields } = data;
 
-    if (!id) {
+    if (!id || typeof id !== 'string') {
       return NextResponse.json({ error: 'Account ID is required for editing.' }, { status: 400 });
     }
+
+    // Only listed scalar columns reach Prisma; object values would be nested writes.
+    const picked = pickUpdateFields(fields, ACCOUNT_UPDATE_FIELDS);
+    if (!picked.ok) {
+      return NextResponse.json({ error: picked.error }, { status: 400 });
+    }
+    const updates = picked.data;
 
     // Check permissions - if user, verify they own the mailbox
     const accountsList = await db.getAccounts(session.id, session.role);
@@ -217,15 +251,15 @@ export async function PUT(req: NextRequest) {
     }
 
     // If standard user, prevent them from reassigning the account to someone else
-    if (session.role !== 'ADMIN') {
-      delete updates.userId;
-    }
-
-    if (updates.smtpPort !== undefined) {
-      updates.smtpPort = updates.smtpPort ? Number(updates.smtpPort) : null;
-    }
-    if (updates.imapPort !== undefined) {
-      updates.imapPort = updates.imapPort ? Number(updates.imapPort) : null;
+    if (updates.userId !== undefined) {
+      if (session.role !== 'ADMIN') {
+        delete updates.userId;
+      } else {
+        const owner = await prisma.user.findUnique({ where: { id: updates.userId as string }, select: { id: true } });
+        if (!owner) {
+          return NextResponse.json({ error: 'Assigned user does not exist.' }, { status: 400 });
+        }
+      }
     }
 
     // Secrets: drop if echoed mask (don't overwrite real value); else encrypt.
@@ -233,7 +267,7 @@ export async function PUT(req: NextRequest) {
       if (updates[f] === MASKED_SECRET) {
         delete updates[f];
       } else if (updates[f] !== undefined) {
-        updates[f] = encryptedOrNull(updates[f]);
+        updates[f] = encryptedOrNull(updates[f] as string | null);
       }
     }
 

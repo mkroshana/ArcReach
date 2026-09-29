@@ -12,9 +12,12 @@ const tx = vi.hoisted(() => ({
 vi.mock('../../lib/db', () => ({
   db: {
     createCampaign: vi.fn(),
+    getCampaigns: vi.fn(),
+    updateCampaign: vi.fn(),
   },
   prisma: {
     senderAccount: { findMany: vi.fn() },
+    user: { findUnique: vi.fn() },
     campaign: { findUnique: vi.fn() },
     lead: { findMany: vi.fn() },
     campaignEnrollment: { createMany: vi.fn() },
@@ -28,7 +31,7 @@ vi.mock('../../lib/session', () => ({
 
 import { db, prisma } from '../../lib/db';
 import { getSession } from '../../lib/session';
-import { POST as postCampaign } from '../../app/api/campaigns/route';
+import { POST as postCampaign, PUT as putCampaigns } from '../../app/api/campaigns/route';
 import { PUT as putCampaignDetail } from '../../app/api/campaigns/[id]/route';
 
 const mockedDb = db as any;
@@ -214,5 +217,95 @@ describe('PUT /api/campaigns/[id] sender ownership (H24)', () => {
     }
     expect(mockedPrisma.senderAccount.findMany).not.toHaveBeenCalled();
     expect(mockedPrisma.$transaction).not.toHaveBeenCalled();
+  });
+});
+
+describe('reassigning a campaign keeps its senders with its owner (H24)', () => {
+  const USERS = ['user-1', 'user-2', 'admin-1'];
+  const mailbox = (id: string) => ({ id, emailAddress: `${id}@acme.test` });
+  /** A campaign row as db.getCampaigns returns it: owner user-1, sending from user-1's mailboxes. */
+  let campaign: any;
+
+  beforeEach(() => {
+    mockedSession.mockResolvedValue(ADMIN);
+    campaign = {
+      id: 'cmp-1', userId: 'user-1', status: 'Draft', steps: [],
+      senderAccountId: 'mb-user1-a', senderAccount: mailbox('mb-user1-a'),
+      senders: [
+        { senderAccountId: 'mb-user1-a', senderAccount: mailbox('mb-user1-a') },
+        { senderAccountId: 'mb-user1-b', senderAccount: mailbox('mb-user1-b') },
+      ],
+    };
+    mockedDb.getCampaigns.mockImplementation(async () => [campaign]);
+    mockedDb.updateCampaign.mockImplementation(async (id: string, data: any) => ({ ...campaign, ...data }));
+    mockedPrisma.user.findUnique.mockImplementation(async ({ where }: any) =>
+      USERS.includes(where.id) ? { id: where.id } : null,
+    );
+  });
+
+  const reassign = (userId: unknown) => putCampaigns(makeReq('PUT', '/api/campaigns', { id: 'cmp-1', userId }));
+
+  it('refuses with 409 to give an ADMIN-reassigned campaign an owner who does not own its senders', async () => {
+    const res = await reassign('user-2');
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe(
+      "Cannot assign this campaign to that user: it sends from mb-user1-a@acme.test, mb-user1-b@acme.test, which the new owner does not own. A campaign only sends from its owner's mailboxes, so assign those mailboxes to the new owner first.",
+    );
+    expect(mockedPrisma.senderAccount.findMany).toHaveBeenCalledWith({
+      where: { id: { in: ['mb-user1-a', 'mb-user1-b'] }, userId: 'user-2' },
+      select: { id: true },
+    });
+    expect(mockedDb.updateCampaign).not.toHaveBeenCalled();
+  });
+
+  it('names only the senders the new owner does not own, checking the primary sender too', async () => {
+    campaign.senderAccountId = 'mb-user1-a';
+    campaign.senderAccount = mailbox('mb-user1-a');
+    campaign.senders = [{ senderAccountId: 'mb-user2', senderAccount: mailbox('mb-user2') }];
+
+    const res = await reassign('user-2');
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe(
+      "Cannot assign this campaign to that user: it sends from mb-user1-a@acme.test, which the new owner does not own. A campaign only sends from its owner's mailboxes, so assign that mailbox to the new owner first.",
+    );
+    expect(mockedDb.updateCampaign).not.toHaveBeenCalled();
+  });
+
+  it('reassigns the campaign once the new owner owns every sender', async () => {
+    campaign.senderAccountId = 'mb-user2';
+    campaign.senderAccount = mailbox('mb-user2');
+    campaign.senders = [{ senderAccountId: 'mb-user2', senderAccount: mailbox('mb-user2') }];
+
+    const res = await reassign('user-2');
+    expect(res.status).toBe(200);
+    expect(mockedDb.updateCampaign).toHaveBeenCalledWith('cmp-1', { userId: 'user-2' });
+  });
+
+  it('skips the check when the owner does not change, and never checks senders for an unknown user', async () => {
+    expect((await reassign('user-1')).status).toBe(200);
+    expect(mockedDb.updateCampaign).toHaveBeenCalledWith('cmp-1', { userId: 'user-1' });
+
+    expect((await reassign('user-missing')).status).toBe(400);
+    expect(mockedPrisma.senderAccount.findMany).not.toHaveBeenCalled();
+  });
+
+  it('ignores a userId sent by a USER, so there is nothing to check', async () => {
+    mockedSession.mockResolvedValue(USER);
+    const res = await reassign('user-2');
+    expect(res.status).toBe(200);
+    expect(mockedDb.updateCampaign).toHaveBeenCalledWith('cmp-1', {});
+    expect(mockedPrisma.senderAccount.findMany).not.toHaveBeenCalled();
+  });
+
+  it('has no owner change through PUT /api/campaigns/[id]', async () => {
+    mockedPrisma.campaign.findUnique.mockResolvedValue({ id: 'cmp-1', userId: 'user-1', audienceCohort: 'Valid', senderAccountId: 'mb-user1-a' });
+    mockedPrisma.$transaction.mockImplementation(async (fn: any) => fn(tx));
+    tx.campaignEnrollment.count.mockResolvedValue(1);
+
+    const res = await putCampaignDetail(makeReq('PUT', '/api/campaigns/cmp-1', { name: 'Renamed', userId: 'user-2' }), {
+      params: Promise.resolve({ id: 'cmp-1' }),
+    });
+    expect(res.status).toBe(200);
+    expect(tx.campaign.update).toHaveBeenCalledWith({ where: { id: 'cmp-1' }, data: { name: 'Renamed' } });
   });
 });

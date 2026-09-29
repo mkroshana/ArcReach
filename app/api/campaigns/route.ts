@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db, prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { UnauthorizedError, unauthorizedResponse } from '@/lib/sessionError';
-import { checkCampaignSenders } from '@/lib/senderOwnership';
+import { checkCampaignSenders, checkReassignedCampaignSenders } from '@/lib/senderOwnership';
 import { checkAudienceCohort, cohortLeadWhere } from '@/lib/campaignCohort';
 import { activationBlocker } from '@/lib/campaignSteps';
 import { userStatusPause } from '@/lib/campaignPause';
@@ -154,6 +154,13 @@ export async function PUT(req: NextRequest) {
         const owner = await prisma.user.findUnique({ where: { id: updates.userId as string }, select: { id: true } });
         if (!owner) {
           return NextResponse.json({ error: 'Assigned user does not exist.' }, { status: 400 });
+        }
+        // The campaign keeps its sender mailboxes, which must belong to the new owner too.
+        if (updates.userId !== target.userId) {
+          const senderError = await checkReassignedCampaignSenders(updates.userId as string, target);
+          if (senderError) {
+            return NextResponse.json({ error: senderError.error }, { status: senderError.status });
+          }
         }
       }
     }

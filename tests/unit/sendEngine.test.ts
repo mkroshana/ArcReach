@@ -186,28 +186,65 @@ describe('validateSendingFrequency', () => {
   describe('resolveCampaignSenders', () => {
     it('should return primary sender when pool is empty', () => {
       const campaign = {
+        userId: 'user-1',
         senderAccountId: 'acc-1',
-        senderAccount: { id: 'acc-1', emailAddress: 'acc1@test.com' },
+        senderAccount: { id: 'acc-1', userId: 'user-1', emailAddress: 'acc1@test.com' },
         senders: []
       };
       const result = resolveCampaignSenders(campaign);
-      expect(result).toEqual([{ id: 'acc-1', emailAddress: 'acc1@test.com' }]);
+      expect(result).toEqual({ pool: [{ id: 'acc-1', userId: 'user-1', emailAddress: 'acc1@test.com' }], foreign: [] });
     });
 
     it('should return pool senders when pool is populated', () => {
       const campaign = {
+        userId: 'user-1',
         senderAccountId: 'acc-1',
-        senderAccount: { id: 'acc-1', emailAddress: 'acc1@test.com' },
+        senderAccount: { id: 'acc-1', userId: 'user-1', emailAddress: 'acc1@test.com' },
         senders: [
-          { senderAccount: { id: 'acc-2', emailAddress: 'acc2@test.com' } },
-          { senderAccount: { id: 'acc-3', emailAddress: 'acc3@test.com' } }
+          { senderAccount: { id: 'acc-2', userId: 'user-1', emailAddress: 'acc2@test.com' } },
+          { senderAccount: { id: 'acc-3', userId: 'user-1', emailAddress: 'acc3@test.com' } }
         ]
       };
       const result = resolveCampaignSenders(campaign);
-      expect(result).toEqual([
-        { id: 'acc-2', emailAddress: 'acc2@test.com' },
-        { id: 'acc-3', emailAddress: 'acc3@test.com' }
-      ]);
+      expect(result).toEqual({
+        pool: [
+          { id: 'acc-2', userId: 'user-1', emailAddress: 'acc2@test.com' },
+          { id: 'acc-3', userId: 'user-1', emailAddress: 'acc3@test.com' }
+        ],
+        foreign: []
+      });
+    });
+
+    // H24: a campaign never sends from a mailbox its owner does not own.
+    const own = (id: string) => ({ id, userId: 'user-1', emailAddress: `${id}@test.com` });
+    const other = (id: string) => ({ id, userId: 'user-2', emailAddress: `${id}@test.com` });
+
+    it("should leave other users' mailboxes out of the pool", () => {
+      const result = resolveCampaignSenders({
+        userId: 'user-1',
+        senderAccount: own('acc-1'),
+        senders: [{ senderAccount: other('acc-2') }, { senderAccount: own('acc-3') }]
+      });
+      expect(result).toEqual({ pool: [own('acc-3')], foreign: [other('acc-2')] });
+    });
+
+    it('should fall back to an owned primary sender when every pool mailbox belongs to someone else', () => {
+      const result = resolveCampaignSenders({
+        userId: 'user-1',
+        senderAccount: own('acc-1'),
+        senders: [{ senderAccount: other('acc-2') }]
+      });
+      expect(result).toEqual({ pool: [own('acc-1')], foreign: [other('acc-2')] });
+    });
+
+    it('should return an empty pool, listing each foreign mailbox once, when the owner owns none of them', () => {
+      expect(resolveCampaignSenders({ userId: 'user-1', senderAccount: other('acc-1'), senders: [] }))
+        .toEqual({ pool: [], foreign: [other('acc-1')] });
+      expect(resolveCampaignSenders({
+        userId: 'user-1',
+        senderAccount: other('acc-1'),
+        senders: [{ senderAccount: other('acc-1') }, { senderAccount: other('acc-2') }]
+      })).toEqual({ pool: [], foreign: [other('acc-1'), other('acc-2')] });
     });
   });
 

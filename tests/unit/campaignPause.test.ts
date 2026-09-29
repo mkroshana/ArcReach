@@ -209,7 +209,7 @@ describe('autoResumeNote', () => {
     expect(autoResumeNote({ status: 'Paused', pausedUntil: at, pauseReason: 'quota' }))
       .toMatch(/^Auto-resumes at 14.05 \(sending quota or rate limit reached\)$/);
     expect(autoResumeNote({ status: 'Paused', pausedUntil: at.toISOString(), pauseReason: 'systemic' }))
-      .toMatch(/^Auto-resumes at 14.05 \(server clock out of sync with Azure\)$/);
+      .toMatch(/^Auto-resumes at 14.05 \(server clock out of sync with Azure, or no sender mailbox owned by the campaign owner\)$/);
     expect(autoResumeNote({ status: 'Paused', pausedUntil: at, pauseReason: 'config' }))
       .toMatch(/^Auto-resumes at 14.05 \(Azure settings or sender domain not accepted\)$/);
     // Pauses from before pauseReason existed carry no reason.

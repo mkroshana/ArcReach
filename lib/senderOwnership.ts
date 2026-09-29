@@ -9,8 +9,21 @@ import type { UserSession } from '@/lib/session';
  */
 
 export interface SenderCheckError {
-  status: 400 | 403 | 404;
+  status: 400 | 403 | 404 | 409;
   error: string;
+}
+
+/** The IDs among `ids` that are not mailboxes of `ownerId`, unknown IDs included. */
+async function findForeignSenderIds(ownerId: string, ids: string[]): Promise<string[]> {
+  const uniqueIds = [...new Set(ids)];
+  if (uniqueIds.length === 0) return [];
+
+  const owned = await prisma.senderAccount.findMany({
+    where: { id: { in: uniqueIds }, userId: ownerId },
+    select: { id: true },
+  });
+  const ownedIds = new Set(owned.map((a) => a.id));
+  return uniqueIds.filter((id) => !ownedIds.has(id));
 }
 
 /**
@@ -38,19 +51,39 @@ export async function checkCampaignSenders(
     ids.push(...senderAccountIds);
   }
 
-  const uniqueIds = [...new Set(ids)];
-  if (uniqueIds.length === 0) return null;
-
-  const owned = await prisma.senderAccount.findMany({
-    where: { id: { in: uniqueIds }, userId: ownerId },
-    select: { id: true },
-  });
-  const ownedIds = new Set(owned.map((a) => a.id));
-  const foreign = uniqueIds.filter((id) => !ownedIds.has(id));
+  const foreign = await findForeignSenderIds(ownerId, ids);
   if (foreign.length > 0) {
     return { status: 403, error: `Sender mailbox does not belong to the campaign owner: ${foreign.join(', ')}.` };
   }
   return null;
+}
+
+/**
+ * Check a stored campaign's sender mailboxes (its primary sender and its pool)
+ * against `newOwnerId` before the campaign is assigned to that user. The send
+ * engine never sends from a mailbox the campaign's owner does not own, so a
+ * reassignment that would leave any is refused with a 409 naming them.
+ */
+export async function checkReassignedCampaignSenders(
+  newOwnerId: string,
+  campaign: {
+    senderAccountId: string;
+    senderAccount?: { emailAddress: string } | null;
+    senders: Array<{ senderAccountId: string; senderAccount?: { emailAddress: string } | null }>;
+  },
+): Promise<SenderCheckError | null> {
+  const addresses = new Map<string, string | undefined>([
+    [campaign.senderAccountId, campaign.senderAccount?.emailAddress],
+    ...campaign.senders.map((s) => [s.senderAccountId, s.senderAccount?.emailAddress] as [string, string | undefined]),
+  ]);
+  const foreign = await findForeignSenderIds(newOwnerId, [...addresses.keys()]);
+  if (foreign.length === 0) return null;
+  const names = foreign.map((id) => addresses.get(id) ?? id).join(', ');
+  const them = foreign.length === 1 ? 'that mailbox' : 'those mailboxes';
+  return {
+    status: 409,
+    error: `Cannot assign this campaign to that user: it sends from ${names}, which the new owner does not own. A campaign only sends from its owner's mailboxes, so assign ${them} to the new owner first.`,
+  };
 }
 
 /**

@@ -161,7 +161,10 @@ export default function CampaignsPage() {
           status: 'Draft',
         }),
       });
-      if (!res.ok) throw new Error(await res.text() || 'Failed to establish campaign.');
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error || 'Failed to establish campaign.');
+      }
       const created = await res.json();
       showToast('Campaign sequence initiated successfully');
       setCampaignName(''); setSelectedPoolIds([]); setIsAddOpen(false);

@@ -10,7 +10,7 @@ vi.mock('../../lib/db', () => ({
   },
   prisma: {
     user: { findUnique: vi.fn() },
-    senderAccount: { findUnique: vi.fn() },
+    senderAccount: { findUnique: vi.fn(), findMany: vi.fn() },
     lead: { update: vi.fn(), updateMany: vi.fn(), findMany: vi.fn() },
     leadGroupMembership: { findMany: vi.fn() },
     campaignEnrollment: { updateMany: vi.fn() },
@@ -82,7 +82,9 @@ describe('PUT /api/campaigns', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockedSession.mockResolvedValue(USER);
-    mockedDb.getCampaigns.mockResolvedValue([{ id: 'cmp-1', steps: [{ stepOrder: 1, subject: 'Hi', body: 'Hello' }] }]);
+    mockedDb.getCampaigns.mockResolvedValue([
+      { id: 'cmp-1', userId: 'user-1', senderAccountId: 'mb-1', senders: [], steps: [{ stepOrder: 1, subject: 'Hi', body: 'Hello' }] },
+    ]);
     mockedDb.updateCampaign.mockImplementation(async (id: string, data: any) => ({ id, ...data }));
   });
 
@@ -140,6 +142,8 @@ describe('PUT /api/campaigns', () => {
     expect(mockedDb.updateCampaign).not.toHaveBeenCalled();
 
     mockedPrisma.user.findUnique.mockResolvedValue({ id: 'user-2' });
+    // user-2 owns the campaign's sender mailbox, which a reassignment requires (H24).
+    mockedPrisma.senderAccount.findMany.mockResolvedValue([{ id: 'mb-1' }]);
     const ok = await putCampaign(makeReq('/api/campaigns', { id: 'cmp-1', userId: 'user-2' }));
     expect(ok.status).toBe(200);
     expect(mockedPrisma.user.findUnique).toHaveBeenLastCalledWith({ where: { id: 'user-2' }, select: { id: true } });

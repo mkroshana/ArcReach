@@ -1415,6 +1415,98 @@ describe('per-mailbox caps count real sends over a rolling 24 hours (M10, M11)',
   });
 });
 
+describe('processDueEmails sends only from mailboxes the campaign owner owns (H24)', () => {
+  const HOUR_MS = 60 * 60 * 1000;
+  // Another user's mailbox, left on the campaign from before sender ownership was checked.
+  const FOREIGN = { ...SENDER, id: 'mb-other', userId: 'user-2', emailAddress: 'other@acme.test', name: 'Other' };
+  const warnings = () => vi.mocked(console.warn).mock.calls.map(([line]) => String(line));
+
+  beforeEach(() => {
+    // Pauses only the Active campaign it names, as the engine's conditional write does.
+    fake.campaign.updateMany.mockImplementation(async ({ where, data }: any) => {
+      const hit = where.id === campaign.id && where.status === campaign.status;
+      if (hit) Object.assign(campaign, data);
+      return { count: hit ? 1 : 0 };
+    });
+  });
+
+  it("skips another user's mailbox in the pool and sends from the owner's", async () => {
+    campaign.senders = [
+      { senderAccountId: 'mb-other', senderAccount: { ...FOREIGN, dailyLimit: 1000 } },
+      { senderAccountId: 'mb-1', senderAccount: SENDER },
+    ];
+
+    await processDueEmails();
+
+    expect(mockedSend).toHaveBeenCalledTimes(1);
+    expect(mockedSend).toHaveBeenCalledWith(expect.objectContaining({ sender: expect.objectContaining({ id: 'mb-1' }) }), expect.anything());
+    expect(dispatches).toEqual([expect.objectContaining({ senderAccountId: 'mb-1', status: 'Sent' })]);
+    // Its caps are never even counted.
+    expect(fake.emailDispatch.count.mock.calls.some(([args]: any) => args.where.senderAccountId === 'mb-other')).toBe(false);
+    expect(warnings()).toContainEqual(expect.stringContaining('skips sender mailbox(es) other@acme.test (mb-other): they do not belong to its owner (user admin-1)'));
+    expect(campaign.status).toBe('Active');
+  });
+
+  it("falls back to the owner's primary sender when every pool mailbox belongs to someone else", async () => {
+    campaign.senders = [{ senderAccountId: 'mb-other', senderAccount: FOREIGN }];
+
+    await processDueEmails();
+
+    expect(mockedSend).toHaveBeenCalledTimes(1);
+    expect(dispatches).toEqual([expect.objectContaining({ senderAccountId: 'mb-1', status: 'Sent' })]);
+  });
+
+  it.each([
+    ['a foreign primary sender and no pool', () => {
+      campaign.senderAccountId = 'mb-other';
+      campaign.senderAccount = FOREIGN;
+    }],
+    ['a pool and primary sender that are all foreign', () => {
+      campaign.senderAccountId = 'mb-other';
+      campaign.senderAccount = FOREIGN;
+      campaign.senders = [{ senderAccountId: 'mb-other', senderAccount: FOREIGN }];
+    }],
+  ])('pauses a campaign with %s as a systemic pause, sending nothing and leaving its leads alone', async (_label, setUp) => {
+    setUp();
+    addLead('lead-2');
+    const before = Date.now();
+
+    await processDueEmails();
+
+    expect(mockedSend).not.toHaveBeenCalled();
+    expect(fake.emailDispatch.create).not.toHaveBeenCalled();
+    expect(campaign).toMatchObject({ status: 'Paused', pauseReason: 'systemic' });
+    expect(campaign.pausedUntil.getTime() - before).toBeGreaterThanOrEqual(HOUR_MS);
+    for (const leadId of ['lead-1', 'lead-2']) {
+      expect(enrollmentOf(leadId)).toMatchObject({
+        status: 'Active', currentSequenceStep: 1, retryCount: 0, nextActionDate: PAST, claimToken: null,
+      });
+    }
+    // One pause for the campaign, not one per lead.
+    expect(fake.campaign.updateMany.mock.calls.filter(([args]: any) => args.data.status === 'Paused')).toHaveLength(1);
+    expect(warnings()).toContainEqual(expect.stringContaining('skips sender mailbox(es) other@acme.test (mb-other)'));
+    expect(warnings()).toContainEqual(
+      '[SendEngine] Campaign "Launch" (cmp-1) has no sender mailbox owned by its owner (user admin-1), so nothing can be sent from it. Choose mailboxes the owner owns as its senders. Paused the campaign for 1 hour.',
+    );
+  });
+
+  it('checks the senders again once the pause is over', async () => {
+    campaign.senderAccountId = 'mb-other';
+    campaign.senderAccount = FOREIGN;
+    await processDueEmails();
+    expect(campaign.status).toBe('Paused');
+
+    // The owner now sends from their own mailbox, and the auto-resume has run.
+    campaign.senderAccountId = 'mb-1';
+    campaign.senderAccount = SENDER;
+    Object.assign(campaign, { status: 'Active', pausedUntil: null, pauseReason: null });
+    await processDueEmails();
+
+    expect(mockedSend).toHaveBeenCalledTimes(1);
+    expect(dispatches).toEqual([expect.objectContaining({ senderAccountId: 'mb-1', status: 'Sent' })]);
+  });
+});
+
 describe('processDueEmails personalises each step with the shared personalizeEmail (H22, L11)', () => {
   it('keeps the styling, the unsubscribe link and unknown fields, and never reads lead values as spintax or $-patterns', async () => {
     campaign.trackClicks = true;

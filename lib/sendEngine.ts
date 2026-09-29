@@ -161,15 +161,54 @@ async function poolCapacityFreesAt(
 
 /**
  * Resolves the pool of senders for a campaign, defaulting to the primary sender if pool is empty.
+ * A campaign only ever sends from mailboxes its owner owns: other users'
+ * mailboxes are left out of the pool (before falling back to the primary
+ * sender) and returned in `foreign`. An empty pool means the campaign has no
+ * mailbox it may send from.
  */
 export function resolveCampaignSenders(campaign: {
+  userId: string;
   senderAccount: any;
   senders?: Array<{ senderAccount: any }>;
-}): any[] {
-  if (campaign.senders && campaign.senders.length > 0) {
-    return campaign.senders.map(s => s.senderAccount);
+}): { pool: any[]; foreign: any[] } {
+  const ownedByOwner = (account: any) => account?.userId === campaign.userId;
+  const listed = (campaign.senders ?? []).map(s => s.senderAccount);
+  const pool = listed.filter(ownedByOwner);
+  const foreign = listed.filter(account => !ownedByOwner(account));
+  if (pool.length === 0) {
+    if (ownedByOwner(campaign.senderAccount)) {
+      pool.push(campaign.senderAccount);
+    } else if (!foreign.some(account => account?.id === campaign.senderAccount?.id)) {
+      foreign.push(campaign.senderAccount);
+    }
   }
-  return [campaign.senderAccount];
+  return { pool, foreign };
+}
+
+/**
+ * Pauses an Active campaign that has no sender mailbox its owner owns, as a
+ * systemic pause: nothing can be sent until its senders are changed. Like the
+ * other engine pauses it resumes after an hour, when the senders are checked
+ * again. Never throws, so one campaign cannot stop the cycle.
+ */
+async function pauseCampaignWithoutOwnedSender(campaign: { id: string; name: string; userId: string }): Promise<void> {
+  try {
+    const resumeTime = new Date();
+    resumeTime.setHours(resumeTime.getHours() + 1);
+    const pauseReason: PauseReason = 'systemic';
+    const { count } = await prisma.campaign.updateMany({
+      where: { id: campaign.id, status: 'Active' },
+      data: { status: 'Paused', pausedUntil: resumeTime, pauseReason },
+    });
+    const problem = `Campaign "${campaign.name}" (${campaign.id}) has no sender mailbox owned by its owner (user ${campaign.userId}), so nothing can be sent from it. Choose mailboxes the owner owns as its senders.`;
+    if (count > 0) {
+      console.warn(`[SendEngine] ${problem} Paused the campaign for 1 hour.`);
+    } else {
+      console.warn(`[SendEngine] ${problem} It is no longer Active, so it was not paused.`);
+    }
+  } catch (err: any) {
+    console.error(`[SendEngine] Failed to pause campaign "${campaign.name}" (${campaign.id}) that has no sender mailbox owned by its owner:`, err?.message || err);
+  }
 }
 
 /**
@@ -725,18 +764,28 @@ export async function processDueEmails() {
     });
     const campaignMap = new Map(dueCampaigns.map((c) => [c.id, c]));
 
+    // Each campaign's sender pool, from the mailboxes its owner owns. Other
+    // users' mailboxes are skipped, and a campaign left without any is paused
+    // and has no pool, so its enrollments are passed over this cycle.
+    const senderPools = new Map<string, any[]>();
+    for (const campaign of dueCampaigns) {
+      const { pool, foreign } = resolveCampaignSenders(campaign);
+      if (foreign.length > 0) {
+        const mailboxes = foreign.map((account) => `${account.emailAddress} (${account.id})`).join(', ');
+        console.warn(`[SendEngine] Campaign "${campaign.name}" (${campaign.id}) skips sender mailbox(es) ${mailboxes}: they do not belong to its owner (user ${campaign.userId}).`);
+      }
+      if (pool.length === 0) {
+        await pauseCampaignWithoutOwnedSender(campaign);
+        continue;
+      }
+      senderPools.set(campaign.id, pool);
+    }
+
     // Build map of sent counts over the last 24 hours for each unique sender in the batch
     const senderIds = new Set<string>();
-    for (const campaign of dueCampaigns) {
-      if (campaign.senderAccountId) {
-        senderIds.add(campaign.senderAccountId);
-      }
-      if (campaign.senders) {
-        for (const poolItem of campaign.senders) {
-          if (poolItem.senderAccountId) {
-            senderIds.add(poolItem.senderAccountId);
-          }
-        }
+    for (const pool of senderPools.values()) {
+      for (const sender of pool) {
+        senderIds.add(sender.id);
       }
     }
 
@@ -771,8 +820,9 @@ export async function processDueEmails() {
         break;
       }
 
-      // Resolve the pool and pick a sender per send (least-loaded under cap)
-      const senderPool = resolveCampaignSenders(campaign);
+      // Pick a sender from the campaign's pool per send (least-loaded under cap)
+      const senderPool = senderPools.get(campaign.id);
+      if (!senderPool) continue; // paused above: no sender mailbox its owner owns
       const chosenSender = pickSender(senderPool, senderSentLast24Hours, now);
 
       if (!chosenSender) {

@@ -1,12 +1,13 @@
 /**
  * Why a campaign is Paused. The send engine pauses an Active campaign for an
  * hour when ACS refuses a send for a quota or rate limit ('quota'), refuses
- * every send until the host clock is fixed, like the clock-skew check
- * ('systemic'), or no send can go out until the Azure settings or the sender's
- * domain are fixed ('config': missing settings, a connection string that
- * cannot be decrypted, a refused access key or an unverified domain). It sets
- * pausedUntil and resumes the campaign then. A user pause ('user') never
- * resumes on its own. Pure so the campaign pages can use it.
+ * every send until the host clock is fixed, like the clock-skew check, or the
+ * campaign has no sender mailbox its owner owns ('systemic'), or no send can go
+ * out until the Azure settings or the sender's domain are fixed ('config':
+ * missing settings, a connection string that cannot be decrypted, a refused
+ * access key or an unverified domain). It sets pausedUntil and resumes the
+ * campaign then. A user pause ('user') never resumes on its own. Pure so the
+ * campaign pages can use it.
  */
 export type PauseReason = 'quota' | 'systemic' | 'config' | 'user';
 
@@ -21,7 +22,7 @@ export function userStatusPause(status: unknown): { pausedUntil: null; pauseReas
 
 const AUTO_PAUSE_REASONS: Record<string, string> = {
   quota: 'sending quota or rate limit reached',
-  systemic: 'server clock out of sync with Azure',
+  systemic: 'server clock out of sync with Azure, or no sender mailbox owned by the campaign owner',
   config: 'Azure settings or sender domain not accepted',
 };
 

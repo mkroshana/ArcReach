@@ -4,7 +4,7 @@ import { NextRequest } from 'next/server';
 vi.mock('../../lib/db', () => ({
   prisma: {
     campaign: { updateMany: vi.fn(), findUnique: vi.fn(), findMany: vi.fn() },
-    campaignEnrollment: { findMany: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
+    campaignEnrollment: { findMany: vi.fn(), findFirst: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     emailDispatch: { create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), findFirst: vi.fn(), count: vi.fn() },
     globalSettings: { findUnique: vi.fn(), findFirst: vi.fn() },
     lead: { findUnique: vi.fn() },
@@ -100,6 +100,7 @@ beforeEach(() => {
   mockedPrisma.campaign.findMany.mockResolvedValue([CAMPAIGN]);
   mockedPrisma.campaignEnrollment.findMany.mockResolvedValue([ENROLLMENT]);
   mockedPrisma.campaignEnrollment.updateMany.mockResolvedValue({ count: 1 });
+  mockedPrisma.campaignEnrollment.findFirst.mockResolvedValue({ id: 'enr-1' });
   mockedPrisma.$transaction.mockImplementation(async (fn: (tx: typeof mockedPrisma) => unknown) => fn(mockedPrisma));
   mockedPrisma.emailDispatch.updateMany.mockResolvedValue({ count: 1 });
   mockedPrisma.emailDispatch.count.mockResolvedValue(0);

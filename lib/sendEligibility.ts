@@ -12,7 +12,9 @@ export const RELEASED_CLAIM = { claimToken: null, claimedAt: null };
  * The one definition of "this enrollment may be sent now": the enrollment and
  * its campaign are Active, and the lead is not archived, unsubscribed, bounced
  * or invalid. Every query that picks enrollments to send and every per-send
- * claim uses it, so suppression added here applies to all of them.
+ * claim uses it, so suppression added here applies to all of them. It has
+ * relation filters, so conditional writes read with it and then re-check only
+ * the enrollment's own columns (see claimEnrollmentForSend).
  */
 export function sendableEnrollmentWhere(): Prisma.CampaignEnrollmentWhereInput {
   return {
@@ -27,11 +29,18 @@ export function sendableEnrollmentWhere(): Prisma.CampaignEnrollmentWhereInput {
 }
 
 /**
- * Claims an enrollment for sending step `stepOrder`, right before the send,
- * with a conditional write that only succeeds while the enrollment is still
- * sendable, still on that step, and not claimed by another send (or its claim
- * has expired). This re-checks pause, unsubscribe and reply at send time.
- * Returns the claim token, or null when the enrollment must not be sent.
+ * Claims an enrollment for sending step `stepOrder`, right before the send.
+ * The claim is one conditional UPDATE of the enrollment row on its own
+ * columns only: still Active, still on that step, and not claimed by another
+ * send (or its claim has expired). Postgres checks those conditions on the row
+ * it locks and re-checks them once a concurrent claim commits, so of two
+ * racing claims exactly one wins. Campaign and lead filters are left out of
+ * that write: Prisma evaluates relation filters in an updateMany by a separate
+ * read or a subquery on the statement's snapshot, which two claims can both
+ * pass. The claimed enrollment is then checked against sendableEnrollmentWhere(),
+ * which re-checks pause, unsubscribe and reply at send time, and the claim is
+ * released if it no longer qualifies. Returns the claim token, or null when
+ * the enrollment must not be sent.
  */
 export async function claimEnrollmentForSend(
   enrollmentId: string,
@@ -44,14 +53,22 @@ export async function claimEnrollmentForSend(
     where: {
       id: enrollmentId,
       currentSequenceStep: stepOrder,
-      AND: [
-        sendableEnrollmentWhere(),
-        { OR: [{ claimedAt: null }, { claimedAt: { lt: staleBefore } }] },
-      ],
+      status: 'Active',
+      OR: [{ claimedAt: null }, { claimedAt: { lt: staleBefore } }],
     },
     data: { claimToken, claimedAt: now },
   });
-  return count === 1 ? claimToken : null;
+  if (count !== 1) return null;
+
+  const sendable = await prisma.campaignEnrollment.findFirst({
+    where: { ...sendableEnrollmentWhere(), id: enrollmentId, claimToken },
+    select: { id: true },
+  });
+  if (!sendable) {
+    await releaseEnrollmentClaim(enrollmentId, claimToken);
+    return null;
+  }
+  return claimToken;
 }
 
 /** Releases a claim taken by claimEnrollmentForSend, if it is still that claim. */

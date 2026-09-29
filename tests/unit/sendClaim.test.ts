@@ -44,7 +44,7 @@ import { getGlobalSettings } from '../../lib/settings';
 import { checkGlobalRateLimits } from '../../lib/rateLimits';
 import { sendMessage, getAzureSendStatus } from '../../lib/emailProvider';
 import { processDueEmails, BOOKKEEPING_RETRIES } from '../../lib/sendEngine';
-import { SEND_CLAIM_TTL_MS, claimEnrollmentForSend, releaseEnrollmentClaim } from '../../lib/sendEligibility';
+import { SEND_CLAIM_TTL_MS, claimEnrollmentForSend, releaseEnrollmentClaim, sendableEnrollmentWhere } from '../../lib/sendEligibility';
 import { reconcileStaleSendingDispatches, STALE_SENDING_MS, NOT_FOUND_RETRY_MAX_AGE_MS, RECONCILE_BATCH } from '../../lib/sendReconciler';
 import { POST as postRun } from '../../app/api/campaigns/[id]/run/route';
 
@@ -121,6 +121,13 @@ function matchesEnrollment(e: EnrollmentRow, where: Record<string, any>): boolea
     if (key === 'lead') return matchesFields(leads.get(e.leadId), cond);
     return matchesValue((e as any)[key], cond);
   });
+}
+
+/** The field names a Prisma where filters on, through AND, OR and NOT. */
+function whereFields(where: Record<string, any>): string[] {
+  return Object.entries(where).flatMap(([key, cond]) =>
+    ['AND', 'OR', 'NOT'].includes(key) ? [cond].flat().flatMap(whereFields) : [key],
+  );
 }
 
 function applyEnrollmentData(e: EnrollmentRow, data: Record<string, any>) {
@@ -300,6 +307,56 @@ describe('claimEnrollmentForSend (C5, H7)', () => {
     expect(await claimEnrollmentForSend('enr-lead-1', 1, T0)).toBeNull();
     expect(enrollmentOf('lead-1')).toMatchObject({ claimToken: null, claimedAt: null });
   });
+
+  it('claims with a write on the enrollment row\'s own columns only, then checks it is still sendable', async () => {
+    const token = await claimEnrollmentForSend('enr-lead-1', 1, T0);
+
+    expect(token).toEqual(expect.any(String));
+    expect(fake.campaignEnrollment.updateMany).toHaveBeenCalledTimes(1);
+    const [{ where, data }] = fake.campaignEnrollment.updateMany.mock.calls[0];
+    // No campaign or lead relation filter, which Prisma would not evaluate on the locked row.
+    expect(new Set(whereFields(where))).toEqual(new Set(['id', 'currentSequenceStep', 'status', 'claimedAt']));
+    expect(where).toMatchObject({ id: 'enr-lead-1', currentSequenceStep: 1, status: 'Active' });
+    expect(data).toEqual({ claimToken: token, claimedAt: T0 });
+    expect(fake.campaignEnrollment.findFirst).toHaveBeenCalledWith({
+      where: { ...sendableEnrollmentWhere(), id: 'enr-lead-1', claimToken: token },
+      select: { id: true },
+    });
+  });
+
+  it.each<[string, () => void]>([
+    ['the campaign was paused', () => { campaign.status = 'Paused'; }],
+    ['the lead unsubscribed', () => { leads.get('lead-1')!.status = 'Unsubscribed'; }],
+    ['the lead was archived', () => { leads.get('lead-1')!.isArchived = true; }],
+  ])('releases the claim it took when %s', async (_label, change) => {
+    change();
+
+    expect(await claimEnrollmentForSend('enr-lead-1', 1, T0)).toBeNull();
+
+    const writes = fake.campaignEnrollment.updateMany.mock.calls.map(([args]: any[]) => args);
+    expect(writes).toHaveLength(2);
+    expect(writes[0].data).toEqual({ claimToken: expect.any(String), claimedAt: T0 });
+    expect(writes[1]).toEqual({
+      where: { id: 'enr-lead-1', claimToken: writes[0].data.claimToken },
+      data: { claimToken: null, claimedAt: null },
+    });
+    expect(enrollmentOf('lead-1')).toMatchObject({ claimToken: null, claimedAt: null });
+    // Released, it can be claimed again once it is sendable.
+    campaign.status = 'Active';
+    Object.assign(leads.get('lead-1')!, { status: 'Neutral', isArchived: false });
+    expect(await claimEnrollmentForSend('enr-lead-1', 1, T0)).toEqual(expect.any(String));
+  });
+
+  it('leaves another send\'s claim in place when the enrollment is no longer sendable', async () => {
+    Object.assign(enrollmentOf('lead-1'), { claimToken: 'other-send', claimedAt: T0 });
+    campaign.status = 'Paused';
+
+    expect(await claimEnrollmentForSend('enr-lead-1', 1, at(60_000))).toBeNull();
+
+    expect(fake.campaignEnrollment.updateMany).toHaveBeenCalledTimes(1);
+    expect(fake.campaignEnrollment.findFirst).not.toHaveBeenCalled();
+    expect(enrollmentOf('lead-1')).toMatchObject({ claimToken: 'other-send', claimedAt: T0 });
+  });
 });
 
 describe('processDueEmails claims each send and records it as Sending first (C5, H6, H7)', () => {
@@ -464,6 +521,44 @@ describe('POST /api/campaigns/[id]/run only queues leads for the worker (H3, M66
     expect(await res.json()).toEqual({ queued: 1 });
     expect(enrollmentOf('lead-1').nextActionDate).toEqual(retryAt);
     expect(enrollmentOf('lead-2').nextActionDate!.getTime()).toBeGreaterThan(PAST.getTime());
+  });
+
+  it.each<[string, string, Partial<EnrollmentRow>]>([
+    ['the worker sends its step and schedules the next one', '?stepOrder=1', { currentSequenceStep: 2 }],
+    ['a soft failure backs it off', '', { retryCount: 1 }],
+  ])('does not queue a lead when %s between the read and the write', async (_label, query, change) => {
+    addLead('lead-2');
+    waitAt('lead-1', 1);
+    waitAt('lead-2', 1);
+    const later = FUTURE();
+    const readSendable = fake.campaignEnrollment.findMany.getMockImplementation()!;
+    fake.campaignEnrollment.findMany.mockImplementationOnce(async (args: any) => {
+      const rows = await readSendable(args);
+      Object.assign(enrollmentOf('lead-1'), { ...change, nextActionDate: later });
+      return rows;
+    });
+
+    const res = await run(query);
+
+    expect(await res.json()).toEqual({ queued: 1 });
+    expect(enrollmentOf('lead-1').nextActionDate).toEqual(later);
+    expect(enrollmentOf('lead-2').nextActionDate!.getTime()).toBeLessThanOrEqual(Date.now());
+    // The write re-checks only the enrollment's own columns, which Postgres re-evaluates on the locked row.
+    const [{ where }] = fake.campaignEnrollment.updateMany.mock.calls[0];
+    expect(whereFields(where)).not.toContain('campaign');
+    expect(whereFields(where)).not.toContain('lead');
+  });
+
+  it('queues a large campaign in writes of at most 1000 ids and counts them all', async () => {
+    for (let n = 2; n <= 1001; n++) addLead(`lead-${n}`);
+    for (const e of enrollments) e.nextActionDate = FUTURE();
+
+    const res = await run();
+
+    expect(await res.json()).toEqual({ queued: 1001 });
+    const idCounts = fake.campaignEnrollment.updateMany.mock.calls.map(([{ where }]: any[]) => where.id.in.length);
+    expect(idCounts).toEqual([1000, 1]);
+    expect(enrollments.every((e) => e.nextActionDate!.getTime() <= Date.now())).toBe(true);
   });
 
   it.each<[string, () => void]>([

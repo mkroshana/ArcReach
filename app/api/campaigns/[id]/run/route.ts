@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
+import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { getGlobalSettings } from '@/lib/settings';
 import { getSession } from '@/lib/session';
 import { sendingDisabledReason } from '@/lib/emailProvider';
 import { sendableEnrollmentWhere } from '@/lib/sendEligibility';
+
+/** Most enrollments one queueing write names by id. */
+const QUEUE_WRITE_CHUNK = 1000;
 
 /**
  * Run Now (every lead's current step) and Send Step (?stepOrder=N) queue leads;
@@ -64,23 +68,34 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json({ success: false, error: 'This campaign has no such step.' }, { status: 400 });
     }
 
-    // One conditional write, so an enrollment the worker advances meanwhile is
-    // only queued if it still matches. Leads in soft-failure backoff keep their
-    // retry time.
+    // Leads in soft-failure backoff keep their retry time. Sendable leads are
+    // read with sendableEnrollmentWhere(), which filters on the campaign and
+    // lead; the write then re-checks only the enrollment's own columns, which
+    // Postgres re-evaluates on each row it locks, so an enrollment the worker
+    // advances or backs off meanwhile is not queued. The send claim re-checks
+    // the campaign and lead before anything is sent.
     const now = new Date();
-    const { count } = await prisma.campaignEnrollment.updateMany({
-      where: {
-        campaignId: id,
-        currentSequenceStep: stepOrder !== null ? stepOrder : { in: stepOrders },
-        AND: [
-          sendableEnrollmentWhere(),
-          { OR: [{ retryCount: 0 }, { nextActionDate: null }, { nextActionDate: { lte: now } }] },
-        ],
-      },
-      data: { nextActionDate: now },
+    const queueable: Prisma.CampaignEnrollmentWhereInput = {
+      campaignId: id,
+      status: 'Active',
+      currentSequenceStep: stepOrder !== null ? stepOrder : { in: stepOrders },
+      OR: [{ retryCount: 0 }, { nextActionDate: null }, { nextActionDate: { lte: now } }],
+    };
+    const sendable = await prisma.campaignEnrollment.findMany({
+      where: { AND: [queueable, sendableEnrollmentWhere()] },
+      select: { id: true },
     });
+    // In chunks, so a large campaign's id list stays under Postgres's bind-parameter limit.
+    let queued = 0;
+    for (let i = 0; i < sendable.length; i += QUEUE_WRITE_CHUNK) {
+      const { count } = await prisma.campaignEnrollment.updateMany({
+        where: { ...queueable, id: { in: sendable.slice(i, i + QUEUE_WRITE_CHUNK).map((e) => e.id) } },
+        data: { nextActionDate: now },
+      });
+      queued += count;
+    }
 
-    return NextResponse.json({ queued: count });
+    return NextResponse.json({ queued });
 
   } catch (error: any) {
     console.error('[Campaign Run Route Error]', error);

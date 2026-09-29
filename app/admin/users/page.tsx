@@ -189,7 +189,7 @@ export default function UsersAdminPage() {
   };
 
   const handleToggleRole = async (userId: string, currentRole: 'ADMIN' | 'USER') => {
-    if (userId === 'admin-id-999') { showToast('Cannot modify default root administrator privileges.', 'error'); return; }
+    if (currentSession && userId === currentSession.id) { showToast('You cannot change your own role.', 'error'); return; }
     const targetRole = currentRole === 'ADMIN' ? 'USER' : 'ADMIN';
     try {
       const res = await fetch('/api/users', {
@@ -197,7 +197,10 @@ export default function UsersAdminPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: userId, role: targetRole }),
       });
-      if (!res.ok) throw new Error((await res.text()) || 'Failed to update credentials.');
+      if (!res.ok) {
+        const errObj = await res.json().catch(() => ({}));
+        throw new Error(errObj.error || 'Failed to update role.');
+      }
       showToast(`User permissions changed to ${targetRole}`);
       await fetchUsers();
     } catch (err: any) {
@@ -206,7 +209,6 @@ export default function UsersAdminPage() {
   };
 
   const handleDeleteUser = (userId: string) => {
-    if (userId === 'admin-id-999') { showToast('Cannot delete root super administrative profile.', 'error'); return; }
     if (currentSession && userId === currentSession.id) { showToast('Cannot delete your own active session.', 'error'); return; }
     setConfirmState({
       title: 'Remove user?',
@@ -281,7 +283,6 @@ export default function UsersAdminPage() {
               </TableHead>
               <TableBody>
                 {users.map((item) => {
-                  const isRoot = item.id === 'admin-id-999';
                   const isSelf = item.id === currentSession?.id;
                   return (
                     <TableRow key={item.id} hover>
@@ -316,7 +317,7 @@ export default function UsersAdminPage() {
                             size="small"
                             variant="outlined"
                             color="inherit"
-                            disabled={isRoot}
+                            disabled={isSelf}
                             onClick={() => handleToggleRole(item.id, item.role)}
                             sx={{ fontSize: 10, borderColor: 'divider', color: 'text.secondary' }}
                           >
@@ -327,9 +328,9 @@ export default function UsersAdminPage() {
                               <KeyRound size={14} />
                             </IconButton>
                           </MuiTooltip>
-                          <MuiTooltip title={isSelf ? 'Cannot delete yourself' : isRoot ? 'Cannot delete root admin' : 'Remove user'}>
+                          <MuiTooltip title={isSelf ? 'Cannot delete yourself' : 'Remove user'}>
                             <span>
-                              <IconButton aria-label="Remove user" size="small" disabled={isRoot || isSelf} onClick={() => handleDeleteUser(item.id)} sx={{ border: 1, borderColor: (t) => alpha(t.palette.error.main, 0.3), color: 'error.main' }}>
+                              <IconButton aria-label="Remove user" size="small" disabled={isSelf} onClick={() => handleDeleteUser(item.id)} sx={{ border: 1, borderColor: (t) => alpha(t.palette.error.main, 0.3), color: 'error.main' }}>
                                 <Trash2 size={14} />
                               </IconButton>
                             </span>

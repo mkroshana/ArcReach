@@ -740,13 +740,15 @@ describe('ArcReach Live API Integration Tests', () => {
       expect(data.length).toBeGreaterThan(0);
     });
 
-    it('should prevent deleting the default super admin', async () => {
-      const res = await testFetch(`${BASE_URL}/api/users?id=admin-id-999`, {
-        method: 'DELETE',
+    it('should prevent the logged-in admin from demoting themselves', async () => {
+      const res = await testFetch(`${BASE_URL}/api/users`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: DEFAULT_ADMIN.id, role: 'USER' }),
       });
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(409);
       const data = await res.json();
-      expect(data.error).toContain('Default super admin can not be deleted');
+      expect(data.error).toContain('cannot remove your own admin role');
     });
 
     it('should prevent deleting the currently logged-in admin user via cookie session', async () => {

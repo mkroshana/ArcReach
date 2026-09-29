@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, type Prisma } from '@prisma/client';
 import { hashPassword } from '@/lib/auth';
 import { MAILBOX_SECRET_OMIT } from '@/lib/mailboxSecrets';
 
@@ -208,9 +208,9 @@ export const db = {
     });
   },
 
-  async updateUserRole(id: string, role: 'ADMIN' | 'USER') {
+  async updateUserRole(id: string, role: 'ADMIN' | 'USER', client: Prisma.TransactionClient = prisma) {
     await ensureInit();
-    return prisma.user.update({
+    return client.user.update({
       where: { id },
       data: { role },
       select: { id: true, email: true, name: true, role: true, createdAt: true }
@@ -226,9 +226,9 @@ export const db = {
     });
   },
 
-  async deleteUser(id: string) {
+  async deleteUser(id: string, client: Prisma.TransactionClient = prisma) {
     await ensureInit();
-    return prisma.user.delete({
+    return client.user.delete({
       where: { id }
     });
   }

@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { hashPassword } from '@/lib/auth';
+import { MAILBOX_SECRET_OMIT } from '@/lib/mailboxSecrets';
 
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient | undefined };
 
@@ -103,8 +104,8 @@ export const db = {
     const campaigns = await prisma.campaign.findMany({
       where: role === 'ADMIN' ? undefined : { userId },
       include: {
-        senderAccount: true,
-        senders: { include: { senderAccount: true } },
+        senderAccount: { omit: MAILBOX_SECRET_OMIT },
+        senders: { include: { senderAccount: { omit: MAILBOX_SECRET_OMIT } } },
         user: { select: { id: true, name: true, email: true } },
         steps: { orderBy: { stepOrder: 'asc' } },
       },

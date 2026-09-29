@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { syncMailboxReplies, getActiveImapAccounts } from '@/lib/imapService';
+import { MAILBOX_SECRET_OMIT } from '@/lib/mailboxSecrets';
 
 function normalizeSubject(subject: string): string {
   if (!subject) return '';
@@ -62,7 +63,7 @@ export async function GET(req: NextRequest) {
           }
         },
         campaign: true,
-        senderAccount: true
+        senderAccount: { omit: MAILBOX_SECRET_OMIT }
       },
       orderBy: { receivedAt: 'desc' }
     });
@@ -257,7 +258,7 @@ export async function PUT(req: NextRequest) {
               enrollments: true
             }
           },
-          senderAccount: true
+          senderAccount: { omit: MAILBOX_SECRET_OMIT }
         }
       });
       return NextResponse.json(updatedReply);

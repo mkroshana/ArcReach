@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { checkCampaignSenders } from '@/lib/senderOwnership';
+import { MAILBOX_SECRET_OMIT } from '@/lib/mailboxSecrets';
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -14,10 +15,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         steps: {
           orderBy: { stepOrder: 'asc' }
         },
-        senderAccount: true,
+        senderAccount: { omit: MAILBOX_SECRET_OMIT },
         senders: {
           include: {
-            senderAccount: true
+            senderAccount: { omit: MAILBOX_SECRET_OMIT }
           }
         }
       }
@@ -491,10 +492,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         steps: {
           orderBy: { stepOrder: 'asc' }
         },
-        senderAccount: true,
+        senderAccount: { omit: MAILBOX_SECRET_OMIT },
         senders: {
           include: {
-            senderAccount: true
+            senderAccount: { omit: MAILBOX_SECRET_OMIT }
           }
         }
       }

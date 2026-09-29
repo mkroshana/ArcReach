@@ -105,6 +105,7 @@ function matchesValue(value: any, cond: any): boolean {
   if ('lt' in cond) return value !== null && value < cond.lt;
   if ('lte' in cond) return value !== null && value <= cond.lte;
   if ('gte' in cond) return value !== null && value >= cond.gte;
+  if ('some' in cond && Object.keys(cond.some).length === 0) return value.length > 0;
   throw new Error(`Unmodelled filter: ${JSON.stringify(cond)}`);
 }
 
@@ -841,5 +842,83 @@ describe('sends interrupted by a crash are reconciled with ACS (H6)', () => {
 
     expect(mockedStatus).not.toHaveBeenCalled();
     expect(dispatches[0].status).toBe('Sending');
+  });
+});
+
+describe('processDueEmails moves enrollments outside the sending window to its next opening (H10)', () => {
+  const OFFICE_HOURS = { days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'], window: { start: '09:00', end: '17:00' } };
+  const SATURDAY_EVENING = new Date('2026-06-13T18:00:00Z');
+  const MONDAY_OPENING = new Date('2026-06-15T09:00:00Z');
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(SATURDAY_EVENING);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('waits until the window opens instead of coming back every cycle, then sends', async () => {
+    campaign.sendSchedule = OFFICE_HOURS;
+
+    await processDueEmails();
+
+    expect(mockedSend).not.toHaveBeenCalled();
+    expect(enrollmentOf('lead-1')).toMatchObject({ currentSequenceStep: 1, nextActionDate: MONDAY_OPENING, claimToken: null });
+
+    // No longer due, so later cycles before the opening leave it alone.
+    await processDueEmails();
+    expect(fake.campaignEnrollment.updateMany).toHaveBeenCalledTimes(1);
+    expect(fake.campaign.findMany).toHaveBeenCalledTimes(1);
+
+    vi.setSystemTime(MONDAY_OPENING);
+    await processDueEmails();
+
+    expect(mockedSend).toHaveBeenCalledTimes(1);
+    expect(dispatches.map((d) => [d.stepOrder, d.status])).toEqual([[1, 'Sent']]);
+    expect(enrollmentOf('lead-1').currentSequenceStep).toBe(2);
+  });
+
+  it.each<[string, () => void]>([
+    ['no sending days', () => { campaign.sendSchedule = { days: [], window: { start: '09:00', end: '17:00' } }; }],
+    ['an unknown timezone', () => { campaign.sendSchedule = OFFICE_HOURS; campaign.timezone = 'America/NewYork'; }],
+  ])('checks again in a day and warns when the window never opens (%s)', async (_label, setup) => {
+    setup();
+
+    await processDueEmails();
+
+    expect(mockedSend).not.toHaveBeenCalled();
+    expect(enrollmentOf('lead-1').nextActionDate).toEqual(new Date('2026-06-14T18:00:00Z'));
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('sending window that never opens'));
+  });
+
+  it.each<[string, number]>([
+    ['the enrollment moved on to the next step', 2],
+    ['a retry was scheduled for the same step', 1],
+  ])('keeps the date set after the batch was loaded when %s', async (_label, step) => {
+    campaign.sendSchedule = OFFICE_HOURS;
+    const setLater = new Date('2026-06-20T12:00:00Z');
+    const loadBatch = fake.campaignEnrollment.findMany.getMockImplementation()!;
+    fake.campaignEnrollment.findMany.mockImplementationOnce(async (args: any) => {
+      const batch = await loadBatch(args);
+      Object.assign(enrollmentOf('lead-1'), { currentSequenceStep: step, nextActionDate: setLater });
+      return batch;
+    });
+
+    await processDueEmails();
+
+    expect(mockedSend).not.toHaveBeenCalled();
+    expect(enrollmentOf('lead-1')).toMatchObject({ currentSequenceStep: step, nextActionDate: setLater });
+  });
+
+  it('loads nothing from an Active campaign with no steps', async () => {
+    campaign.steps = [];
+
+    await processDueEmails();
+
+    expect(fake.campaign.findMany).not.toHaveBeenCalled();
+    expect(fake.campaignEnrollment.updateMany).not.toHaveBeenCalled();
+    expect(enrollmentOf('lead-1').nextActionDate).toEqual(PAST);
   });
 });

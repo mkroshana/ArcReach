@@ -431,6 +431,65 @@ export async function recordAcceptedSend(send: {
   }
 }
 
+/** Most enrollments one send cycle loads. */
+export const DUE_BATCH_SIZE = 100;
+/** Most of one cycle's enrollments a single campaign may take, so a large campaign cannot starve the others. */
+export const DUE_BATCH_PER_CAMPAIGN = 25;
+
+type DueEnrollment = Prisma.CampaignEnrollmentGetPayload<{ include: { lead: true } }>;
+
+/**
+ * Loads the enrollments due at `now` with their leads, longest waiting first
+ * (by nextActionDate, then id), at most DUE_BATCH_PER_CAMPAIGN from any one
+ * campaign and DUE_BATCH_SIZE in all. Campaigns with no steps are left out:
+ * they have nothing to send.
+ */
+export async function loadDueEnrollments(now: Date): Promise<DueEnrollment[]> {
+  const dueWhere: Prisma.CampaignEnrollmentWhereInput = {
+    // Send guards: Active enrollment and campaign, lead still sendable.
+    // Each send re-checks them when it claims the enrollment.
+    ...sendableEnrollmentWhere(),
+    nextActionDate: { lte: now },
+    AND: [{ campaign: { steps: { some: {} } } }],
+  };
+
+  // Each pass takes the oldest due rows not yet in the batch. Rows past a
+  // campaign's share are dropped and that campaign is left out of the next
+  // pass, which fills the freed places from the other campaigns. Another pass
+  // only runs when a campaign reached its share in this one, so there are at
+  // most DUE_BATCH_SIZE / DUE_BATCH_PER_CAMPAIGN + 1, and the batch stays in
+  // due order.
+  const batch: DueEnrollment[] = [];
+  const perCampaign = new Map<string, number>();
+  while (batch.length < DUE_BATCH_SIZE) {
+    const full = [...perCampaign].filter(([, n]) => n >= DUE_BATCH_PER_CAMPAIGN).map(([id]) => id);
+    const take = DUE_BATCH_SIZE - batch.length;
+    // Only the lead rides along per row. The campaign (whose steps carry
+    // large HTML bodies) is fetched ONCE per distinct id by the caller —
+    // including it here serialized every step body once per enrollment row,
+    // which at volume produced multi-hundred-MB Prisma responses each 30s
+    // cycle and OOM'd the server.
+    const rows = await prisma.campaignEnrollment.findMany({
+      where: { ...dueWhere, id: { notIn: batch.map((e) => e.id) }, campaignId: { notIn: full } },
+      orderBy: [{ nextActionDate: 'asc' }, { id: 'asc' }],
+      include: { lead: true },
+      take,
+    });
+    let capped = false;
+    for (const row of rows) {
+      const taken = perCampaign.get(row.campaignId) ?? 0;
+      if (taken >= DUE_BATCH_PER_CAMPAIGN) {
+        capped = true;
+        continue;
+      }
+      perCampaign.set(row.campaignId, taken + 1);
+      batch.push(row);
+    }
+    if (!capped || rows.length < take) break;
+  }
+  return batch;
+}
+
 /**
  * Main entry point for the background sending loop.
  */
@@ -458,25 +517,7 @@ export async function processDueEmails() {
     }
 
     // 1. Fetch leads that are due for action (enrolled in campaigns with nextActionDate in the past)
-    const dueEnrollments = await prisma.campaignEnrollment.findMany({
-      where: {
-        // Send guards: Active enrollment and campaign, lead still sendable.
-        // Each send re-checks them when it claims the enrollment below.
-        ...sendableEnrollmentWhere(),
-        nextActionDate: {
-          lte: now,
-        },
-      },
-      // Only the lead rides along per row. The campaign (whose steps carry
-      // large HTML bodies) is fetched ONCE per distinct id below — including
-      // it here serialized every step body once per enrollment row, which at
-      // volume produced multi-hundred-MB Prisma responses each 30s cycle and
-      // OOM'd the server.
-      include: {
-        lead: true,
-      },
-      take: 100, // Batch limit to prevent timeouts
-    });
+    const dueEnrollments = await loadDueEnrollments(now);
 
     if (dueEnrollments.length === 0) {
       console.log('[SendEngine] No emails due in this cycle.');
@@ -564,10 +605,25 @@ export async function processDueEmails() {
         continue;
       }
 
-      // 4. Check Timezone & Sending Schedule restrictions
-      const isWithinSendingWindow = checkSendingWindow(campaign.timezone, campaign.sendSchedule);
+      // 4. Check Timezone & Sending Schedule restrictions. Outside the window
+      // the enrollment waits until it next opens: left due, it would come back
+      // at the front of every batch ahead of campaigns that can send.
+      const windowCheckedAt = new Date();
+      const isWithinSendingWindow = checkSendingWindow(campaign.timezone, campaign.sendSchedule, windowCheckedAt);
       if (!isWithinSendingWindow) {
-          console.log(`[SendEngine] Lead ${lead.email} skipped (outside campaign schedule window for ${campaign.timezone}).`);
+          let opensAt = nextWindowOpening(campaign.timezone, campaign.sendSchedule, windowCheckedAt);
+          if (opensAt) {
+            console.log(`[SendEngine] Lead ${lead.email} is outside the sending window for ${campaign.timezone}; waiting until ${opensAt.toISOString()}.`);
+          } else {
+            opensAt = new Date(windowCheckedAt);
+            opensAt.setDate(opensAt.getDate() + 1);
+            console.warn(`[SendEngine] Campaign "${campaign.name}" (${campaign.id}) has a sending window that never opens (no days, a bad time or an unknown timezone). Checking lead ${lead.email} again in a day.`);
+          }
+          await prisma.campaignEnrollment.updateMany({
+            // Only while it is still due on this step, so a date set since the batch loaded stands.
+            where: { id: enrollment.id, currentSequenceStep: enrollment.currentSequenceStep, nextActionDate: { lte: now } },
+            data: { nextActionDate: opensAt },
+          });
           continue;
       }
 

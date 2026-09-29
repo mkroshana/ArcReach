@@ -240,6 +240,8 @@ model CampaignEnrollment {
 
   // Prevents enrolling the same lead into the same campaign twice
   @@unique([leadId, campaignId]) 
+  // Serves the send engine's due query: Active rows by nextActionDate, oldest first.
+  @@index([status, nextActionDate])
 }
 
 // ------------------------------------------------------

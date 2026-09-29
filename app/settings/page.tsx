@@ -15,15 +15,6 @@ import {
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 
-const getGlobalSmtpStatusLabel = (provider: string) => {
-  switch (provider) {
-    case 'AZURE': return '[Inactive — Routed via Azure Communication Services]';
-    case 'DISABLED': return '[Inactive — Sending Disabled]';
-    default: return '';
-  }
-};
-const isGlobalSmtpDisabled = (provider: string) => provider === 'AZURE' || provider === 'DISABLED';
-
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<'profile' | 'integrations'>('profile');
   const [toastMessage, setToastMessage] = useState<string>('');
@@ -56,19 +47,6 @@ export default function SettingsPage() {
   const [azureSenderDomains, setAzureSenderDomains] = useState<string[]>([]);
   const [showAzureConnString, setShowAzureConnString] = useState(false);
 
-  const [smtpHost, setSmtpHost] = useState('');
-  const [smtpPort, setSmtpPort] = useState('');
-  const [smtpUser, setSmtpUser] = useState('');
-  const [smtpPass, setSmtpPass] = useState('');
-  const [showSmtpPass, setShowSmtpPass] = useState(false);
-  const [smtpLogs, setSmtpLogs] = useState<string[]>([]);
-  const [imapHost, setImapHost] = useState('');
-  const [imapPort, setImapPort] = useState('');
-  const [imapUser, setImapUser] = useState('');
-  const [imapPass, setImapPass] = useState('');
-  const [showImapPass, setShowImapPass] = useState(false);
-  const [smtpLoading, setSmtpLoading] = useState(false);
-
   const [rateLimitMinute, setRateLimitMinute] = useState('');
   const [rateLimitHour, setRateLimitHour] = useState('');
   const [rateLimitLoading, setRateLimitLoading] = useState(false);
@@ -98,14 +76,6 @@ export default function SettingsPage() {
           const domains = Array.isArray(data.settings.azureSenderDomains) ? data.settings.azureSenderDomains
             : (data.settings.azureSenderDomain ? [data.settings.azureSenderDomain] : []);
           setAzureSenderDomains(domains.map((d: string) => String(d).trim().toLowerCase()).filter(Boolean));
-          setSmtpHost(data.settings.smtpHost || '');
-          setSmtpPort(data.settings.smtpPort ? String(data.settings.smtpPort) : '');
-          setSmtpUser(data.settings.smtpUser || '');
-          setSmtpPass(data.settings.smtpPass || '');
-          setImapHost(data.settings.imapHost || '');
-          setImapPort(data.settings.imapPort ? String(data.settings.imapPort) : '');
-          setImapUser(data.settings.imapUser || '');
-          setImapPass(data.settings.imapPass || '');
           setRateLimitMinute(data.settings.rateLimitMinute != null ? String(data.settings.rateLimitMinute) : '60');
           setRateLimitHour(data.settings.rateLimitHour != null ? String(data.settings.rateLimitHour) : '1000');
         }
@@ -128,37 +98,6 @@ export default function SettingsPage() {
       if (res.ok) { triggerToast('Profile information saved successfully.'); window.location.reload(); }
       else triggerToast('Failed to save profile.');
     } catch (err) { console.error(err); triggerToast('Error saving profile.'); }
-  };
-
-  const handleTestSmtpConnection = async () => {
-    setSmtpLoading(true); setSmtpLogs([]);
-    try {
-      const testRes = await fetch('/api/settings/test-smtp', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ smtpHost, smtpPort, smtpUser, smtpPass }),
-      });
-      const testData = await testRes.json();
-      setSmtpLogs(testData.logs || []);
-      if (testData.success) {
-        const saveRes = await fetch('/api/settings', {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ smtpHost, smtpPort, smtpUser, smtpPass, imapHost, imapPort, imapUser, imapPass }),
-        });
-        if (saveRes.ok) triggerToast('Outbound SMTP configuration validated and saved!');
-      } else { triggerToast('SMTP validation failed.'); }
-    } catch (error) { triggerToast('Error validating SMTP connection.'); console.error(error); }
-    finally { setSmtpLoading(false); }
-  };
-
-  const handleSaveSmtpImap = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      const res = await fetch('/api/settings', {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ smtpHost, smtpPort, smtpUser, smtpPass, imapHost, imapPort, imapUser, imapPass }),
-      });
-      triggerToast(res.ok ? 'SMTP and IMAP configurations saved successfully.' : 'Failed to save SMTP/IMAP settings.');
-    } catch (err) { console.error(err); triggerToast('Error saving SMTP/IMAP settings.'); }
   };
 
   const handleSaveRateLimits = async (e: React.FormEvent) => {
@@ -434,54 +373,6 @@ export default function SettingsPage() {
                             <Stack direction="row" sx={{ justifyContent: 'flex-end' }}>
                               <Button type="submit" variant="contained" startIcon={<Save size={14} />}>Save Azure Configuration</Button>
                             </Stack>
-                          </Stack>
-                        </form>
-                      </CardContent>
-                    </Card>
-                  )}
-
-                  {(activeProvider === 'SMTP' || activeProvider === 'GOOGLE' || activeProvider === 'MICROSOFT') && (
-                    <Card sx={{ bgcolor: 'action.hover' }}>
-                      <CardContent>
-                        <form onSubmit={handleSaveSmtpImap}>
-                          <Stack spacing={2.5}>
-                            <Typography variant="overline" sx={{ color: 'text.secondary', pb: 0.5, borderBottom: 1, borderColor: 'divider', display: 'block' }}>
-                              Outbound (SMTP) {getGlobalSmtpStatusLabel(activeProvider)}
-                            </Typography>
-                            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-                              <TextField fullWidth size="small" disabled={isGlobalSmtpDisabled(activeProvider)} label="Host" value={smtpHost} onChange={(e) => setSmtpHost(e.target.value)} placeholder={activeProvider === 'GOOGLE' ? 'smtp.gmail.com' : activeProvider === 'MICROSOFT' ? 'smtp.office365.com' : 'e.g. smtp.mailgun.org'} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-                              <TextField fullWidth size="small" disabled={isGlobalSmtpDisabled(activeProvider)} label="Port" value={smtpPort} onChange={(e) => setSmtpPort(e.target.value)} placeholder="587" slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-                              <TextField fullWidth size="small" disabled={isGlobalSmtpDisabled(activeProvider)} label="Username" value={smtpUser} onChange={(e) => setSmtpUser(e.target.value)} placeholder="user@yourdomain.com" slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-                            </Stack>
-                            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-                              <TextField fullWidth size="small" disabled={isGlobalSmtpDisabled(activeProvider)} label="Password" type={showSmtpPass ? 'text' : 'password'} value={smtpPass} onChange={(e) => setSmtpPass(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' }, endAdornment: !isGlobalSmtpDisabled(activeProvider) ? (<InputAdornment position="end"><IconButton aria-label={showSmtpPass ? 'Hide SMTP password' : 'Show SMTP password'} size="small" onClick={() => setShowSmtpPass(!showSmtpPass)}>{showSmtpPass ? <EyeOff size={14} /> : <Eye size={14} />}</IconButton></InputAdornment>) : undefined } }} />
-                              <Button fullWidth variant="outlined" disabled={smtpLoading || isGlobalSmtpDisabled(activeProvider)} onClick={handleTestSmtpConnection} startIcon={<RefreshCw size={14} className={smtpLoading ? 'animate-spin' : ''} />}>
-                                {smtpLoading ? 'Connecting…' : 'Test SMTP Connection'}
-                              </Button>
-                            </Stack>
-                            <Typography variant="overline" sx={{ color: 'text.secondary', pb: 0.5, borderBottom: 1, borderColor: 'divider', display: 'block', mt: 1 }}>
-                              Inbound (IMAP) {getGlobalSmtpStatusLabel(activeProvider)}
-                            </Typography>
-                            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-                              <TextField fullWidth size="small" disabled={isGlobalSmtpDisabled(activeProvider)} label="Host" value={imapHost} onChange={(e) => setImapHost(e.target.value)} placeholder={activeProvider === 'GOOGLE' ? 'imap.gmail.com' : activeProvider === 'MICROSOFT' ? 'outlook.office365.com' : 'e.g. imap.mailgun.org'} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-                              <TextField fullWidth size="small" disabled={isGlobalSmtpDisabled(activeProvider)} label="Port" value={imapPort} onChange={(e) => setImapPort(e.target.value)} placeholder="993" slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-                              <TextField fullWidth size="small" disabled={isGlobalSmtpDisabled(activeProvider)} label="Username" value={imapUser} onChange={(e) => setImapUser(e.target.value)} placeholder="user@yourdomain.com" slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-                            </Stack>
-                            <TextField size="small" disabled={isGlobalSmtpDisabled(activeProvider)} label="IMAP Password" type={showImapPass ? 'text' : 'password'} value={imapPass} onChange={(e) => setImapPass(e.target.value)} sx={{ maxWidth: { sm: '50%' } }} slotProps={{ input: { sx: { fontFamily: 'monospace' }, endAdornment: !isGlobalSmtpDisabled(activeProvider) ? (<InputAdornment position="end"><IconButton aria-label={showImapPass ? 'Hide IMAP password' : 'Show IMAP password'} size="small" onClick={() => setShowImapPass(!showImapPass)}>{showImapPass ? <EyeOff size={14} /> : <Eye size={14} />}</IconButton></InputAdornment>) : undefined } }} />
-                            <Stack direction="row" sx={{ justifyContent: 'flex-end', pt: 1.5, borderTop: 1, borderColor: 'divider' }}>
-                              <Button type="submit" variant="contained" disabled={isGlobalSmtpDisabled(activeProvider)} startIcon={<Save size={14} />}>Save SMTP & IMAP</Button>
-                            </Stack>
-                            {(smtpLogs.length > 0 || smtpLoading) && (
-                              <Box sx={{ p: 1.5, bgcolor: '#0a0c12', color: '#cbd5e1', fontFamily: 'monospace', fontSize: 11, lineHeight: 1.6, borderRadius: '12px', border: 1, borderColor: '#1e2030', maxHeight: 220, overflowY: 'auto', whiteSpace: 'pre-wrap' }}>
-                                <Stack direction="row" sx={{ justifyContent: 'space-between', pb: 1, mb: 1, borderBottom: 1, borderColor: '#1a1c28' }}>
-                                  <Typography sx={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', letterSpacing: '0.1em' }}>SMTP DIAGNOSTIC CONSOLE</Typography>
-                                  {smtpLoading && <Typography sx={{ fontSize: 9, fontWeight: 700, color: '#60a5fa' }}>CONNECTING…</Typography>}
-                                </Stack>
-                                {smtpLogs.map((logStr, idx) => (
-                                  <Box key={idx} sx={{ color: logStr.startsWith('[SMTP OK]') ? '#34d399' : '#cbd5e1', fontWeight: logStr.startsWith('[SMTP OK]') ? 700 : 400 }}>{logStr}</Box>
-                                ))}
-                              </Box>
-                            )}
                           </Stack>
                         </form>
                       </CardContent>

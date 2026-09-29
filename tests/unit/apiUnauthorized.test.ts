@@ -47,7 +47,6 @@ import * as leadsVerify from '../../app/api/leads/verify/route';
 import * as sendEmailTest from '../../app/api/send-email/test/route';
 import * as session from '../../app/api/session/route';
 import * as settings from '../../app/api/settings/route';
-import * as settingsTestSmtp from '../../app/api/settings/test-smtp/route';
 import * as systemStatus from '../../app/api/system-status/route';
 import * as templates from '../../app/api/templates/route';
 import * as unibox from '../../app/api/unibox/route';
@@ -76,7 +75,6 @@ const ROUTES: Record<string, Record<string, unknown>> = {
   '/api/send-email/test': sendEmailTest,
   '/api/session': session,
   '/api/settings': settings,
-  '/api/settings/test-smtp': settingsTestSmtp,
   '/api/system-status': systemStatus,
   '/api/templates': templates,
   '/api/unibox': unibox,
@@ -116,7 +114,7 @@ describe('every API route answers a missing or revoked session with 401 (H26)', 
       .map((file) => `/api/${path.dirname(file).split(path.sep).join('/')}`)
       .filter((route) => route !== '/api/auth/logout'); // signs out whether or not the session is live
     expect(Object.keys(ROUTES).sort()).toEqual(protectedRoutes.sort());
-    expect(HANDLERS.length).toBe(41);
+    expect(HANDLERS.length).toBe(40);
   });
 
   it.each(HANDLERS)('%s returns 401, not 500, with no session cookie', async (_label, method, handler) => {

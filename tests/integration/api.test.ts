@@ -195,24 +195,6 @@ describe('ArcReach Live API Integration Tests', () => {
         expect(invalidData.error).toContain('Delivery provider must be AZURE or DISABLED.');
       }
     });
-
-    it('should test SMTP authentication logging', async () => {
-      const payload = {
-        smtpHost: 'smtp.sendgrid.net',
-        smtpPort: '587',
-        smtpUser: 'apikey',
-        smtpPass: 'SG.placeholder'
-      };
-      const testRes = await testFetch(`${BASE_URL}/api/settings/test-smtp`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      expect(testRes.status).toBe(200);
-      const testData = await testRes.json();
-      expect(testData).toHaveProperty('success');
-      expect(Array.isArray(testData.logs)).toBe(true);
-    });
   });
 
   describe('Templates CRUD Lifecycle API', () => {

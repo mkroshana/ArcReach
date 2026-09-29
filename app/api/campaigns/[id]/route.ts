@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
+import { checkCampaignSenders } from '@/lib/senderOwnership';
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -359,6 +360,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       steps,
       senderAccountIds
     } = body;
+
+    // Every sender mailbox must belong to the campaign owner (also for admins)
+    const senderError = await checkCampaignSenders(campaign.userId, senderAccountId, senderAccountIds);
+    if (senderError) {
+      return NextResponse.json({ error: senderError.error }, { status: senderError.status });
+    }
 
     const updates: any = {};
     if (name !== undefined) updates.name = name;

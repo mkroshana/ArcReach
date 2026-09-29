@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db, prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
+import { checkCampaignSenders } from '@/lib/senderOwnership';
 import { type FieldRule, fieldRules, isPlainObject, pickUpdateFields } from '@/lib/updateAllowList';
 
 /** Campaign statuses the app sets and the UI offers. */
@@ -42,6 +43,15 @@ export async function POST(req: NextRequest) {
 
     // Standard users can only create campaigns owned by themselves
     const targetUserId = session.role === 'ADMIN' ? (userId || session.id) : session.id;
+    if (typeof targetUserId !== 'string') {
+      return NextResponse.json({ error: 'userId must be a user ID.' }, { status: 400 });
+    }
+
+    // Every sender mailbox must belong to the campaign owner
+    const senderError = await checkCampaignSenders(targetUserId, senderAccountId, senderAccountIds);
+    if (senderError) {
+      return NextResponse.json({ error: senderError.error }, { status: senderError.status });
+    }
 
     const newCampaign = await db.createCampaign({
       name,

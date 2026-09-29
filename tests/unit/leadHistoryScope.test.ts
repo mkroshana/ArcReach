@@ -6,6 +6,7 @@ vi.mock('../../lib/db', () => ({
     lead: { findUnique: vi.fn() },
     inboundResponse: { findMany: vi.fn() },
     emailDispatch: { findMany: vi.fn() },
+    suppressedEmail: { findMany: vi.fn() },
   },
 }));
 
@@ -151,6 +152,7 @@ beforeEach(() => {
   mockedPrisma.emailDispatch.findMany.mockImplementation(async ({ where }: any) =>
     DISPATCHES.filter((d) => matches(d, where)),
   );
+  mockedPrisma.suppressedEmail.findMany.mockResolvedValue([]);
 });
 
 describe('GET /api/leads?id= history scope (M45)', () => {
@@ -258,5 +260,23 @@ describe('GET /api/unibox history scope (M45)', () => {
     expect(thread.messages.map((m: any) => m.id).sort())
       .toEqual([...DISPATCHES.map((d) => d.id), 'r-other', 'r-own'].sort());
     expect(thread.lead.enrollments.map((e: any) => e.id)).toEqual(['e-1', 'e-2']);
+  });
+
+  it("carries the lead's suppression-list entry, whatever its CRM status says (H17)", async () => {
+    mockedSession.mockResolvedValue(USER);
+    const added = new Date('2026-08-01T09:00:00Z');
+    mockedPrisma.suppressedEmail.findMany.mockResolvedValue([
+      { email: LEAD.email, reason: 'Unsubscribed', source: 'unsubscribe-link', createdAt: added },
+    ]);
+
+    const [thread] = await (await getUnibox(makeReq('/api/unibox'))).json();
+
+    expect(mockedPrisma.suppressedEmail.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { email: { in: [LEAD.email] } },
+    }));
+    expect(thread.lead).toMatchObject({
+      status: 'Neutral',
+      suppression: { reason: 'Unsubscribed', source: 'unsubscribe-link', createdAt: added.toISOString() },
+    });
   });
 });

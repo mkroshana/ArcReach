@@ -1,22 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { LeadStatus, LeadValidationStatus } from '@prisma/client';
+import { LeadValidationStatus } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { CAMPAIGN_LABEL_SELECT, dispatchScope, replyScope } from '@/lib/leadHistoryScope';
 import { type FieldRule, fieldRules, isPlainObject, pickUpdateFields } from '@/lib/updateAllowList';
 import { leadEmailIn, normalizeEmail } from '@/lib/leadEmail';
 import { findEnrollableLeadIds } from '@/lib/sendEligibility';
-import { liftsSuppression, suppressedLeadFields, suppressionReasons } from '@/lib/suppression';
+import {
+  CRM_STATUSES, liftsSuppression, suppressedLeadFields, suppressionEntries, suppressionReasons, withSuppression,
+} from '@/lib/suppression';
 import { deleteLeads } from '@/lib/leadDelete';
 
 /** Scalar columns the lead PUT may write, in single and bulk updates. Email and
  *  customVariables are not editable here; group membership goes through groupIds
- *  on a single-lead update. */
+ *  on a single-lead update. The status is CRM sentiment only: Bounced and
+ *  Unsubscribed come with a suppression, never from an edit. */
 const LEAD_UPDATE_FIELDS: Record<string, FieldRule> = {
   name: fieldRules.nullableString,
   company: fieldRules.nullableString,
   jobTitle: fieldRules.nullableString,
-  status: fieldRules.oneOf(Object.values(LeadStatus)),
+  status: fieldRules.oneOf(CRM_STATUSES),
   validationStatus: fieldRules.oneOf(Object.values(LeadValidationStatus)),
   isArchived: fieldRules.boolean,
 };
@@ -30,13 +33,15 @@ const MAX_LISTED_ADDRESSES = 5;
 
 /**
  * 409 message when `updates` would give any of `leadIds` on the suppression
- * list a status or validation status it could be mailed with (see
- * liftsSuppression), or null. The suppression list outlives every edit, so
- * such a lead would look sendable and never be emailed. For several leads it
- * names those on the list, so they can be deselected.
+ * list as a hard bounce or failed verification a validation status it could be
+ * mailed with (see liftsSuppression), or null. The suppression list outlives
+ * every edit, so such a lead would look deliverable and never be emailed. A
+ * status edit is never refused: the status is CRM sentiment and leaves the
+ * suppression in place. For several leads it names those on the list, so they
+ * can be deselected.
  */
 async function suppressedUpdateError(leadIds: string[], updates: Record<string, unknown>): Promise<string | null> {
-  if (updates.status === undefined && updates.validationStatus === undefined) return null;
+  if (updates.validationStatus === undefined) return null;
   const leads = await prisma.lead.findMany({ where: { id: { in: leadIds } }, select: { email: true } });
   const reasons = await suppressionReasons(prisma, leads.map((lead) => lead.email));
   const blocked = [...reasons].filter(([, reason]) => liftsSuppression(updates, reason)).map(([email]) => email);
@@ -44,17 +49,19 @@ async function suppressedUpdateError(leadIds: string[], updates: Record<string, 
   const listed = blocked.slice(0, MAX_LISTED_ADDRESSES);
   const unlisted = blocked.length - listed.length;
   const which = leadIds.length === 1
-    ? 'This lead\'s address is on the suppression list (unsubscribed, hard-bounced or failed verification). '
+    ? 'This lead\'s address is on the suppression list (hard-bounced or failed verification). '
     : `${blocked.length} of these ${leadIds.length} leads ${blocked.length === 1 ? 'is' : 'are'} on the suppression list ` +
-      `(unsubscribed, hard-bounced or failed verification): ${listed.join(', ')}${unlisted > 0 ? ` and ${unlisted} more` : ''}. `;
-  return which + 'A suppressed lead keeps its suppressed status and is never emailed again, so nothing was updated.';
+      `(hard-bounced or failed verification): ${listed.join(', ')}${unlisted > 0 ? ` and ${unlisted} more` : ''}. `;
+  return which + 'A suppressed address stays Invalid and is never emailed again unless an admin removes it from the list, ' +
+    'so nothing was updated.';
 }
 
 /**
  * Restarts the Bounced and Failed enrollments of those of `leadIds` that may be
- * emailed at step 1, due now. A lead that may not (archived, unsubscribed,
- * bounced, invalid or on the suppression list) keeps them as they are, since
- * the send engine would never send them.
+ * emailed at step 1, due now, after an edit sets them Valid. A lead that may
+ * not (archived, unsubscribed, bounced, invalid or on the suppression list)
+ * keeps them as they are, since the send engine would never send them. A
+ * status edit never restarts them: the status is CRM sentiment.
  */
 async function reactivateEnrollments(leadIds: string[]): Promise<void> {
   const enrollable = await findEnrollableLeadIds(prisma, { id: { in: leadIds } });
@@ -112,7 +119,9 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ error: 'Lead not found.' }, { status: 404 });
       }
       
-      return NextResponse.json(lead);
+      // suppression: the address's suppression-list entry, shown whatever the lead's status says
+      const [withEntry] = await withSuppression(prisma, [lead]);
+      return NextResponse.json(withEntry);
     }
     
     // In a corporate campaign tool, leads are shared across the CRM.
@@ -127,7 +136,7 @@ export async function GET(req: NextRequest) {
       orderBy: { email: 'asc' }
     });
     
-    return NextResponse.json(leads);
+    return NextResponse.json(await withSuppression(prisma, leads));
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
@@ -144,6 +153,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Email address is required.' }, { status: 400 });
     }
 
+    // The status is CRM sentiment only: Bounced and Unsubscribed come with a suppression
+    if (status && !CRM_STATUSES.includes(status)) {
+      return NextResponse.json({ error: `status must be one of ${CRM_STATUSES.join(', ')}.` }, { status: 400 });
+    }
+
     // Check if lead already exists, under any capitalisation
     const existing = await prisma.lead.findFirst({
       where: leadEmailIn([email]),
@@ -155,7 +169,7 @@ export async function POST(req: NextRequest) {
     }
 
     // An address on the suppression list comes back with its suppressed status
-    const suppressedReason = (await suppressionReasons(prisma, [email])).get(email) ?? null;
+    const suppression = (await suppressionEntries(prisma, [email])).get(email) ?? null;
 
     const created = await prisma.lead.create({
       data: {
@@ -165,7 +179,7 @@ export async function POST(req: NextRequest) {
         jobTitle: jobTitle || null,
         status: status || 'Neutral',
         validationStatus: validationStatus || 'Unverified',
-        ...(suppressedReason ? suppressedLeadFields(suppressedReason) : {}),
+        ...(suppression ? suppressedLeadFields(suppression.reason) : {}),
         isArchived: false,
         groups: {
           create: (groupIds || []).map((gId: string) => ({ groupId: gId }))
@@ -200,8 +214,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // suppressedReason tells the leads page the address is on the suppression list
-    return NextResponse.json({ ...created, suppressedReason });
+    // suppression tells the leads page the address is on the suppression list
+    return NextResponse.json({ ...created, suppression });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
@@ -240,7 +254,7 @@ export async function PUT(req: NextRequest) {
         where: { id: { in: ids } },
         data: updates
       });
-      if (updates.status === 'Neutral' || updates.validationStatus === 'Valid') {
+      if (updates.validationStatus === 'Valid') {
         await reactivateEnrollments(ids);
       }
       return NextResponse.json({ success: true, count: result.count });
@@ -265,7 +279,7 @@ export async function PUT(req: NextRequest) {
           where: { id: { in: leadIds } },
           data: updates
         });
-        if (updates.status === 'Neutral' || updates.validationStatus === 'Valid') {
+        if (updates.validationStatus === 'Valid') {
           await reactivateEnrollments(leadIds);
         }
         return NextResponse.json({ success: true, count: result.count });
@@ -304,11 +318,12 @@ export async function PUT(req: NextRequest) {
       }
     });
 
-    if (updates.status === 'Neutral' || updates.validationStatus === 'Valid') {
+    if (updates.validationStatus === 'Valid') {
       await reactivateEnrollments([id]);
     }
 
-    return NextResponse.json(updated);
+    const [withEntry] = await withSuppression(prisma, [updated]);
+    return NextResponse.json(withEntry);
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

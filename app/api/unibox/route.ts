@@ -4,6 +4,8 @@ import { getSession } from '@/lib/session';
 import { syncMailboxReplies, getActiveImapAccounts } from '@/lib/imapService';
 import { MAILBOX_SECRET_OMIT } from '@/lib/mailboxSecrets';
 import { CAMPAIGN_LABEL_SELECT, dispatchScope, enrollmentScope, replyScope } from '@/lib/leadHistoryScope';
+import { normalizeEmail } from '@/lib/leadEmail';
+import { CRM_STATUSES, suppressionEntries } from '@/lib/suppression';
 
 function normalizeSubject(subject: string): string {
   if (!subject) return '';
@@ -64,6 +66,9 @@ export async function GET(req: NextRequest) {
     });
 
     const leadIds = Array.from(new Set(replies.map(r => r.leadId)));
+
+    // Each lead's suppression-list entry, shown on the thread whatever its CRM status says
+    const suppression = await suppressionEntries(prisma, replies.map(r => r.lead.email));
     
     // Fetch the caller's dispatches for these leads
     const dispatches = await prisma.emailDispatch.findMany({
@@ -105,7 +110,8 @@ export async function GET(req: NextRequest) {
       const { leadReplies, leadDispatches } = group;
       
       // Get the lead details (from any reply)
-      const lead = leadReplies[0]?.lead || null;
+      const replyLead = leadReplies[0]?.lead;
+      const lead = replyLead ? { ...replyLead, suppression: suppression.get(normalizeEmail(replyLead.email)) ?? null } : null;
       
       // Map replies to standard message format
       const inboundMsgs = leadReplies.map(r => ({
@@ -183,6 +189,11 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'Either responseId or leadId is required.' }, { status: 400 });
     }
 
+    // The status is CRM sentiment only: Bounced and Unsubscribed come with a suppression, never from an edit
+    if (leadStatus !== undefined && !CRM_STATUSES.includes(leadStatus)) {
+      return NextResponse.json({ error: `leadStatus must be one of ${CRM_STATUSES.join(', ')}.` }, { status: 400 });
+    }
+
     // 1. Update unread status on InboundResponse (could be lead level, threadKey level, or specific response level)
     if (responseId && unread !== undefined) {
       const parts = responseId.split('-');
@@ -221,7 +232,7 @@ export async function PUT(req: NextRequest) {
       }
     }
 
-    // 2. Update Lead CRM status
+    // 2. Update Lead CRM status. A suppressed address stays on the suppression list whatever it is set to.
     if (leadId && leadStatus !== undefined) {
       await prisma.lead.update({
         where: { id: leadId },

@@ -1,5 +1,5 @@
 import type { LeadStatus, LeadValidationStatus, Prisma, SuppressionReason } from '@prisma/client';
-import { normalizeEmail } from './leadEmail';
+import { leadEmailIn, normalizeEmail } from './leadEmail';
 
 /**
  * The suppression list (SuppressedEmail): addresses that are never enrolled or
@@ -8,14 +8,36 @@ import { normalizeEmail } from './leadEmail';
  * for the address comes back suppressed. An unsubscribe, a hard bounce (send
  * engine or delivery webhook) and a failed verification (a malformed address,
  * or a domain that does not exist or has no MX records, never a failed DNS
- * lookup) add an address; the first reason recorded for it stands. Nothing in
- * the app removes one.
+ * lookup) add an address; the first reason recorded for it stands. No lead
+ * edit lifts one: the lead status is CRM sentiment, and the leads page and
+ * Unibox show a suppression from the list whatever the status says. Only an
+ * admin removes an address, one at a time (DELETE /api/leads/suppression, see
+ * unsuppressEmail).
  */
 
 type SuppressionClient = Pick<Prisma.TransactionClient, 'suppressedEmail'>;
 
 /** What recorded an entry, kept in SuppressedEmail.source. */
 export type SuppressionSource = 'unsubscribe-link' | 'delivery-webhook' | 'send-engine' | 'verification' | 'backfill';
+
+/** An address's suppression-list entry, as the lead and Unibox APIs return it on each lead (`suppression`). */
+export type SuppressionEntry = { reason: SuppressionReason; source: string; createdAt: Date };
+
+/**
+ * The lead statuses a user may set: CRM sentiment. Bounced and Unsubscribed are
+ * written only together with a suppression (suppressedLeadFields), so an
+ * opt-out or bounce never lives in the status alone, and no status edit adds or
+ * lifts a suppression.
+ */
+export const CRM_STATUSES: LeadStatus[] = ['Neutral', 'Interested', 'Not_Interested', 'Meeting_Booked', 'Out_of_Office'];
+
+/** How the leads page and Unibox name each reason: the chip on the lead and why the address was added. */
+export const SUPPRESSION_LABELS: Record<SuppressionReason, { chip: string; cause: string }> = {
+  Unsubscribed: { chip: 'Unsubscribed', cause: 'the recipient unsubscribed' },
+  Complaint: { chip: 'Unsubscribed', cause: 'the recipient reported an email as spam' },
+  HardBounce: { chip: 'Bounced', cause: 'an email to it hard-bounced' },
+  Invalid: { chip: 'Invalid', cause: 'it failed verification' },
+};
 
 /**
  * Most addresses one suppression-list read or write names: a large cohort
@@ -79,12 +101,40 @@ export async function suppressionReasons(
   return reasons;
 }
 
+/** The suppression-list entries of those of `emails` on the list, keyed by normalised address. */
+export async function suppressionEntries(
+  client: SuppressionClient,
+  emails: string[],
+): Promise<Map<string, SuppressionEntry>> {
+  const addresses = Array.from(new Set(emails.map(normalizeEmail).filter(Boolean)));
+  const entries = new Map<string, SuppressionEntry>();
+  for (let i = 0; i < addresses.length; i += SUPPRESSION_CHUNK) {
+    const rows = await client.suppressedEmail.findMany({
+      where: { email: { in: addresses.slice(i, i + SUPPRESSION_CHUNK) } },
+      select: { email: true, reason: true, source: true, createdAt: true },
+    });
+    for (const { email, ...entry } of rows) entries.set(email, entry);
+  }
+  return entries;
+}
+
+/** `leads`, each with `suppression`: its address's suppression-list entry, or null. */
+export async function withSuppression<T extends { email: string }>(
+  client: SuppressionClient,
+  leads: T[],
+): Promise<(T & { suppression: SuppressionEntry | null })[]> {
+  const entries = await suppressionEntries(client, leads.map((lead) => lead.email));
+  return leads.map((lead) => ({ ...lead, suppression: entries.get(normalizeEmail(lead.email)) ?? null }));
+}
+
 /**
  * The lead fields that show an address's suppression: an opt-out (unsubscribe
  * or complaint) is status Unsubscribed, a hard bounce status Bounced and
  * validation Invalid, a failed verification validation Invalid. A lead created
- * for a suppressed address gets them, and a lead update may not swap them for
- * values it could be mailed with (see liftsSuppression).
+ * for a suppressed address gets them. A later status edit may replace the
+ * status (it is CRM sentiment), but not the validation status (see
+ * liftsSuppression); removing the address from the list gives the lead back
+ * sendable values (see unsuppressEmail).
  */
 export function suppressedLeadFields(
   reason: SuppressionReason,
@@ -99,21 +149,50 @@ export function suppressedLeadFields(
   }
 }
 
-/** Lead statuses and validation statuses the send engine never mails (see sendableLeadWhere). */
-const UNSENDABLE_STATUSES: unknown[] = ['Bounced', 'Unsubscribed'];
+/** Validation statuses the send engine never mails (see sendableLeadWhere). */
 const UNSENDABLE_VALIDATION_STATUSES: unknown[] = ['Invalid'];
 
 /**
- * Whether `update` would replace a field that shows a lead's suppression (see
- * suppressedLeadFields) with a value the lead could be mailed with, so that it
- * would look sendable and never be sent.
+ * Whether `update` would replace the validation status that shows a lead's
+ * hard bounce or failed verification (see suppressedLeadFields) with one it
+ * could be mailed with, so that it would look deliverable and never be sent.
+ * The status is not checked: it is CRM sentiment, and a suppression shows from
+ * the list whatever the status says.
  */
 export function liftsSuppression(
-  update: { status?: unknown; validationStatus?: unknown },
+  update: { validationStatus?: unknown },
   reason: SuppressionReason,
 ): boolean {
-  const shown = suppressedLeadFields(reason);
-  return (shown.status !== undefined && update.status !== undefined && !UNSENDABLE_STATUSES.includes(update.status))
-    || (shown.validationStatus !== undefined && update.validationStatus !== undefined
-      && !UNSENDABLE_VALIDATION_STATUSES.includes(update.validationStatus));
+  return suppressedLeadFields(reason).validationStatus !== undefined
+    && update.validationStatus !== undefined
+    && !UNSENDABLE_VALIDATION_STATUSES.includes(update.validationStatus);
+}
+
+/**
+ * Takes `email` off the suppression list and gives its lead back values it can
+ * be mailed with in place of those suppressedLeadFields gave it: status
+ * Unsubscribed or Bounced goes to Neutral, validation Invalid to Unverified,
+ * so a bounced or invalid address is verified again. Enrollments are left as
+ * they are. Returns the removed entry, or null when the address is not on the
+ * list. Admin only, one address at a time (DELETE /api/leads/suppression).
+ */
+export async function unsuppressEmail(
+  client: Pick<Prisma.TransactionClient, 'suppressedEmail' | 'lead'>,
+  email: string,
+): Promise<SuppressionEntry | null> {
+  const address = normalizeEmail(email);
+  const entry = (await suppressionEntries(client, [address])).get(address);
+  if (!entry) return null;
+  await client.suppressedEmail.deleteMany({ where: { email: address } });
+  const shown = suppressedLeadFields(entry.reason);
+  if (shown.status) {
+    await client.lead.updateMany({ where: { ...leadEmailIn([address]), status: shown.status }, data: { status: 'Neutral' } });
+  }
+  if (shown.validationStatus) {
+    await client.lead.updateMany({
+      where: { ...leadEmailIn([address]), validationStatus: shown.validationStatus },
+      data: { validationStatus: 'Unverified' },
+    });
+  }
+  return entry;
 }

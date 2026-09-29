@@ -11,6 +11,7 @@ import {
   Tooltip as MuiTooltip,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
+import { CRM_STATUSES, SUPPRESSION_LABELS } from '@/lib/suppression';
 
 const statusColorMap: Record<string, 'success' | 'error' | 'primary' | 'warning' | 'default' | 'info'> = {
   Interested: 'success',
@@ -18,6 +19,7 @@ const statusColorMap: Record<string, 'success' | 'error' | 'primary' | 'warning'
   Meeting_Booked: 'primary',
   Out_of_Office: 'warning',
   Bounced: 'default',
+  Unsubscribed: 'default',
   Neutral: 'info',
 };
 
@@ -28,7 +30,27 @@ const readableStatus: Record<string, string> = {
   Meeting_Booked: 'Meeting Booked',
   Out_of_Office: 'Out of Office',
   Bounced: 'Bounced',
+  Unsubscribed: 'Unsubscribed',
 };
+
+/**
+ * The thread lead's suppression, from the suppression list whatever its CRM
+ * status says, or null: the chip label and a line on why it is never emailed.
+ */
+function leadSuppression(lead: any): { chip: string; color: 'warning' | 'error'; detail: string } | null {
+  const label = lead?.suppression ? SUPPRESSION_LABELS[lead.suppression.reason as keyof typeof SUPPRESSION_LABELS] : null;
+  if (!label) return null;
+  return {
+    chip: label.chip,
+    color: label.chip === 'Unsubscribed' ? 'warning' : 'error',
+    detail: `On the suppression list because ${label.cause}. Campaigns never email this address, whatever the lead status.`,
+  };
+}
+
+/** Whether the lead's status chip adds anything next to its suppression chip (a Bounced or Unsubscribed status repeats it). */
+function showsStatusChip(lead: any): boolean {
+  return !lead?.suppression || CRM_STATUSES.includes(lead?.status || 'Neutral');
+}
 
 function sanitizeEmailBody(body: string): string {
   if (!body) return '';
@@ -144,6 +166,7 @@ export default function UniboxPage() {
   useEffect(() => { fetchReplies(true); }, []);
 
   const selectedEmail = replies.find(e => e.id === selectedId);
+  const selectedSuppression = leadSuppression(selectedEmail?.lead);
   const currentReplyText = selectedEmail ? (drafts[selectedEmail.id] || '') : '';
   const setReplyText = (newText: string) => {
     if (!selectedEmail) return;
@@ -212,7 +235,12 @@ export default function UniboxPage() {
       });
       if (res.ok) {
         setReplies(prev => prev.map(item => item.id === selectedId ? { ...item, lead: { ...item.lead, status: statusKey } } : item));
-        showToast(`Lead status updated to ${readableStatus[statusKey]}`);
+        showToast(selectedEmail.lead?.suppression
+          ? `Lead status updated to ${readableStatus[statusKey]}. The address stays on the suppression list, so campaigns never email it.`
+          : `Lead status updated to ${readableStatus[statusKey]}`);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        showToast(data.error || 'Failed to update lead status.');
       }
     } catch (e) { console.error(e); }
     finally { setStatusMenuAnchor(null); }
@@ -309,6 +337,7 @@ export default function UniboxPage() {
           <Box sx={{ flex: 1, overflowY: 'auto', p: 1, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
             {filteredInbox.map(item => {
               const leadPaused = item.lead?.enrollments?.some((e: any) => e.status === 'Paused');
+              const suppressed = leadSuppression(item.lead);
               const isSelected = selectedId === item.id;
               const dateStr = new Date(item.receivedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
               return (
@@ -333,7 +362,14 @@ export default function UniboxPage() {
                     <Typography variant="caption" sx={{ fontWeight: 600, mr: 1, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{decodeMimeHeader(item.subject)}</Typography>
                     <Stack direction="row" spacing={0.5} sx={{ flexShrink: 0 }}>
                       {leadPaused && <Chip size="small" label="PAUSED" color="error" variant="outlined" sx={{ height: 16, fontSize: 8, fontWeight: 700 }} />}
-                      <Chip size="small" label={readableStatus[item.lead?.status || 'Neutral']} color={statusColorMap[item.lead?.status || 'Neutral']} variant="outlined" sx={{ height: 16, fontSize: 8, fontWeight: 700, textTransform: 'uppercase' }} />
+                      {suppressed && (
+                        <MuiTooltip title={suppressed.detail}>
+                          <Chip size="small" label={suppressed.chip} color={suppressed.color} sx={{ height: 16, fontSize: 8, fontWeight: 700, textTransform: 'uppercase' }} />
+                        </MuiTooltip>
+                      )}
+                      {showsStatusChip(item.lead) && (
+                        <Chip size="small" label={readableStatus[item.lead?.status || 'Neutral']} color={statusColorMap[item.lead?.status || 'Neutral']} variant="outlined" sx={{ height: 16, fontSize: 8, fontWeight: 700, textTransform: 'uppercase' }} />
+                      )}
                     </Stack>
                   </Stack>
                   <Typography variant="caption" sx={{ color: 'text.secondary', display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
@@ -369,6 +405,11 @@ export default function UniboxPage() {
                         {selectedEmail.lead?.enrollments?.some((e: any) => e.status === 'Paused') && (
                           <Chip size="small" label="PAUSED SEQUENCE" color="error" variant="outlined" sx={{ height: 18, fontSize: 9, fontWeight: 700 }} />
                         )}
+                        {selectedSuppression && (
+                          <MuiTooltip title={selectedSuppression.detail}>
+                            <Chip size="small" label={selectedSuppression.chip} color={selectedSuppression.color} sx={{ height: 18, fontSize: 9, fontWeight: 700, textTransform: 'uppercase' }} />
+                          </MuiTooltip>
+                        )}
                       </Stack>
                       <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace' }}>{selectedEmail.lead?.email}</Typography>
                     </Box>
@@ -390,7 +431,7 @@ export default function UniboxPage() {
                     {readableStatus[selectedEmail.lead?.status || 'Neutral']}
                   </Button>
                   <Menu anchorEl={statusMenuAnchor} open={!!statusMenuAnchor} onClose={() => setStatusMenuAnchor(null)} slotProps={{ paper: { sx: { borderRadius: '12px' } } }}>
-                    {Object.keys(statusColorMap).map(k => (
+                    {CRM_STATUSES.map(k => (
                       <MenuItem key={k} onClick={() => handleUpdateStatus(k)} sx={{ fontSize: 12, fontWeight: 500 }}>{readableStatus[k]}</MenuItem>
                     ))}
                   </Menu>

@@ -15,6 +15,7 @@ const fake = vi.hoisted(() => {
     emailDispatch: model('count', 'groupBy', 'findMany'),
     inboundResponse: model('count', 'findMany', 'findUnique', 'update'),
     lead: model('count', 'groupBy', 'findMany'),
+    suppressedEmail: model('findMany'),
     $transaction: vi.fn(),
   };
 });
@@ -127,7 +128,7 @@ describe('mailbox secrets in API responses', () => {
     mockedSession.mockResolvedValue(USER);
     vi.mocked(getActiveImapAccounts).mockResolvedValue([]);
     fake.user.findUnique.mockResolvedValue({ id: 'user-1' });
-    for (const m of [fake.campaignEnrollment, fake.emailDispatch, fake.inboundResponse, fake.lead]) {
+    for (const m of [fake.campaignEnrollment, fake.emailDispatch, fake.inboundResponse, fake.lead, fake.suppressedEmail]) {
       m.count?.mockResolvedValue(0);
       m.groupBy?.mockResolvedValue([]);
       m.findMany?.mockResolvedValue([]);

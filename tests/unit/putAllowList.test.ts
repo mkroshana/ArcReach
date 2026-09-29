@@ -323,6 +323,9 @@ describe('PUT /api/leads', () => {
     for (const body of [
       { id: 'lead-1', status: { set: 'Neutral' } },
       { id: 'lead-1', status: 'Active' },
+      // Set only with a suppression, never by an edit (H17)
+      { id: 'lead-1', status: 'Unsubscribed' },
+      { ids: ['lead-1'], status: 'Bounced' },
       { id: 'lead-1', validationStatus: 'Verified' },
       { id: 'lead-1', isArchived: 'true' },
       { id: 'lead-1', name: 5 },

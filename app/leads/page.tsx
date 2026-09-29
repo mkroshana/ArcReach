@@ -44,6 +44,81 @@ import { normalizeEmail } from '@/lib/leadEmail';
 import { useToast } from '@/components/Toast';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { toCsv, downloadCsv } from '@/lib/csv';
+import { SUPPRESSION_LABELS } from '@/lib/suppression';
+import type { SuppressionReason } from '@prisma/client';
+
+/** A lead's suppression-list entry, as /api/leads returns it on each lead. */
+type SuppressionInfo = { reason: SuppressionReason; source: string; createdAt: string };
+
+/** What recorded a suppression-list entry, in words. */
+const SUPPRESSION_SOURCES: Record<string, string> = {
+  'unsubscribe-link': 'unsubscribe link',
+  'delivery-webhook': 'ACS delivery report',
+  'send-engine': 'send failure',
+  verification: 'verification',
+  backfill: 'lead status before the list existed',
+};
+
+/** When and why an address went on the suppression list. */
+function describeSuppression(entry: SuppressionInfo): string {
+  const cause = SUPPRESSION_LABELS[entry.reason]?.cause ?? entry.reason;
+  const source = SUPPRESSION_SOURCES[entry.source] ?? entry.source;
+  return `On the suppression list since ${new Date(entry.createdAt).toLocaleDateString()} because ${cause} (${source}).`;
+}
+
+/**
+ * The lead's Unsubscribed, Bounced or Invalid chip label, or null. The
+ * suppression list decides it, whatever the lead's CRM status says; a Bounced
+ * or Unsubscribed status with no list entry still shows.
+ */
+function suppressionLabel(lead: any): string | null {
+  if (lead.suppression) return SUPPRESSION_LABELS[lead.suppression.reason as SuppressionReason]?.chip ?? 'Suppressed';
+  return lead.status === 'Bounced' || lead.status === 'Unsubscribed' ? lead.status : null;
+}
+
+function SuppressionChip({ lead }: { lead: any }) {
+  const label = suppressionLabel(lead);
+  const title = lead.suppression ? describeSuppression(lead.suppression) : undefined;
+  if (label === 'Bounced') {
+    return (
+      <span title={title} className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wider bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400 border-red-200 dark:border-red-900/30">
+        <Ban className="w-3.5 h-3.5" />
+        Bounced
+      </span>
+    );
+  }
+  if (label === 'Unsubscribed') {
+    return (
+      <span title={title} className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wider bg-orange-50 dark:bg-orange-950/30 text-orange-700 dark:text-orange-400 border-orange-200 dark:border-orange-900/30">
+        <MailX className="w-3.5 h-3.5" />
+        Unsubscribed
+      </span>
+    );
+  }
+  if (label) {
+    return (
+      <span title={title} className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wider bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-900/30">
+        <AlertCircle className="w-3.5 h-3.5" />
+        {label}
+      </span>
+    );
+  }
+  return <span className="text-[10px] text-slate-400 dark:text-slate-500">Active</span>;
+}
+
+/** What a Re-activate did, for its toast. */
+function describeReactivation(result: { reactivated: number; unsubscribed: number; suppressed: number; notSuppressed: number }): string {
+  const leadCount = (n: number) => `${n} ${n === 1 ? 'lead' : 'leads'}`;
+  const done = result.reactivated > 0
+    ? `${leadCount(result.reactivated)} moved back to Unverified. Run Verify to check ${result.reactivated === 1 ? 'it' : 'them'} again.`
+    : 'No leads were re-activated.';
+  const skipped = [
+    result.unsubscribed > 0 ? `${result.unsubscribed} unsubscribed` : '',
+    result.suppressed > 0 ? `${result.suppressed} still on the suppression list` : '',
+    result.notSuppressed > 0 ? `${result.notSuppressed} not suppressed` : '',
+  ].filter(Boolean);
+  return skipped.length > 0 ? `${done} Skipped ${skipped.join(', ')}.` : done;
+}
 
 export default function LeadsPage() {
   const [leads, setLeads] = useState<any[]>([]);
@@ -420,37 +495,27 @@ export default function LeadsPage() {
     setConfirmDialog({
       isOpen: true,
       title: 'Re-activate Leads',
-      message: `Are you sure you want to re-activate the ${selectedLeadIds.length} selected leads? This will reset their campaign sequences to step 1. ` +
-        'Leads whose address is on the suppression list (unsubscribed, hard-bounced or failed verification) cannot be re-activated; if any are selected, nothing is changed.',
+      message: `Re-activate the ${selectedLeadIds.length} selected leads? Bounced and invalid leads go back to Unverified so they can be verified again; ` +
+        'none is set Valid and no campaign sequence is restarted. Unsubscribed leads are skipped, and so are addresses on the suppression list ' +
+        'after a hard bounce or failed verification: only an admin can remove those, one at a time from the lead\'s details.',
       confirmLabel: 'Re-activate',
       isDestructive: false,
       onConfirm: async () => {
         setConfirmDialog(null);
         try {
           setLoading(true);
-          const res = await fetch('/api/leads', {
-            method: 'PUT',
+          const res = await fetch('/api/leads/reactivate', {
+            method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              ids: selectedLeadIds,
-              status: 'Neutral',
-              validationStatus: 'Valid'
-            })
+            body: JSON.stringify({ ids: selectedLeadIds })
           });
 
           if (res.ok) {
-            // Update local leads status
-            const updatedLeads = leads.map(l => {
-              if (selectedLeadIds.includes(l.id)) {
-                return { ...l, status: 'Neutral', validationStatus: 'Valid' };
-              }
-              return l;
-            });
-            setLeads(updatedLeads);
+            const result = await res.json();
             setSelectedLeadIds([]);
-            showToast('Selected leads re-activated and sequences reset to step 1.');
+            await fetchLeads();
+            showToast(describeReactivation(result), result.reactivated > 0 ? 'success' : 'warning');
           } else {
-            // A 409 names the selected leads on the suppression list, which stay suppressed
             const err = await res.json().catch(() => ({}));
             showToast(err.error || 'Failed to re-activate selected leads.', 'error');
           }
@@ -459,6 +524,47 @@ export default function LeadsPage() {
           showToast('Error re-activating selected leads.');
         } finally {
           setLoading(false);
+        }
+      }
+    });
+  };
+
+  // Admin only, one address at a time, after showing why it was suppressed
+  const handleRemoveSuppression = (lead: any) => {
+    const entry: SuppressionInfo | null = lead.suppression;
+    if (!entry) return;
+    const optOut = entry.reason === 'Unsubscribed' || entry.reason === 'Complaint';
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Remove From Suppression List',
+      message: `Remove ${lead.email} from the suppression list? ${describeSuppression(entry)} ` +
+        (optOut
+          ? 'The lead goes back to Neutral, and campaigns targeting it can enroll and email it again. Only do this if the recipient has asked to hear from you again.'
+          : 'The lead goes back to Neutral and Unverified so it can be verified again, and campaigns targeting it can enroll and email it again.') +
+        ' Paused and failed campaign sequences stay as they are.',
+      confirmLabel: 'Remove',
+      isDestructive: true,
+      onConfirm: async () => {
+        setConfirmDialog(null);
+        try {
+          const res = await fetch('/api/leads/suppression', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: lead.email })
+          });
+          const data = await res.json().catch(() => ({}));
+          if (res.ok) {
+            if (data.lead) {
+              setLeads(prev => prev.map(l => l.id === data.lead.id ? data.lead : l));
+              setLeadDetails((prev: any) => prev && prev.id === data.lead.id ? { ...prev, ...data.lead } : prev);
+            }
+            showToast(`${lead.email} removed from the suppression list.`);
+          } else {
+            showToast(data.error || 'Failed to remove the address from the suppression list.', 'error');
+          }
+        } catch (err) {
+          console.error(err);
+          showToast('Error removing the address from the suppression list.', 'error');
         }
       }
     });
@@ -611,7 +717,7 @@ export default function LeadsPage() {
         setSelectedGroupForAdd('');
         setShowAddLead(false);
         await fetchGroups(); // refresh groups for counts
-        if (created.suppressedReason) {
+        if (created.suppression) {
           showToast('Prospect added to CRM. Its address is on the suppression list, so it will not be emailed.', 'warning');
         } else {
           showToast('Prospect added to CRM.');
@@ -884,7 +990,7 @@ export default function LeadsPage() {
     }
 
     if (activeTab === 'suppressed') {
-      const isSuppressed = lead.status === 'Bounced' || lead.status === 'Unsubscribed' || lead.validationStatus === 'Invalid';
+      const isSuppressed = !!lead.suppression || lead.status === 'Bounced' || lead.status === 'Unsubscribed' || lead.validationStatus === 'Invalid';
       if (!isSuppressed) return false;
     }
 
@@ -900,8 +1006,8 @@ export default function LeadsPage() {
                           emailStr.toLowerCase().includes(search.toLowerCase()) ||
                           companyStr.toLowerCase().includes(search.toLowerCase());
     const matchesStatus = filterStatus === 'All' 
-      || (filterStatus === 'Bounced' && lead.status === 'Bounced')
-      || (filterStatus === 'Unsubscribed' && lead.status === 'Unsubscribed')
+      || (filterStatus === 'Bounced' && suppressionLabel(lead) === 'Bounced')
+      || (filterStatus === 'Unsubscribed' && suppressionLabel(lead) === 'Unsubscribed')
       || (!['Bounced', 'Unsubscribed'].includes(filterStatus) && lead.validationStatus === filterStatus);
     return matchesSearch && matchesStatus;
   });
@@ -1451,21 +1557,7 @@ export default function LeadsPage() {
                           </span>
                         </td>
                         <td className="px-5 py-3.5">
-                          {lead.status === 'Bounced' && (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wider bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400 border-red-200 dark:border-red-900/30">
-                              <Ban className="w-3.5 h-3.5" />
-                              Bounced
-                            </span>
-                          )}
-                          {lead.status === 'Unsubscribed' && (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wider bg-orange-50 dark:bg-orange-950/30 text-orange-700 dark:text-orange-400 border-orange-200 dark:border-orange-900/30">
-                              <MailX className="w-3.5 h-3.5" />
-                              Unsubscribed
-                            </span>
-                          )}
-                          {lead.status !== 'Bounced' && lead.status !== 'Unsubscribed' && (
-                            <span className="text-[10px] text-slate-400 dark:text-slate-500">Active</span>
-                          )}
+                          <SuppressionChip lead={lead} />
                         </td>
                         {(activeTab === 'leads' || activeTab === 'suppressed') && (
                           <td className="px-5 py-3.5">
@@ -2025,6 +2117,29 @@ export default function LeadsPage() {
                           <p className="text-slate-700 dark:text-slate-400 mt-0.5 font-semibold">{leadDetails.company || 'N/A'}</p>
                         </div>
                       </div>
+
+                      {/* Suppression List entry: shown whatever the CRM status says; only an admin removes it */}
+                      {leadDetails.suppression && (
+                        <div className="pt-2 border-t border-slate-200/60 dark:border-slate-800/40 space-y-2">
+                          <div className="flex justify-between items-center gap-3">
+                            <span className="text-slate-400 dark:text-slate-500 font-medium uppercase tracking-wider text-[9px]">Suppression List</span>
+                            <SuppressionChip lead={leadDetails} />
+                          </div>
+                          <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                            {describeSuppression(leadDetails.suppression)} Campaigns never enroll or email this address, whatever the lead&apos;s status.
+                          </p>
+                          {isAdmin ? (
+                            <button
+                              onClick={() => handleRemoveSuppression(leadDetails)}
+                              className="px-2.5 py-1 text-[10px] font-bold rounded-lg border uppercase tracking-wider transition-all cursor-pointer bg-white hover:bg-rose-50 dark:bg-slate-900 dark:hover:bg-rose-950/30 border-rose-200 dark:border-rose-900/40 text-rose-700 dark:text-rose-400"
+                            >
+                              Remove From List
+                            </button>
+                          ) : (
+                            <p className="text-[10px] text-slate-400 dark:text-slate-500">Only an admin can remove an address from the suppression list.</p>
+                          )}
+                        </div>
+                      )}
 
                       {/* Groups Management */}
                       <div className="pt-2 border-t border-slate-200/60 dark:border-slate-800/40">

@@ -130,6 +130,8 @@ const db = vi.hoisted(() => {
 
   const client: Record<string, any> = {};
   for (const table of Object.keys(tables)) client[table] = model(table);
+  // An interactive transaction runs on the same tables; the array form's writes have already run.
+  client.$transaction = async (arg: any) => (typeof arg === 'function' ? arg(client) : Promise.all(arg));
 
   return {
     client,
@@ -147,6 +149,11 @@ vi.mock('../../lib/session', () => ({
   getSession: vi.fn(),
 }));
 
+vi.mock('../../lib/imapService', () => ({
+  syncMailboxReplies: vi.fn(),
+  getActiveImapAccounts: vi.fn(),
+}));
+
 // acme.com has an MX record; etimeout.test and eservfail.test fail the lookup
 // with that error code; any other lookup fails as ENOTFOUND does.
 vi.mock('dns', () => {
@@ -160,13 +167,18 @@ vi.mock('dns', () => {
 
 import { getSession } from '../../lib/session';
 import { GET as unsubscribe } from '../../app/api/unsubscribe/route';
-import { POST as postLead, PUT as putLead, DELETE as deleteLeads } from '../../app/api/leads/route';
+import { GET as getLeads, POST as postLead, PUT as putLead, DELETE as deleteLeads } from '../../app/api/leads/route';
 import { POST as postBulk } from '../../app/api/leads/bulk/route';
 import { POST as postVerify } from '../../app/api/leads/verify/route';
+import { POST as postReactivate } from '../../app/api/leads/reactivate/route';
+import { DELETE as deleteSuppression } from '../../app/api/leads/suppression/route';
 import { DELETE as deleteGroup } from '../../app/api/leads/groups/route';
+import { PUT as putUnibox } from '../../app/api/unibox/route';
 import { liftsSuppression, suppressEmails, suppressedLeadFields } from '../../lib/suppression';
+import { findEnrollableLeadIds } from '../../lib/sendEligibility';
 
 const ADMIN = { id: 'admin-1', name: 'Admin', email: 'admin@example.com', role: 'ADMIN' as const };
+const USER = { id: 'user-1', name: 'User', email: 'user@example.com', role: 'USER' as const };
 
 function makeReq(method: string, path: string, body?: unknown): NextRequest {
   return new NextRequest(`http://localhost${path}`, {
@@ -202,6 +214,8 @@ const deletedIds = () => db.tables.deletedLead.map(({ id, email }) => ({ id, ema
 
 const leadById = (id: string) => db.tables.lead.find((l) => l.id === id);
 const leadByEmail = (email: string) => db.tables.lead.find((l) => l.email === email);
+/** Ids of the leads a campaign cohort may enroll: sendable and not on the suppression list. */
+const findEnrollable = () => findEnrollableLeadIds(db.client as any, {});
 const enrolledIn = (campaignId: string) =>
   db.tables.campaignEnrollment.filter((e) => e.campaignId === campaignId).map((e) => db.tables.lead.find((l) => l.id === e.leadId)?.email);
 
@@ -266,14 +280,14 @@ describe('the suppression list outlives the lead (H18)', () => {
     }));
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ email: 'old@acme.com', suppressedReason: reason, ...fields });
+    expect(await res.json()).toMatchObject({ email: 'old@acme.com', suppression: { reason }, ...fields });
     expect(db.tables.campaignEnrollment).toHaveLength(0);
   });
 
   it('Add Lead still enrolls an address that is not suppressed', async () => {
     const res = await postLead(makeReq('POST', '/api/leads', { name: 'New', email: 'new@acme.com' }));
 
-    expect(await res.json()).toMatchObject({ status: 'Neutral', validationStatus: 'Unverified', suppressedReason: null });
+    expect(await res.json()).toMatchObject({ status: 'Neutral', validationStatus: 'Unverified', suppression: null });
     expect(enrolledIn('cmp-unverified')).toEqual(['new@acme.com']);
   });
 });
@@ -360,48 +374,91 @@ describe('unsubscribe links of deleted leads (H18)', () => {
   });
 });
 
-describe('a lead update cannot lift a suppression (H18)', () => {
+describe('a lead update cannot lift a suppression (H18, H17)', () => {
   beforeEach(() => {
     addLead('opted-out', 'opted-out@acme.com', { status: 'Unsubscribed' });
     suppress('opted-out@acme.com', 'Unsubscribed');
     enroll('opted-out', 'cmp-unverified', 'Failed');
-    // Marked Bounced by hand from the Unibox status menu, which is not a suppression.
+    // Bounced from before the suppression list existed, so not on it.
     addLead('marked', 'marked@acme.com', { status: 'Bounced', validationStatus: 'Invalid' });
     enroll('marked', 'cmp-unverified', 'Bounced');
+    addLead('bounced', 'bounced@acme.com', { status: 'Bounced', validationStatus: 'Invalid' });
+    suppress('bounced@acme.com', 'HardBounce', 'delivery-webhook');
     db.tables.leadGroupMembership.push({ leadId: 'opted-out', groupId: 'g1' }, { leadId: 'marked', groupId: 'g1' });
   });
 
-  it('refuses a Re-activate that includes a suppressed lead with a 409 and writes nothing', async () => {
+  it('lets a status edit change only the CRM status of an unsubscribed lead, which stays suppressed and shows it', async () => {
+    const res = await putLead(makeReq('PUT', '/api/leads', { id: 'opted-out', status: 'Not_Interested' }));
+
+    expect(res.status).toBe(200);
+    // The response carries the suppression, so the leads page keeps its Unsubscribed chip
+    expect(await res.json()).toMatchObject({ status: 'Not_Interested', suppression: { reason: 'Unsubscribed' } });
+    expect(leadById('opted-out')!.status).toBe('Not_Interested');
+    expect(db.tables.suppressedEmail.map((row) => row.email)).toContain('opted-out@acme.com');
+    expect(db.tables.campaignEnrollment.find((e) => e.leadId === 'opted-out')).toMatchObject({ status: 'Failed' });
+
+    const leads = await (await getLeads(makeReq('GET', '/api/leads'))).json();
+    expect(leads.find((l: any) => l.id === 'opted-out')).toMatchObject({ status: 'Not_Interested', suppression: { reason: 'Unsubscribed' } });
+    expect(leads.find((l: any) => l.id === 'marked').suppression).toBeNull();
+    const detail = await (await getLeads(makeReq('GET', '/api/leads?id=opted-out'))).json();
+    expect(detail.suppression).toMatchObject({ reason: 'Unsubscribed', source: 'unsubscribe-link' });
+  });
+
+  it('never restarts enrollments on a status edit, even to Neutral', async () => {
+    const res = await putLead(makeReq('PUT', '/api/leads', { groupId: 'g1', status: 'Neutral' }));
+
+    expect(res.status).toBe(200);
+    expect(leadById('opted-out')!.status).toBe('Neutral');
+    expect(leadById('marked')!.status).toBe('Neutral');
+    expect(db.tables.campaignEnrollment.map((e) => e.status)).toEqual(['Failed', 'Bounced']);
+    expect(db.tables.suppressedEmail.map((row) => row.email)).toEqual(['opted-out@acme.com', 'bounced@acme.com']);
+  });
+
+  it.each([
+    ['a single lead', { id: 'marked', status: 'Unsubscribed' }],
+    ['a selection', { ids: ['marked'], status: 'Bounced' }],
+    ['a group', { groupId: 'g1', status: 'Unsubscribed' }],
+  ])('refuses Bounced or Unsubscribed as a status edit to %s, which only a bounce or unsubscribe sets', async (_label, body) => {
     const before = structuredClone(db.tables);
 
-    const res = await putLead(makeReq('PUT', '/api/leads', { ids: ['opted-out', 'marked'], status: 'Neutral', validationStatus: 'Valid' }));
+    const res = await putLead(makeReq('PUT', '/api/leads', body));
 
-    expect(res.status).toBe(409);
+    expect(res.status).toBe(400);
     expect((await res.json()).error).toBe(
-      '1 of these 2 leads is on the suppression list (unsubscribed, hard-bounced or failed verification): opted-out@acme.com. ' +
-      'A suppressed lead keeps its suppressed status and is never emailed again, so nothing was updated.',
+      'Field "status" must be one of Neutral, Interested, Not_Interested, Meeting_Booked, Out_of_Office.',
     );
     expect(db.tables).toEqual(before);
   });
 
-  it('still re-activates a lead that is not on the suppression list', async () => {
+  it('refuses Unsubscribed as the status of a new lead, so an opt-out never lives in the status alone', async () => {
+    const before = structuredClone(db.tables);
+
+    const res = await postLead(makeReq('POST', '/api/leads', { name: 'New', email: 'new@acme.com', status: 'Unsubscribed' }));
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe('status must be one of Neutral, Interested, Not_Interested, Meeting_Booked, Out_of_Office.');
+    expect(db.tables).toEqual(before);
+  });
+
+  it('refuses to set a hard-bounced address Valid with a 409 and writes nothing', async () => {
+    const before = structuredClone(db.tables);
+
+    const res = await putLead(makeReq('PUT', '/api/leads', { ids: ['bounced', 'marked'], validationStatus: 'Valid' }));
+
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe(
+      '1 of these 2 leads is on the suppression list (hard-bounced or failed verification): bounced@acme.com. ' +
+      'A suppressed address stays Invalid and is never emailed again unless an admin removes it from the list, so nothing was updated.',
+    );
+    expect(db.tables).toEqual(before);
+  });
+
+  it('still restarts the enrollments of a lead set Valid that is not on the suppression list', async () => {
     const res = await putLead(makeReq('PUT', '/api/leads', { ids: ['marked'], status: 'Neutral', validationStatus: 'Valid' }));
 
     expect(res.status).toBe(200);
     expect(leadById('marked')).toMatchObject({ status: 'Neutral', validationStatus: 'Valid' });
     expect(db.tables.campaignEnrollment.find((e) => e.leadId === 'marked')).toMatchObject({ status: 'Active', currentSequenceStep: 1 });
-  });
-
-  it.each([
-    ['a single lead', { id: 'opted-out', status: 'Interested' }, 'This lead\'s address is on the suppression list'],
-    ['a group', { groupId: 'g1', status: 'Neutral' }, '1 of these 2 leads is on the suppression list'],
-  ])('refuses the same change to %s', async (_label, body, message) => {
-    const res = await putLead(makeReq('PUT', '/api/leads', body));
-
-    expect(res.status).toBe(409);
-    expect((await res.json()).error).toContain(message);
-    expect(leadById('opted-out')!.status).toBe('Unsubscribed');
-    expect(leadById('marked')!.status).toBe('Bounced');
   });
 
   it('allows an edit that keeps the suppressed status, without restarting its enrollments (M23)', async () => {
@@ -436,9 +493,9 @@ describe('verification (H18, M23)', () => {
     expect(leadById('flaky')!.validationStatus).toBe('Invalid');
     expect(db.tables.suppressedEmail).toHaveLength(0);
 
-    const reactivated = await putLead(makeReq('PUT', '/api/leads', { ids: ['flaky'], status: 'Neutral', validationStatus: 'Valid' }));
-    expect(reactivated.status).toBe(200);
-    expect(leadById('flaky')).toMatchObject({ status: 'Neutral', validationStatus: 'Valid' });
+    const reactivated = await postReactivate(makeReq('POST', '/api/leads/reactivate', { ids: ['flaky'] }));
+    expect(await reactivated.json()).toEqual({ reactivated: 1, unsubscribed: 0, suppressed: 0, notSuppressed: 0 });
+    expect(leadById('flaky')).toMatchObject({ status: 'Neutral', validationStatus: 'Unverified' });
   });
 
   it.each([
@@ -482,20 +539,176 @@ describe('suppression list helpers', () => {
     expect(db.tables.suppressedEmail).toEqual([{ email: 'jane@acme.com', reason: 'Invalid', source: 'verification' }]);
   });
 
-  it('shows each reason on the lead, and refuses only changes that would make it look sendable', () => {
+  it('shows each reason on the lead, and refuses only validation changes that would make it look deliverable', () => {
     expect(suppressedLeadFields('Unsubscribed')).toEqual({ status: 'Unsubscribed' });
     expect(suppressedLeadFields('Complaint')).toEqual({ status: 'Unsubscribed' });
     expect(suppressedLeadFields('HardBounce')).toEqual({ status: 'Bounced', validationStatus: 'Invalid' });
     expect(suppressedLeadFields('Invalid')).toEqual({ validationStatus: 'Invalid' });
 
-    expect(liftsSuppression({ status: 'Neutral' }, 'Unsubscribed')).toBe(true);
-    expect(liftsSuppression({ status: 'Neutral', validationStatus: 'Valid' }, 'Complaint')).toBe(true);
     expect(liftsSuppression({ validationStatus: 'Valid' }, 'Unsubscribed')).toBe(false);
-    expect(liftsSuppression({ status: 'Unsubscribed' }, 'Unsubscribed')).toBe(false);
-    expect(liftsSuppression({ status: 'Unsubscribed' }, 'HardBounce')).toBe(false);
+    expect(liftsSuppression({ validationStatus: 'Valid' }, 'Complaint')).toBe(false);
     expect(liftsSuppression({ validationStatus: 'Valid' }, 'HardBounce')).toBe(true);
-    expect(liftsSuppression({ status: 'Interested' }, 'Invalid')).toBe(false);
+    expect(liftsSuppression({ validationStatus: 'Invalid' }, 'HardBounce')).toBe(false);
     expect(liftsSuppression({ validationStatus: 'Risky' }, 'Invalid')).toBe(true);
     expect(liftsSuppression({}, 'HardBounce')).toBe(false);
+  });
+});
+
+describe('Re-activate on the Suppressed tab (M76)', () => {
+  beforeEach(() => {
+    addLead('opted-out', 'opted-out@acme.com', { status: 'Unsubscribed' });
+    suppress('opted-out@acme.com', 'Unsubscribed');
+    enroll('opted-out', 'cmp-unverified', 'Paused');
+    addLead('complained', 'complained@acme.com', { status: 'Interested' });
+    suppress('complained@acme.com', 'Complaint', 'delivery-webhook');
+    addLead('legacy-unsub', 'legacy-unsub@acme.com', { status: 'Unsubscribed' });
+    addLead('hard', 'hard@acme.com', { status: 'Bounced', validationStatus: 'Invalid' });
+    suppress('hard@acme.com', 'HardBounce', 'send-engine');
+    addLead('no-domain', 'someone@no-domain.test', { validationStatus: 'Invalid' });
+    suppress('someone@no-domain.test', 'Invalid', 'verification');
+    addLead('marked', 'marked@acme.com', { status: 'Bounced', validationStatus: 'Invalid' });
+    enroll('marked', 'cmp-valid', 'Bounced');
+    addLead('flaky', 'flaky@acme.com', { status: 'Interested', validationStatus: 'Invalid' });
+    addLead('fine', 'fine@acme.com', { validationStatus: 'Valid' });
+  });
+
+  it('skips unsubscribed and listed addresses, moves the rest back to Unverified and restarts nothing', async () => {
+    const listed = structuredClone(db.tables.suppressedEmail);
+    const enrollments = structuredClone(db.tables.campaignEnrollment);
+    const ids = db.tables.lead.map((l) => l.id);
+
+    const res = await postReactivate(makeReq('POST', '/api/leads/reactivate', { ids }));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ reactivated: 2, unsubscribed: 3, suppressed: 2, notSuppressed: 1 });
+    expect(db.tables.lead.map(({ id, status, validationStatus }) => ({ id, status, validationStatus }))).toEqual([
+      { id: 'opted-out', status: 'Unsubscribed', validationStatus: 'Unverified' },
+      { id: 'complained', status: 'Interested', validationStatus: 'Unverified' },
+      { id: 'legacy-unsub', status: 'Unsubscribed', validationStatus: 'Unverified' },
+      { id: 'hard', status: 'Bounced', validationStatus: 'Invalid' },
+      { id: 'no-domain', status: 'Neutral', validationStatus: 'Invalid' },
+      // Never set Valid: verified again first
+      { id: 'marked', status: 'Neutral', validationStatus: 'Unverified' },
+      { id: 'flaky', status: 'Interested', validationStatus: 'Unverified' },
+      { id: 'fine', status: 'Neutral', validationStatus: 'Valid' },
+    ]);
+    expect(db.tables.suppressedEmail).toEqual(listed);
+    expect(db.tables.campaignEnrollment).toEqual(enrollments);
+  });
+
+  it('leaves setting a lead Valid to verification, which keeps a hard-bounced address Invalid', async () => {
+    await postReactivate(makeReq('POST', '/api/leads/reactivate', { ids: ['marked', 'hard'] }));
+    expect(leadById('marked')!.validationStatus).toBe('Unverified');
+
+    await postVerify(makeReq('POST', '/api/leads/verify', { ids: ['marked', 'hard'] }));
+
+    expect(leadById('marked')!.validationStatus).toBe('Valid');
+    expect(leadById('hard')!.validationStatus).toBe('Invalid');
+    // Its old campaign sequence is not restarted, but campaigns may enroll it again
+    expect(db.tables.campaignEnrollment.find((e) => e.leadId === 'marked')).toMatchObject({ campaignId: 'cmp-valid', status: 'Bounced' });
+    const enrollable = await findEnrollable();
+    expect(enrollable).toContain('marked');
+    expect(enrollable).not.toContain('hard');
+  });
+
+  it.each([{}, { ids: [] }, { ids: 'marked' }, { ids: [{ not: 'x' }] }])('refuses %j', async (body) => {
+    const res = await postReactivate(makeReq('POST', '/api/leads/reactivate', body));
+
+    expect(res.status).toBe(400);
+    expect(leadById('marked')!.status).toBe('Bounced');
+  });
+});
+
+describe('removing an address from the suppression list (H17)', () => {
+  const ADDED = new Date('2026-08-01T09:00:00Z');
+
+  beforeEach(() => {
+    addLead('opted-out', 'opted-out@acme.com', { status: 'Unsubscribed', validationStatus: 'Valid' });
+    db.tables.suppressedEmail.push({ email: 'opted-out@acme.com', reason: 'Unsubscribed', source: 'unsubscribe-link', createdAt: ADDED });
+    enroll('opted-out', 'cmp-valid', 'Paused');
+    addLead('bounced', 'bounced@acme.com', { status: 'Interested', validationStatus: 'Invalid' });
+    db.tables.suppressedEmail.push({ email: 'bounced@acme.com', reason: 'HardBounce', source: 'delivery-webhook', createdAt: ADDED });
+    vi.spyOn(console, 'info').mockImplementation(() => {});
+  });
+
+  it('refuses a non-admin with a 403 and changes nothing', async () => {
+    vi.mocked(getSession).mockResolvedValue(USER as any);
+    const before = structuredClone(db.tables);
+
+    const res = await deleteSuppression(makeReq('DELETE', '/api/leads/suppression', { email: 'opted-out@acme.com' }));
+
+    expect(res.status).toBe(403);
+    expect(db.tables).toEqual(before);
+  });
+
+  it('removes an opt-out for an admin, puts the lead back to Neutral, leaves its enrollments and logs who did it', async () => {
+    const res = await deleteSuppression(makeReq('DELETE', '/api/leads/suppression', { email: ' Opted-Out@Acme.com ' }));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      success: true,
+      removed: { reason: 'Unsubscribed', source: 'unsubscribe-link' },
+      lead: { id: 'opted-out', status: 'Neutral', validationStatus: 'Valid', suppression: null },
+    });
+    expect(db.tables.suppressedEmail.map((row) => row.email)).toEqual(['bounced@acme.com']);
+    expect(db.tables.campaignEnrollment).toEqual([expect.objectContaining({ leadId: 'opted-out', status: 'Paused' })]);
+    expect(console.info).toHaveBeenCalledWith(expect.stringContaining(
+      'admin@example.com (admin-1) removed opted-out@acme.com from the suppression list (reason Unsubscribed, source unsubscribe-link',
+    ));
+
+    // A new Valid-cohort campaign may now enroll it
+    expect(await findEnrollable()).toEqual(['opted-out']);
+  });
+
+  it('sends a hard-bounced lead back to Unverified, keeping its CRM status, so it is verified again', async () => {
+    const res = await deleteSuppression(makeReq('DELETE', '/api/leads/suppression', { email: 'bounced@acme.com' }));
+
+    expect(res.status).toBe(200);
+    expect(leadById('bounced')).toMatchObject({ status: 'Interested', validationStatus: 'Unverified' });
+    expect(db.tables.suppressedEmail.map((row) => row.email)).toEqual(['opted-out@acme.com']);
+
+    await postVerify(makeReq('POST', '/api/leads/verify', { ids: ['bounced'] }));
+    expect(leadById('bounced')!.validationStatus).toBe('Valid');
+    expect(enrolledIn('cmp-valid')).toEqual(['opted-out@acme.com', 'bounced@acme.com']);
+  });
+
+  it.each([
+    ['an address not on the list', { email: 'nobody@acme.com' }, 404],
+    ['no address', {}, 400],
+  ])('answers %s without writing', async (_label, body, status) => {
+    const before = structuredClone(db.tables);
+
+    const res = await deleteSuppression(makeReq('DELETE', '/api/leads/suppression', body));
+
+    expect(res.status).toBe(status);
+    expect(db.tables).toEqual(before);
+  });
+});
+
+describe('Unibox status edits (H17)', () => {
+  beforeEach(() => {
+    addLead('opted-out', 'opted-out@acme.com', { status: 'Unsubscribed' });
+    suppress('opted-out@acme.com', 'Unsubscribed');
+    enroll('opted-out', 'cmp-unverified', 'Paused');
+  });
+
+  it('sets the CRM status of an unsubscribed lead without taking it off the suppression list', async () => {
+    const res = await putUnibox(makeReq('PUT', '/api/unibox', { leadId: 'opted-out', leadStatus: 'Not_Interested' }));
+
+    expect(res.status).toBe(200);
+    expect(leadById('opted-out')!.status).toBe('Not_Interested');
+    expect(db.tables.suppressedEmail).toEqual([{ email: 'opted-out@acme.com', reason: 'Unsubscribed', source: 'unsubscribe-link' }]);
+    // Its status no longer says so, but the address still may not be enrolled
+    expect(await findEnrollable()).toEqual([]);
+  });
+
+  it.each(['Unsubscribed', 'Bounced', 'Active', { set: 'Neutral' }])('refuses leadStatus %j and writes nothing', async (leadStatus) => {
+    const before = structuredClone(db.tables);
+
+    const res = await putUnibox(makeReq('PUT', '/api/unibox', { leadId: 'opted-out', leadStatus }));
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe('leadStatus must be one of Neutral, Interested, Not_Interested, Meeting_Booked, Out_of_Office.');
+    expect(db.tables).toEqual(before);
   });
 });

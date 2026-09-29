@@ -1,10 +1,11 @@
+import { randomUUID } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getGlobalSettings } from '@/lib/settings';
 import { getSession } from '@/lib/session';
 import { applyEmailTracking } from '@/lib/emailTracking';
 import { checkGlobalRateLimits } from '@/lib/rateLimits';
-import { resolveCampaignSenders, pickSender, handleSendFailure, findStepDispatchStatus } from '@/lib/sendEngine';
+import { resolveCampaignSenders, pickSender, handleSendFailure, findStepDispatchStatus, recordAcceptedSend } from '@/lib/sendEngine';
 import { sendMessage, sendingDisabledReason } from '@/lib/emailProvider';
 import { sendableEnrollmentWhere, claimEnrollmentForSend, releaseEnrollmentClaim, RELEASED_CLAIM } from '@/lib/sendEligibility';
 
@@ -220,35 +221,48 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         baseBody = `<html><head><meta charset="utf-8"></head><body>${bodyText}</body></html>`;
       }
 
-      let dispatch: { id: string } | null = null;
+      // 5. Create dispatch record FIRST so we have a dispatchId for tracking URLs.
+      // It stays 'Sending' until the provider accepts the message, and carries
+      // the ACS Operation-Id the send is made under.
+      const operationId = randomUUID();
+      let dispatch: { id: string };
       try {
-        // 5. Create dispatch record FIRST so we have a dispatchId for tracking URLs.
-        // It stays 'Sending' until the provider accepts the message.
         dispatch = await prisma.emailDispatch.create({
           data: {
             leadId: lead.id,
             campaignId: campaign.id,
             senderAccountId: chosenSender.id,
             messageId: syntheticMessageId,
+            operationId,
             subject,
             body: baseBody,
             stepOrder: currentStepOrder,
             status: 'Sending',
           }
         });
+      } catch (err: any) {
+        // Nothing was sent, and a database error says nothing about the lead,
+        // so it isn't classified: release the claim and leave the step due.
+        console.error(`[Campaign Run Error] Could not record a dispatch for ${lead.email}; nothing was sent:`, err);
+        errors.push({ email: lead.email, error: err.message || err });
+        await releaseEnrollmentClaim(enrollment.id, claimToken);
+        continue;
+      }
 
-        // 6. Apply self-hosted tracking (pixel + link rewriting + unsubscribe link)
-        const finalBody = applyEmailTracking(
-          baseBody,
-          dispatch.id,
-          isHtml,
-          campaign.trackOpens,
-          campaign.trackClicks,
-          lead.id
-        );
+      // 6. Apply self-hosted tracking (pixel + link rewriting + unsubscribe link)
+      const finalBody = applyEmailTracking(
+        baseBody,
+        dispatch.id,
+        isHtml,
+        campaign.trackOpens,
+        campaign.trackClicks,
+        lead.id
+      );
 
-        // 7. Send email via the active provider
-        const { providerMessageId } = await sendMessage(
+      // 7. Send email via the active provider. Only this call is failure-classified.
+      let providerMessageId: string | null;
+      try {
+        ({ providerMessageId } = await sendMessage(
           {
             to: lead.email,
             subject,
@@ -256,64 +270,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
             isHtml,
             sender: chosenSender,
             trackOpens: campaign.trackOpens,
+            operationId,
           },
           settings
-        );
-
-        // 8. Mark the dispatch Sent with provider messageId and final tracked body
-        const updateData: any = { body: finalBody, status: 'Sent' };
-        if (providerMessageId) {
-          updateData.messageId = providerMessageId;
-        }
-
-        // 9. Advance enrollment to the next step
-        const nextStepOrder = currentStepOrder + 1;
-        const nextStep = campaign.steps.find(s => s.stepOrder === nextStepOrder);
-
-        let enrollmentAdvance;
-        if (nextStep) {
-          const nextActionDate = new Date();
-          nextActionDate.setDate(nextActionDate.getDate() + nextStep.waitDays);
-
-          enrollmentAdvance = {
-            currentSequenceStep: nextStepOrder,
-            nextActionDate,
-            ...RELEASED_CLAIM,
-          };
-        } else {
-          // No next step, sequence completed
-          enrollmentAdvance = {
-            status: 'Completed',
-            nextActionDate: null,
-            ...RELEASED_CLAIM,
-          };
-        }
-
-        // The dispatch becomes Sent in the same transaction that advances the
-        // enrollment and releases its claim.
-        await prisma.$transaction([
-          prisma.emailDispatch.update({
-            where: { id: dispatch.id },
-            data: updateData,
-          }),
-          prisma.campaignEnrollment.update({
-            where: { id: enrollment.id },
-            data: enrollmentAdvance,
-          }),
-        ]);
-
-        dispatchedCount++;
-
-        // Increment warmupSent counter if warmup is enabled
-        if (chosenSender.warmupEnabled) {
-          await prisma.senderAccount.update({
-            where: { id: chosenSender.id },
-            data: { warmupSent: { increment: 1 } }
-          });
-        }
-
-        // Update local sent count tracking
-        senderSentToday.set(chosenSender.id, (senderSentToday.get(chosenSender.id) || 0) + 1);
+        ));
       } catch (err: any) {
         console.error(`[Campaign Run Error] Failed to process lead ${lead.email}:`, err);
         errors.push({ email: lead.email, error: err.message || err });
@@ -321,7 +281,50 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         if (result.action === 'break') {
           break;
         }
+        continue;
       }
+
+      // 8. Advance enrollment to the next step
+      const nextStepOrder = currentStepOrder + 1;
+      const nextStep = campaign.steps.find(s => s.stepOrder === nextStepOrder);
+
+      let enrollmentAdvance;
+      if (nextStep) {
+        const nextActionDate = new Date();
+        nextActionDate.setDate(nextActionDate.getDate() + nextStep.waitDays);
+
+        enrollmentAdvance = {
+          currentSequenceStep: nextStepOrder,
+          nextActionDate,
+          ...RELEASED_CLAIM,
+        };
+      } else {
+        // No next step, sequence completed
+        enrollmentAdvance = {
+          status: 'Completed',
+          nextActionDate: null,
+          ...RELEASED_CLAIM,
+        };
+      }
+
+      // 9. The provider accepted the message: mark the dispatch Sent with the
+      // provider messageId and final tracked body, advance the enrollment and
+      // release its claim in one retried transaction. A failure here never
+      // marks the send Failed or queues the step again.
+      await recordAcceptedSend({
+        dispatchId: dispatch.id,
+        operationId,
+        finalBody,
+        providerMessageId,
+        enrollmentId: enrollment.id,
+        enrollmentAdvance,
+        sender: chosenSender,
+      });
+
+      dispatchedCount++;
+
+      // Update local sent count tracking
+      senderSentToday.set(chosenSender.id, (senderSentToday.get(chosenSender.id) || 0) + 1);
     }
 
     return NextResponse.json({

@@ -5,10 +5,10 @@ vi.mock('../../lib/db', () => ({
   prisma: {
     campaign: { updateMany: vi.fn(), findUnique: vi.fn(), findMany: vi.fn() },
     campaignEnrollment: { findMany: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
-    emailDispatch: { create: vi.fn(), update: vi.fn(), findFirst: vi.fn(), count: vi.fn() },
+    emailDispatch: { create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), findFirst: vi.fn(), count: vi.fn() },
     globalSettings: { findUnique: vi.fn(), findFirst: vi.fn() },
     lead: { findUnique: vi.fn() },
-    senderAccount: { findUnique: vi.fn(), update: vi.fn() },
+    senderAccount: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     inboundResponse: { findFirst: vi.fn() },
     $transaction: vi.fn(),
   },
@@ -82,6 +82,7 @@ function expectNothingRecorded() {
   expect(mockedSend).not.toHaveBeenCalled();
   expect(mockedPrisma.emailDispatch.create).not.toHaveBeenCalled();
   expect(mockedPrisma.emailDispatch.update).not.toHaveBeenCalled();
+  expect(mockedPrisma.emailDispatch.updateMany).not.toHaveBeenCalled();
   expect(mockedPrisma.campaignEnrollment.update).not.toHaveBeenCalled();
   expect(mockedPrisma.campaignEnrollment.updateMany).not.toHaveBeenCalled();
 }
@@ -99,7 +100,8 @@ beforeEach(() => {
   mockedPrisma.campaign.findMany.mockResolvedValue([CAMPAIGN]);
   mockedPrisma.campaignEnrollment.findMany.mockResolvedValue([ENROLLMENT]);
   mockedPrisma.campaignEnrollment.updateMany.mockResolvedValue({ count: 1 });
-  mockedPrisma.$transaction.mockImplementation(async (ops: Promise<unknown>[]) => Promise.all(ops));
+  mockedPrisma.$transaction.mockImplementation(async (fn: (tx: typeof mockedPrisma) => unknown) => fn(mockedPrisma));
+  mockedPrisma.emailDispatch.updateMany.mockResolvedValue({ count: 1 });
   mockedPrisma.emailDispatch.count.mockResolvedValue(0);
   mockedPrisma.emailDispatch.findFirst.mockResolvedValue(null);
   mockedPrisma.emailDispatch.create.mockImplementation(async ({ data }: any) => ({ id: 'dispatch-1', ...data }));
@@ -132,7 +134,7 @@ describe('processDueEmails refuses to send unless Azure is configured (H1)', () 
     expect(warn).not.toHaveBeenCalled();
     expect(mockedSend).toHaveBeenCalledTimes(1);
     expect(mockedPrisma.emailDispatch.create).toHaveBeenCalledTimes(1);
-    expect(mockedPrisma.campaignEnrollment.update).toHaveBeenCalledWith({
+    expect(mockedPrisma.campaignEnrollment.updateMany).toHaveBeenCalledWith({
       where: { id: 'enr-1' },
       data: { status: 'Completed', nextActionDate: null, claimToken: null, claimedAt: null },
     });

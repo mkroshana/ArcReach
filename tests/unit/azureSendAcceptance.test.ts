@@ -1,0 +1,155 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import http from 'http';
+import type { AddressInfo } from 'net';
+
+/**
+ * Drives the real ACS SDK against a local stub of the Email REST API, so the
+ * tests see what really goes over the wire: how many times the send is POSTed,
+ * its Operation-Id header, and the status polls that follow. The only change
+ * to the SDK is allowing plain HTTP to reach the stub.
+ */
+const sdk = vi.hoisted(() => ({ clientOptions: [] as unknown[] }));
+
+vi.mock('@azure/communication-email', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@azure/communication-email')>();
+  class EmailClient extends real.EmailClient {
+    constructor(connectionString: string, options: Record<string, unknown> = {}) {
+      sdk.clientOptions.push(options);
+      super(connectionString, { ...options, allowInsecureConnection: true });
+    }
+  }
+  return { ...real, EmailClient };
+});
+
+import { sendMessage, EmailSendError } from '../../lib/emailProvider';
+import { encryptSecret } from '../../lib/secrets';
+
+const OPERATION_ID = '5b0e7a52-3c1d-4d8e-9f10-2a3b4c5d6e7f';
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const ACCESS_KEY = Buffer.from('k'.repeat(32)).toString('base64');
+
+type Reply = { status: number; body: unknown } | 'drop';
+type Hit = { method: string; path: string; operationId: string | undefined };
+
+let server: http.Server;
+let baseUrl: string;
+let hits: Hit[];
+/** Answers the Nth request (1-based) the stub receives. */
+let reply: (method: string, n: number) => Reply;
+
+beforeEach(async () => {
+  sdk.clientOptions.length = 0;
+  hits = [];
+  vi.spyOn(console, 'log').mockImplementation(() => {});
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  server = http.createServer((req, res) => {
+    req.resume();
+    req.on('end', () => {
+      hits.push({
+        method: req.method!,
+        path: req.url!.split('?')[0],
+        operationId: req.headers['operation-id'] as string | undefined,
+      });
+      const answer = reply(req.method!, hits.length);
+      if (answer === 'drop') {
+        req.socket.destroy();
+        return;
+      }
+      const operationLocation = `${baseUrl}/emails/operations/${OPERATION_ID}?api-version=2025-09-01`;
+      res.writeHead(answer.status, { 'content-type': 'application/json', 'operation-location': operationLocation });
+      res.end(JSON.stringify(answer.body));
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+});
+
+afterEach(async () => {
+  server.closeAllConnections();
+  await new Promise((resolve) => server.close(resolve));
+  vi.restoreAllMocks();
+});
+
+const send = (operationId: string | undefined = OPERATION_ID) =>
+  sendMessage(
+    {
+      to: 'lead@prospect.test', subject: 'Hello', body: 'Hi there', isHtml: false,
+      sender: { emailAddress: 'one@acme.test' }, operationId,
+    },
+    {
+      activeProvider: 'AZURE',
+      azureConnString: encryptSecret(`endpoint=${baseUrl}/;accesskey=${ACCESS_KEY}`),
+      azureSenderDomains: ['acme.test'],
+    },
+  );
+
+const accepted: Reply = { status: 202, body: { id: OPERATION_ID, status: 'Running' } };
+const status = (value: string, extra: Record<string, unknown> = {}): Reply => ({ status: 200, body: { id: OPERATION_ID, status: value, ...extra } });
+const error = (code: number, errorCode: string, message: string): Reply => ({ status: code, body: { error: { code: errorCode, message } } });
+
+describe('Azure send: one POST under the Operation-Id, and acceptance is final (H5)', () => {
+  it('sends under the caller\'s operation id and returns the ACS id once the send succeeds', async () => {
+    reply = (method) => (method === 'POST' ? accepted : status('Succeeded'));
+
+    await expect(send()).resolves.toEqual({ providerMessageId: OPERATION_ID });
+    expect(hits).toEqual([
+      { method: 'POST', path: '/emails:send', operationId: OPERATION_ID },
+      { method: 'GET', path: `/emails/operations/${OPERATION_ID}`, operationId: OPERATION_ID },
+    ]);
+  });
+
+  it('generates an operation id when the caller has none', async () => {
+    reply = (method) => (method === 'POST' ? accepted : status('Succeeded'));
+
+    await send(undefined);
+
+    expect(hits[0].operationId).toMatch(UUID);
+  });
+
+  it.each<[string, Reply, { statusCode?: number; code: string }]>([
+    ['a 503', error(503, 'ServiceUnavailable', 'Service is down.'), { statusCode: 503, code: 'ServiceUnavailable' }],
+    ['a 429', error(429, 'TooManyRequests', 'Slow down.'), { statusCode: 429, code: 'TooManyRequests' }],
+    ['a dropped connection', 'drop', { code: 'ECONNRESET' }],
+  ])('POSTs the send once, without SDK retries, when ACS answers with %s', async (_label, answer, details) => {
+    reply = () => answer;
+
+    const err = await send().catch((e) => e);
+
+    expect(err).toBeInstanceOf(EmailSendError);
+    expect(err).toMatchObject(details);
+    expect(hits).toEqual([{ method: 'POST', path: '/emails:send', operationId: OPERATION_ID }]);
+    expect(sdk.clientOptions).toEqual([{ retryOptions: { maxRetries: 0 } }]);
+  });
+
+  it('keeps the status code and error code of a refused POST', async () => {
+    reply = () => error(401, 'Denied', 'Denied by the resource provider.');
+
+    await expect(send()).rejects.toMatchObject({
+      name: 'EmailSendError', message: 'Denied by the resource provider.', statusCode: 401, code: 'Denied',
+    });
+  });
+
+  it('reports a send as sent when ACS accepted it but the status poll inside beginSend fails', async () => {
+    reply = (method) => (method === 'POST' ? accepted : error(500, 'InternalError', 'Status lookup failed.'));
+
+    await expect(send()).resolves.toEqual({ providerMessageId: OPERATION_ID });
+    expect(hits.map((h) => h.method)).toEqual(['POST', 'GET']);
+  });
+
+  it('reports a send as sent when ACS accepted it but a later status poll is throttled', async () => {
+    reply = (method, n) => (method === 'POST' ? accepted : n === 2 ? status('Running') : error(429, 'TooManyRequests', 'Slow down.'));
+
+    await expect(send()).resolves.toEqual({ providerMessageId: OPERATION_ID });
+    expect(hits.map((h) => h.method)).toEqual(['POST', 'GET', 'GET']);
+  });
+
+  it.each(['Failed', 'Canceled'])('reports a %s status as a provider rejection with its error code', async (value) => {
+    reply = (method) =>
+      method === 'POST' ? accepted : status(value, { error: { code: 'InvalidRecipient', message: 'Recipient address rejected.' } });
+
+    await expect(send()).rejects.toMatchObject({
+      name: 'EmailSendError', message: 'Recipient address rejected.', code: 'InvalidRecipient',
+    });
+    expect(hits.map((h) => h.method)).toEqual(['POST', 'GET']);
+  });
+});

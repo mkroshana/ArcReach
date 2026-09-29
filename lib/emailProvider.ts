@@ -5,11 +5,15 @@
  *
  * Throws:
  *   EmailConfigError — missing/invalid configuration (callers map to 4xx).
- *   EmailSendError   — provider accepted the request but the send failed
- *                      (Azure status === "Failed", SMTP transport error, etc.).
+ *   EmailSendError   — the provider refused the message, never answered the
+ *                      send, or reported it Failed (Azure status "Failed",
+ *                      SMTP transport error, etc.). An Azure send ACS accepted
+ *                      is never reported as an EmailSendError just because its
+ *                      status could not be read afterwards.
  */
+import { randomUUID } from 'crypto';
 import nodemailer from 'nodemailer';
-import { EmailClient } from '@azure/communication-email';
+import { EmailClient, type EmailSendOptionalParams } from '@azure/communication-email';
 import { getVerifiedDomains, resolveAzureFromAddress } from './azureDomains';
 import { decryptSecret } from './secrets';
 
@@ -21,9 +25,15 @@ export class EmailConfigError extends Error {
 }
 
 export class EmailSendError extends Error {
-  constructor(message: string) {
+  /** HTTP status the provider answered with, when it answered at all. */
+  statusCode?: number;
+  /** Provider error code (e.g. "TooManyRequests") or network code (e.g. "ECONNRESET"). */
+  code?: string;
+  constructor(message: string, details: { statusCode?: number; code?: string } = {}) {
     super(message);
     this.name = 'EmailSendError';
+    this.statusCode = details.statusCode;
+    this.code = details.code;
   }
 }
 
@@ -34,7 +44,11 @@ const azureClientCache = new Map<string, EmailClient>();
 function getAzureClient(connString: string): EmailClient {
   let client = azureClientCache.get(connString);
   if (!client) {
-    client = new EmailClient(connString);
+    // No SDK retries. The pipeline would re-POST the send after a 5xx, 429 or
+    // dropped connection, and a POST whose response was lost may already have
+    // queued the email, so a retry can send it twice. A failed send is retried
+    // by the send engine instead, as a new dispatch.
+    client = new EmailClient(connString, { retryOptions: { maxRetries: 0 } });
     azureClientCache.clear(); // at most one active config; drop stale entries
     azureClientCache.set(connString, client);
   }
@@ -75,6 +89,11 @@ export interface MessageInput {
   fromName?: string;
   /** When false, disables Azure user-engagement tracking. Defaults to true. */
   trackOpens?: boolean;
+  /**
+   * ACS Operation-Id (a UUID) to send under. Callers that record a dispatch
+   * store it there before sending; one is generated when omitted.
+   */
+  operationId?: string;
 }
 
 export interface SendResult {
@@ -109,7 +128,7 @@ export async function sendMessage(
   const { to, subject, body, isHtml, sender, trackOpens = true } = input;
 
   if (provider === 'AZURE') {
-    return sendViaAzure({ to, subject, body, isHtml, sender, trackOpens }, settings!);
+    return sendViaAzure({ to, subject, body, isHtml, sender, trackOpens, operationId: input.operationId }, settings!);
   }
 
   // SMTP / GOOGLE / MICROSOFT all use nodemailer with the same shape.
@@ -123,7 +142,7 @@ export async function sendMessage(
 }
 
 async function sendViaAzure(
-  input: { to: string; subject: string; body: string; isHtml: boolean; sender: SenderInput; trackOpens: boolean },
+  input: { to: string; subject: string; body: string; isHtml: boolean; sender: SenderInput; trackOpens: boolean; operationId?: string },
   settings: ProviderSettings
 ): Promise<SendResult> {
   const connString = decryptSecret(settings.azureConnString);
@@ -159,16 +178,55 @@ async function sendViaAzure(
     message.replyTo = [{ address: replyTo }];
   }
 
+  const operationId = input.operationId ?? randomUUID();
+
+  // beginSend POSTs the send and then polls its status once, so its rejecting
+  // doesn't mean the email wasn't queued. The raw responses say what ACS did:
+  // whether it accepted the POST, and whether it reported the send Failed or
+  // Canceled.
+  let accepted = false;
+  let refusal = null as { code?: string; message: string } | null;
+  const onResponse: NonNullable<EmailSendOptionalParams['onResponse']> = (raw) => {
+    if (raw.request.method === 'POST' && raw.status >= 200 && raw.status < 300) accepted = true;
+    const body = raw.parsedBody;
+    const status = typeof body?.status === 'string' ? body.status.toLowerCase() : '';
+    if (status === 'failed' || status === 'canceled') {
+      refusal = {
+        code: body.error?.code,
+        message: body.error?.message || `Azure Communication Services reported send status: ${body.status}.`,
+      };
+    }
+  };
+
   let result: any;
   try {
-    const poller = await emailClient.beginSend(message);
+    const poller = await emailClient.beginSend(message, { operationId, onResponse });
+    accepted = true; // beginSend resolves only once the POST was accepted
     result = await poller.pollUntilDone();
   } catch (err: any) {
-    throw new EmailSendError(err?.message || 'Azure Communication Services failed to send email.');
+    if (!accepted) {
+      // ACS refused the POST, or no answer to it arrived: report it not sent.
+      throw new EmailSendError(err?.message || 'Azure Communication Services failed to send email.', {
+        statusCode: err?.statusCode,
+        code: err?.code,
+      });
+    }
+    if (refusal) {
+      throw new EmailSendError(refusal.message, { code: refusal.code });
+    }
+    // Accepted, but a status poll failed (throttled, reset, timed out). The
+    // email is queued, so it counts as sent; the delivery webhook reports how
+    // it ends under the operation id, which ACS also uses as the message id.
+    console.warn(
+      `[EmailProvider/Azure] Accepted as operation ${operationId}, final status unknown: ${err?.message || err} | To: ${input.to}`
+    );
+    return { providerMessageId: operationId };
   }
 
   if (result && result.status === 'Failed') {
-    throw new EmailSendError(result.error?.message || 'Azure Communication Services reported send status: Failed.');
+    throw new EmailSendError(result.error?.message || 'Azure Communication Services reported send status: Failed.', {
+      code: result.error?.code,
+    });
   }
 
   const providerMessageId: string | null = result?.id || null;

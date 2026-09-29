@@ -1,3 +1,5 @@
+import { randomUUID } from 'crypto';
+import type { Prisma } from '@prisma/client';
 import { prisma } from './db';
 import { getGlobalSettings } from './settings';
 import { checkGlobalRateLimits } from './rateLimits';
@@ -349,6 +351,75 @@ export async function findStepDispatchStatus(
   return null;
 }
 
+/** Retries of recordAcceptedSend's transaction after its first attempt fails. */
+export const BOOKKEEPING_RETRIES = 3;
+const BOOKKEEPING_RETRY_DELAY_MS = 250;
+
+/**
+ * Records a send the provider accepted: marks the dispatch Sent with the final
+ * body and provider message id, advances the enrollment and releases its
+ * claim, and counts the send toward the sender's warmup, in one transaction
+ * retried up to BOOKKEEPING_RETRIES times. It never throws: the email is out,
+ * so a database error here must not mark the dispatch Failed or queue the step
+ * again. If every attempt fails, the dispatch stays 'Sending' with its
+ * operationId, which keeps the step from being sent again, and the failure is
+ * logged for reconciliation. Returns whether the send was recorded.
+ */
+export async function recordAcceptedSend(send: {
+  dispatchId: string;
+  operationId: string;
+  finalBody: string;
+  providerMessageId: string | null;
+  enrollmentId: string;
+  enrollmentAdvance: Prisma.CampaignEnrollmentUpdateManyMutationInput;
+  sender: { id: string; warmupEnabled: boolean };
+}): Promise<boolean> {
+  const dispatchData: Prisma.EmailDispatchUpdateManyMutationInput = { body: send.finalBody, status: 'Sent' };
+  if (send.providerMessageId) {
+    dispatchData.messageId = send.providerMessageId;
+  }
+
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await prisma.$transaction(async (tx) => {
+        // Only a dispatch still 'Sending' is recorded, so a retry after an
+        // attempt that committed but lost its reply changes nothing twice.
+        const { count } = await tx.emailDispatch.updateMany({
+          where: { id: send.dispatchId, status: 'Sending' },
+          data: dispatchData,
+        });
+        if (count === 0) return;
+        // updateMany: an enrollment deleted during the send (lead verification
+        // drops enrollments) must not stop the send itself being recorded.
+        await tx.campaignEnrollment.updateMany({
+          where: { id: send.enrollmentId },
+          data: send.enrollmentAdvance,
+        });
+        if (send.sender.warmupEnabled) {
+          await tx.senderAccount.updateMany({
+            where: { id: send.sender.id },
+            data: { warmupSent: { increment: 1 } },
+          });
+        }
+      });
+      return true;
+    } catch (err: any) {
+      if (attempt >= BOOKKEEPING_RETRIES) {
+        console.error(
+          `[SendEngine] ACCEPTED SEND NOT RECORDED after ${attempt + 1} attempts: ACS accepted operation ${send.operationId}, but dispatch ${send.dispatchId} stays Sending and enrollment ${send.enrollmentId} did not advance. The step will not be sent again; reconcile this dispatch.`,
+          err?.message || err
+        );
+        return false;
+      }
+      console.warn(
+        `[SendEngine] Recording accepted send ${send.dispatchId} failed (attempt ${attempt + 1}); retrying:`,
+        err?.message || err
+      );
+      await new Promise((resolve) => setTimeout(resolve, BOOKKEEPING_RETRY_DELAY_MS * 2 ** attempt));
+    }
+  }
+}
+
 /**
  * Main entry point for the background sending loop.
  */
@@ -554,35 +625,47 @@ export async function processDueEmails() {
         continue;
       }
 
-      let dispatch: { id: string } | null = null;
+      // Create dispatch record FIRST so we have a dispatchId for tracking URLs.
+      // It stays 'Sending' until the provider accepts the message, and carries
+      // the ACS Operation-Id the send is made under.
+      const operationId = randomUUID();
+      let dispatch: { id: string };
       try {
-        // Create dispatch record FIRST so we have a dispatchId for tracking URLs.
-        // It stays 'Sending' until the provider accepts the message.
         dispatch = await prisma.emailDispatch.create({
           data: {
             leadId: lead.id,
             campaignId: campaign.id,
             senderAccountId: chosenSender.id,
             messageId: syntheticMessageId,
+            operationId,
             subject,
             body: baseBody,
             stepOrder: currentStepOrder,
             status: 'Sending',
           }
         });
+      } catch (err: any) {
+        // Nothing was sent, and a database error says nothing about the lead,
+        // so it isn't classified: release the claim and leave the step due.
+        console.error(`[SendEngine] Could not record a dispatch for ${lead.email}; nothing was sent:`, err.message || err);
+        await releaseEnrollmentClaim(enrollment.id, claimToken);
+        continue;
+      }
 
-        // Apply self-hosted tracking (pixel + link rewriting + unsubscribe link)
-        const finalBody = applyEmailTracking(
-          baseBody,
-          dispatch.id,
-          isHtml,
-          campaign.trackOpens,
-          campaign.trackClicks,
-          lead.id
-        );
+      // Apply self-hosted tracking (pixel + link rewriting + unsubscribe link)
+      const finalBody = applyEmailTracking(
+        baseBody,
+        dispatch.id,
+        isHtml,
+        campaign.trackOpens,
+        campaign.trackClicks,
+        lead.id
+      );
 
-        // Send Email
-        const { providerMessageId } = await sendMessage(
+      // Send Email. Only the provider call is failure-classified.
+      let providerMessageId: string | null;
+      try {
+        ({ providerMessageId } = await sendMessage(
           {
             to: lead.email,
             subject,
@@ -590,63 +673,10 @@ export async function processDueEmails() {
             isHtml,
             sender: chosenSender,
             trackOpens: campaign.trackOpens,
+            operationId,
           },
           settings
-        );
-
-        // Mark the dispatch Sent with the final tracked body and messageId
-        const updateData: any = { body: finalBody, status: 'Sent' };
-        if (providerMessageId) {
-          updateData.messageId = providerMessageId;
-        }
-
-        // 7. Advance enrollment to the next step since send succeeded
-        const nextStepOrder = currentStepOrder + 1;
-        const nextStep = campaign.steps.find(s => s.stepOrder === nextStepOrder);
-
-        let enrollmentAdvance;
-        if (nextStep) {
-          const nextDate = new Date();
-          nextDate.setDate(now.getDate() + nextStep.waitDays);
-
-          enrollmentAdvance = {
-            currentSequenceStep: nextStepOrder,
-            nextActionDate: nextDate,
-            ...RELEASED_CLAIM,
-          };
-        } else {
-          // Completed sequence
-          enrollmentAdvance = {
-            status: 'Completed',
-            nextActionDate: null,
-            ...RELEASED_CLAIM,
-          };
-        }
-
-        // The dispatch becomes Sent in the same transaction that advances the
-        // enrollment and releases its claim.
-        await prisma.$transaction([
-          prisma.emailDispatch.update({
-            where: { id: dispatch.id },
-            data: updateData,
-          }),
-          prisma.campaignEnrollment.update({
-            where: { id: enrollment.id },
-            data: enrollmentAdvance,
-          }),
-        ]);
-
-        // Increment warmupSent counter if warmup is enabled
-        if (chosenSender.warmupEnabled) {
-          await prisma.senderAccount.update({
-            where: { id: chosenSender.id },
-            data: { warmupSent: { increment: 1 } }
-          });
-        }
-
-        // Update local sent count tracking
-        senderSentToday.set(chosenSender.id, (senderSentToday.get(chosenSender.id) || 0) + 1);
-
+        ));
       } catch (err: any) {
         console.error(`[SendEngine Failure] Could not send to ${lead.email}:`, err.message || err);
 
@@ -656,7 +686,47 @@ export async function processDueEmails() {
           // Quota limit hit — any further sends this cycle will also fail.
           break;
         }
+        continue;
       }
+
+      // 7. Advance enrollment to the next step since send succeeded
+      const nextStepOrder = currentStepOrder + 1;
+      const nextStep = campaign.steps.find(s => s.stepOrder === nextStepOrder);
+
+      let enrollmentAdvance;
+      if (nextStep) {
+        const nextDate = new Date();
+        nextDate.setDate(now.getDate() + nextStep.waitDays);
+
+        enrollmentAdvance = {
+          currentSequenceStep: nextStepOrder,
+          nextActionDate: nextDate,
+          ...RELEASED_CLAIM,
+        };
+      } else {
+        // Completed sequence
+        enrollmentAdvance = {
+          status: 'Completed',
+          nextActionDate: null,
+          ...RELEASED_CLAIM,
+        };
+      }
+
+      // The provider accepted the message: mark the dispatch Sent, advance the
+      // enrollment and release its claim in one retried transaction. A failure
+      // here never marks the send Failed or queues the step again.
+      await recordAcceptedSend({
+        dispatchId: dispatch.id,
+        operationId,
+        finalBody,
+        providerMessageId,
+        enrollmentId: enrollment.id,
+        enrollmentAdvance,
+        sender: chosenSender,
+      });
+
+      // Update local sent count tracking
+      senderSentToday.set(chosenSender.id, (senderSentToday.get(chosenSender.id) || 0) + 1);
     }
 
     console.log('[SendEngine] Cycle completed.');

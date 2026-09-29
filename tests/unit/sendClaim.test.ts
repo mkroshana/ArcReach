@@ -10,10 +10,10 @@ import { NextRequest } from 'next/server';
 const fake = vi.hoisted(() => ({
   campaign: { updateMany: vi.fn(), findUnique: vi.fn(), findMany: vi.fn(), update: vi.fn() },
   campaignEnrollment: { findMany: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
-  emailDispatch: { create: vi.fn(), update: vi.fn(), findFirst: vi.fn(), count: vi.fn() },
+  emailDispatch: { create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), findFirst: vi.fn(), count: vi.fn() },
   emailEvent: { create: vi.fn() },
   lead: { update: vi.fn() },
-  senderAccount: { update: vi.fn() },
+  senderAccount: { update: vi.fn(), updateMany: vi.fn() },
   $transaction: vi.fn(),
 }));
 
@@ -40,7 +40,7 @@ import { getSession } from '../../lib/session';
 import { getGlobalSettings } from '../../lib/settings';
 import { checkGlobalRateLimits } from '../../lib/rateLimits';
 import { sendMessage } from '../../lib/emailProvider';
-import { processDueEmails } from '../../lib/sendEngine';
+import { processDueEmails, BOOKKEEPING_RETRIES } from '../../lib/sendEngine';
 import { SEND_CLAIM_TTL_MS, claimEnrollmentForSend, releaseEnrollmentClaim } from '../../lib/sendEligibility';
 import { POST as postRun } from '../../app/api/campaigns/[id]/run/route';
 
@@ -54,7 +54,7 @@ type EnrollmentRow = {
 };
 type DispatchRow = {
   id: string; leadId: string; campaignId: string | null; senderAccountId: string | null; messageId: string;
-  stepOrder: number | null; status: string; sentAt: Date; subject?: string; body?: string;
+  stepOrder: number | null; status: string; sentAt: Date; subject?: string; body?: string; operationId?: string | null;
 };
 
 const SENDER = {
@@ -67,6 +67,8 @@ let leads: Map<string, LeadRow>;
 let enrollments: EnrollmentRow[];
 let dispatches: DispatchRow[];
 let nextDispatchId = 0;
+/** Models written through the $transaction callback's client, in order. */
+let txWrites: string[];
 
 const PAST = new Date('2026-01-01T00:00:00Z');
 
@@ -128,6 +130,18 @@ function makeRunReq(): NextRequest {
 }
 const run = () => postRun(makeRunReq(), { params: Promise.resolve({ id: 'cmp-1' }) });
 
+/** Runs a send pass with setTimeout faked, so the bookkeeping retry delays pass at once. */
+async function withFakeTimers<T>(pass: () => Promise<T>): Promise<T> {
+  vi.useFakeTimers({ toFake: ['setTimeout'] });
+  try {
+    const pending = pass();
+    await vi.runAllTimersAsync();
+    return await pending;
+  } finally {
+    vi.useRealTimers();
+  }
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -146,6 +160,7 @@ beforeEach(() => {
   enrollments = [];
   dispatches = [];
   nextDispatchId = 0;
+  txWrites = [];
   addLead('lead-1');
 
   vi.mocked(getSession).mockResolvedValue({ id: 'admin-1', name: 'Admin', email: 'admin@example.com', role: 'ADMIN' } as any);
@@ -181,6 +196,12 @@ beforeEach(() => {
   fake.emailDispatch.update.mockImplementation(async ({ where, data }: any) =>
     Object.assign(dispatches.find((d) => d.id === where.id)!, data),
   );
+  fake.emailDispatch.updateMany.mockImplementation(async ({ where, data }: any) => {
+    const hit = dispatches.filter((d) => matchesFields(d, where));
+    hit.forEach((d) => Object.assign(d, data));
+    return { count: hit.length };
+  });
+  fake.senderAccount.updateMany.mockResolvedValue({ count: 1 });
   fake.emailDispatch.findFirst.mockImplementation(async ({ where }: any) => {
     const row = dispatches.find((d) => matchesFields(d, where));
     return row ? { id: row.id } : null;
@@ -188,7 +209,20 @@ beforeEach(() => {
   fake.emailDispatch.count.mockImplementation(async ({ where }: any) =>
     dispatches.filter((d) => matchesFields(d, where)).length,
   );
-  fake.$transaction.mockImplementation(async (ops: Promise<unknown>[]) => Promise.all(ops));
+  fake.$transaction.mockImplementation(async (arg: any) => {
+    if (typeof arg !== 'function') return Promise.all(arg);
+    const tracked = (model: 'emailDispatch' | 'campaignEnrollment' | 'senderAccount') => ({
+      updateMany: (args: unknown) => {
+        txWrites.push(model);
+        return fake[model].updateMany(args);
+      },
+    });
+    return arg({
+      emailDispatch: tracked('emailDispatch'),
+      campaignEnrollment: tracked('campaignEnrollment'),
+      senderAccount: tracked('senderAccount'),
+    });
+  });
 });
 
 afterEach(() => {
@@ -253,7 +287,7 @@ describe('processDueEmails claims each send and records it as Sending first (C5,
     expect(enrollmentOf('lead-1')).toMatchObject({ status: 'Active', currentSequenceStep: 2, claimToken: null, claimedAt: null });
 
     expect(fake.$transaction).toHaveBeenCalledTimes(1);
-    expect(fake.$transaction.mock.calls[0][0]).toHaveLength(2);
+    expect(txWrites).toEqual(['emailDispatch', 'campaignEnrollment']);
   });
 
   it.each<[string, () => void]>([
@@ -366,5 +400,111 @@ describe('POST /api/campaigns/[id]/run claims each send (C5, H7)', () => {
     expect((await res.json()).dispatchedCount).toBe(0);
     expect(mockedSend).not.toHaveBeenCalled();
     expect(enrollmentOf('lead-1')).toMatchObject({ currentSequenceStep: 1, claimToken: 'worker' });
+  });
+});
+
+describe('a send ACS accepted is recorded, never failed or sent again (H4, H5)', () => {
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+  // Prisma's pool timeout names a "connection limit", which reads as a quota error.
+  const poolTimeout = () => new Error('Timed out fetching a new connection from the connection pool. (Current connection pool timeout: 10, connection limit: 5)');
+
+  it('stores the ACS operation id on the Sending dispatch before the send and sends under that id', async () => {
+    const atSend: Array<{ operationId: unknown; dispatch: DispatchRow }> = [];
+    mockedSend.mockImplementation(async (input) => {
+      atSend.push({ operationId: input.operationId, dispatch: { ...dispatches[0] } });
+      return { providerMessageId: 'provider-msg-1' };
+    });
+
+    await processDueEmails();
+
+    expect(atSend).toHaveLength(1);
+    const { operationId, dispatch } = atSend[0];
+    expect(operationId).toMatch(UUID);
+    expect(dispatch).toMatchObject({ status: 'Sending', operationId });
+    expect(dispatches[0]).toMatchObject({ status: 'Sent', operationId, messageId: 'provider-msg-1' });
+  });
+
+  it('retries the bookkeeping after a database error instead of classifying it: no pause, no Failed dispatch, no resend', async () => {
+    fake.$transaction.mockRejectedValueOnce(poolTimeout());
+
+    await withFakeTimers(() => processDueEmails());
+
+    expect(mockedSend).toHaveBeenCalledTimes(1);
+    expect(fake.$transaction).toHaveBeenCalledTimes(2);
+    expect(dispatches).toHaveLength(1);
+    expect(dispatches[0]).toMatchObject({ status: 'Sent', messageId: 'provider-msg-1' });
+    expect(campaign.status).toBe('Active');
+    expect(enrollmentOf('lead-1')).toMatchObject({ currentSequenceStep: 2, retryCount: 0, lastError: null, claimToken: null });
+
+    await processDueEmails();
+    expect(mockedSend).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves the dispatch Sending with its operation id when every attempt fails, and never sends that step again', async () => {
+    fake.$transaction.mockRejectedValue(new Error('Server has closed the connection.'));
+
+    await withFakeTimers(() => processDueEmails());
+
+    expect(mockedSend).toHaveBeenCalledTimes(1);
+    expect(fake.$transaction).toHaveBeenCalledTimes(BOOKKEEPING_RETRIES + 1);
+    expect(dispatches).toHaveLength(1);
+    expect(dispatches[0]).toMatchObject({ status: 'Sending', operationId: expect.stringMatching(UUID) });
+    expect(fake.emailDispatch.update).not.toHaveBeenCalled();
+    expect(campaign.status).toBe('Active');
+    expect(enrollmentOf('lead-1')).toMatchObject({ currentSequenceStep: 1, retryCount: 0, lastError: null, nextActionDate: PAST });
+    expect(vi.mocked(console.error).mock.calls.some(([message]) => String(message).includes('ACCEPTED SEND NOT RECORDED'))).toBe(true);
+
+    // Once the claim expires, later passes find the step's dispatch in Sending and leave it alone.
+    enrollmentOf('lead-1').claimedAt = new Date(Date.now() - SEND_CLAIM_TTL_MS - 1);
+    await processDueEmails();
+    await run();
+    expect(mockedSend).toHaveBeenCalledTimes(1);
+    expect(dispatches).toHaveLength(1);
+  });
+
+  it('counts a warmup send in the same transaction that records it', async () => {
+    campaign.senderAccount = { ...SENDER, warmupEnabled: true, warmupStartedAt: new Date() };
+
+    await processDueEmails();
+
+    expect(txWrites).toEqual(['emailDispatch', 'campaignEnrollment', 'senderAccount']);
+    expect(fake.senderAccount.updateMany).toHaveBeenCalledWith({ where: { id: 'mb-1' }, data: { warmupSent: { increment: 1 } } });
+    expect(fake.senderAccount.update).not.toHaveBeenCalled();
+  });
+
+  it('does not classify a failure to record the dispatch before the send: nothing is sent and the lead is not penalised', async () => {
+    fake.emailDispatch.create.mockRejectedValueOnce(poolTimeout());
+
+    await processDueEmails();
+
+    expect(mockedSend).not.toHaveBeenCalled();
+    expect(campaign.status).toBe('Active');
+    expect(enrollmentOf('lead-1')).toMatchObject({
+      currentSequenceStep: 1, retryCount: 0, lastError: null, nextActionDate: PAST, claimToken: null, claimedAt: null,
+    });
+  });
+
+  it('the manual run reports an accepted send as dispatched after a database error, and records it', async () => {
+    fake.$transaction.mockRejectedValueOnce(poolTimeout());
+
+    const res = await withFakeTimers(() => run());
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ success: true, dispatchedCount: 1, errors: [] });
+    expect(mockedSend).toHaveBeenCalledTimes(1);
+    expect(mockedSend.mock.calls[0][0].operationId).toBe(dispatches[0].operationId);
+    expect(dispatches[0]).toMatchObject({ status: 'Sent', messageId: 'provider-msg-1' });
+    expect(campaign.status).toBe('Active');
+    expect(enrollmentOf('lead-1')).toMatchObject({ currentSequenceStep: 2, retryCount: 0, claimToken: null });
+  });
+
+  it('the manual run still classifies a send the provider refused', async () => {
+    mockedSend.mockRejectedValue(new Error('Connection timed out'));
+
+    const res = await run();
+
+    expect(await res.json()).toMatchObject({ success: false, dispatchedCount: 0, errors: [{ email: 'lead-1@prospect.test' }] });
+    expect(dispatches[0].status).toBe('Failed');
+    expect(enrollmentOf('lead-1')).toMatchObject({ currentSequenceStep: 1, retryCount: 1, claimToken: null });
   });
 });

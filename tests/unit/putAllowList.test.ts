@@ -11,6 +11,9 @@ vi.mock('../../lib/db', () => ({
   prisma: {
     user: { findUnique: vi.fn() },
     senderAccount: { findUnique: vi.fn() },
+    lead: { update: vi.fn(), updateMany: vi.fn() },
+    leadGroupMembership: { findMany: vi.fn() },
+    campaignEnrollment: { updateMany: vi.fn() },
   },
 }));
 
@@ -24,6 +27,7 @@ import { decryptSecret, MASKED_SECRET } from '../../lib/secrets';
 import { fieldRules, pickUpdateFields } from '../../lib/updateAllowList';
 import { PUT as putCampaign } from '../../app/api/campaigns/route';
 import { PUT as putAccount } from '../../app/api/accounts/route';
+import { PUT as putLead } from '../../app/api/leads/route';
 
 const mockedDb = db as any;
 const mockedPrisma = prisma as any;
@@ -233,5 +237,140 @@ describe('PUT /api/accounts', () => {
     const ok = await putAccount(makeReq('/api/accounts', { id: 'acc-1', userId: 'user-2' }));
     expect(ok.status).toBe(200);
     expect(mockedDb.updateAccount).toHaveBeenLastCalledWith('acc-1', { userId: 'user-2' });
+  });
+});
+
+describe('PUT /api/leads', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockedSession.mockResolvedValue(USER);
+    mockedPrisma.lead.update.mockImplementation(async ({ where, data }: any) => ({ id: where.id, ...data }));
+    mockedPrisma.lead.updateMany.mockResolvedValue({ count: 2 });
+    mockedPrisma.leadGroupMembership.findMany.mockResolvedValue([{ leadId: 'lead-1' }, { leadId: 'lead-2' }]);
+    mockedPrisma.campaignEnrollment.updateMany.mockResolvedValue({ count: 0 });
+  });
+
+  function expectNoWrites() {
+    expect(mockedPrisma.lead.update).not.toHaveBeenCalled();
+    expect(mockedPrisma.lead.updateMany).not.toHaveBeenCalled();
+    expect(mockedPrisma.campaignEnrollment.updateMany).not.toHaveBeenCalled();
+  }
+
+  it('rejects nested writes through dispatches to the owning user (C2)', async () => {
+    const wipe = await putLead(makeReq('/api/leads', { id: 'lead-1', dispatches: { deleteMany: {} } }));
+    expect(wipe.status).toBe(400);
+    expect((await wipe.json()).error).toBe('Unknown field(s): dispatches.');
+
+    const escalate = await putLead(makeReq('/api/leads', {
+      id: 'lead-1',
+      dispatches: { update: { where: { id: 'd-1' }, data: { campaign: { update: { user: { update: { role: 'ADMIN' } } } } } } },
+    }));
+    expect(escalate.status).toBe(400);
+    expectNoWrites();
+  });
+
+  it('rejects email, relation and JSON columns', async () => {
+    for (const body of [
+      { id: 'lead-1', email: 'someone@example.com' },
+      { id: 'lead-1', customVariables: { a: 1 } },
+      { id: 'lead-1', enrollments: { deleteMany: {} } },
+      { id: 'lead-1', groups: { create: [{ groupId: 'g-1' }] } },
+      { id: 'lead-1', replies: { deleteMany: {} } },
+    ]) {
+      const res = await putLead(makeReq('/api/leads', body));
+      expect(res.status).toBe(400);
+    }
+    expectNoWrites();
+  });
+
+  it('rejects object values and values outside the lead enums', async () => {
+    for (const body of [
+      { id: 'lead-1', status: { set: 'Neutral' } },
+      { id: 'lead-1', status: 'Active' },
+      { id: 'lead-1', validationStatus: 'Verified' },
+      { id: 'lead-1', isArchived: 'true' },
+      { id: 'lead-1', name: 5 },
+      { id: 'lead-1', company: ['Acme'] },
+    ]) {
+      const res = await putLead(makeReq('/api/leads', body));
+      expect(res.status).toBe(400);
+    }
+    const res = await putLead(makeReq('/api/leads', { id: 'lead-1', validationStatus: 'Verified' }));
+    expect((await res.json()).error).toBe('Field "validationStatus" must be one of Valid, Invalid, Risky, Unverified.');
+    expectNoWrites();
+  });
+
+  it('applies the same allow-list to the ids and groupId bulk updates', async () => {
+    for (const body of [
+      { ids: ['lead-1'], dispatches: { deleteMany: {} } },
+      { ids: ['lead-1'], email: 'someone@example.com' },
+      { groupId: 'g-1', dispatches: { deleteMany: {} } },
+      { groupId: 'g-1', status: { set: 'Neutral' } },
+    ]) {
+      const res = await putLead(makeReq('/api/leads', body));
+      expect(res.status).toBe(400);
+    }
+    expectNoWrites();
+    expect(mockedPrisma.leadGroupMembership.findMany).not.toHaveBeenCalled();
+  });
+
+  it('rejects filter objects and non-string ids in place of lead and group IDs', async () => {
+    for (const body of [
+      [{ id: 'lead-1', isArchived: true }],
+      { id: { not: 'x' }, isArchived: true },
+      { ids: 'lead-1', isArchived: true },
+      { ids: [{ not: 'x' }], isArchived: true },
+      { groupId: { not: 'g-1' }, isArchived: true },
+      { id: 'lead-1', groupIds: [{ id: 'g-1' }] },
+      { id: 'lead-1', groupIds: 'g-1' },
+      { ids: ['lead-1'], groupIds: ['g-1'] },
+      { isArchived: true },
+    ]) {
+      const res = await putLead(makeReq('/api/leads', body));
+      expect(res.status).toBe(400);
+    }
+    expectNoWrites();
+    expect(mockedPrisma.leadGroupMembership.findMany).not.toHaveBeenCalled();
+  });
+
+  it('writes exactly the archive toggle sent by the leads page', async () => {
+    const res = await putLead(makeReq('/api/leads', { id: 'lead-1', isArchived: true }));
+    expect(res.status).toBe(200);
+    expect(mockedPrisma.lead.update).toHaveBeenCalledWith({
+      where: { id: 'lead-1' },
+      data: { isArchived: true },
+      include: { groups: { include: { group: true } } },
+    });
+    expect(mockedPrisma.campaignEnrollment.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('replaces group memberships from groupIds on a single lead', async () => {
+    const res = await putLead(makeReq('/api/leads', { id: 'lead-1', groupIds: ['g-1', 'g-2'] }));
+    expect(res.status).toBe(200);
+    const [{ data }] = mockedPrisma.lead.update.mock.calls[0];
+    expect(data).toEqual({ groups: { deleteMany: {}, create: [{ groupId: 'g-1' }, { groupId: 'g-2' }] } });
+  });
+
+  it('keeps bulk re-activation resetting bounced and failed enrollments', async () => {
+    const res = await putLead(makeReq('/api/leads', { ids: ['lead-1', 'lead-2'], status: 'Neutral', validationStatus: 'Valid' }));
+    expect(res.status).toBe(200);
+    expect(mockedPrisma.lead.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['lead-1', 'lead-2'] } },
+      data: { status: 'Neutral', validationStatus: 'Valid' },
+    });
+    const [{ where, data }] = mockedPrisma.campaignEnrollment.updateMany.mock.calls[0];
+    expect(where).toEqual({ leadId: { in: ['lead-1', 'lead-2'] }, status: { in: ['Bounced', 'Failed'] } });
+    expect(data.status).toBe('Active');
+  });
+
+  it('archives every lead in a group with only the archive flag', async () => {
+    const res = await putLead(makeReq('/api/leads', { groupId: 'g-1', isArchived: true }));
+    expect(res.status).toBe(200);
+    expect(mockedPrisma.leadGroupMembership.findMany).toHaveBeenCalledWith({ where: { groupId: 'g-1' }, select: { leadId: true } });
+    expect(mockedPrisma.lead.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['lead-1', 'lead-2'] } },
+      data: { isArchived: true },
+    });
+    expect(mockedPrisma.campaignEnrollment.updateMany).not.toHaveBeenCalled();
   });
 });

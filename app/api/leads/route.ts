@@ -1,6 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { LeadStatus, LeadValidationStatus } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
+import { type FieldRule, fieldRules, isPlainObject, pickUpdateFields } from '@/lib/updateAllowList';
+
+/** Scalar columns the lead PUT may write, in single and bulk updates. Email and
+ *  customVariables are not editable here; group membership goes through groupIds
+ *  on a single-lead update. */
+const LEAD_UPDATE_FIELDS: Record<string, FieldRule> = {
+  name: fieldRules.nullableString,
+  company: fieldRules.nullableString,
+  jobTitle: fieldRules.nullableString,
+  status: fieldRules.oneOf(Object.values(LeadStatus)),
+  validationStatus: fieldRules.oneOf(Object.values(LeadValidationStatus)),
+  isArchived: fieldRules.boolean,
+};
+
+function isIdArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((v) => typeof v === 'string' && v !== '');
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -130,10 +148,27 @@ export async function PUT(req: NextRequest) {
   try {
     const session = await getSession();
     const data = await req.json();
-    const { id, ids, groupId, groupIds, ...updates } = data;
+    if (!isPlainObject(data)) {
+      return NextResponse.json({ error: 'Request body must be a JSON object.' }, { status: 400 });
+    }
+    const { id, ids, groupId, groupIds, ...fields } = data;
+
+    if (groupIds !== undefined && (ids !== undefined || groupId !== undefined)) {
+      return NextResponse.json({ error: 'groupIds can only be set when updating a single lead.' }, { status: 400 });
+    }
+
+    // Only listed scalar columns reach Prisma; object values would be nested writes.
+    const picked = pickUpdateFields(fields, LEAD_UPDATE_FIELDS);
+    if (!picked.ok) {
+      return NextResponse.json({ error: picked.error }, { status: 400 });
+    }
+    const updates = picked.data;
 
     // 1. Bulk Update by Lead IDs
-    if (ids && Array.isArray(ids)) {
+    if (ids !== undefined) {
+      if (!isIdArray(ids)) {
+        return NextResponse.json({ error: 'ids must be an array of lead IDs.' }, { status: 400 });
+      }
       const result = await prisma.lead.updateMany({
         where: { id: { in: ids } },
         data: updates
@@ -156,7 +191,10 @@ export async function PUT(req: NextRequest) {
     }
 
     // 2. Bulk Update by Group ID
-    if (groupId) {
+    if (groupId !== undefined) {
+      if (typeof groupId !== 'string' || groupId === '') {
+        return NextResponse.json({ error: 'groupId must be a lead group ID.' }, { status: 400 });
+      }
       const memberships = await prisma.leadGroupMembership.findMany({
         where: { groupId },
         select: { leadId: true }
@@ -187,12 +225,15 @@ export async function PUT(req: NextRequest) {
     }
 
     // 3. Fallback to Single Update
-    if (!id) {
+    if (!id || typeof id !== 'string') {
       return NextResponse.json({ error: 'Lead ID, ids array, or groupId is required.' }, { status: 400 });
     }
 
     const dataObj: any = { ...updates };
     if (groupIds !== undefined) {
+      if (!isIdArray(groupIds)) {
+        return NextResponse.json({ error: 'groupIds must be an array of lead group IDs.' }, { status: 400 });
+      }
       dataObj.groups = {
         deleteMany: {},
         create: groupIds.map((gId: string) => ({ groupId: gId }))

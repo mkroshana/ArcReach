@@ -221,7 +221,9 @@ npm run seed
    APP_URL = https://arcreach-app.azurewebsites.net
    SESSION_SECRET = <your minimum 32 character session signing key>
    WEBHOOK_SECRET = <your webhook signature secret>
+   SEND_WORKER_ENABLED = true
    ```
+   `SEND_WORKER_ENABLED` turns on the background worker that sends campaign email and syncs IMAP replies. Without it the app never sends. Leave it off in local `.env` files.
 4. Under **Settings** → **Configuration** → **General settings**, set the **Startup Command**:
    ```
    npm run build && npm run start

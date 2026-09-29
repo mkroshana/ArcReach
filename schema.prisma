@@ -307,3 +307,17 @@ model Template {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+// ------------------------------------------------------
+// 9. BACKGROUND WORKER LEASE
+// ------------------------------------------------------
+// One row per lease, taken and renewed via lib/workerLease.ts. Only the process
+// holding the "send-worker" lease runs the send and IMAP sync loops.
+model WorkerLease {
+  name          String    @id
+  holderId      String    // random id of the holding process
+  expiresAt     DateTime  // another process may take the lease after this
+  lastTickAt    DateTime? // start of the holder's last finished send tick
+  lastSuccessAt DateTime? // end of the last send tick that finished without an error
+  lastError     String?   // error from the last send tick; cleared when one succeeds
+}

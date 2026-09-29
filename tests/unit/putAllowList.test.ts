@@ -28,6 +28,7 @@ import { fieldRules, pickUpdateFields } from '../../lib/updateAllowList';
 import { PUT as putCampaign } from '../../app/api/campaigns/route';
 import { PUT as putAccount } from '../../app/api/accounts/route';
 import { PUT as putLead } from '../../app/api/leads/route';
+import { getEffectiveDailyCap } from '../../lib/sendEngine';
 
 const mockedDb = db as any;
 const mockedPrisma = prisma as any;
@@ -170,6 +171,7 @@ describe('PUT /api/accounts', () => {
     for (const body of [
       { id: 'acc-1', campaigns: { connect: [{ id: 'cmp-other' }] } },
       { id: 'acc-1', warmupStartedAt: '2020-01-01' },
+      { id: 'acc-1', warmupSent: 0 },
       { id: 'acc-1', reputationScore: 100 },
       { id: 'acc-1', emailAddress: 'spoof@example.com' },
     ]) {
@@ -196,8 +198,38 @@ describe('PUT /api/accounts', () => {
     const res = await putAccount(makeReq('/api/accounts', { id: 'acc-1', warmupEnabled: true }));
     expect(res.status).toBe(200);
     const [, data] = mockedDb.updateAccount.mock.calls[0];
-    expect(Object.keys(data).sort()).toEqual(['warmupEnabled', 'warmupStartedAt']);
+    expect(Object.keys(data).sort()).toEqual(['warmupEnabled', 'warmupSent', 'warmupStartedAt']);
     expect(data.warmupStartedAt).toBeInstanceOf(Date);
+    expect(data.warmupSent).toBe(0);
+  });
+
+  it('restarts the ramp at Day 1 when warmup is turned back on (M12)', async () => {
+    const paused = {
+      id: 'acc-1', warmupEnabled: false, warmupStartedAt: new Date('2025-01-15T09:00:00Z'), warmupSent: 3000,
+      dailyLimit: 500, warmupLimit: 50, warmupRamp: 2,
+    };
+    mockedPrisma.senderAccount.findUnique.mockResolvedValue(paused);
+    const before = Date.now();
+    const res = await putAccount(makeReq('/api/accounts', { id: 'acc-1', warmupEnabled: true }));
+    expect(res.status).toBe(200);
+    const [, data] = mockedDb.updateAccount.mock.calls[0];
+    expect(data.warmupStartedAt.getTime()).toBeGreaterThanOrEqual(before);
+    expect(data.warmupSent).toBe(0);
+    // Resuming from the old start date would count the months with warmup off as ramp days;
+    // after the reset the engine caps the mailbox at its Day 1 volume.
+    expect(getEffectiveDailyCap({ ...paused, warmupEnabled: true }, new Date())).toBeGreaterThan(50);
+    expect(getEffectiveDailyCap({ ...paused, ...data }, new Date())).toBe(50);
+    expect((await res.json()).warmupSent).toBe(0);
+  });
+
+  it('keeps the ramp when warmup is already on or is turned off', async () => {
+    mockedPrisma.senderAccount.findUnique.mockResolvedValue({
+      id: 'acc-1', warmupEnabled: true, warmupStartedAt: new Date('2026-06-01T12:00:00Z'), warmupSent: 40,
+    });
+    await putAccount(makeReq('/api/accounts', { id: 'acc-1', warmupEnabled: true, warmupLimit: 60 }));
+    expect(mockedDb.updateAccount).toHaveBeenLastCalledWith('acc-1', { warmupEnabled: true, warmupLimit: 60 });
+    await putAccount(makeReq('/api/accounts', { id: 'acc-1', warmupEnabled: false }));
+    expect(mockedDb.updateAccount).toHaveBeenLastCalledWith('acc-1', { warmupEnabled: false });
   });
 
   it('accepts the credentials form payload, skipping masked secrets and encrypting new ones', async () => {

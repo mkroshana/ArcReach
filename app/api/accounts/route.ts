@@ -296,12 +296,13 @@ export async function PUT(req: NextRequest) {
       }
     }
 
+    // Turning warmup on, first time or again, starts the ramp over at Day 1: days
+    // with warmup off must not count as ramp days, and warmupSent counts this ramp only.
     const existingAccount = await prisma.senderAccount.findUnique({ where: { id } });
     if (existingAccount) {
       if (updates.warmupEnabled === true && !existingAccount.warmupEnabled) {
-        if (!existingAccount.warmupStartedAt) {
-          updates.warmupStartedAt = new Date();
-        }
+        updates.warmupStartedAt = new Date();
+        updates.warmupSent = 0;
       }
     }
 

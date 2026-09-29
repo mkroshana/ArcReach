@@ -136,6 +136,11 @@ export default function AccountsPage() {
     if (!selectedWarmupAccount) return;
     const previous = { ...selectedWarmupAccount };
     const updatedLocal = { ...selectedWarmupAccount, [field]: value };
+    // Turning warmup on restarts the ramp on the server; show Day 1 while the save is in flight.
+    if (field === 'warmupEnabled' && value === true && !selectedWarmupAccount.warmupEnabled) {
+      updatedLocal.warmupStartedAt = new Date().toISOString();
+      updatedLocal.warmupSent = 0;
+    }
     setSelectedWarmupAccount(updatedLocal);
     setAccounts(prev => prev.map(acc => acc.id === selectedWarmupAccount.id ? updatedLocal : acc));
     try {
@@ -503,7 +508,7 @@ export default function AccountsPage() {
                   <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', p: 2, borderRadius: '14px', border: 1, borderColor: 'divider', bgcolor: 'action.hover' }}>
                     <Box>
                       <Typography variant="body2" sx={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Warmup Autopilot</Typography>
-                      <Typography variant="caption" sx={{ color: 'text.secondary' }}>Slowly ramp up daily volume to establish sender domain reputation.</Typography>
+                      <Typography variant="caption" sx={{ color: 'text.secondary' }}>Slowly ramp up daily volume to establish sender domain reputation. Turning it on again restarts the ramp at Day 1.</Typography>
                     </Box>
                     <Switch checked={!!selectedWarmupAccount.warmupEnabled} onChange={(e) => handleUpdateWarmupSettings('warmupEnabled', e.target.checked)} color="warning" />
                   </Stack>
@@ -521,7 +526,7 @@ export default function AccountsPage() {
                               <Typography variant="caption" sx={{ fontWeight: 700, color: 'warning.main', display: 'block', mb: 0.5 }}>Warmup Progress</Typography>
                               <Box component="ul" sx={{ pl: 2, m: 0, fontSize: 11, color: 'warning.main' }}>
                                 <li>Started On: <Box component="strong" sx={{ fontFamily: 'monospace' }}>{selectedWarmupAccount.warmupStartedAt ? new Date(selectedWarmupAccount.warmupStartedAt).toLocaleDateString() : 'Just now'}</Box></li>
-                                <li>Lifetime Warmup Emails: <Box component="strong" sx={{ fontFamily: 'monospace' }}>{selectedWarmupAccount.warmupSent ?? 0}</Box></li>
+                                <li>Emails Sent This Ramp: <Box component="strong" sx={{ fontFamily: 'monospace' }}>{selectedWarmupAccount.warmupSent ?? 0}</Box></li>
                                 <li>Current Limit: <Box component="strong" sx={{ fontFamily: 'monospace' }}>{selectedWarmupAccount.effectiveDailyCap ?? selectedWarmupAccount.dailyLimit}</Box> emails per 24 hours</li>
                               </Box>
                             </Box>

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { validateSendingFrequency, checkSendingWindow, personalizeEmail, getEffectiveDailyCap, resolveCampaignSenders, pickSender, classifyFailure } from '../../lib/sendEngine';
+import { validateSendingFrequency, checkSendingWindow, getEffectiveDailyCap, resolveCampaignSenders, pickSender, classifyFailure } from '../../lib/sendEngine';
+import { personalizeEmail } from '../../lib/personalize';
 import { sendMessage, EmailConfigError, EmailSendError } from '../../lib/emailProvider';
 
 describe('validateSendingFrequency', () => {

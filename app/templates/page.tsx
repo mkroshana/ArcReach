@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react';
 import { FileText, Search, Plus, Eye, Sparkles, Copy, Check, Trash2, ArrowRight, X } from 'lucide-react';
 import VariableToolbar from '@/components/VariableToolbar';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { personalizePreview } from '@/lib/personalize';
 import {
   Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
   ToggleButtonGroup, ToggleButton, Snackbar, Alert, InputAdornment, CircularProgress,
@@ -60,21 +61,6 @@ export default function TemplatesPage() {
   };
 
   useEffect(() => { fetchTemplates(); }, []);
-
-  const resolveTemplateText = (text: string) => {
-    if (!text) return '';
-    let result = text;
-    result = result.replace(/\{\{firstName\}\}/g, 'Emily');
-    result = result.replace(/\{\{company\}\}/g, 'Stark Industries');
-    result = result.replace(/\{\{name\}\}/g, 'Emily Carter');
-    result = result.replace(/\{\{jobTitle\}\}/g, 'VP of Marketing');
-    result = result.replace(/\{\{email\}\}/g, 'emily@starkindustries.com');
-    result = result.replace(/\{\{\s*\$json\.name\s*\|\|\s*'[^']*'\s*\}\}/g, 'Emily');
-    result = result.replace(/\{\{\s*\$json\.name\s*\}\}/g, 'Emily');
-    const spintaxRegex = /\{([^{}]+)\}/g;
-    result = result.replace(spintaxRegex, (match, options) => options.split('|')[0] || '');
-    return result;
-  };
 
   const isHtml = (text: string) => {
     if (!text) return false;
@@ -361,14 +347,14 @@ export default function TemplatesPage() {
                       <CardContent>
                         <Box sx={{ pb: 1.5, borderBottom: 1, borderColor: 'divider', mb: 1.5 }}>
                           <Typography variant="overline" sx={{ color: 'text.secondary', fontFamily: 'monospace' }}>Subject Preview:</Typography>
-                          <Typography variant="body2" sx={{ fontWeight: 600, mt: 0.5 }}>{resolveTemplateText(editingTemplate.steps?.[activeStepIndex]?.subject || '')}</Typography>
+                          <Typography variant="body2" sx={{ fontWeight: 600, mt: 0.5 }}>{personalizePreview(editingTemplate.steps?.[activeStepIndex]?.subject || '')}</Typography>
                         </Box>
                         <Typography variant="overline" sx={{ color: 'text.secondary', fontFamily: 'monospace', display: 'block', mb: 1 }}>Message Preview:</Typography>
-                        {isHtml(resolveTemplateText(editingTemplate.steps?.[activeStepIndex]?.body || '')) ? (
-                          <Box component="iframe" srcDoc={resolveTemplateText(editingTemplate.steps?.[activeStepIndex]?.body || '')} title="Email Preview" sandbox="allow-same-origin" sx={{ width: '100%', height: 500, border: 1, borderColor: 'divider', borderRadius: '12px', bgcolor: '#fff' }} />
+                        {isHtml(personalizePreview(editingTemplate.steps?.[activeStepIndex]?.body || '')) ? (
+                          <Box component="iframe" srcDoc={personalizePreview(editingTemplate.steps?.[activeStepIndex]?.body || '')} title="Email Preview" sandbox="allow-same-origin" sx={{ width: '100%', height: 500, border: 1, borderColor: 'divider', borderRadius: '12px', bgcolor: '#fff' }} />
                         ) : (
                           <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, color: 'text.primary' }}>
-                            {resolveTemplateText(editingTemplate.steps?.[activeStepIndex]?.body || '')}
+                            {personalizePreview(editingTemplate.steps?.[activeStepIndex]?.body || '')}
                           </Typography>
                         )}
                       </CardContent>

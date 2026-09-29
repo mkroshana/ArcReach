@@ -4,6 +4,7 @@ import { prisma } from './db';
 import { getGlobalSettings } from './settings';
 import { checkGlobalRateLimits } from './rateLimits';
 import { applyEmailTracking } from './emailTracking';
+import { personalizeEmail } from './personalize';
 import { sendMessage, sendingDisabledReason } from './emailProvider';
 import { sendableEnrollmentWhere, claimEnrollmentForSend, releaseEnrollmentClaim, RELEASED_CLAIM } from './sendEligibility';
 import { type SendSchedule, SCHEDULE_DAYS, isValidTimezone, minutesOfDay, parseSendSchedule } from './sendSchedule';
@@ -1031,67 +1032,4 @@ export function nextWindowOpening(timezone: string, schedule: unknown, from: Dat
     console.error('[SendEngine] Error in nextWindowOpening:', err);
     return null;
   }
-}
-
-/**
- * Replace variables like {{firstName}} and resolve {A|B} Spintax
- */
-export function personalizeEmail(template: string, lead: any): string {
-    if (!template) return '';
-    let result = template;
-    
-    const getFirstName = (fullName: string | null | undefined, fallback: string = 'there') => {
-        if (!fullName) return fallback;
-        return fullName.trim().split(/\s+/)[0] || fallback;
-    };
-
-    // Replace {{firstName}}
-    result = result.replace(/\{\{firstName\}\}/g, getFirstName(lead.name || lead.firstName, 'there'));
-
-    // Replace {{company}}
-    result = result.replace(/\{\{company\}\}/g, lead.company || 'your company');
-
-    // Replace {{name}} (full name)
-    result = result.replace(/\{\{name\}\}/g, lead.name || 'there');
-
-    // Replace {{jobTitle}}
-    result = result.replace(/\{\{jobTitle\}\}/g, lead.jobTitle || 'professional');
-
-    // Replace {{email}}
-    result = result.replace(/\{\{email\}\}/g, lead.email || '');
-
-    // Replace n8n/json style name variable with fallback: {{ $json.name || 'there' }}
-    result = result.replace(/\{\{\s*\$json\.name\s*\|\|\s*'([^']*)'\s*\}\}/g, (match, fallback) => {
-        return getFirstName(lead.name || lead.firstName, fallback || 'there');
-    });
-
-    // Replace n8n/json style name variable without fallback: {{ $json.name }}
-    result = result.replace(/\{\{\s*\$json\.name\s*\}\}/g, getFirstName(lead.name || lead.firstName, 'there'));
-
-    // Also support single braces versions just in case: { $json.name || 'there' }
-    result = result.replace(/\{\s*\$json\.name\s*\|\|\s*'([^']*)'\s*\}/g, (match, fallback) => {
-        return getFirstName(lead.name || lead.firstName, fallback || 'there');
-    });
-    result = result.replace(/\{\s*\$json\.name\s*\}/g, getFirstName(lead.name || lead.firstName, 'there'));
-
-    // Support n8n/json style company variable: {{ $json.company || 'your company' }}
-    result = result.replace(/\{\{\s*\$json\.company\s*\|\|\s*'([^']*)'\s*\}\}/g, (match, fallback) => {
-        return lead.company || fallback || 'your company';
-    });
-    result = result.replace(/\{\{\s*\$json\.company\s*\}\}/g, lead.company || 'your company');
-
-    // Single braces version: { $json.company || 'your company' }
-    result = result.replace(/\{\s*\$json\.company\s*\|\|\s*'([^']*)'\s*\}/g, (match, fallback) => {
-        return lead.company || fallback || 'your company';
-    });
-    result = result.replace(/\{\s*\$json\.company\s*\}/g, lead.company || 'your company');
-
-    // Basic Spintax: {Hi|Hello|Hey}
-    const spintaxRegex = /\{([^{}]+)\}/g;
-    result = result.replace(spintaxRegex, (match, options) => {
-        const choices = options.split('|');
-        return choices[Math.floor(Math.random() * choices.length)];
-    });
-
-    return result;
 }

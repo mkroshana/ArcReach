@@ -1335,3 +1335,24 @@ describe('per-mailbox caps count real sends over a rolling 24 hours (M10, M11)',
     expect(enrollmentOf('lead-1').nextActionDate).toEqual(new Date(NOW.getTime() + SENDER_CAP_WINDOW_MS));
   });
 });
+
+describe('processDueEmails personalises each step with the shared personalizeEmail (H22, L11)', () => {
+  it('keeps the styling, the unsubscribe link and unknown fields, and inserts lead values verbatim', async () => {
+    campaign.trackClicks = true;
+    campaign.steps[0] = {
+      stepOrder: 1, waitDays: 0, subject: 'Hello {{firstName}}',
+      body: "<style>.btn{color:#fff}</style><p>Hi {{name}} of {{company}} in {{city}}</p><a href='{{unsubscribe_url}}'>Unsubscribe</a>",
+    };
+    Object.assign(leads.get('lead-1')!, { name: "Cash$'n'Carry Kid", company: '{Wayne|Stark} Industries' });
+
+    await processDueEmails();
+
+    expect(mockedSend).toHaveBeenCalledTimes(1);
+    const sent = mockedSend.mock.calls[0][0];
+    expect(sent.subject).toBe("Hello Cash$'n'Carry");
+    expect(sent.body).toContain('<style>.btn{color:#fff}</style>');
+    expect(sent.body).toContain("<p>Hi Cash$'n'Carry Kid of {Wayne|Stark} Industries in {{city}}</p>");
+    expect(sent.body).toMatch(/<a href='[^']*\/api\/unsubscribe\?id=lead-1'>Unsubscribe<\/a>/);
+    expect(sent.body).not.toContain('If you no longer wish to receive these emails');
+  });
+});

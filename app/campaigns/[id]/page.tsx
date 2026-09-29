@@ -18,6 +18,7 @@ import VariableToolbar from '@/components/VariableToolbar';
 import { activationBlocker, findIncompleteSteps, queuedLeadsMessage } from '@/lib/campaignSteps';
 import { autoResumeNote } from '@/lib/campaignPause';
 import { sendScheduleError, timezoneError } from '@/lib/sendSchedule';
+import { personalizePreview } from '@/lib/personalize';
 import {
   Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
   Select, MenuItem, FormControl, InputLabel, Switch, Skeleton, ToggleButtonGroup, ToggleButton,
@@ -38,22 +39,6 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
   const [templates, setTemplates] = useState<any[]>([]);
   const [previewSteps, setPreviewSteps] = useState<Record<string, boolean>>({});
   const toggleStepPreview = (id: string | number) => setPreviewSteps(prev => ({ ...prev, [id]: !prev[id] }));
-
-  const resolveTemplateText = (text: string) => {
-    if (!text) return '';
-    let result = text;
-    result = result.replace(/\{\{firstName\}\}/g, 'Emily');
-    result = result.replace(/\{\{company\}\}/g, 'Stark Industries');
-    result = result.replace(/\{\{name\}\}/g, 'Emily Carter');
-    result = result.replace(/\{\{jobTitle\}\}/g, 'VP of Marketing');
-    result = result.replace(/\{\{email\}\}/g, 'emily@starkindustries.com');
-    result = result.replace(/\{\{\s*\$json\.name\s*\|\|\s*'[^']*'\s*\}\}/g, 'Emily');
-    result = result.replace(/\{\{\s*\$json\.name\s*\}\}/g, 'Emily');
-    result = result.replace(/\[\[\s*unsubscribe_url\s*\]\]/gi, '#unsubscribe');
-    result = result.replace(/\{\{\s*unsubscribe_url\s*\}\}/gi, '#unsubscribe');
-    result = result.replace(/\{([^{}]+)\}/g, (m, opts) => opts.split('|')[0] || '');
-    return result;
-  };
 
   const isHtml = (text: string) => {
     if (!text) return false;
@@ -513,13 +498,13 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                             <CardContent>
                               <Box sx={{ pb: 1, borderBottom: 1, borderColor: 'divider', mb: 1 }}>
                                 <Typography variant="overline" sx={{ color: 'text.secondary', fontFamily: 'monospace' }}>Subject:</Typography>
-                                <Typography variant="body2" sx={{ fontWeight: 600, mt: 0.5 }}>{resolveTemplateText(step.subject || '')}</Typography>
+                                <Typography variant="body2" sx={{ fontWeight: 600, mt: 0.5 }}>{personalizePreview(step.subject || '')}</Typography>
                               </Box>
                               <Typography variant="overline" sx={{ color: 'text.secondary', fontFamily: 'monospace', display: 'block', mb: 1 }}>Message:</Typography>
-                              {isHtml(resolveTemplateText(step.body || '')) ? (
-                                <Box component="iframe" srcDoc={resolveTemplateText(step.body || '')} title="Email Preview" sandbox="allow-same-origin" sx={{ width: '100%', height: 500, border: 1, borderColor: 'divider', borderRadius: '12px', bgcolor: '#fff' }} />
+                              {isHtml(personalizePreview(step.body || '')) ? (
+                                <Box component="iframe" srcDoc={personalizePreview(step.body || '')} title="Email Preview" sandbox="allow-same-origin" sx={{ width: '100%', height: 500, border: 1, borderColor: 'divider', borderRadius: '12px', bgcolor: '#fff' }} />
                               ) : (
-                                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{resolveTemplateText(step.body || '')}</Typography>
+                                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{personalizePreview(step.body || '')}</Typography>
                               )}
                             </CardContent>
                           </Card>

@@ -68,8 +68,16 @@ Each outbound email writes an `EmailDispatch` row. To keep the campaign metrics
 (Total Sent Requests / Emails Sent / Delivered / Opens / Clicks) accurate:
 
 - A dispatch's `status` is `Sending` (recorded before the provider call), `Sent`
-  (accepted by the provider) or `Failed`. Only `Sent` rows count toward the
-  "Emails Sent" figure.
+  (accepted by the provider), `Failed`, or `Unknown`. Only `Sent` rows count
+  toward the "Emails Sent" figure.
+- A send interrupted by a crash or restart leaves its dispatch `Sending`. Every
+  5 minutes the worker asks ACS about dispatches `Sending` for over 10 minutes,
+  by their stored operation id: an accepted send is recorded `Sent` and the
+  enrollment advanced, a failed one is handled like any failed send, and one ACS
+  never received is deleted so the step is sent again. A dispatch that cannot be
+  checked (no operation id, or ACS no longer knows an operation over a day old)
+  becomes `Unknown`: it is never sent again and counts toward sending caps and
+  rate limits, but not as sent.
 - Every campaign dispatch records its `stepOrder`, and both the send engine and
   the manual run guard against sending the **same step to the same lead twice**.
 - `deliveredAt` is stamped by the Azure delivery webhook for the "Delivered" metric.

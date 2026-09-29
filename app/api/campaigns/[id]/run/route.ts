@@ -109,13 +109,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
 
-    // Sends still in flight ('Sending') count toward the cap as well as 'Sent' ones.
+    // Sends still in flight ('Sending') or never confirmed ('Unknown') count
+    // toward the cap as well as 'Sent' ones.
     const senderSentToday = new Map<string, number>();
     for (const senderId of senderIds) {
       const count = await prisma.emailDispatch.count({
         where: {
           senderAccountId: senderId,
-          status: { in: ['Sending', 'Sent'] },
+          status: { in: ['Sending', 'Sent', 'Unknown'] },
           sentAt: {
             gte: startOfToday
           }
@@ -173,8 +174,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         await releaseEnrollmentClaim(enrollment.id, claimToken);
         continue;
       }
-      if (priorDispatch === 'Sent') {
+      if (priorDispatch === 'Sent' || priorDispatch === 'Unknown') {
         // Advance the enrollment past this already-sent step without re-dispatching.
+        // An 'Unknown' send may have gone out, so it is never sent again either.
         const nextStepOrder = currentStepOrder + 1;
         const nextStep = campaign.steps.find(s => s.stepOrder === nextStepOrder);
         if (nextStep) {

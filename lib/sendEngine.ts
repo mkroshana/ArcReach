@@ -333,15 +333,16 @@ export async function handleSendFailure(
 /**
  * Status of the dispatch already recorded for this (campaign, lead, step):
  * 'Sent' once the provider accepted it, 'Sending' while a send is in flight or
- * was interrupted, or null when the step has not been sent. Failed attempts
- * don't count.
+ * was interrupted, 'Unknown' when an interrupted send could not be checked
+ * with ACS (it may have gone out, so it is never sent again), or null when the
+ * step has not been sent. Failed attempts don't count.
  */
 export async function findStepDispatchStatus(
   campaignId: string,
   leadId: string,
   stepOrder: number
-): Promise<'Sent' | 'Sending' | null> {
-  for (const status of ['Sent', 'Sending'] as const) {
+): Promise<'Sent' | 'Sending' | 'Unknown' | null> {
+  for (const status of ['Sent', 'Sending', 'Unknown'] as const) {
     const dispatch = await prisma.emailDispatch.findFirst({
       where: { campaignId, leadId, stepOrder, status },
       select: { id: true },
@@ -368,13 +369,20 @@ const BOOKKEEPING_RETRY_DELAY_MS = 250;
 export async function recordAcceptedSend(send: {
   dispatchId: string;
   operationId: string;
-  finalBody: string;
+  /** Final tracked body. Omitted when reconciling, which keeps the recorded body. */
+  finalBody?: string;
   providerMessageId: string | null;
-  enrollmentId: string;
+  /** Null when the dispatch has no enrollment to advance. */
+  enrollmentId: string | null;
   enrollmentAdvance: Prisma.CampaignEnrollmentUpdateManyMutationInput;
-  sender: { id: string; warmupEnabled: boolean };
+  /** Further conditions the enrollment must still meet to be advanced. */
+  enrollmentWhere?: Prisma.CampaignEnrollmentWhereInput;
+  sender: { id: string; warmupEnabled: boolean } | null;
 }): Promise<boolean> {
-  const dispatchData: Prisma.EmailDispatchUpdateManyMutationInput = { body: send.finalBody, status: 'Sent' };
+  const dispatchData: Prisma.EmailDispatchUpdateManyMutationInput = { status: 'Sent' };
+  if (send.finalBody !== undefined) {
+    dispatchData.body = send.finalBody;
+  }
   if (send.providerMessageId) {
     dispatchData.messageId = send.providerMessageId;
   }
@@ -391,11 +399,13 @@ export async function recordAcceptedSend(send: {
         if (count === 0) return;
         // updateMany: an enrollment deleted during the send (lead verification
         // drops enrollments) must not stop the send itself being recorded.
-        await tx.campaignEnrollment.updateMany({
-          where: { id: send.enrollmentId },
-          data: send.enrollmentAdvance,
-        });
-        if (send.sender.warmupEnabled) {
+        if (send.enrollmentId) {
+          await tx.campaignEnrollment.updateMany({
+            where: { ...send.enrollmentWhere, id: send.enrollmentId },
+            data: send.enrollmentAdvance,
+          });
+        }
+        if (send.sender?.warmupEnabled) {
           await tx.senderAccount.updateMany({
             where: { id: send.sender.id },
             data: { warmupSent: { increment: 1 } },
@@ -502,13 +512,14 @@ export async function processDueEmails() {
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
 
-    // Sends still in flight ('Sending') count toward the cap as well as 'Sent' ones.
+    // Sends still in flight ('Sending') or never confirmed ('Unknown') count
+    // toward the cap as well as 'Sent' ones.
     const senderSentToday = new Map<string, number>();
     for (const senderId of senderIds) {
       const count = await prisma.emailDispatch.count({
         where: {
           senderAccountId: senderId,
-          status: { in: ['Sending', 'Sent'] },
+          status: { in: ['Sending', 'Sent', 'Unknown'] },
           sentAt: {
             gte: startOfToday
           }
@@ -605,8 +616,9 @@ export async function processDueEmails() {
         await releaseEnrollmentClaim(enrollment.id, claimToken);
         continue;
       }
-      if (priorDispatch === 'Sent') {
+      if (priorDispatch === 'Sent' || priorDispatch === 'Unknown') {
         // Advance the enrollment past this already-sent step without re-dispatching.
+        // An 'Unknown' send may have gone out, so it is never sent again either.
         const nextStepOrder = currentStepOrder + 1;
         const nextStep = campaign.steps.find((s: any) => s.stepOrder === nextStepOrder);
         if (nextStep) {

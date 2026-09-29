@@ -71,8 +71,9 @@ export async function GET() {
       const campaignIds = campaigns.map(c => c.id);
 
       const dispatchWhereClause = {
-        // A 'Sending' row has not been accepted by the provider yet.
-        status: { not: 'Sending' },
+        // A 'Sending' row has not been accepted by the provider yet, and an
+        // 'Unknown' one was never confirmed sent.
+        status: { notIn: ['Sending', 'Unknown'] },
         OR: [
           { senderAccountId: account.id },
           {

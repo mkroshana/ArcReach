@@ -21,25 +21,28 @@ vi.mock('@azure/communication-email', async (importOriginal) => {
   return { ...real, EmailClient };
 });
 
-import { sendMessage, EmailSendError } from '../../lib/emailProvider';
+import { sendMessage, getAzureSendStatus, EmailSendError } from '../../lib/emailProvider';
 import { encryptSecret } from '../../lib/secrets';
 
 const OPERATION_ID = '5b0e7a52-3c1d-4d8e-9f10-2a3b4c5d6e7f';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const ACCESS_KEY = Buffer.from('k'.repeat(32)).toString('base64');
 
-type Reply = { status: number; body: unknown } | 'drop';
+type Reply = { status: number; body: unknown } | 'drop' | 'hang';
 type Hit = { method: string; path: string; operationId: string | undefined };
 
 let server: http.Server;
 let baseUrl: string;
 let hits: Hit[];
+/** Full URL and Authorization header of each request, in the order received. */
+let signed: Array<{ url: string; authorization: string | undefined }>;
 /** Answers the Nth request (1-based) the stub receives. */
 let reply: (method: string, n: number) => Reply;
 
 beforeEach(async () => {
   sdk.clientOptions.length = 0;
   hits = [];
+  signed = [];
   vi.spyOn(console, 'log').mockImplementation(() => {});
   vi.spyOn(console, 'warn').mockImplementation(() => {});
   server = http.createServer((req, res) => {
@@ -50,11 +53,13 @@ beforeEach(async () => {
         path: req.url!.split('?')[0],
         operationId: req.headers['operation-id'] as string | undefined,
       });
+      signed.push({ url: req.url!, authorization: req.headers.authorization });
       const answer = reply(req.method!, hits.length);
       if (answer === 'drop') {
         req.socket.destroy();
         return;
       }
+      if (answer === 'hang') return;
       const operationLocation = `${baseUrl}/emails/operations/${OPERATION_ID}?api-version=2025-09-01`;
       res.writeHead(answer.status, { 'content-type': 'application/json', 'operation-location': operationLocation });
       res.end(JSON.stringify(answer.body));
@@ -151,5 +156,61 @@ describe('Azure send: one POST under the Operation-Id, and acceptance is final (
       name: 'EmailSendError', message: 'Recipient address rejected.', code: 'InvalidRecipient',
     });
     expect(hits.map((h) => h.method)).toEqual(['POST', 'GET']);
+  });
+});
+
+describe('Azure send status lookup by operation id, for reconciling interrupted sends (H6)', () => {
+  const statusOf = (timeoutMs?: number) =>
+    getAzureSendStatus(
+      OPERATION_ID,
+      {
+        activeProvider: 'AZURE',
+        azureConnString: encryptSecret(`endpoint=${baseUrl}/;accesskey=${ACCESS_KEY}`),
+        azureSenderDomains: ['acme.test'],
+      },
+      timeoutMs,
+    );
+
+  it.each(['NotStarted', 'Running', 'Succeeded'])('reads %s with one signed, versioned GET of the operation', async (value) => {
+    reply = () => status(value);
+
+    await expect(statusOf()).resolves.toEqual({ status: value });
+    expect(hits.map((h) => [h.method, h.path])).toEqual([['GET', `/emails/operations/${OPERATION_ID}`]]);
+    expect(signed[0].url).toMatch(/[?&]api-version=\d{4}-\d{2}-\d{2}/);
+    expect(signed[0].authorization).toMatch(/^HMAC-SHA256 SignedHeaders=.+&Signature=.+/);
+  });
+
+  it.each(['Failed', 'Canceled'])('reads %s with the error ACS gives', async (value) => {
+    reply = () => status(value, { error: { code: 'InvalidRecipient', message: 'Recipient address rejected.' } });
+
+    await expect(statusOf()).resolves.toMatchObject({
+      status: value, error: { code: 'InvalidRecipient', message: 'Recipient address rejected.' },
+    });
+  });
+
+  it('reports NotFound when ACS has no operation under the id', async () => {
+    reply = () => error(404, 'NotFound', 'Operation not found.');
+
+    await expect(statusOf()).resolves.toEqual({ status: 'NotFound' });
+  });
+
+  it.each<[string, Reply]>([
+    ['a 500', error(500, 'InternalError', 'Status lookup failed.')],
+    ['a 429', error(429, 'TooManyRequests', 'Slow down.')],
+    ['a 401', error(401, 'Denied', 'Denied by the resource provider.')],
+    ['a dropped connection', 'drop'],
+    ['an unrecognised status', status('Queued')],
+  ])('throws on %s after one request, so the dispatch is left for the next pass', async (_label, answer) => {
+    reply = () => answer;
+
+    await expect(statusOf()).rejects.toThrow();
+    expect(hits).toHaveLength(1);
+  });
+
+  it('gives up when ACS does not answer within the timeout', async () => {
+    reply = () => 'hang';
+
+    await expect(statusOf(100)).rejects.toThrow();
+    expect(hits).toHaveLength(1);
   });
 });

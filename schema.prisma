@@ -260,7 +260,10 @@ model EmailDispatch {
   body        String?       @db.Text
 
   // Send-attempt outcome: "Sending" (recorded before the provider call), "Sent"
-  // (accepted by the provider) or "Failed" (provider/SMTP error).
+  // (accepted by the provider), "Failed" (provider/SMTP error) or "Unknown" (an
+  // interrupted send ACS could not confirm; never resent, counted toward caps
+  // and rate limits but not as sent). lib/sendReconciler.ts settles stale
+  // "Sending" rows with ACS.
   status      String        @default("Sending")
   // ACS Operation-Id the send was made under, stored before the provider call
   // so an accepted send whose bookkeeping failed can still be traced in ACS.

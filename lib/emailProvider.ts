@@ -234,6 +234,58 @@ async function sendViaAzure(
   return { providerMessageId };
 }
 
+const AZURE_SEND_STATUSES = ['NotStarted', 'Running', 'Succeeded', 'Failed', 'Canceled'] as const;
+
+/** What ACS reports for a send operation, or NotFound when it has no operation under that id. */
+export interface AzureSendStatus {
+  status: (typeof AZURE_SEND_STATUSES)[number] | 'NotFound';
+  error?: { code?: string; message?: string };
+}
+
+type GetSendResult = (
+  operationId: string,
+  options?: { abortSignal?: AbortSignal }
+) => Promise<{ status?: string; error?: { code?: string; message?: string } }>;
+
+/**
+ * Asks ACS for the status of the send made under `operationId` (GET
+ * /emails/operations/{operationId}). EmailClient only exposes beginSend, so
+ * this calls the getSendResult of the SDK's own generated client, which signs
+ * and versions the request exactly as the send was. Throws when ACS gives no
+ * usable answer: no response, a timeout, or any status other than 200 or 404.
+ */
+export async function getAzureSendStatus(
+  operationId: string,
+  settings: ProviderSettings,
+  timeoutMs = 10_000
+): Promise<AzureSendStatus> {
+  const connString = decryptSecret(settings.azureConnString);
+  if (!connString) {
+    throw new EmailConfigError('Azure Communication Services connection string is not configured.');
+  }
+
+  const email = (getAzureClient(connString) as unknown as { generatedClient?: { email?: { getSendResult?: GetSendResult } } })
+    .generatedClient?.email;
+  if (typeof email?.getSendResult !== 'function') {
+    throw new Error('This version of @azure/communication-email has no getSendResult; send status cannot be read.');
+  }
+
+  let result: Awaited<ReturnType<GetSendResult>>;
+  try {
+    result = await email.getSendResult(operationId, { abortSignal: AbortSignal.timeout(timeoutMs) });
+  } catch (err: any) {
+    // ACS has no operation under this id: it never received the send.
+    if (err?.statusCode === 404) return { status: 'NotFound' };
+    throw err;
+  }
+
+  const status = AZURE_SEND_STATUSES.find((known) => known.toLowerCase() === String(result?.status).toLowerCase());
+  if (!status) {
+    throw new Error(`Azure Communication Services reported an unrecognised send status: ${result?.status}.`);
+  }
+  return { status, error: result.error };
+}
+
 async function sendViaSmtp(
   input: { to: string; subject: string; body: string; isHtml: boolean; sender: SenderInput; fromName?: string },
   settings: ProviderSettings

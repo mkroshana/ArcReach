@@ -1,4 +1,5 @@
 import { processDueEmails } from './sendEngine';
+import { reconcileStaleSendingDispatches, RECONCILE_INTERVAL_MS } from './sendReconciler';
 import { syncAllActiveMailboxes } from './imapService';
 import { createLeasedTick } from './workerLease';
 
@@ -21,7 +22,14 @@ export function startBackgroundWorker() {
 
   // Both loops run only in the process holding the worker lease, and each
   // skips a tick while its previous one is still running.
+  // Sends interrupted by a crash or restart are reconciled with ACS on the
+  // first send tick this process runs, then at most every RECONCILE_INTERVAL_MS.
+  let lastReconcileAt: number | null = null;
   const sendTick = createLeasedTick('send', async () => {
+    if (lastReconcileAt === null || Date.now() - lastReconcileAt >= RECONCILE_INTERVAL_MS) {
+      lastReconcileAt = Date.now();
+      await reconcileStaleSendingDispatches();
+    }
     console.log('[Background Worker] Checking for due emails...');
     await processDueEmails();
   }, { heartbeat: true });

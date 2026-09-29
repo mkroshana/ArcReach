@@ -9,8 +9,10 @@ import { NextRequest } from 'next/server';
  */
 const fake = vi.hoisted(() => ({
   campaign: { updateMany: vi.fn(), findUnique: vi.fn(), findMany: vi.fn(), update: vi.fn() },
-  campaignEnrollment: { findMany: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
-  emailDispatch: { create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), findFirst: vi.fn(), count: vi.fn() },
+  campaignEnrollment: { findMany: vi.fn(), findFirst: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
+  emailDispatch: {
+    create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), deleteMany: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), count: vi.fn(),
+  },
   emailEvent: { create: vi.fn() },
   lead: { update: vi.fn() },
   senderAccount: { update: vi.fn(), updateMany: vi.fn() },
@@ -34,17 +36,20 @@ vi.mock('../../lib/rateLimits', () => ({
 vi.mock('../../lib/emailProvider', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/emailProvider')>()),
   sendMessage: vi.fn(),
+  getAzureSendStatus: vi.fn(),
 }));
 
 import { getSession } from '../../lib/session';
 import { getGlobalSettings } from '../../lib/settings';
 import { checkGlobalRateLimits } from '../../lib/rateLimits';
-import { sendMessage } from '../../lib/emailProvider';
+import { sendMessage, getAzureSendStatus } from '../../lib/emailProvider';
 import { processDueEmails, BOOKKEEPING_RETRIES } from '../../lib/sendEngine';
 import { SEND_CLAIM_TTL_MS, claimEnrollmentForSend, releaseEnrollmentClaim } from '../../lib/sendEligibility';
+import { reconcileStaleSendingDispatches, STALE_SENDING_MS, NOT_FOUND_RETRY_MAX_AGE_MS, RECONCILE_BATCH } from '../../lib/sendReconciler';
 import { POST as postRun } from '../../app/api/campaigns/[id]/run/route';
 
 const mockedSend = vi.mocked(sendMessage);
+const mockedStatus = vi.mocked(getAzureSendStatus);
 
 type LeadRow = { id: string; email: string; name: string; status: string; validationStatus: string; isArchived: boolean };
 type EnrollmentRow = {
@@ -85,7 +90,7 @@ const enrollmentOf = (leadId: string) => enrollments.find((e) => e.leadId === le
 function addDispatch(row: Partial<DispatchRow> & { status: string }) {
   const dispatch: DispatchRow = {
     id: `dispatch-${++nextDispatchId}`, leadId: 'lead-1', campaignId: 'cmp-1', senderAccountId: 'mb-1',
-    messageId: `msg-${nextDispatchId}`, stepOrder: 1, sentAt: new Date(), ...row,
+    messageId: `msg-${nextDispatchId}`, stepOrder: 1, sentAt: new Date(), operationId: null, ...row,
   };
   dispatches.push(dispatch);
   return dispatch;
@@ -205,6 +210,32 @@ beforeEach(() => {
   fake.emailDispatch.findFirst.mockImplementation(async ({ where }: any) => {
     const row = dispatches.find((d) => matchesFields(d, where));
     return row ? { id: row.id } : null;
+  });
+  // The reconciler's stale-dispatch query, with the relations it selects.
+  fake.emailDispatch.findMany.mockImplementation(async ({ where, take }: any) =>
+    dispatches
+      .filter((d) => matchesFields(d, where))
+      .sort((a, b) => a.sentAt.getTime() - b.sentAt.getTime())
+      .slice(0, take)
+      .map((d) => ({
+        ...structuredClone(d),
+        lead: { id: d.leadId, email: leads.get(d.leadId)?.email },
+        senderAccount: d.senderAccountId === campaign.senderAccount.id
+          ? { id: campaign.senderAccount.id, warmupEnabled: campaign.senderAccount.warmupEnabled }
+          : null,
+        campaign: d.campaignId === campaign.id
+          ? { id: campaign.id, name: campaign.name, steps: campaign.steps.map(({ stepOrder, waitDays }: any) => ({ stepOrder, waitDays })) }
+          : null,
+      })),
+  );
+  fake.emailDispatch.deleteMany.mockImplementation(async ({ where }: any) => {
+    const before = dispatches.length;
+    dispatches = dispatches.filter((d) => !matchesFields(d, where));
+    return { count: before - dispatches.length };
+  });
+  fake.campaignEnrollment.findFirst.mockImplementation(async ({ where }: any) => {
+    const row = enrollments.find((e) => matchesEnrollment(e, where));
+    return row ? structuredClone(row) : null;
   });
   fake.emailDispatch.count.mockImplementation(async ({ where }: any) =>
     dispatches.filter((d) => matchesFields(d, where)).length,
@@ -506,5 +537,247 @@ describe('a send ACS accepted is recorded, never failed or sent again (H4, H5)',
     expect(await res.json()).toMatchObject({ success: false, dispatchedCount: 0, errors: [{ email: 'lead-1@prospect.test' }] });
     expect(dispatches[0].status).toBe('Failed');
     expect(enrollmentOf('lead-1')).toMatchObject({ currentSequenceStep: 1, retryCount: 1, claimToken: null });
+  });
+});
+
+describe('sends interrupted by a crash are reconciled with ACS (H6)', () => {
+  const OP = '5b0e7a52-3c1d-4d8e-9f10-2a3b4c5d6e7f';
+  const staleAt = (extraMs = 60_000) => new Date(Date.now() - STALE_SENDING_MS - extraMs);
+
+  /** A send the process died in the middle of: dispatch left Sending, enrollment claim abandoned. */
+  function interruptedSend(row: Partial<DispatchRow> = {}) {
+    const sentAt = row.sentAt ?? staleAt();
+    Object.assign(enrollmentOf('lead-1'), { claimToken: 'crashed', claimedAt: sentAt });
+    return addDispatch({ status: 'Sending', operationId: OP, ...row, sentAt });
+  }
+
+  it.each(['Succeeded', 'Running', 'NotStarted'] as const)(
+    'records a send ACS reports %s as Sent and advances the enrollment as a normal send does',
+    async (status) => {
+      campaign.senderAccount = { ...SENDER, warmupEnabled: true, warmupStartedAt: new Date() };
+      const dispatch = interruptedSend();
+      mockedStatus.mockResolvedValue({ status });
+
+      await reconcileStaleSendingDispatches();
+
+      expect(mockedStatus).toHaveBeenCalledWith(OP, expect.objectContaining({ activeProvider: 'AZURE' }));
+      expect(dispatches).toHaveLength(1);
+      expect(dispatches[0]).toMatchObject({ status: 'Sent', messageId: OP });
+      const nextActionDate = new Date(dispatch.sentAt);
+      nextActionDate.setDate(nextActionDate.getDate() + 3);
+      expect(enrollmentOf('lead-1')).toMatchObject({ currentSequenceStep: 2, nextActionDate, claimToken: null, claimedAt: null });
+      expect(txWrites).toEqual(['emailDispatch', 'campaignEnrollment', 'senderAccount']);
+
+      await processDueEmails();
+      await reconcileStaleSendingDispatches();
+      expect(mockedSend).not.toHaveBeenCalled();
+      expect(mockedStatus).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it('completes the enrollment when the interrupted send was its last step', async () => {
+    enrollmentOf('lead-1').currentSequenceStep = 2;
+    interruptedSend({ stepOrder: 2 });
+    mockedStatus.mockResolvedValue({ status: 'Succeeded' });
+
+    await reconcileStaleSendingDispatches();
+
+    expect(dispatches[0].status).toBe('Sent');
+    expect(enrollmentOf('lead-1')).toMatchObject({ status: 'Completed', nextActionDate: null, claimToken: null });
+  });
+
+  it('records a send ACS accepted whose bookkeeping never landed, without sending it again', async () => {
+    for (let i = 0; i <= BOOKKEEPING_RETRIES; i++) {
+      fake.$transaction.mockRejectedValueOnce(new Error('Server has closed the connection.'));
+    }
+    await withFakeTimers(() => processDueEmails());
+    expect(dispatches[0].status).toBe('Sending');
+    const { operationId } = dispatches[0];
+    dispatches[0].sentAt = staleAt();
+    mockedStatus.mockResolvedValue({ status: 'Succeeded' });
+
+    await reconcileStaleSendingDispatches();
+
+    expect(mockedStatus).toHaveBeenCalledWith(operationId, expect.anything());
+    expect(dispatches[0]).toMatchObject({ status: 'Sent', messageId: operationId });
+    expect(enrollmentOf('lead-1')).toMatchObject({ currentSequenceStep: 2, retryCount: 0, claimToken: null });
+    expect(mockedSend).toHaveBeenCalledTimes(1);
+  });
+
+  it('records the send but leaves an enrollment no longer Active on that step to the send guard', async () => {
+    interruptedSend();
+    enrollmentOf('lead-1').status = 'Paused';
+    mockedStatus.mockResolvedValue({ status: 'Succeeded' });
+
+    await reconcileStaleSendingDispatches();
+
+    expect(dispatches[0].status).toBe('Sent');
+    expect(enrollmentOf('lead-1')).toMatchObject({ status: 'Paused', currentSequenceStep: 1 });
+
+    enrollmentOf('lead-1').status = 'Active';
+    await processDueEmails();
+    expect(mockedSend).not.toHaveBeenCalled();
+    expect(enrollmentOf('lead-1').currentSequenceStep).toBe(2);
+  });
+
+  it.each<[string, 'Failed' | 'Canceled', { code?: string; message?: string } | undefined]>([
+    ['Failed with a transient error', 'Failed', { code: 'ServiceError', message: 'Temporary failure, try again later.' }],
+    ['Canceled', 'Canceled', undefined],
+  ])('handles a send ACS reports %s as a soft failure: dispatch Failed, step retried after backoff', async (_label, status, error) => {
+    interruptedSend();
+    mockedStatus.mockResolvedValue({ status, error });
+
+    await reconcileStaleSendingDispatches();
+
+    expect(dispatches[0].status).toBe('Failed');
+    expect(enrollmentOf('lead-1')).toMatchObject({ currentSequenceStep: 1, retryCount: 1, lastBounceType: 'soft', claimToken: null });
+    expect(enrollmentOf('lead-1').nextActionDate!.getTime()).toBeGreaterThan(Date.now());
+    expect(fake.lead.update).not.toHaveBeenCalled();
+    expect(campaign.status).toBe('Active');
+
+    enrollmentOf('lead-1').nextActionDate = PAST;
+    await processDueEmails();
+    expect(mockedSend).toHaveBeenCalledTimes(1);
+    expect(dispatches.map((d) => d.status)).toEqual(['Failed', 'Sent']);
+  });
+
+  it('handles a send ACS reports Failed for a bad address as a hard bounce', async () => {
+    interruptedSend();
+    mockedStatus.mockResolvedValue({ status: 'Failed', error: { code: 'InvalidRecipient', message: 'Recipient address rejected.' } });
+
+    await reconcileStaleSendingDispatches();
+
+    expect(dispatches[0].status).toBe('Failed');
+    expect(enrollmentOf('lead-1')).toMatchObject({ status: 'Failed', lastBounceType: 'hard', lastError: 'Recipient address rejected.' });
+    expect(fake.lead.update).toHaveBeenCalledWith({ where: { id: 'lead-1' }, data: { status: 'Bounced', validationStatus: 'Invalid' } });
+    expect(fake.emailEvent.create).toHaveBeenCalledWith({ data: { messageId: dispatches[0].messageId, eventType: 'bounce' } });
+  });
+
+  it('deletes a dispatch ACS never received and clears the abandoned claim, so the next cycle sends the step', async () => {
+    interruptedSend();
+    mockedStatus.mockResolvedValue({ status: 'NotFound' });
+
+    await reconcileStaleSendingDispatches();
+
+    expect(dispatches).toHaveLength(0);
+    expect(enrollmentOf('lead-1')).toMatchObject({ currentSequenceStep: 1, retryCount: 0, claimToken: null, claimedAt: null });
+
+    await processDueEmails();
+    expect(mockedSend).toHaveBeenCalledTimes(1);
+    expect(dispatches).toHaveLength(1);
+    expect(dispatches[0]).toMatchObject({ status: 'Sent', stepOrder: 1 });
+  });
+
+  it('does not clear a live claim when it deletes a dispatch ACS never received', async () => {
+    interruptedSend();
+    const claimedAt = new Date();
+    Object.assign(enrollmentOf('lead-1'), { claimToken: 'manual-run', claimedAt });
+    mockedStatus.mockResolvedValue({ status: 'NotFound' });
+
+    await reconcileStaleSendingDispatches();
+
+    expect(dispatches).toHaveLength(0);
+    expect(enrollmentOf('lead-1')).toMatchObject({ claimToken: 'manual-run', claimedAt });
+  });
+
+  it('marks a dispatch over a day old that ACS no longer knows Unknown, and never sends that step again', async () => {
+    interruptedSend({ sentAt: new Date(Date.now() - NOT_FOUND_RETRY_MAX_AGE_MS - 60_000) });
+    mockedStatus.mockResolvedValue({ status: 'NotFound' });
+
+    await reconcileStaleSendingDispatches();
+
+    expect(dispatches).toHaveLength(1);
+    expect(dispatches[0].status).toBe('Unknown');
+
+    await processDueEmails();
+    expect(mockedSend).not.toHaveBeenCalled();
+    expect(enrollmentOf('lead-1')).toMatchObject({ currentSequenceStep: 2, claimToken: null });
+  });
+
+  it('marks interrupted dispatches with no operation id Unknown without asking ACS, logs the count, and never sends that step again', async () => {
+    interruptedSend({ operationId: null });
+
+    await reconcileStaleSendingDispatches();
+
+    expect(mockedStatus).not.toHaveBeenCalled();
+    expect(dispatches[0].status).toBe('Unknown');
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('Marked 1 interrupted dispatch(es)'));
+
+    await processDueEmails();
+    expect(mockedSend).not.toHaveBeenCalled();
+    expect(enrollmentOf('lead-1')).toMatchObject({ currentSequenceStep: 2, claimToken: null });
+  });
+
+  it('the manual run advances past an Unknown step without sending it', async () => {
+    addDispatch({ status: 'Unknown', stepOrder: 1 });
+
+    const res = await run();
+
+    expect((await res.json()).dispatchedCount).toBe(0);
+    expect(mockedSend).not.toHaveBeenCalled();
+    expect(enrollmentOf('lead-1')).toMatchObject({ currentSequenceStep: 2, claimToken: null });
+  });
+
+  it('counts Unknown dispatches toward the mailbox daily cap', async () => {
+    campaign.senderAccount = { ...SENDER, dailyLimit: 1 };
+    addDispatch({ status: 'Unknown', leadId: 'lead-other', stepOrder: 1 });
+
+    await processDueEmails();
+
+    expect(mockedSend).not.toHaveBeenCalled();
+    expect(enrollmentOf('lead-1').nextActionDate!.getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it('leaves Sending dispatches younger than the stale threshold alone', async () => {
+    addDispatch({ status: 'Sending', operationId: OP, sentAt: new Date(Date.now() - STALE_SENDING_MS + 60_000) });
+    addDispatch({ status: 'Sending', operationId: null, sentAt: new Date() });
+
+    await reconcileStaleSendingDispatches();
+
+    expect(mockedStatus).not.toHaveBeenCalled();
+    expect(dispatches.map((d) => d.status)).toEqual(['Sending', 'Sending']);
+  });
+
+  it('leaves dispatches Sending and stops the pass when ACS gives no answer, then settles them on a later pass', async () => {
+    addLead('lead-2');
+    interruptedSend();
+    addDispatch({ status: 'Sending', operationId: 'op-2', leadId: 'lead-2', sentAt: staleAt(30_000) });
+    mockedStatus.mockRejectedValue(Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' }));
+
+    await reconcileStaleSendingDispatches();
+
+    expect(mockedStatus).toHaveBeenCalledTimes(1);
+    expect(dispatches.map((d) => d.status)).toEqual(['Sending', 'Sending']);
+    expect(enrollmentOf('lead-1')).toMatchObject({ currentSequenceStep: 1, retryCount: 0 });
+    expect(campaign.status).toBe('Active');
+
+    mockedStatus.mockResolvedValue({ status: 'Succeeded' });
+    await reconcileStaleSendingDispatches();
+
+    expect(dispatches.map((d) => d.status)).toEqual(['Sent', 'Sent']);
+    expect(enrollmentOf('lead-1').currentSequenceStep).toBe(2);
+    expect(enrollmentOf('lead-2').currentSequenceStep).toBe(2);
+  });
+
+  it('checks at most one batch of stale dispatches per pass', async () => {
+    for (let i = 0; i <= RECONCILE_BATCH; i++) {
+      addDispatch({ status: 'Sending', operationId: `op-${i}`, sentAt: staleAt(60_000 + i) });
+    }
+    mockedStatus.mockResolvedValue({ status: 'Running' });
+
+    await reconcileStaleSendingDispatches();
+
+    expect(mockedStatus).toHaveBeenCalledTimes(RECONCILE_BATCH);
+    expect(dispatches.filter((d) => d.status === 'Sending')).toHaveLength(1);
+  });
+
+  it('asks ACS nothing while sending is disabled', async () => {
+    vi.mocked(getGlobalSettings).mockResolvedValue({ id: 'global', activeProvider: 'DISABLED' } as any);
+    interruptedSend();
+
+    await reconcileStaleSendingDispatches();
+
+    expect(mockedStatus).not.toHaveBeenCalled();
+    expect(dispatches[0].status).toBe('Sending');
   });
 });

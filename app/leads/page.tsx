@@ -32,7 +32,8 @@ import {
   FolderPlus,
   Ban,
   MailX,
-  Hourglass
+  Hourglass,
+  MailQuestionMark
 } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -2152,6 +2153,11 @@ export default function LeadsPage() {
                                         <span className="inline-flex items-center gap-1 bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200/50 dark:border-amber-500/10 text-[9px] font-bold text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded">
                                           <Hourglass className="w-3 h-3" />
                                           Sending
+                                        </span>
+                                      ) : event.status === 'Unknown' ? (
+                                        <span className="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/40 text-[9px] font-bold text-slate-500 dark:text-slate-400 px-2 py-0.5 rounded">
+                                          <MailQuestionMark className="w-3 h-3" />
+                                          Unconfirmed
                                         </span>
                                       ) : event.deliveredAt ? (
                                         <span className="inline-flex items-center gap-1 bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200/50 dark:border-emerald-500/10 text-[9px] font-bold text-emerald-600 dark:text-emerald-400 px-2 py-0.5 rounded">

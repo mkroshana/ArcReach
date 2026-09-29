@@ -4,6 +4,7 @@ import { getSession } from '@/lib/session';
 import { checkCampaignSenders } from '@/lib/senderOwnership';
 import { MAILBOX_SECRET_OMIT } from '@/lib/mailboxSecrets';
 import { checkAudienceCohort, REMOVED_ENROLLMENT_STATUS, syncCohortEnrollments } from '@/lib/campaignCohort';
+import { activationBlocker } from '@/lib/campaignSteps';
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -332,6 +333,18 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       const cohortError = await checkAudienceCohort(audienceCohort);
       if (cohortError) {
         return NextResponse.json({ error: cohortError }, { status: 400 });
+      }
+    }
+
+    // An Active campaign mails every step as stored, so publishing it, or saving
+    // steps while it stays Active, needs complete steps. Drafts may be incomplete.
+    if ((status ?? campaign.status) === 'Active' && (status !== undefined || Array.isArray(steps))) {
+      const stepsToCheck = Array.isArray(steps)
+        ? steps
+        : await prisma.campaignStep.findMany({ where: { campaignId: id }, orderBy: { stepOrder: 'asc' } });
+      const stepsError = activationBlocker(stepsToCheck);
+      if (stepsError) {
+        return NextResponse.json({ error: stepsError }, { status: 400 });
       }
     }
 

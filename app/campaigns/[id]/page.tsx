@@ -15,6 +15,7 @@ import {
 } from 'recharts';
 import { useToast } from '@/components/Toast';
 import VariableToolbar from '@/components/VariableToolbar';
+import { activationBlocker, findIncompleteSteps } from '@/lib/campaignSteps';
 import {
   Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
   Select, MenuItem, FormControl, InputLabel, Switch, Skeleton, ToggleButtonGroup, ToggleButton,
@@ -67,6 +68,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
   const [trackOpens, setTrackOpens] = useState(true);
   const [trackClicks, setTrackClicks] = useState(true);
   const [steps, setSteps] = useState<any[]>([]);
+  const [showStepErrors, setShowStepErrors] = useState(false);
   const [groups, setGroups] = useState<any[]>([]);
   const [availableMailboxes, setAvailableMailboxes] = useState<any[]>([]);
   const [primarySenderId, setPrimarySenderId] = useState<string>('');
@@ -152,9 +154,21 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
   const toggleDaySelection = (day: string) => setSelectedDays(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]);
 
   const handleSaveCampaign = async (overrideStatus?: string) => {
+    const targetStatus = overrideStatus || status;
+    // Drafts may be saved incomplete; an Active campaign mails every step as written.
+    if (targetStatus === 'Active') {
+      const blocker = activationBlocker(steps);
+      if (blocker) {
+        const incompleteKeys = findIncompleteSteps(steps).map(s => steps[s.stepNumber - 1].id || s.stepNumber - 1);
+        setShowStepErrors(true);
+        setActiveTab('Sequence');
+        setPreviewSteps(prev => ({ ...prev, ...Object.fromEntries(incompleteKeys.map(key => [key, false])) }));
+        showToast(blocker, 'error');
+        return;
+      }
+    }
     try {
       setSaving(true);
-      const targetStatus = overrideStatus || status;
       const res = await fetch(`/api/campaigns/${campaignId}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -168,7 +182,10 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
         showToast('Outbound sequence configuration successfully saved!');
         if (overrideStatus) setStatus(overrideStatus);
         await loadCampaign();
-      } else showToast('Failed to update campaign configuration.', 'error');
+      } else {
+        const data = await res.json().catch(() => null);
+        showToast(data?.error || 'Failed to update campaign configuration.', 'error');
+      }
     } catch (err) { console.error(err); showToast('Error occurred saving sequence configuration.', 'error'); }
     finally { setSaving(false); }
   };
@@ -218,6 +235,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
   ];
 
   const statusColor = status === 'Active' ? 'success' : status === 'Paused' ? 'warning' : 'default';
+  const incompleteSteps = showStepErrors ? findIncompleteSteps(steps) : [];
 
   return (
     <Box sx={{ maxWidth: 1100, mx: 'auto', pb: 8, display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -382,8 +400,9 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
 
               {steps.map((step, index) => {
                 const showPreview = previewSteps[step.id || index] !== false;
+                const stepIssue = incompleteSteps.find(s => s.stepNumber === index + 1);
                 return (
-                  <Card key={step.id || index}>
+                  <Card key={step.id || index} sx={stepIssue ? { borderColor: 'error.main' } : undefined}>
                     <CardContent>
                       <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 2, flexWrap: 'wrap', gap: 1 }}>
                         <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
@@ -410,6 +429,15 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                           )}
                         </Stack>
                       </Stack>
+
+                      {stepIssue && (
+                        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 2, color: 'error.main' }}>
+                          <AlertTriangle size={14} />
+                          <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                            This step has no {stepIssue.missing.map(m => m === 'subject' ? 'subject line' : 'message body').join(' or ')}. Complete it before publishing.
+                          </Typography>
+                        </Stack>
+                      )}
 
                       {showPreview ? (
                         <Stack spacing={2}>
@@ -439,8 +467,8 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                         </Stack>
                       ) : (
                         <Stack spacing={1.5}>
-                          <TextField fullWidth size="small" placeholder="Subject Line" value={step.subject} onChange={(e) => updateStepField(index, 'subject', e.target.value)} />
-                          <Box sx={{ border: 1, borderColor: 'divider', borderRadius: '12px', overflow: 'hidden', bgcolor: 'action.hover' }}>
+                          <TextField fullWidth size="small" placeholder="Subject Line" value={step.subject} onChange={(e) => updateStepField(index, 'subject', e.target.value)} error={!!stepIssue?.missing.includes('subject')} />
+                          <Box sx={{ border: 1, borderColor: stepIssue?.missing.includes('body') ? 'error.main' : 'divider', borderRadius: '12px', overflow: 'hidden', bgcolor: 'action.hover' }}>
                             <Box sx={{ px: 1.5, py: 1, borderBottom: 1, borderColor: 'divider', bgcolor: 'background.paper' }}>
                               <VariableToolbar onInsert={(v) => insertVariable(v, index)} onInsertSubject={(v) => updateStepField(index, 'subject', (step.subject || '') + ' ' + v)} />
                             </Box>

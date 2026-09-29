@@ -135,6 +135,7 @@ describe('explicit create and save still enroll the cohort (M24)', () => {
   });
 
   it('PUT /api/campaigns/[id] enrolls the cohort on save or publish', async () => {
+    fake.campaignStep.findMany.mockResolvedValue([{ stepOrder: 1, waitDays: 0, subject: 'Hi', body: 'Hello' }]);
     const res = await putCampaign(makeReq('PUT', '/api/campaigns/cmp-1', { status: 'Active' }), params);
     expect(res.status).toBe(200);
     expectEnrolled(fake.campaignEnrollment.createMany, 'cmp-1');

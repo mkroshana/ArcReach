@@ -43,6 +43,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       }, { status: 400 });
     }
 
+    // With no steps every enrollment would look finished and be marked Completed
+    // unsent, so refuse before any enrollment moves.
+    if (campaign.steps.length === 0) {
+      return NextResponse.json({
+        success: false,
+        error: 'This campaign has no steps. Add at least one step with a subject and body before running it.'
+      }, { status: 400 });
+    }
+
     // Only Azure Communication Services sends; refuse before any dispatch is
     // recorded or any enrollment moves.
     const settings = await getGlobalSettings();

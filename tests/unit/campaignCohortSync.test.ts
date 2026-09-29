@@ -9,7 +9,7 @@ import { NextRequest } from 'next/server';
 const fake = vi.hoisted(() => ({
   campaign: { findUnique: vi.fn(), update: vi.fn() },
   campaignSenderAccount: { deleteMany: vi.fn(), createMany: vi.fn() },
-  campaignStep: { deleteMany: vi.fn(), createMany: vi.fn() },
+  campaignStep: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
   campaignEnrollment: { count: vi.fn(), findMany: vi.fn(), deleteMany: vi.fn(), updateMany: vi.fn(), createMany: vi.fn() },
   emailDispatch: { findMany: vi.fn() },
   lead: { findMany: vi.fn() },
@@ -134,6 +134,7 @@ beforeEach(() => {
     return campaign;
   });
   fake.senderAccount.findMany.mockImplementation(async ({ where }: any) => where.id.in.map((id: string) => ({ id })));
+  fake.campaignStep.findMany.mockResolvedValue([{ stepOrder: 1, waitDays: 0, subject: 'Hi', body: 'Hello' }]);
   fake.leadGroup.findUnique.mockImplementation(async ({ where }: any) => (GROUP_IDS.includes(where.id) ? { id: where.id } : null));
   fake.lead.findMany.mockImplementation(async ({ where }: any) =>
     leads

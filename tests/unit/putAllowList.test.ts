@@ -80,7 +80,7 @@ describe('PUT /api/campaigns', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockedSession.mockResolvedValue(USER);
-    mockedDb.getCampaigns.mockResolvedValue([{ id: 'cmp-1' }]);
+    mockedDb.getCampaigns.mockResolvedValue([{ id: 'cmp-1', steps: [{ stepOrder: 1, subject: 'Hi', body: 'Hello' }] }]);
     mockedDb.updateCampaign.mockImplementation(async (id: string, data: any) => ({ id, ...data }));
   });
 

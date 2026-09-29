@@ -3,6 +3,7 @@ import { db, prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { checkCampaignSenders } from '@/lib/senderOwnership';
 import { checkAudienceCohort, cohortLeadWhere } from '@/lib/campaignCohort';
+import { activationBlocker } from '@/lib/campaignSteps';
 import { type FieldRule, fieldRules, isPlainObject, pickUpdateFields } from '@/lib/updateAllowList';
 
 /** Campaign statuses the app sets and the UI offers. */
@@ -120,10 +121,18 @@ export async function PUT(req: NextRequest) {
 
     // Verify ownership
     const campaignsList = await db.getCampaigns(session.id, session.role);
-    const hasAccess = campaignsList.some(cmp => cmp.id === id);
+    const target = campaignsList.find(cmp => cmp.id === id);
 
-    if (!hasAccess) {
+    if (!target) {
       return NextResponse.json({ error: 'Unauthorized to modify this campaign.' }, { status: 403 });
+    }
+
+    // An Active campaign mails every step as stored, so it needs complete steps.
+    if (updates.status === 'Active') {
+      const stepsError = activationBlocker(target.steps);
+      if (stepsError) {
+        return NextResponse.json({ error: stepsError }, { status: 400 });
+      }
     }
 
     if (updates.userId !== undefined) {

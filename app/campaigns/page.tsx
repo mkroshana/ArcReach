@@ -67,7 +67,10 @@ export default function CampaignsPage() {
         body: JSON.stringify({ id, status: newStatus }),
       });
       if (res.ok) { showToast(`Sequence status updated to ${newStatus}`); loadData(); }
-      else showToast('Failed to update status.', 'error');
+      else {
+        const data = await res.json().catch(() => null);
+        showToast(data?.error || 'Failed to update status.', 'error');
+      }
     } catch { showToast('Error updating status.', 'error'); }
   };
 

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { Prisma } from '@prisma/client';
 import { db, prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { MASKED_SECRET, encryptSecret } from '@/lib/secrets';
@@ -36,6 +37,19 @@ function redactAccount<T extends Record<string, any>>(acc: T): T {
 /** Encrypt a plaintext secret, or pass null/empty through. */
 function encryptedOrNull(v: string | null | undefined): string | null {
   return v ? encryptSecret(v) : null;
+}
+
+/** Campaign names the in-use 409 spells out; any beyond this are only counted, so the toast stays readable. */
+const MAX_LISTED_CAMPAIGNS = 5;
+
+/** 409 text for a mailbox that `total` campaigns still send from, naming the ones in `visibleNames`. */
+function mailboxInUseMessage(total: number, visibleNames: string[]): string {
+  const listed = visibleNames.slice(0, MAX_LISTED_CAMPAIGNS).map((n) => `"${n}"`);
+  const unlisted = total - listed.length;
+  const detail = listed.length === 0 ? '' : `: ${listed.join(', ')}${unlisted > 0 ? ` and ${unlisted} more` : ''}`;
+  const one = total === 1;
+  return `Cannot delete this mailbox while ${one ? 'a campaign uses' : `${total} campaigns use`} it as a sender${detail}. ` +
+    `Switch ${one ? 'that campaign' : 'those campaigns'} to another mailbox or delete ${one ? 'it' : 'them'} first.`;
 }
 
 export async function GET() {
@@ -305,9 +319,28 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized to delete this mailbox.' }, { status: 403 });
     }
 
+    // Refuse, deleting nothing, while any campaign sends from this mailbox as its primary sender
+    // or from its sender pool. Non-admins only get the names of their own campaigns.
+    const dependents = await prisma.campaign.findMany({
+      where: { OR: [{ senderAccountId: id }, { senders: { some: { senderAccountId: id } } }] },
+      select: { name: true, userId: true },
+      orderBy: { name: 'asc' },
+    });
+    if (dependents.length > 0) {
+      const visibleNames = dependents
+        .filter((c) => session.role === 'ADMIN' || c.userId === session.id)
+        .map((c) => c.name);
+      return NextResponse.json({ error: mailboxInUseMessage(dependents.length, visibleNames) }, { status: 409 });
+    }
+
     await db.deleteAccount(id);
     return NextResponse.json({ success: true });
   } catch (error: any) {
+    // P2003: a campaign picked this mailbox as primary sender after the check above, and the
+    // Restrict foreign key refused the delete.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
+      return NextResponse.json({ error: mailboxInUseMessage(1, []) }, { status: 409 });
+    }
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

@@ -651,7 +651,7 @@ export default function AccountsPage() {
       <ConfirmDialog
         isOpen={confirmOpen}
         title="Delete Mailbox Connection"
-        message={`Are you sure you want to delete the mailbox connection for ${selectedWarmupAccount?.emailAddress || 'this account'}? All campaign records using this sender will remain, but you won't be able to send new emails from it.`}
+        message={`Delete the mailbox connection for ${selectedWarmupAccount?.emailAddress || 'this account'}? You will no longer be able to send from it. Its sent-mail history and received replies are kept but unlinked from it, so only admins will still see those replies in Unibox. If any campaign still sends from this mailbox, nothing is deleted until you switch that campaign to another mailbox or delete it.`}
         confirmLabel="Delete"
         cancelLabel="Cancel"
         onConfirm={handleDeleteAccount}

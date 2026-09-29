@@ -946,16 +946,62 @@ function sniffBodyHeaders(body: string): { body: string; contentType: string; tr
   return { body, contentType: 'text/plain', transferEncoding: quotedPrintable ? 'quoted-printable' : '' };
 }
 
+/** Reply HTML is read up to this many characters; the rest (usually quoted history or an inline image) is dropped. */
+export const REPLY_HTML_MAX_CHARS = 512 * 1024;
+
+/**
+ * Text of reply HTML, read in one forward scan so that hostile markup (thousands of
+ * unclosed tags, say) takes linear time instead of stalling the event loop the send
+ * engine shares. A tag runs from '<' to the next '>': br, p, div, tr, li and h1-h6
+ * become newlines, td and th spaces, a <blockquote> is dropped up to the next
+ * </blockquote> (reply chains in HTML) and every other tag is removed. A '<' with no
+ * '>' after it, and a blockquote never closed, are kept as text unless the cap cut them.
+ */
 function stripHtmlTags(html: string): string {
-  let text = html;
-  // Convert common block elements to newlines
-  text = text.replace(/<br\s*\/?>/gi, '\n');
-  text = text.replace(/<\/?(p|div|tr|li|h[1-6])[^>]*>/gi, '\n');
-  text = text.replace(/<\/?(td|th)[^>]*>/gi, ' ');
-  // Remove blockquote content (reply chains in HTML)
-  text = text.replace(/<blockquote[^>]*>[\s\S]*?<\/blockquote>/gi, '');
-  // Remove all remaining tags
-  text = text.replace(/<[^>]+>/g, '');
+  const cut = html.length > REPLY_HTML_MAX_CHARS;
+  const src = cut ? html.substring(0, REPLY_HTML_MAX_CHARS) : html;
+  const parts: string[] = [];
+  const quoteClose = /<\/blockquote>/gi;
+  // The next '>' and </blockquote> already found ahead of the scan, each searched for
+  // again only once the scan passes it (-1: none left), which keeps the scan linear
+  let tagEnd = 0;
+  let quoteEnd = 0;
+  let i = 0;
+  while (i < src.length) {
+    const lt = src.indexOf('<', i);
+    if (lt === -1) break;
+    if (tagEnd !== -1 && tagEnd <= lt) tagEnd = src.indexOf('>', lt + 1);
+    if (tagEnd === -1) {
+      if (cut) {
+        parts.push(src.substring(i, lt));
+        i = src.length;
+      }
+      break;
+    }
+    if (tagEnd === lt + 1) {
+      // "<>" is text
+      parts.push(src.substring(i, tagEnd));
+      i = tagEnd;
+      continue;
+    }
+    parts.push(src.substring(i, lt));
+    const tag = src.substring(lt + 1, tagEnd);
+    i = tagEnd + 1;
+    if (/^br\s*\/?$/i.test(tag) || /^\/?(?:p|div|tr|li|h[1-6])/i.test(tag)) {
+      parts.push('\n');
+    } else if (/^\/?(?:td|th)/i.test(tag)) {
+      parts.push(' ');
+    } else if (/^blockquote/i.test(tag)) {
+      if (quoteEnd !== -1 && quoteEnd < i) {
+        quoteClose.lastIndex = i;
+        quoteEnd = quoteClose.exec(src)?.index ?? -1;
+      }
+      if (quoteEnd !== -1) i = quoteEnd + '</blockquote>'.length;
+      else if (cut) i = src.length;
+    }
+  }
+  parts.push(src.substring(i));
+  let text = parts.join('');
   // Decode HTML entities
   text = text.replace(/&amp;/g, '&');
   text = text.replace(/&lt;/g, '<');

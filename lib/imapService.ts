@@ -2,6 +2,7 @@ import tls from 'tls';
 import { prisma } from './db';
 import { decodeMimeHeader } from './mime';
 import { decryptSecret } from './secrets';
+import { leadEmailIn, normalizeEmail } from './leadEmail';
 
 interface ImapMessage {
   from: string;
@@ -193,16 +194,16 @@ export async function syncMailboxReplies(mailboxId: string) {
                     const headerParsed = parseHeaderResponse(headerResp);
                     if (headerParsed.length === 0) return;
                     
-                    // Filter headers where the sender email matches an active Lead in our database
-                    const senderEmails = headerParsed.map(h => h.from.toLowerCase());
+                    // Filter headers where the sender email matches an active Lead in our database, ignoring case
+                    const senderEmails = headerParsed.map(h => normalizeEmail(h.from));
                     const matchedLeads = await prisma.lead.findMany({
-                      where: { email: { in: senderEmails } }
+                      where: leadEmailIn(senderEmails)
                     });
-                    const matchedLeadEmails = new Set(matchedLeads.map(l => l.email.toLowerCase()));
+                    const matchedLeadEmails = new Set(matchedLeads.map(l => normalizeEmail(l.email)));
                     
                     // For each matching message, dynamically queue a command to fetch its body
                     for (const msg of headerParsed) {
-                      if (matchedLeadEmails.has(msg.from.toLowerCase())) {
+                      if (matchedLeadEmails.has(normalizeEmail(msg.from))) {
                         const tagFetchBody = makeTag('A5_FETCH_BODY');
                         commandsQueue.splice(currentCommandIdx + 1, 0, {
                           tag: tagFetchBody,
@@ -240,8 +241,8 @@ export async function syncMailboxReplies(mailboxId: string) {
       for (const msg of messages) {
         if (!msg.from) continue;
         
-        const lead = await prisma.lead.findUnique({
-          where: { email: msg.from }
+        const lead = await prisma.lead.findFirst({
+          where: leadEmailIn([msg.from])
         });
         
         if (!lead) continue;

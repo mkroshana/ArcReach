@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
+import { leadEmailIn, normalizeEmail } from '@/lib/leadEmail';
 
 export async function POST(req: NextRequest) {
   try {
@@ -12,20 +13,28 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Leads array is required.' }, { status: 400 });
     }
 
-    const emails = leads.map(l => l.email).filter(Boolean);
-    if (emails.length === 0) {
+    // Emails are stored trimmed and lowercased; the first row for each address wins
+    const seenEmails = new Set<string>();
+    const incoming = [];
+    for (const l of leads) {
+      const email = normalizeEmail(l?.email);
+      if (!email || seenEmails.has(email)) continue;
+      seenEmails.add(email);
+      incoming.push({ ...l, email });
+    }
+    if (incoming.length === 0) {
       return NextResponse.json({ error: 'No valid email addresses provided.' }, { status: 400 });
     }
 
-    // 1. Fetch existing leads matching these emails to filter out duplicates
+    // 1. Fetch existing leads matching these emails, under any capitalisation, to filter out duplicates
     const existingLeads = await prisma.lead.findMany({
-      where: { email: { in: emails } },
+      where: leadEmailIn(incoming.map(l => l.email)),
       select: { email: true }
     });
-    const existingEmails = new Set(existingLeads.map(l => l.email));
+    const existingEmails = new Set(existingLeads.map(l => normalizeEmail(l.email)));
 
     // Filter leads to create
-    const leadsToCreate = leads.filter(l => l.email && !existingEmails.has(l.email));
+    const leadsToCreate = incoming.filter(l => !existingEmails.has(l.email));
 
     if (leadsToCreate.length === 0) {
       return NextResponse.json({ success: true, count: 0, message: 'All leads already exist.' });

@@ -200,6 +200,19 @@ model Lead {
   dispatches       EmailDispatch[]
   replies          InboundResponse[]
   groups           LeadGroupMembership[]
+  aliases          LeadAlias[]
+}
+
+// Id of a lead merged into another because their emails differed only in case
+// (scripts/normalize-lead-emails.ts). Unsubscribe links already sent carry the
+// removed lead's id, so /api/unsubscribe resolves it to the kept lead here.
+model LeadAlias {
+  id        String   @id // the merged-away lead's id
+  leadId    String
+  lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([leadId])
 }
 
 model LeadGroup {

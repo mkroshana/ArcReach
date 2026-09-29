@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { CAMPAIGN_LABEL_SELECT, dispatchScope, replyScope } from '@/lib/leadHistoryScope';
 import { type FieldRule, fieldRules, isPlainObject, pickUpdateFields } from '@/lib/updateAllowList';
+import { leadEmailIn, normalizeEmail } from '@/lib/leadEmail';
 
 /** Scalar columns the lead PUT may write, in single and bulk updates. Email and
  *  customVariables are not editable here; group membership goes through groupIds
@@ -85,15 +86,17 @@ export async function POST(req: NextRequest) {
   try {
     const session = await getSession();
     const data = await req.json();
-    const { name, email, company, jobTitle, status, validationStatus, groupIds } = data;
+    const { name, company, jobTitle, status, validationStatus, groupIds } = data;
+    const email = normalizeEmail(data.email);
 
     if (!email) {
       return NextResponse.json({ error: 'Email address is required.' }, { status: 400 });
     }
 
-    // Check if lead already exists
-    const existing = await prisma.lead.findUnique({
-      where: { email }
+    // Check if lead already exists, under any capitalisation
+    const existing = await prisma.lead.findFirst({
+      where: leadEmailIn([email]),
+      select: { id: true }
     });
 
     if (existing) {

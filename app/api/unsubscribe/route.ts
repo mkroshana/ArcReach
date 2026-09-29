@@ -13,7 +13,8 @@ const HTML_HEADERS = {
  * GET /api/unsubscribe?id=<leadId>
  * 
  * Public endpoint (no auth required) that marks a lead as Unsubscribed
- * and pauses all their active campaign enrollments.
+ * and pauses all their active campaign enrollments. The id of a lead merged
+ * into another (a case variant of its email) resolves to the kept lead.
  * Returns a styled HTML confirmation page.
  */
 export async function GET(req: NextRequest) {
@@ -28,7 +29,9 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    const lead = await prisma.lead.findUnique({ where: { id: leadId } });
+    const lead =
+      (await prisma.lead.findUnique({ where: { id: leadId } })) ??
+      (await prisma.leadAlias.findUnique({ where: { id: leadId }, select: { lead: true } }))?.lead;
 
     if (!lead) {
       return new NextResponse(renderPage('Not Found', 'We could not find your subscription record.', false), {
@@ -40,14 +43,14 @@ export async function GET(req: NextRequest) {
     // Idempotent — skip if already unsubscribed
     if (lead.status !== 'Unsubscribed') {
       await prisma.lead.update({
-        where: { id: leadId },
+        where: { id: lead.id },
         data: { status: 'Unsubscribed' },
       });
 
       // Pause all active campaign enrollments for this lead
       await prisma.campaignEnrollment.updateMany({
         where: {
-          leadId,
+          leadId: lead.id,
           status: 'Active',
         },
         data: {

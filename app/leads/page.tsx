@@ -40,6 +40,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { TableSkeleton } from '@/components/Skeleton';
 import { decodeMimeHeader } from '@/lib/mime';
 import { emailBodyToText } from '@/lib/emailText';
+import { normalizeEmail } from '@/lib/leadEmail';
 import { useToast } from '@/components/Toast';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { toCsv, downloadCsv } from '@/lib/csv';
@@ -761,9 +762,11 @@ export default function LeadsPage() {
     // Filter valid rows and map them
     const mappedLeads = [];
     for (const row of csvRows) {
-      const email = row[emailIdx];
-      if (email && email.includes('@')) {
-        const name = nameIdx !== -1 && row[nameIdx] ? row[nameIdx] : email.split('@')[0];
+      // Emails are stored trimmed and lowercased; a missing name falls back to the address as written
+      const rawEmail = (row[emailIdx] || '').trim();
+      const email = normalizeEmail(rawEmail);
+      if (email.includes('@')) {
+        const name = nameIdx !== -1 && row[nameIdx] ? row[nameIdx] : rawEmail.split('@')[0];
         const company = companyIdx !== -1 && row[companyIdx] ? row[companyIdx] : 'Unknown';
         const jobTitle = jobTitleIdx !== -1 && row[jobTitleIdx] ? row[jobTitleIdx] : null;
         mappedLeads.push({ email, name, company, jobTitle });

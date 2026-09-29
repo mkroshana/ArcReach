@@ -4,6 +4,7 @@ import { NextRequest } from 'next/server';
 vi.mock('../../lib/db', () => ({
   prisma: {
     lead: { findUnique: vi.fn(), update: vi.fn() },
+    leadAlias: { findUnique: vi.fn() },
     campaignEnrollment: { updateMany: vi.fn() },
   },
 }));
@@ -56,8 +57,23 @@ describe('unsubscribe GET page', () => {
     expect(missing.headers.get('content-security-policy')).toContain("default-src 'none'");
 
     mocked.lead.findUnique.mockResolvedValue(null);
+    mocked.leadAlias.findUnique.mockResolvedValue(null);
     const notFound = await GET(makeReq('?id=nope'));
     expect(notFound.status).toBe(404);
     expect(notFound.headers.get('content-security-policy')).toContain("default-src 'none'");
+  });
+
+  it('unsubscribes the kept lead when the link carries the id of a lead merged into it (H31)', async () => {
+    mocked.lead.findUnique.mockResolvedValue(null);
+    mocked.leadAlias.findUnique.mockResolvedValue({ lead: { id: 'lead-kept', email: 'jane@example.com', status: 'Neutral' } });
+
+    const res = await GET(makeReq('?id=lead-merged'));
+    expect(res.status).toBe(200);
+    expect(mocked.leadAlias.findUnique).toHaveBeenCalledWith({ where: { id: 'lead-merged' }, select: { lead: true } });
+    expect(mocked.lead.update).toHaveBeenCalledWith({ where: { id: 'lead-kept' }, data: { status: 'Unsubscribed' } });
+    expect(mocked.campaignEnrollment.updateMany).toHaveBeenCalledWith({
+      where: { leadId: 'lead-kept', status: 'Active' },
+      data: { status: 'Paused', nextActionDate: null },
+    });
   });
 });

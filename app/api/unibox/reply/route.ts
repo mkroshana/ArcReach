@@ -6,6 +6,7 @@ import { checkGlobalRateLimits } from '@/lib/rateLimits';
 import { sendMessage, sendingDisabledReason } from '@/lib/emailProvider';
 import { findDirectSender } from '@/lib/senderOwnership';
 import { senderCapReachedReason } from '@/lib/sendEngine';
+import { normalizeEmail } from '@/lib/leadEmail';
 
 export async function POST(req: NextRequest) {
   try {
@@ -93,7 +94,7 @@ export async function POST(req: NextRequest) {
 
     const { providerMessageId } = await sendMessage(
       {
-        to: lead.email,
+        to: normalizeEmail(lead.email),
         subject: subject || 'Re: Outreach',
         body: replyBody,
         isHtml: false,

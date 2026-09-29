@@ -6,6 +6,7 @@ import { checkGlobalRateLimits } from '@/lib/rateLimits';
 import { sendMessage, sendingDisabledReason, EmailConfigError, EmailSendError } from '@/lib/emailProvider';
 import { findDirectSender } from '@/lib/senderOwnership';
 import { senderCapReachedReason } from '@/lib/sendEngine';
+import { normalizeEmail } from '@/lib/leadEmail';
 
 /**
  * POST /api/send-email/test
@@ -51,7 +52,7 @@ export async function POST(req: NextRequest) {
 
     // Build the test email content. ACS takes the From name from the sender
     // username configured in Azure, so the mailbox name is only an internal label.
-    const recipientEmail = session.email;
+    const recipientEmail = normalizeEmail(session.email);
     const now = new Date().toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short' });
 
     const subject = `ArcReach Test: ${senderAccount.emailAddress} is connected`;

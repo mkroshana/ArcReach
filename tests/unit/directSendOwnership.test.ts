@@ -7,7 +7,7 @@ vi.mock('../../lib/db', () => ({
     inboundResponse: { findFirst: vi.fn() },
     campaign: { findUnique: vi.fn() },
     lead: { findUnique: vi.fn(), create: vi.fn() },
-    globalSettings: { findFirst: vi.fn() },
+    globalSettings: { findUnique: vi.fn(), findFirst: vi.fn() },
     emailDispatch: { create: vi.fn(), update: vi.fn(), count: vi.fn() },
   },
 }));
@@ -86,7 +86,7 @@ beforeEach(() => {
 
 describe('POST /api/unibox/reply mailbox ownership (H25)', () => {
   beforeEach(() => {
-    mockedPrisma.globalSettings.findFirst.mockResolvedValue({ activeProvider: 'AZURE' });
+    mockedPrisma.globalSettings.findUnique.mockResolvedValue({ id: 'global', activeProvider: 'AZURE' });
     mockedPrisma.lead.findUnique.mockImplementation(async ({ where }: any) =>
       ({ id: where.id, email: `${where.id}@prospect.test`, name: 'Prospect' }),
     );
@@ -168,7 +168,7 @@ describe('POST /api/unibox/reply mailbox ownership (H25)', () => {
 
 describe('POST /api/send-email mailbox and campaign ownership (H25)', () => {
   beforeEach(() => {
-    mockedPrisma.globalSettings.findFirst.mockResolvedValue({ activeProvider: 'AZURE' });
+    mockedPrisma.globalSettings.findUnique.mockResolvedValue({ id: 'global', activeProvider: 'AZURE' });
     mockedPrisma.lead.findUnique.mockResolvedValue({ id: 'lead-9', email: 'prospect@prospect.test' });
   });
 
@@ -229,7 +229,7 @@ describe('POST /api/send-email mailbox and campaign ownership (H25)', () => {
 
 describe('POST /api/send-email/test mailbox ownership (H25)', () => {
   beforeEach(() => {
-    mockedPrisma.globalSettings.findFirst.mockResolvedValue({ activeProvider: 'AZURE' });
+    mockedPrisma.globalSettings.findUnique.mockResolvedValue({ id: 'global', activeProvider: 'AZURE' });
   });
 
   const test = (senderAccountId: unknown) => postTestEmail(makeReq('/api/send-email/test', { senderAccountId }));

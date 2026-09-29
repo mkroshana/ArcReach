@@ -4,6 +4,7 @@ import { getSession, setSession } from '@/lib/session';
 import { verifyPassword, hashPassword } from '@/lib/auth';
 import { MASKED_SECRET, encryptSecret } from '@/lib/secrets';
 import { passwordPolicyError } from '@/lib/passwordPolicy';
+import { ensureGlobalSettings, saveGlobalSettings } from '@/lib/settings';
 
 /** Fields that are never returned in plaintext and must be skipped on PUT when
  * the client echoes back the mask. */
@@ -51,20 +52,15 @@ export async function GET() {
     // Settings are admin-only. Non-admins get their profile but no settings block.
     let settingsPayload: any = null;
     if (session.role === 'ADMIN') {
-      let settings = await prisma.globalSettings.findFirst();
-      if (!settings) {
-        settings = await prisma.globalSettings.create({
-          data: {
-            activeProvider: 'MOCK',
-            smtpHost: 'smtp.mailgun.org',
-            smtpPort: 587,
-            smtpUser: 'postmaster@sandbox.arcreach.com',
-            smtpPass: '•••••••••••••••••••••••••••••',
-            rateLimitMinute: 60,
-            rateLimitHour: 1000
-          }
-        });
-      }
+      const settings = await ensureGlobalSettings({
+        activeProvider: 'MOCK',
+        smtpHost: 'smtp.mailgun.org',
+        smtpPort: 587,
+        smtpUser: 'postmaster@sandbox.arcreach.com',
+        smtpPass: '•••••••••••••••••••••••••••••',
+        rateLimitMinute: 60,
+        rateLimitHour: 1000
+      });
       settingsPayload = redactSettings(settings);
     }
 
@@ -149,8 +145,6 @@ export async function PUT(req: NextRequest) {
     }
 
     // 2. Update Global Settings
-    const settings = await prisma.globalSettings.findFirst();
-
     /** Echo guard: if the client sent back the mask sentinel, drop the field. */
     const liveSecret = (v: unknown): string | null | undefined => {
       if (v === undefined || v === MASKED_SECRET) return undefined;
@@ -189,32 +183,22 @@ export async function PUT(req: NextRequest) {
       settingsData.rateLimitHour = rateLimitHour === null ? null : Number(rateLimitHour);
     }
 
-    let updatedSettings;
-    if (settings) {
-      updatedSettings = await prisma.globalSettings.update({
-        where: { id: settings.id },
-        data: settingsData
-      });
-    } else {
-      updatedSettings = await prisma.globalSettings.create({
-        data: {
-          activeProvider: activeProvider || 'MOCK',
-          azureConnString: encrypted(liveAzureConn),
-          azureSenderDomain: azureSenderDomain || null,
-          azureSenderDomains: azureSenderDomains !== undefined ? normalizeDomains(azureSenderDomains) : undefined,
-          smtpHost: smtpHost || null,
-          smtpPort: Number(smtpPort) || null,
-          smtpUser: smtpUser || null,
-          smtpPass: encrypted(liveSmtpPass),
-          imapHost: imapHost || null,
-          imapPort: Number(imapPort) || null,
-          imapUser: imapUser || null,
-          imapPass: encrypted(liveImapPass),
-          rateLimitMinute: rateLimitMinute === undefined ? 60 : (rateLimitMinute === null ? null : Number(rateLimitMinute)),
-          rateLimitHour: rateLimitHour === undefined ? 1000 : (rateLimitHour === null ? null : Number(rateLimitHour))
-        }
-      });
-    }
+    const updatedSettings = await saveGlobalSettings(settingsData, {
+      activeProvider: activeProvider || 'MOCK',
+      azureConnString: encrypted(liveAzureConn),
+      azureSenderDomain: azureSenderDomain || null,
+      azureSenderDomains: azureSenderDomains !== undefined ? normalizeDomains(azureSenderDomains) : undefined,
+      smtpHost: smtpHost || null,
+      smtpPort: Number(smtpPort) || null,
+      smtpUser: smtpUser || null,
+      smtpPass: encrypted(liveSmtpPass),
+      imapHost: imapHost || null,
+      imapPort: Number(imapPort) || null,
+      imapUser: imapUser || null,
+      imapPass: encrypted(liveImapPass),
+      rateLimitMinute: rateLimitMinute === undefined ? 60 : (rateLimitMinute === null ? null : Number(rateLimitMinute)),
+      rateLimitHour: rateLimitHour === undefined ? 1000 : (rateLimitHour === null ? null : Number(rateLimitHour))
+    });
 
     return NextResponse.json({
       success: true,

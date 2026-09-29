@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { getGlobalSettings } from '@/lib/settings';
 import { getSession } from '@/lib/session';
 import { checkGlobalRateLimits } from '@/lib/rateLimits';
 import { sendMessage } from '@/lib/emailProvider';
@@ -32,7 +33,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Fetch global settings
-    const settings = await prisma.globalSettings.findFirst();
+    const settings = await getGlobalSettings();
 
     // Non-admins may only reply to leads that wrote to one of their own mailboxes
     if (session.role !== 'ADMIN') {

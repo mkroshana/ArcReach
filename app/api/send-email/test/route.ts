@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/db';
+import { getGlobalSettings } from '@/lib/settings';
 import { getSession } from '@/lib/session';
 import { sendMessage, EmailConfigError, EmailSendError } from '@/lib/emailProvider';
 import { findDirectSender } from '@/lib/senderOwnership';
@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
     const senderAccount = found.account;
 
     // Fetch global settings
-    const settings = await prisma.globalSettings.findFirst();
+    const settings = await getGlobalSettings();
     const provider = settings?.activeProvider || 'MOCK';
 
     // Build the test email content

@@ -33,8 +33,9 @@ model User {
 // ------------------------------------------------------
 // 2. GLOBAL SETTINGS
 // ------------------------------------------------------
+// Single row under the fixed id "global"; read and write it via lib/settings.ts.
 model GlobalSettings {
-  id                String   @id @default(uuid())
+  id                String   @id @default("global")
   activeProvider    String   @default("MOCK")
   azureConnString   String?
   azureSenderDomain String?  // deprecated — read-only fallback for migration to azureSenderDomains

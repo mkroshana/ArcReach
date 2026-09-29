@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { getGlobalSettings } from '@/lib/settings';
 import { getSession } from '@/lib/session';
 import { applyEmailTracking } from '@/lib/emailTracking';
 import { checkGlobalRateLimits } from '@/lib/rateLimits';
@@ -79,7 +80,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     // 3. Fetch global settings for delivery configuration
-    const settings = await prisma.globalSettings.findFirst();
+    const settings = await getGlobalSettings();
 
     // Build map of sent counts today for each unique sender in the batch/pool
     const senderIds = new Set<string>();

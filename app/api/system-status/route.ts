@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { getGlobalSettings } from '@/lib/settings';
 import { getSession } from '@/lib/session';
 import { getVerifiedDomains } from '@/lib/azureDomains';
 
@@ -30,7 +31,7 @@ export async function GET() {
 
     const leadsCount = await prisma.lead.count();
 
-    const globalSettings = await prisma.globalSettings.findFirst();
+    const globalSettings = await getGlobalSettings();
     const smtpConfigured = !!(globalSettings?.smtpHost && globalSettings?.smtpUser);
 
     // 2. Compute Azure API status

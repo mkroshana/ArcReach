@@ -1,4 +1,5 @@
 import { prisma } from './db';
+import { getGlobalSettings } from './settings';
 import { checkGlobalRateLimits } from './rateLimits';
 import { applyEmailTracking } from './emailTracking';
 import { sendMessage } from './emailProvider';
@@ -424,7 +425,7 @@ export async function processDueEmails() {
     }
 
     // 3. Fetch global settings
-    const settings = await prisma.globalSettings.findFirst();
+    const settings = await getGlobalSettings();
 
     for (const enrollment of dueEnrollments) {
       const campaign = campaignMap.get(enrollment.campaignId);

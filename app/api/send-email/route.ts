@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { getGlobalSettings } from '@/lib/settings';
 import { applyEmailTracking } from '@/lib/emailTracking';
 import { checkGlobalRateLimits } from '@/lib/rateLimits';
 import { getSession } from '@/lib/session';
@@ -25,7 +26,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 1. Fetch global settings from the database
-    const settings = await prisma.globalSettings.findFirst();
+    const settings = await getGlobalSettings();
 
     // 2. Fetch sender account if available
     let targetSenderAccountId = senderAccountId;

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import nodemailer from 'nodemailer';
 import { getSession } from '@/lib/session';
-import { prisma } from '@/lib/db';
+import { getGlobalSettings } from '@/lib/settings';
 import { MASKED_SECRET, decryptSecret } from '@/lib/secrets';
 
 export async function POST(req: NextRequest) {
@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
     // If the form sent the redacted sentinel (password not edited), fall back to
     // the stored encrypted value so the test can actually authenticate.
     if (smtpPass === MASKED_SECRET) {
-      const stored = await prisma.globalSettings.findFirst({ select: { smtpPass: true } });
+      const stored = await getGlobalSettings();
       smtpPass = decryptSecret(stored?.smtpPass) || '';
     }
 

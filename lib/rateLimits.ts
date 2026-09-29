@@ -1,8 +1,9 @@
 import { prisma } from './db';
+import { getGlobalSettings } from './settings';
 
 export async function checkGlobalRateLimits(): Promise<{ allowed: boolean; reason?: string }> {
   try {
-    const settings = await prisma.globalSettings.findFirst();
+    const settings = await getGlobalSettings();
     if (!settings) {
       return { allowed: true };
     }

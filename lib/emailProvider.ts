@@ -96,6 +96,8 @@ export interface MessageInput {
    * store it there before sending; one is generated when omitted.
    */
   operationId?: string;
+  /** Extra message headers, e.g. List-Unsubscribe on campaign sends. */
+  headers?: Record<string, string>;
 }
 
 export interface SendResult {
@@ -127,15 +129,15 @@ export async function sendMessage(
   settings: ProviderSettings | null | undefined
 ): Promise<SendResult> {
   const provider = settings?.activeProvider;
-  const { to, subject, body, isHtml, sender } = input;
+  const { to, subject, body, isHtml, sender, headers } = input;
 
   if (provider === 'AZURE') {
-    return sendViaAzure({ to, subject, body, isHtml, sender, operationId: input.operationId }, settings!);
+    return sendViaAzure({ to, subject, body, isHtml, sender, headers, operationId: input.operationId }, settings!);
   }
 
   // SMTP / GOOGLE / MICROSOFT all use nodemailer with the same shape.
   if (provider === 'SMTP' || provider === 'GOOGLE' || provider === 'MICROSOFT') {
-    return sendViaSmtp({ to, subject, body, isHtml, sender, fromName: input.fromName }, settings!);
+    return sendViaSmtp({ to, subject, body, isHtml, sender, headers, fromName: input.fromName }, settings!);
   }
 
   // No settings row, DISABLED, or the retired MOCK value: nothing is sent, so
@@ -144,7 +146,9 @@ export async function sendMessage(
 }
 
 async function sendViaAzure(
-  input: { to: string; subject: string; body: string; isHtml: boolean; sender: SenderInput; operationId?: string },
+  input: {
+    to: string; subject: string; body: string; isHtml: boolean; sender: SenderInput; headers?: Record<string, string>; operationId?: string;
+  },
   settings: ProviderSettings
 ): Promise<SendResult> {
   let connString: string | null | undefined;
@@ -195,6 +199,9 @@ async function sendViaAzure(
     // setting or the campaign's Track Opens.
     disableUserEngagementTracking: true,
   };
+  if (input.headers && Object.keys(input.headers).length > 0) {
+    message.headers = input.headers;
+  }
 
   // Only set Reply-To when one is explicitly configured; otherwise omit the
   // header so replies go to the From address by default.
@@ -312,7 +319,9 @@ export async function getAzureSendStatus(
 }
 
 async function sendViaSmtp(
-  input: { to: string; subject: string; body: string; isHtml: boolean; sender: SenderInput; fromName?: string },
+  input: {
+    to: string; subject: string; body: string; isHtml: boolean; sender: SenderInput; headers?: Record<string, string>; fromName?: string;
+  },
   settings: ProviderSettings
 ): Promise<SendResult> {
   // Prefer per-sender SMTP credentials; fall back to global.
@@ -351,6 +360,7 @@ async function sendViaSmtp(
   // replies go to the From address by default.
   const replyTo = s.replyTo?.trim();
   if (replyTo) mailOptions.replyTo = replyTo;
+  if (input.headers) mailOptions.headers = input.headers;
   if (input.isHtml) mailOptions.html = input.body;
   else mailOptions.text = input.body;
 

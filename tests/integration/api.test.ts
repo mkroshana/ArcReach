@@ -448,7 +448,7 @@ describe('ArcReach Live API Integration Tests', () => {
       expect(check2Deleted.status).toBe(404);
     });
 
-    it('should successfully unsubscribe a lead via GET /api/unsubscribe', async () => {
+    it('should show a confirmation on GET /api/unsubscribe and unsubscribe only on POST', async () => {
       const uniqueSuffix = Date.now();
 
       // Create a lead
@@ -460,8 +460,17 @@ describe('ArcReach Live API Integration Tests', () => {
       const lead = await createRes.json();
       expect(lead.status).toBe('Neutral');
 
-      // Hit the unsubscribe endpoint
-      const unsubRes = await testFetch(`${BASE_URL}/api/unsubscribe?id=${lead.id}`);
+      // Opening the link (as a mail-security scanner does) only shows the confirmation page
+      const pageRes = await fetch(`${BASE_URL}/api/unsubscribe?id=${lead.id}`);
+      expect(pageRes.status).toBe(200);
+      const page = await pageRes.text();
+      expect(page).toContain('Confirm Unsubscribe');
+      expect(page).toContain(`<form method="post" action="/api/unsubscribe?id=${lead.id}">`);
+      const unchanged = await (await testFetch(`${BASE_URL}/api/leads?id=${lead.id}`)).json();
+      expect(unchanged.status).toBe('Neutral');
+
+      // The confirmation button POSTs the same link, without a session
+      const unsubRes = await fetch(`${BASE_URL}/api/unsubscribe?id=${lead.id}`, { method: 'POST' });
       expect(unsubRes.status).toBe(200);
       const html = await unsubRes.text();
       expect(html).toContain('Unsubscribed Successfully');
@@ -471,9 +480,17 @@ describe('ArcReach Live API Integration Tests', () => {
       const updatedLead = await checkRes.json();
       expect(updatedLead.status).toBe('Unsubscribed');
 
-      // Calling again should be idempotent
-      const resubRes = await testFetch(`${BASE_URL}/api/unsubscribe?id=${lead.id}`);
+      // An RFC 8058 one-click POST again is idempotent
+      const resubRes = await fetch(`${BASE_URL}/api/unsubscribe?id=${lead.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'List-Unsubscribe=One-Click',
+      });
       expect(resubRes.status).toBe(200);
+
+      // A link whose token was not signed by the server is refused
+      const forgedRes = await fetch(`${BASE_URL}/api/unsubscribe?token=${Buffer.from(lead.id).toString('base64url')}.eA.eA`, { method: 'POST' });
+      expect(forgedRes.status).toBe(400);
 
       // Clean up
       await testFetch(`${BASE_URL}/api/leads?id=${lead.id}`, { method: 'DELETE' });

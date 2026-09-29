@@ -176,6 +176,35 @@ describe('Azure send: ACS engagement tracking is always off (L5)', () => {
   });
 });
 
+describe('Azure send: message headers (H15, H16)', () => {
+  const settings = () => ({
+    activeProvider: 'AZURE',
+    azureConnString: encryptSecret(`endpoint=${baseUrl}/;accesskey=${ACCESS_KEY}`),
+    azureSenderDomains: ['acme.test'],
+  });
+  const message = { to: 'lead@prospect.test', subject: 'Hello', body: 'Hi there', isHtml: false, sender: { emailAddress: 'one@acme.test' } };
+
+  it('sends the List-Unsubscribe headers a campaign send gives it on the wire', async () => {
+    reply = (method) => (method === 'POST' ? accepted : status('Succeeded'));
+    const headers = {
+      'List-Unsubscribe': '<https://reach.acme.test/api/unsubscribe?token=abc>',
+      'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+    };
+
+    await sendMessage({ ...message, operationId: OPERATION_ID, headers }, settings());
+
+    expect(JSON.parse(bodies[0]).headers).toEqual(headers);
+  });
+
+  it('sends no headers object when the caller gives none', async () => {
+    reply = (method) => (method === 'POST' ? accepted : status('Succeeded'));
+
+    await sendMessage({ ...message, operationId: OPERATION_ID }, settings());
+
+    expect(JSON.parse(bodies[0])).not.toHaveProperty('headers');
+  });
+});
+
 describe('Azure send status lookup by operation id, for reconciling interrupted sends (H6)', () => {
   const statusOf = (timeoutMs?: number) =>
     getAzureSendStatus(

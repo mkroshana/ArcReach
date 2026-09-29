@@ -181,8 +181,8 @@ export const PREVIEW_LEAD: PersonalizationLead = {
   email: 'emily@starkindustries.com',
 };
 
-// The lead id previews render unsubscribe links for, before they become '#unsubscribe'.
-const PREVIEW_LEAD_ID = 'preview';
+// The unsubscribe token previews render links for, before previewEmailBody replaces them.
+const PREVIEW_TOKEN = 'preview';
 
 /** An editor preview of a subject line: as sent to PREVIEW_LEAD, with the first spintax option. */
 export function personalizePreview(template: string): string {
@@ -191,13 +191,14 @@ export function personalizePreview(template: string): string {
 
 /**
  * An editor preview of a step body: rendered for PREVIEW_LEAD with the first
- * spintax option exactly as a send renders it, unsubscribe footer included, but
- * without the open pixel or click-tracking redirects, which only work for a
- * real dispatch. Unsubscribe links point at '#unsubscribe'. Show an HTML body
- * only in a sandboxed iframe without allow-scripts, and a plain-text one as text.
+ * spintax option exactly as a send renders it, unsubscribe footer or line
+ * included, but without the open pixel or click-tracking redirects, which only
+ * work for a real dispatch. Unsubscribe links point at '#unsubscribe' in HTML
+ * and read '[unsubscribe link]' in plain text. Show an HTML body only in a
+ * sandboxed iframe without allow-scripts, and a plain-text one as text.
  */
 export function previewEmailBody(template: string): { isHtml: boolean; body: string } {
   const { isHtml, body } = renderEmailBody(template, PREVIEW_LEAD, () => 0);
-  const tracked = applyEmailTracking(body, PREVIEW_LEAD_ID, isHtml, false, false, PREVIEW_LEAD_ID);
-  return { isHtml, body: tracked.split(unsubscribeUrl(PREVIEW_LEAD_ID)).join('#unsubscribe') };
+  const tracked = applyEmailTracking(body, PREVIEW_TOKEN, isHtml, false, false, PREVIEW_TOKEN);
+  return { isHtml, body: tracked.split(unsubscribeUrl(PREVIEW_TOKEN)).join(isHtml ? '#unsubscribe' : '[unsubscribe link]') };
 }

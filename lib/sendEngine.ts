@@ -4,6 +4,7 @@ import { prisma } from './db';
 import { getGlobalSettings } from './settings';
 import { checkGlobalRateLimits } from './rateLimits';
 import { applyEmailTracking } from './emailTracking';
+import { listUnsubscribeHeaders, signUnsubscribeToken } from './unsubscribeLink';
 import { personalizeEmail, renderEmailBody } from './personalize';
 import { sendMessage, sendingDisabledReason } from './emailProvider';
 import { sendableEnrollmentWhere, claimEnrollmentForSend, releaseEnrollmentClaim, RELEASED_CLAIM } from './sendEligibility';
@@ -886,14 +887,17 @@ export async function processDueEmails() {
         continue;
       }
 
-      // Apply self-hosted tracking (pixel + link rewriting + unsubscribe link)
+      // Apply self-hosted tracking (pixel + link rewriting + unsubscribe link).
+      // The unsubscribe link is signed for this lead and dispatch, and also goes
+      // in the List-Unsubscribe headers for mail clients' one-click unsubscribe.
+      const unsubscribeToken = signUnsubscribeToken(lead.id, dispatch.id);
       const finalBody = applyEmailTracking(
         baseBody,
         dispatch.id,
         isHtml,
         campaign.trackOpens,
         campaign.trackClicks,
-        lead.id
+        unsubscribeToken
       );
 
       // Send Email. Only the provider call is failure-classified.
@@ -907,6 +911,7 @@ export async function processDueEmails() {
             isHtml,
             sender: chosenSender,
             operationId,
+            headers: listUnsubscribeHeaders(unsubscribeToken),
           },
           settings
         ));

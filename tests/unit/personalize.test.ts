@@ -97,7 +97,7 @@ describe('template -> renderEmailBody -> applyEmailTracking (H22)', () => {
     expect(sent).toContain('<style>.btn{color:#fff;background:#0a66c2} p{margin:0}</style>');
     expect(sent).toContain('<p>Hi John, how is {{city}}?</p>');
     // The custom link becomes this lead's unsubscribe link, not click-tracked...
-    expect(sent).toMatch(/<a href='[^']*\/api\/unsubscribe\?id=lead-1'>Unsubscribe<\/a>/);
+    expect(sent).toMatch(/<a href='[^']*\/api\/unsubscribe\?token=lead-1'>Unsubscribe<\/a>/);
     expect(sent).not.toContain('unsubscribe_url');
     // ...so no second, default unsubscribe footer is added.
     expect(sent).not.toContain('If you no longer wish to receive these emails');
@@ -221,8 +221,18 @@ describe('previewEmailBody (M6)', () => {
     expect(preview.body).toBe('<html><head><meta charset="utf-8"></head><body><p>Hi Emily</p><a href="#unsubscribe">Opt out</a> #unsubscribe</body></html>');
   });
 
-  it('previews a plain-text step as the text a send gives it', () => {
-    const template = 'Hi {{firstName}},\n\nThanks,\nJane <jane@acme.com>';
-    expect(previewEmailBody(template)).toEqual({ isHtml: false, body: 'Hi Emily,\n\nThanks,\nJane <jane@acme.com>' });
+  it('previews a plain-text step as the text a send gives it, unsubscribe line included (H15)', () => {
+    const template = 'Hi {{firstName}},\n\nThanks,\nJane <jane@acme.com>\n';
+    expect(previewEmailBody(template)).toEqual({
+      isHtml: false,
+      body: 'Hi Emily,\n\nThanks,\nJane <jane@acme.com>\n\nUnsubscribe: [unsubscribe link]',
+    });
+  });
+
+  it('shows a plain-text unsubscribe placeholder as the link and adds no unsubscribe line (H15)', () => {
+    expect(previewEmailBody('Hi {{firstName}}. Opt out: {{unsubscribe_url}}')).toEqual({
+      isHtml: false,
+      body: 'Hi Emily. Opt out: [unsubscribe link]',
+    });
   });
 });

@@ -166,7 +166,7 @@ vi.mock('dns', () => {
 });
 
 import { getSession } from '../../lib/session';
-import { GET as unsubscribe } from '../../app/api/unsubscribe/route';
+import { POST as unsubscribe } from '../../app/api/unsubscribe/route';
 import { GET as getLeads, POST as postLead, PUT as putLead, DELETE as deleteLeads } from '../../app/api/leads/route';
 import { POST as postBulk } from '../../app/api/leads/bulk/route';
 import { POST as postVerify } from '../../app/api/leads/verify/route';
@@ -238,7 +238,7 @@ describe('the suppression list outlives the lead (H18)', () => {
     addLead('jane', 'jane@acme.com');
     enroll('jane', 'cmp-unverified');
 
-    expect((await unsubscribe(makeReq('GET', '/api/unsubscribe?id=jane'))).status).toBe(200);
+    expect((await unsubscribe(makeReq('POST', '/api/unsubscribe?id=jane'))).status).toBe(200);
     expect(db.tables.suppressedEmail).toEqual([{ email: 'jane@acme.com', reason: 'Unsubscribed', source: 'unsubscribe-link' }]);
 
     expect((await deleteLeads(makeReq('DELETE', '/api/leads?all=true'))).status).toBe(200);
@@ -309,12 +309,12 @@ describe('unsubscribe links of deleted leads (H18)', () => {
       { id: 'jane-merged', email: 'jane@acme.com' },
     ]);
 
-    const res = await unsubscribe(makeReq('GET', '/api/unsubscribe?id=jane'));
+    const res = await unsubscribe(makeReq('POST', '/api/unsubscribe?id=jane'));
     expect(res.status).toBe(200);
     expect(await res.text()).toContain('<strong>jane@acme.com</strong> has been removed');
     expect(db.tables.suppressedEmail).toEqual([{ email: 'jane@acme.com', reason: 'Unsubscribed', source: 'unsubscribe-link' }]);
     // The merged lead's link from older mail works too
-    expect((await unsubscribe(makeReq('GET', '/api/unsubscribe?id=jane-merged'))).status).toBe(200);
+    expect((await unsubscribe(makeReq('POST', '/api/unsubscribe?id=jane-merged'))).status).toBe(200);
 
     const imported = await postBulk(makeReq('POST', '/api/leads/bulk', {
       leads: [{ email: 'Jane@Acme.com', name: 'Jane' }, { email: 'bob@acme.com', name: 'Bob' }],
@@ -332,7 +332,7 @@ describe('unsubscribe links of deleted leads (H18)', () => {
     const again = leadByEmail('jane@acme.com')!;
     expect(enrolledIn('cmp-unverified')).toEqual(['jane@acme.com']);
 
-    const res = await unsubscribe(makeReq('GET', '/api/unsubscribe?id=jane'));
+    const res = await unsubscribe(makeReq('POST', '/api/unsubscribe?id=jane'));
 
     expect(res.status).toBe(200);
     expect(leadById(again.id)!.status).toBe('Unsubscribed');
@@ -359,7 +359,7 @@ describe('unsubscribe links of deleted leads (H18)', () => {
       { id: 'picked', email: 'picked@acme.com' },
       { id: 'grouped', email: 'grouped@acme.com' },
     ]);
-    expect((await unsubscribe(makeReq('GET', '/api/unsubscribe?id=grouped'))).status).toBe(200);
+    expect((await unsubscribe(makeReq('POST', '/api/unsubscribe?id=grouped'))).status).toBe(200);
     expect(db.tables.suppressedEmail.map((row) => row.email)).toEqual(['grouped@acme.com']);
   });
 
@@ -369,7 +369,7 @@ describe('unsubscribe links of deleted leads (H18)', () => {
     expect((await deleteLeads(makeReq('DELETE', '/api/leads?id=never'))).status).toBe(200);
 
     expect(db.tables.deletedLead).toHaveLength(0);
-    expect((await unsubscribe(makeReq('GET', '/api/unsubscribe?id=never'))).status).toBe(404);
+    expect((await unsubscribe(makeReq('POST', '/api/unsubscribe?id=never'))).status).toBe(404);
     expect(db.tables.suppressedEmail).toHaveLength(0);
   });
 });

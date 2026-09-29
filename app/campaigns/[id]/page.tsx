@@ -581,8 +581,8 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                 <Stack spacing={1.5}>
                   {[
                     { label: 'Pause Sequence on Reply', desc: 'Stop further emails once a customer expresses interest.', val: stopOnReply, set: setStopOnReply },
-                    { label: 'Track Opens', desc: 'Embed standard safe tracking pixel mechanisms.', val: trackOpens, set: setTrackOpens },
-                    { label: 'Track Link Clicks', desc: 'Wrap body content links to track engagement.', val: trackClicks, set: setTrackClicks },
+                    { label: 'Track Opens', desc: 'Embed a tracking pixel in HTML steps. Plain-text steps cannot track opens.', val: trackOpens, set: setTrackOpens },
+                    { label: 'Track Link Clicks', desc: 'Route links in HTML steps through the click tracker. Plain-text steps cannot track clicks.', val: trackClicks, set: setTrackClicks },
                   ].map((f, i) => (
                     <Stack key={i} direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', p: 1.5, borderRadius: '14px', border: 1, borderColor: 'divider', bgcolor: 'action.hover' }}>
                       <Box>

@@ -1,58 +1,131 @@
 import { NextRequest, NextResponse } from 'next/server';
+import type { Lead } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { leadEmailIn } from '@/lib/leadEmail';
 import { suppressEmail } from '@/lib/suppression';
+import { verifyUnsubscribeToken } from '@/lib/unsubscribeLink';
 
 // The page is self-contained: inline styles and inline SVG only, no scripts,
-// external resources, forms or framing.
+// external resources or framing. Its one form posts back to this endpoint.
 const HTML_HEADERS = {
   'Content-Type': 'text/html',
   'Content-Security-Policy':
-    "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
 };
 
 /**
- * GET /api/unsubscribe?id=<leadId>
- * 
- * Public endpoint (no auth required) that puts the lead's address on the
- * suppression list, marks the lead as Unsubscribed and pauses all their active
- * campaign enrollments. The id of a lead merged into another (a case variant of
- * its email) resolves to the kept lead. The id of a deleted lead that was
- * emailed still works: its address goes on the suppression list, and a lead
- * imported again for it is unsubscribed too. Returns a styled HTML
- * confirmation page.
+ * The lead id a link names, and the query that names it again: a signed token
+ * (lib/unsubscribeLink), or the raw lead id of links sent before tokens.
+ * 'missing' when the link names neither, 'invalid' when its token is not one
+ * this app signed.
+ */
+function linkTarget(req: NextRequest): { leadId: string; query: string } | 'missing' | 'invalid' {
+  const { searchParams } = new URL(req.url);
+  const token = searchParams.get('token');
+  if (token) {
+    const signed = verifyUnsubscribeToken(token);
+    return signed ? { leadId: signed.leadId, query: `token=${encodeURIComponent(token)}` } : 'invalid';
+  }
+  const leadId = searchParams.get('id');
+  return leadId ? { leadId, query: `id=${encodeURIComponent(leadId)}` } : 'missing';
+}
+
+/**
+ * The lead a link's lead id names and its address, or null when there is
+ * none. The id of a lead merged into another (a case variant of its email)
+ * resolves to the kept lead. The id of a deleted lead that was emailed
+ * resolves to the address it had (lib/leadDelete), and to the lead imported
+ * again for that address, if there is one.
+ */
+async function findSubscriber(leadId: string): Promise<{ lead: Lead | null; email: string } | null> {
+  let lead =
+    (await prisma.lead.findUnique({ where: { id: leadId } })) ??
+    (await prisma.leadAlias.findUnique({ where: { id: leadId }, select: { lead: true } }))?.lead ??
+    null;
+
+  const deletedEmail = lead ? null : (await prisma.deletedLead.findUnique({ where: { id: leadId } }))?.email ?? null;
+  if (deletedEmail) {
+    lead = await prisma.lead.findFirst({ where: leadEmailIn([deletedEmail]) });
+  }
+  const email = lead?.email ?? deletedEmail;
+  return email ? { lead, email } : null;
+}
+
+/** The error page for a link that names no lead, or whose lead or address cannot be found. */
+function linkError(target: 'missing' | 'invalid' | 'not-found'): NextResponse {
+  const [status, title, message] =
+    target === 'missing'
+      ? [400, 'Invalid Request', 'No lead identifier was provided.']
+      : target === 'invalid'
+        ? [400, 'Invalid Link', 'This unsubscribe link is incomplete or was not issued by us.']
+        : [404, 'Not Found', 'We could not find your subscription record.'];
+  return new NextResponse(renderPage(title, message, 'error'), { status, headers: HTML_HEADERS });
+}
+
+function serverError(error: unknown): NextResponse {
+  console.error('[Unsubscribe] Error:', error);
+  return new NextResponse(
+    renderPage('Something Went Wrong', 'We were unable to process your unsubscribe request. Please try again later.', 'error'),
+    {
+      status: 500,
+      headers: HTML_HEADERS,
+    }
+  );
+}
+
+/**
+ * GET /api/unsubscribe?token=<token>  (links sent before tokens: ?id=<leadId>)
+ *
+ * Public endpoint (no auth required). Shows a confirmation page whose button
+ * POSTs back here, and changes nothing: mail-security gateways fetch every link
+ * in an email, and that must not unsubscribe the recipient.
  */
 export async function GET(req: NextRequest) {
   try {
-    const { searchParams } = new URL(req.url);
-    const leadId = searchParams.get('id');
+    const target = linkTarget(req);
+    if (typeof target === 'string') return linkError(target);
 
-    if (!leadId) {
-      return new NextResponse(renderPage('Invalid Request', 'No lead identifier was provided.', false), {
-        status: 400,
+    const subscriber = await findSubscriber(target.leadId);
+    if (!subscriber) return linkError('not-found');
+
+    return new NextResponse(
+      renderPage(
+        'Confirm Unsubscribe',
+        'will stop receiving our emails once you confirm below.',
+        'confirm',
+        subscriber.email,
+        `/api/unsubscribe?${target.query}`
+      ),
+      {
+        status: 200,
         headers: HTML_HEADERS,
-      });
-    }
+      }
+    );
+  } catch (error: any) {
+    return serverError(error);
+  }
+}
 
-    let lead =
-      (await prisma.lead.findUnique({ where: { id: leadId } })) ??
-      (await prisma.leadAlias.findUnique({ where: { id: leadId }, select: { lead: true } }))?.lead ??
-      null;
+/**
+ * POST /api/unsubscribe?token=<token>  (links sent before tokens: ?id=<leadId>)
+ *
+ * Public endpoint (no auth required) that puts the lead's address on the
+ * suppression list, marks the lead as Unsubscribed and pauses all their active
+ * campaign enrollments. Posted by the confirmation page's button, and by mail
+ * clients' RFC 8058 one-click unsubscribe (body 'List-Unsubscribe=One-Click',
+ * offered by the List-Unsubscribe-Post header of campaign emails); the body is
+ * not needed, so either is accepted. A deleted lead's address still goes on
+ * the suppression list, and a lead imported again for it is unsubscribed too.
+ * Idempotent. Returns a styled HTML confirmation page.
+ */
+export async function POST(req: NextRequest) {
+  try {
+    const target = linkTarget(req);
+    if (typeof target === 'string') return linkError(target);
 
-    // The id of a deleted lead resolves to the address it had (lib/leadDelete),
-    // and to the lead imported again for that address, if there is one
-    const deletedEmail = lead ? null : (await prisma.deletedLead.findUnique({ where: { id: leadId } }))?.email ?? null;
-    if (deletedEmail) {
-      lead = await prisma.lead.findFirst({ where: leadEmailIn([deletedEmail]) });
-    }
-    const email = lead?.email ?? deletedEmail;
-
-    if (!email) {
-      return new NextResponse(renderPage('Not Found', 'We could not find your subscription record.', false), {
-        status: 404,
-        headers: HTML_HEADERS,
-      });
-    }
+    const subscriber = await findSubscriber(target.leadId);
+    if (!subscriber) return linkError('not-found');
+    const { lead, email } = subscriber;
 
     // The suppression list outlives the lead, so the opt-out holds even if the
     // lead is deleted and imported again. Also written for a lead already
@@ -83,7 +156,7 @@ export async function GET(req: NextRequest) {
       renderPage(
         'Unsubscribed Successfully',
         'has been removed from all future mailings. You will no longer receive emails from us.',
-        true,
+        'success',
         email
       ),
       {
@@ -92,14 +165,7 @@ export async function GET(req: NextRequest) {
       }
     );
   } catch (error: any) {
-    console.error('[Unsubscribe] Error:', error);
-    return new NextResponse(
-      renderPage('Something Went Wrong', 'We were unable to process your unsubscribe request. Please try again later.', false),
-      {
-        status: 500,
-        headers: HTML_HEADERS,
-      }
-    );
+    return serverError(error);
   }
 }
 
@@ -112,16 +178,31 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
+const ACCENT_COLORS = { confirm: '#2563eb', success: '#10b981', error: '#ef4444' };
+
 /**
- * Renders a self-contained styled HTML confirmation page. Every caller-supplied
- * value is HTML-escaped; `highlight` (e.g. the lead's email) is shown in bold
- * before the message.
+ * Renders a self-contained styled HTML page. Every caller-supplied value is
+ * HTML-escaped; `highlight` (e.g. the lead's email) is shown in bold before the
+ * message. A confirm page shows an Unsubscribe button that POSTs to `action`.
  */
-function renderPage(title: string, message: string, success: boolean, highlight?: string): string {
-  const accentColor = success ? '#10b981' : '#ef4444';
-  const icon = success
-    ? `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="${accentColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`
-    : `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="${accentColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`;
+function renderPage(
+  title: string,
+  message: string,
+  variant: 'confirm' | 'success' | 'error',
+  highlight?: string,
+  action?: string
+): string {
+  const accentColor = ACCENT_COLORS[variant];
+  const iconPaths = {
+    confirm: '<path d="M22 13V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v12c0 1.1.9 2 2 2h9"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/><path d="m17 17 4 4"/><path d="m21 17-4 4"/>',
+    success: '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>',
+    error: '<circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>',
+  }[variant];
+  const icon = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="${accentColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${iconPaths}</svg>`;
+  const form =
+    variant === 'confirm' && action
+      ? `\n    <form method="post" action="${escapeHtml(action)}"><button type="submit">Unsubscribe</button></form>`
+      : '';
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -163,13 +244,24 @@ function renderPage(title: string, message: string, success: boolean, highlight?
       color: #a3a3a3;
     }
     p strong { color: #fafafa; }
+    button {
+      margin-top: 1.75rem;
+      padding: 0.75rem 1.75rem;
+      border: 0;
+      border-radius: 10px;
+      background: ${accentColor};
+      color: #ffffff;
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+    }
   </style>
 </head>
 <body>
   <div class="card">
     <div class="icon">${icon}</div>
     <h1>${escapeHtml(title)}</h1>
-    <p>${highlight ? `<strong>${escapeHtml(highlight)}</strong> ` : ''}${escapeHtml(message)}</p>
+    <p>${highlight ? `<strong>${escapeHtml(highlight)}</strong> ` : ''}${escapeHtml(message)}</p>${form}
   </div>
 </body>
 </html>`;

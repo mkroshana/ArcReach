@@ -49,6 +49,8 @@ import { SEND_CLAIM_TTL_MS, claimEnrollmentForSend, releaseEnrollmentClaim, send
 import { reconcileStaleSendingDispatches, STALE_SENDING_MS, NOT_FOUND_RETRY_MAX_AGE_MS, RECONCILE_BATCH } from '../../lib/sendReconciler';
 import { POST as postRun } from '../../app/api/campaigns/[id]/run/route';
 import { queuedLeadsMessage } from '../../lib/campaignSteps';
+import { unsubscribeUrl } from '../../lib/emailTracking';
+import { listUnsubscribeHeaders, signUnsubscribeToken, verifyUnsubscribeToken } from '../../lib/unsubscribeLink';
 
 const mockedSend = vi.mocked(sendMessage);
 const mockedStatus = vi.mocked(getAzureSendStatus);
@@ -1412,8 +1414,25 @@ describe('processDueEmails personalises each step with the shared personalizeEma
     expect(sent.subject).toBe("Hello Cash$'n'Carry");
     expect(sent.body).toContain('<style>.btn{color:#fff}</style>');
     expect(sent.body).toContain('<p>Hi Cash$&#39;n&#39;Carry Kid of {Wayne|Stark} Industries in {{city}}</p>');
-    expect(sent.body).toMatch(/<a href='[^']*\/api\/unsubscribe\?id=lead-1'>Unsubscribe<\/a>/);
+    expect(sent.body).toContain(`<a href='${unsubscribeUrl(signUnsubscribeToken('lead-1', 'dispatch-1'))}'>Unsubscribe</a>`);
     expect(sent.body).not.toContain('If you no longer wish to receive these emails');
+  });
+});
+
+describe('processDueEmails signs each unsubscribe link and offers one-click unsubscribe (H15, H16)', () => {
+  it('links an HTML step to a token for the lead and this dispatch, and sends the List-Unsubscribe headers for it', async () => {
+    campaign.steps[0] = { stepOrder: 1, waitDays: 0, subject: 'Hi', body: '<p>Hi {{firstName}}</p>' };
+
+    await processDueEmails();
+
+    expect(mockedSend).toHaveBeenCalledTimes(1);
+    const sent = mockedSend.mock.calls[0][0];
+    const [, token] = sent.body.match(/href="[^"]*\/api\/unsubscribe\?token=([^"]+)"/) ?? [];
+    expect(verifyUnsubscribeToken(decodeURIComponent(token))).toEqual({ leadId: 'lead-1', dispatchId: dispatches[0].id });
+    expect(sent.headers).toEqual(listUnsubscribeHeaders(decodeURIComponent(token)));
+    expect(sent.headers?.['List-Unsubscribe']).toContain(`<${unsubscribeUrl(decodeURIComponent(token))}>`);
+    // The body recorded for the dispatch carries the same link
+    expect(dispatches[0]).toMatchObject({ status: 'Sent', body: sent.body });
   });
 });
 
@@ -1424,10 +1443,13 @@ describe('processDueEmails decides HTML from the step template and escapes lead 
 
     await processDueEmails();
 
+    // The unsubscribe link goes on a last line and in the headers (H15)
+    const token = signUnsubscribeToken('lead-1', 'dispatch-1');
     expect(mockedSend).toHaveBeenCalledTimes(1);
     expect(mockedSend.mock.calls[0][0]).toMatchObject({
       isHtml: false,
-      body: 'Hi Smith <Holdings>,\n\nThanks,\nJane <jane@acme.com>',
+      body: `Hi Smith <Holdings>,\n\nThanks,\nJane <jane@acme.com>\n\nUnsubscribe: ${unsubscribeUrl(token)}`,
+      headers: listUnsubscribeHeaders(token),
     });
   });
 

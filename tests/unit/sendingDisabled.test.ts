@@ -7,7 +7,7 @@ vi.mock('../../lib/db', () => ({
     campaignEnrollment: { findMany: vi.fn(), update: vi.fn() },
     emailDispatch: { create: vi.fn(), update: vi.fn(), findFirst: vi.fn(), count: vi.fn() },
     globalSettings: { findUnique: vi.fn(), findFirst: vi.fn() },
-    lead: { findUnique: vi.fn(), create: vi.fn() },
+    lead: { findUnique: vi.fn() },
     senderAccount: { findUnique: vi.fn(), update: vi.fn() },
     inboundResponse: { findFirst: vi.fn() },
   },
@@ -28,7 +28,6 @@ import { sendMessage } from '../../lib/emailProvider';
 import { processDueEmails } from '../../lib/sendEngine';
 import { POST as postRun } from '../../app/api/campaigns/[id]/run/route';
 import { POST as postUniboxReply } from '../../app/api/unibox/reply/route';
-import { POST as postSendEmail } from '../../app/api/send-email/route';
 import { POST as postTestEmail } from '../../app/api/send-email/test/route';
 
 const mockedPrisma = prisma as any;
@@ -83,7 +82,6 @@ function expectNothingRecorded() {
   expect(mockedPrisma.emailDispatch.create).not.toHaveBeenCalled();
   expect(mockedPrisma.emailDispatch.update).not.toHaveBeenCalled();
   expect(mockedPrisma.campaignEnrollment.update).not.toHaveBeenCalled();
-  expect(mockedPrisma.lead.create).not.toHaveBeenCalled();
 }
 
 let warn: ReturnType<typeof vi.spyOn>;
@@ -140,13 +138,12 @@ describe('processDueEmails refuses to send unless Azure is configured (H1)', () 
 describe('send routes return 409 unless Azure is configured (H1)', () => {
   const run = () => postRun(makeReq('/api/campaigns/cmp-1/run', {}), { params: Promise.resolve({ id: 'cmp-1' }) });
   const reply = () => postUniboxReply(makeReq('/api/unibox/reply', { leadId: 'lead-1', subject: 'Re: Hello', body: 'Thanks!', senderAccountId: 'mb-1' }));
-  const send = () => postSendEmail(makeReq('/api/send-email', { campaignId: 'cmp-1', leadData: { email: 'lead@prospect.test' }, subject: 'Hello', bodyText: 'Hi' }));
   const test = () => postTestEmail(makeReq('/api/send-email/test', { senderAccountId: 'mb-1' }));
 
   it.each(DISABLED_SETTINGS)('with %s every route refuses before recording anything', async (_label, settings) => {
     useSettings(settings);
 
-    for (const call of [run, reply, send, test]) {
+    for (const call of [run, reply, test]) {
       const res = await call();
       expect(res.status).toBe(409);
       expect((await res.json()).error).toMatch(/^Sending is disabled\./);
@@ -164,13 +161,13 @@ describe('send routes return 409 unless Azure is configured (H1)', () => {
     expect(mockedSend).toHaveBeenCalledTimes(1);
   });
 
-  it('lets the Unibox reply, manual send and test send through once Azure is configured', async () => {
+  it('lets the Unibox reply and test send through once Azure is configured', async () => {
     useSettings(AZURE_SETTINGS);
 
-    for (const call of [reply, send, test]) {
+    for (const call of [reply, test]) {
       expect((await call()).status).toBe(200);
     }
-    expect(mockedSend).toHaveBeenCalledTimes(3);
+    expect(mockedSend).toHaveBeenCalledTimes(2);
   });
 });
 

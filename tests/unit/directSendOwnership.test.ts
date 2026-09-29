@@ -5,10 +5,9 @@ vi.mock('../../lib/db', () => ({
   prisma: {
     senderAccount: { findUnique: vi.fn() },
     inboundResponse: { findFirst: vi.fn() },
-    campaign: { findUnique: vi.fn() },
-    lead: { findUnique: vi.fn(), create: vi.fn() },
+    lead: { findUnique: vi.fn() },
     globalSettings: { findUnique: vi.fn(), findFirst: vi.fn() },
-    emailDispatch: { create: vi.fn(), update: vi.fn(), count: vi.fn() },
+    emailDispatch: { create: vi.fn(), count: vi.fn() },
   },
 }));
 
@@ -25,7 +24,6 @@ import { prisma } from '../../lib/db';
 import { getSession } from '../../lib/session';
 import { sendMessage } from '../../lib/emailProvider';
 import { POST as postUniboxReply } from '../../app/api/unibox/reply/route';
-import { POST as postSendEmail } from '../../app/api/send-email/route';
 import { POST as postTestEmail } from '../../app/api/send-email/test/route';
 
 const mockedPrisma = prisma as any;
@@ -47,11 +45,6 @@ const INBOUND = [
   { id: 'in-2', leadId: 'lead-1', senderAccountId: 'mb-user1', campaignId: 'cmp-1', receivedAt: new Date('2026-09-10') },
   { id: 'in-3', leadId: 'lead-1', senderAccountId: 'mb-user2', campaignId: 'cmp-2', receivedAt: new Date('2026-09-05') },
   { id: 'in-4', leadId: 'lead-2', senderAccountId: 'mb-user2', campaignId: 'cmp-2', receivedAt: new Date('2026-09-05') },
-];
-
-const CAMPAIGNS = [
-  { id: 'cmp-1', userId: 'user-1', senderAccountId: 'mb-user1', trackOpens: true, trackClicks: true },
-  { id: 'cmp-2', userId: 'user-2', senderAccountId: 'mb-user2', trackOpens: true, trackClicks: true },
 ];
 
 /** Azure selected and configured, so the sending guard lets these routes through. */
@@ -81,9 +74,6 @@ beforeEach(() => {
       .sort((a, b) => b.receivedAt.getTime() - a.receivedAt.getTime());
     return rows[0] ?? null;
   });
-  mockedPrisma.campaign.findUnique.mockImplementation(async ({ where }: any) =>
-    CAMPAIGNS.find((c) => c.id === where.id) ?? null,
-  );
   mockedPrisma.emailDispatch.create.mockImplementation(async ({ data }: any) => ({ id: 'dispatch-1', ...data }));
 });
 
@@ -166,67 +156,6 @@ describe('POST /api/unibox/reply mailbox ownership (H25)', () => {
     expect(badMailbox.status).toBe(400);
     expect(mockedPrisma.senderAccount.findUnique).not.toHaveBeenCalled();
     expect(mockedSend).not.toHaveBeenCalled();
-  });
-});
-
-describe('POST /api/send-email mailbox and campaign ownership (H25)', () => {
-  beforeEach(() => {
-    mockedPrisma.globalSettings.findUnique.mockResolvedValue(AZURE_SETTINGS);
-    mockedPrisma.lead.findUnique.mockResolvedValue({ id: 'lead-9', email: 'prospect@prospect.test' });
-  });
-
-  const send = (body: Record<string, unknown>) =>
-    postSendEmail(makeReq('/api/send-email', {
-      leadData: { email: 'prospect@prospect.test' },
-      subject: 'Hello',
-      bodyText: 'Hi there',
-      ...body,
-    }));
-
-  it('sends from the campaign\'s mailbox when the caller owns both', async () => {
-    const res = await send({ campaignId: 'cmp-1' });
-    expect(res.status).toBe(200);
-    expect(mockedSend.mock.calls[0][0].sender.emailAddress).toBe('one@acme.test');
-    expect(mockedPrisma.emailDispatch.create.mock.calls[0][0].data).toMatchObject({
-      campaignId: 'cmp-1',
-      senderAccountId: 'mb-user1',
-    });
-  });
-
-  it('rejects another user\'s mailbox, alone or inside the caller\'s campaign', async () => {
-    for (const body of [{ senderAccountId: 'mb-user2' }, { campaignId: 'cmp-1', senderAccountId: 'mb-user2' }]) {
-      const res = await send(body);
-      expect(res.status).toBe(403);
-      expect((await res.json()).error).toBe('Sender mailbox does not belong to you.');
-    }
-    expect(mockedSend).not.toHaveBeenCalled();
-    expect(mockedPrisma.emailDispatch.create).not.toHaveBeenCalled();
-  });
-
-  it('rejects another user\'s campaign and unknown campaigns', async () => {
-    for (const body of [{ campaignId: 'cmp-2' }, { campaignId: 'cmp-2', senderAccountId: 'mb-user1' }, { campaignId: 'cmp-missing' }]) {
-      const res = await send(body);
-      expect(res.status).toBe(403);
-      expect((await res.json()).error).toBe('Campaign does not belong to you.');
-    }
-    expect(mockedSend).not.toHaveBeenCalled();
-    expect(mockedPrisma.emailDispatch.create).not.toHaveBeenCalled();
-  });
-
-  it('lets an ADMIN send from any mailbox and campaign, and 404s unknown ones', async () => {
-    mockedSession.mockResolvedValue(ADMIN);
-
-    const ok = await send({ campaignId: 'cmp-2' });
-    expect(ok.status).toBe(200);
-    expect(mockedSend.mock.calls[0][0].sender.emailAddress).toBe('two@acme.test');
-    expect(mockedPrisma.emailDispatch.create.mock.calls[0][0].data).toMatchObject({
-      campaignId: 'cmp-2',
-      senderAccountId: 'mb-user2',
-    });
-
-    expect((await send({ campaignId: 'cmp-missing' })).status).toBe(404);
-    expect((await send({ senderAccountId: 'mb-missing' })).status).toBe(404);
-    expect(mockedSend).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -42,7 +42,6 @@ function labelForRequest(url: string, method: string): string | null {
   const m = method.toUpperCase();
   if (/\/api\/campaigns\/[^/]+\/run/.test(url)) return 'Sending campaign emails';
   if (/\/api\/send-email\/test/.test(url)) return 'Sending test email';
-  if (/\/api\/send-email/.test(url)) return 'Sending email';
   if (/\/api\/unibox\/reply/.test(url)) return 'Sending reply';
   if (/\/api\/leads\/bulk/.test(url) && m !== 'GET') return 'Processing leads';
   if (/\/api\/leads\/verify/.test(url)) return 'Verifying leads';

@@ -52,7 +52,7 @@ describe('GET /api/unibox IMAP sync and the worker lease (M51)', () => {
     const res = await getUnibox(new NextRequest(`http://localhost${path}`));
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual([]);
+    expect(await res.json()).toEqual({ threads: [], total: 0, unreadCount: 0, nextOffset: null });
     expect(mockedPrisma.workerLease.findUnique).toHaveBeenCalledWith({ where: { name: SEND_WORKER_LEASE } });
     expect(syncMailboxReplies).not.toHaveBeenCalled();
   });
@@ -77,6 +77,20 @@ describe('GET /api/unibox IMAP sync and the worker lease (M51)', () => {
 
     expect(res.status).toBe(200);
     expect(mockedPrisma.workerLease.findUnique).not.toHaveBeenCalled();
+    expect(syncMailboxReplies).not.toHaveBeenCalled();
+  });
+
+  it('syncs in the background only for the first page of the unsearched list (H35)', async () => {
+    mockedPrisma.workerLease.findUnique.mockResolvedValue(null);
+
+    await getUnibox(new NextRequest('http://localhost/api/unibox'));
+    expect(vi.mocked(syncMailboxReplies).mock.calls.map(([id]) => id)).toEqual(['mbx_1', 'mbx_2']);
+
+    vi.mocked(syncMailboxReplies).mockClear();
+    for (const path of ['/api/unibox?offset=50', '/api/unibox?q=pricing', '/api/unibox?export=replies', '/api/unibox?thread=11111111-2222-3333-4444-555555555555-hello']) {
+      const res = await getUnibox(new NextRequest(`http://localhost${path}`));
+      expect(res.status).toBe(path.includes('thread=') ? 404 : 200);
+    }
     expect(syncMailboxReplies).not.toHaveBeenCalled();
   });
 });

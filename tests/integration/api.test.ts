@@ -591,8 +591,9 @@ describe('ArcReach Live API Integration Tests', () => {
     it('should fetch inbound replies list', async () => {
       const res = await testFetch(`${BASE_URL}/api/unibox`);
       expect(res.status).toBe(200);
-      const replies = await res.json();
-      expect(Array.isArray(replies)).toBe(true);
+      const page = await res.json();
+      expect(Array.isArray(page.threads)).toBe(true);
+      expect(typeof page.total).toBe('number');
     }, 60000);
   });
 

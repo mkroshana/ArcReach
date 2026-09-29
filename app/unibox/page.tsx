@@ -2,7 +2,7 @@
 'use client';
 
 import { Search, CornerUpLeft, Send, MailOpen, Pause, FileText, ChevronDown, RefreshCw, Download } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { toCsv, downloadCsv } from '@/lib/csv';
 import { decodeMimeHeader } from '@/lib/mime';
 import {
@@ -58,6 +58,9 @@ function leadSuppression(lead: any): { chip: string; color: 'warning' | 'error';
 function showsStatusChip(lead: any): boolean {
   return !lead?.suppression || CRM_STATUSES.includes(lead?.status || 'Neutral');
 }
+
+/** Threads in one page of GET /api/unibox when no limit is asked for. */
+const THREAD_PAGE_SIZE = 50;
 
 function sanitizeEmailBody(body: string): string {
   if (!body) return '';
@@ -124,7 +127,19 @@ function sanitizeEmailBody(body: string): string {
 }
 
 export default function UniboxPage() {
+  // Threads loaded so far (pages of the list), each with only what the list shows
   const [replies, setReplies] = useState<any[]>([]);
+  const [totalThreads, setTotalThreads] = useState(0);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [nextOffset, setNextOffset] = useState<number | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  // The search the loaded list answers; searchQuery is what is typed
+  const [appliedQuery, setAppliedQuery] = useState('');
+  // Messages of the threads opened so far, loaded when a thread is opened
+  const [threadMessages, setThreadMessages] = useState<Record<string, any[]>>({});
+  const [messagesErrorId, setMessagesErrorId] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const listRequest = useRef(0);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusMenuAnchor, setStatusMenuAnchor] = useState<HTMLElement | null>(null);
@@ -147,32 +162,112 @@ export default function UniboxPage() {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ responseId: id, unread: false }),
         });
-        if (res.ok) setReplies(prev => prev.map(r => r.id === id ? { ...r, unread: false } : r));
+        if (res.ok) {
+          setReplies(prev => prev.map(r => r.id === id ? { ...r, unread: false } : r));
+          setUnreadCount(count => Math.max(0, count - 1));
+        }
       }
     } catch (err) { console.error(err); }
   };
 
-  const fetchReplies = async (initial = false) => {
+  const loadThreadMessages = async (id: string) => {
+    setMessagesErrorId(prev => (prev === id ? null : prev));
+    try {
+      const res = await fetch(`/api/unibox?thread=${encodeURIComponent(id)}`);
+      if (!res.ok) throw new Error(`Loading the conversation failed (${res.status}).`);
+      const data = await res.json();
+      setThreadMessages(prev => ({ ...prev, [id]: data.messages }));
+    } catch (e) {
+      console.error(e);
+      setMessagesErrorId(id);
+    }
+  };
+
+  /**
+   * Loads the first page of threads matching `query`. A refresh syncs the
+   * mailboxes first and reloads as many threads as are loaded, and the opened
+   * thread's messages with them.
+   */
+  const fetchReplies = async (initial = false, query = appliedQuery) => {
+    const request = ++listRequest.current;
     try {
       if (initial) setLoading(true);
-      const url = initial ? '/api/unibox' : '/api/unibox?sync=true';
-      const res = await fetch(url);
-      if (res.ok) {
+      const params = new URLSearchParams();
+      if (!initial) params.set('sync', 'true');
+      if (query) params.set('q', query);
+      if (!initial && query === appliedQuery && replies.length > THREAD_PAGE_SIZE) params.set('limit', String(replies.length));
+      const res = await fetch(`/api/unibox${params.toString() ? `?${params}` : ''}`);
+      if (res.ok && request === listRequest.current) {
         const data = await res.json();
-        setReplies(data);
-        if (initial && data.length > 0 && !selectedId) {
-          setSelectedId(data[0].id);
-          markAsRead(data[0].id);
+        setReplies(data.threads);
+        setTotalThreads(data.total);
+        setUnreadCount(data.unreadCount);
+        setNextOffset(data.nextOffset);
+        setAppliedQuery(query);
+        if (initial && data.threads.length > 0 && !selectedId) {
+          setSelectedId(data.threads[0].id);
+          markAsRead(data.threads[0].id);
+          loadThreadMessages(data.threads[0].id);
         }
         setSentRepliesLocal({});
+        if (!initial) {
+          setThreadMessages({});
+          if (selectedId) loadThreadMessages(selectedId);
+        }
       }
     } catch (e) { console.error(e); }
     finally { if (initial) setLoading(false); }
   };
 
+  const loadMoreThreads = async () => {
+    if (nextOffset === null || loadingMore) return;
+    const request = listRequest.current;
+    setLoadingMore(true);
+    try {
+      const params = new URLSearchParams({ offset: String(nextOffset) });
+      if (appliedQuery) params.set('q', appliedQuery);
+      const res = await fetch(`/api/unibox?${params}`);
+      // Dropped when the list was reloaded meanwhile
+      if (res.ok && request === listRequest.current) {
+        const data = await res.json();
+        setReplies(prev => [...prev, ...data.threads.filter((t: any) => !prev.some(p => p.id === t.id))]);
+        setTotalThreads(data.total);
+        setUnreadCount(data.unreadCount);
+        setNextOffset(data.nextOffset);
+      } else if (!res.ok) {
+        showToast('Failed to load more conversations.');
+      }
+    } catch (e) { console.error(e); showToast('Failed to load more conversations.'); }
+    finally { setLoadingMore(false); }
+  };
+
   useEffect(() => { fetchReplies(true); }, []);
 
+  // Searches the whole inbox on the server once typing pauses
+  useEffect(() => {
+    const query = searchQuery.trim();
+    if (query === appliedQuery) return;
+    const timer = setTimeout(() => {
+      const request = ++listRequest.current;
+      const params = new URLSearchParams();
+      if (query) params.set('q', query);
+      fetch(`/api/unibox${params.toString() ? `?${params}` : ''}`)
+        .then(async res => {
+          if (!res.ok || request !== listRequest.current) return;
+          const data = await res.json();
+          setReplies(data.threads);
+          setTotalThreads(data.total);
+          setUnreadCount(data.unreadCount);
+          setNextOffset(data.nextOffset);
+          setAppliedQuery(query);
+        })
+        .catch(e => console.error(e));
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery, appliedQuery]);
+
   const selectedEmail = replies.find(e => e.id === selectedId);
+  const selectedMessages: any[] | undefined = selectedId ? threadMessages[selectedId] : undefined;
   const selectedSuppression = leadSuppression(selectedEmail?.lead);
   const currentReplyText = selectedEmail ? (drafts[selectedEmail.id] || '') : '';
   const setReplyText = (newText: string) => {
@@ -180,44 +275,59 @@ export default function UniboxPage() {
     setDrafts(prev => ({ ...prev, [selectedEmail.id]: newText }));
   };
 
-  const handleSelectThread = (id: string) => { setSelectedId(id); markAsRead(id); };
+  const handleSelectThread = (id: string) => {
+    setSelectedId(id);
+    markAsRead(id);
+    if (!threadMessages[id]) loadThreadMessages(id);
+  };
 
-  const handleExportCSV = () => {
-    const rows: Record<string, any>[] = [];
-    filteredInbox.forEach(thread => {
-      const inboundMessages = (thread.messages || []).filter((msg: any) => msg.type === 'inbound');
-      inboundMessages.forEach((msg: any) => {
-        rows.push({
-          receivedAt: msg.timestamp,
-          leadEmail: thread.lead?.email || '',
-          leadName: thread.lead?.name || '',
-          company: thread.lead?.company || '',
-          campaign: msg.campaign?.name || thread.lead?.enrollments?.[0]?.campaign?.name || '',
-          senderAccount: msg.senderAccount?.emailAddress || thread.senderAccount?.emailAddress || '',
-          subject: msg.subject,
-          body: msg.body,
-          unread: msg.unread ? 'true' : 'false',
-          leadStatus: thread.lead?.status || 'Neutral',
-        });
-      });
-    });
-    if (rows.length === 0) { showToast('No replies to export.'); return; }
-    const columns = [
-      { key: 'receivedAt', label: 'Received At' },
-      { key: 'leadEmail', label: 'Lead Email' },
-      { key: 'leadName', label: 'Lead Name' },
-      { key: 'company', label: 'Company' },
-      { key: 'campaign', label: 'Campaign' },
-      { key: 'senderAccount', label: 'Sender Account' },
-      { key: 'subject', label: 'Subject' },
-      { key: 'body', label: 'Body' },
-      { key: 'unread', label: 'Unread' },
-      { key: 'leadStatus', label: 'Lead Status' },
-    ];
-    const csvContent = toCsv(rows, columns);
-    const dateStr = new Date().toISOString().split('T')[0];
-    downloadCsv(`replies-${dateStr}.csv`, csvContent);
-    showToast(`Successfully exported ${rows.length} replies to CSV.`);
+  // Exports every reply in the threads matching the search, loaded from the server a page at a time
+  const handleExportCSV = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const exported = new Map<string, any>();
+      let offset: number | null = 0;
+      while (offset !== null) {
+        const params: URLSearchParams = new URLSearchParams({ export: 'replies', offset: String(offset) });
+        if (appliedQuery) params.set('q', appliedQuery);
+        const res = await fetch(`/api/unibox?${params}`);
+        if (!res.ok) { showToast('Failed to export replies.'); return; }
+        const data = await res.json();
+        for (const reply of data.replies) exported.set(reply.id, reply);
+        offset = data.nextOffset !== null && data.nextOffset > offset ? data.nextOffset : null;
+      }
+      const rows: Record<string, any>[] = Array.from(exported.values()).map((msg: any) => ({
+        receivedAt: msg.receivedAt,
+        leadEmail: msg.lead?.email || '',
+        leadName: msg.lead?.name || '',
+        company: msg.lead?.company || '',
+        campaign: msg.campaign?.name || msg.lead?.enrollments?.[0]?.campaign?.name || '',
+        senderAccount: msg.senderAccount?.emailAddress || '',
+        subject: msg.subject,
+        body: msg.body,
+        unread: msg.unread ? 'true' : 'false',
+        leadStatus: msg.lead?.status || 'Neutral',
+      }));
+      if (rows.length === 0) { showToast('No replies to export.'); return; }
+      const columns = [
+        { key: 'receivedAt', label: 'Received At' },
+        { key: 'leadEmail', label: 'Lead Email' },
+        { key: 'leadName', label: 'Lead Name' },
+        { key: 'company', label: 'Company' },
+        { key: 'campaign', label: 'Campaign' },
+        { key: 'senderAccount', label: 'Sender Account' },
+        { key: 'subject', label: 'Subject' },
+        { key: 'body', label: 'Body' },
+        { key: 'unread', label: 'Unread' },
+        { key: 'leadStatus', label: 'Lead Status' },
+      ];
+      const csvContent = toCsv(rows, columns);
+      const dateStr = new Date().toISOString().split('T')[0];
+      downloadCsv(`replies-${dateStr}.csv`, csvContent);
+      showToast(`Successfully exported ${rows.length} replies to CSV.`);
+    } catch (e) { console.error(e); showToast('Failed to export replies.'); }
+    finally { setExporting(false); }
   };
 
   const templatesList = [
@@ -298,17 +408,6 @@ export default function UniboxPage() {
     } catch (err) { console.error(err); showToast('Error occurred dispatching reply.'); }
   };
 
-  const filteredInbox = replies.filter(item => {
-    const senderName = item.lead?.name || 'Unknown';
-    const emailAddr = item.lead?.email || '';
-    const subjectLine = item.subject || '';
-    const bodyText = item.body || '';
-    return senderName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      emailAddr.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      subjectLine.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      bodyText.toLowerCase().includes(searchQuery.toLowerCase());
-  });
-
   return (
     <Box sx={{ height: 'calc(100vh - 6rem)', display: 'flex', gap: 2 }}>
       <Snackbar open={!!toastMessage} anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }} autoHideDuration={3000} onClose={() => setToastMessage('')}>
@@ -321,10 +420,10 @@ export default function UniboxPage() {
           <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
             <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
               <Typography variant="overline" sx={{ fontWeight: 700, letterSpacing: '0.1em' }}>Unified Inbox</Typography>
-              <Chip size="small" label={`${replies.filter(e => e.unread).length} NEW`} color="primary" sx={{ height: 18, fontSize: 10, fontFamily: 'monospace', fontWeight: 700 }} />
+              <Chip size="small" label={`${unreadCount} NEW`} color="primary" sx={{ height: 18, fontSize: 10, fontFamily: 'monospace', fontWeight: 700 }} />
             </Stack>
             <Stack direction="row" spacing={0.5}>
-              <MuiTooltip title="Export to CSV"><IconButton aria-label="Export to CSV" size="small" onClick={handleExportCSV}><Download size={14} /></IconButton></MuiTooltip>
+              <MuiTooltip title="Export to CSV"><span><IconButton aria-label="Export to CSV" size="small" onClick={handleExportCSV} disabled={exporting}>{exporting ? <CircularProgress size={14} /> : <Download size={14} />}</IconButton></span></MuiTooltip>
               <MuiTooltip title="Refresh"><IconButton aria-label="Refresh replies" size="small" onClick={() => fetchReplies(false)}><RefreshCw size={14} /></IconButton></MuiTooltip>
             </Stack>
           </Stack>
@@ -342,7 +441,7 @@ export default function UniboxPage() {
           </Stack>
         ) : (
           <Box sx={{ flex: 1, overflowY: 'auto', p: 1, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-            {filteredInbox.map(item => {
+            {replies.map(item => {
               const leadPaused = item.lead?.enrollments?.some((e: any) => e.status === 'Paused');
               const suppressed = leadSuppression(item.lead);
               const isSelected = selectedId === item.id;
@@ -380,14 +479,22 @@ export default function UniboxPage() {
                     </Stack>
                   </Stack>
                   <Typography variant="caption" sx={{ color: 'text.secondary', display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                    {sanitizeEmailBody(item.body)}
+                    {sanitizeEmailBody(item.preview)}
                   </Typography>
                   {item.unread && <Box sx={{ position: 'absolute', left: 4, top: '50%', transform: 'translateY(-50%)', width: 6, height: 6, borderRadius: '50%', bgcolor: 'primary.main' }} />}
                 </Box>
               );
             })}
-            {filteredInbox.length === 0 && (
+            {replies.length === 0 && (
               <Typography variant="caption" sx={{ color: 'text.secondary', textAlign: 'center', py: 5 }}>No matching records.</Typography>
+            )}
+            {nextOffset !== null && (
+              <Stack sx={{ alignItems: 'center', gap: 0.5, py: 1.5 }}>
+                <Typography sx={{ fontSize: 10, color: 'text.secondary' }}>Showing {replies.length} of {totalThreads} conversations</Typography>
+                <Button size="small" variant="outlined" onClick={loadMoreThreads} disabled={loadingMore} startIcon={loadingMore ? <CircularProgress size={12} /> : undefined}>
+                  Load More
+                </Button>
+              </Stack>
             )}
           </Box>
         )}
@@ -448,7 +555,15 @@ export default function UniboxPage() {
 
             {/* Thread content */}
             <Box sx={{ flex: 1, overflowY: 'auto', p: 2.5, display: 'flex', flexDirection: 'column', gap: 2, bgcolor: 'action.hover' }}>
-              {(selectedEmail.messages || []).map((msg: any) => {
+              {!selectedMessages && (messagesErrorId === selectedEmail.id ? (
+                <Stack sx={{ alignItems: 'center', gap: 1, py: 5 }}>
+                  <Typography variant="caption" sx={{ color: 'text.secondary' }}>Could not load this conversation.</Typography>
+                  <Button size="small" variant="outlined" startIcon={<RefreshCw size={12} />} onClick={() => loadThreadMessages(selectedEmail.id)}>Retry</Button>
+                </Stack>
+              ) : (
+                <Stack sx={{ alignItems: 'center', py: 5 }}><CircularProgress size={22} /></Stack>
+              ))}
+              {(selectedMessages || []).map((msg: any) => {
                 const outbound = msg.type === 'outbound';
                 return (
                   <Stack key={msg.id} direction="row" spacing={1.5} sx={{ justifyContent: outbound ? 'flex-end' : 'flex-start' }}>

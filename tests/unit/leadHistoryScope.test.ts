@@ -90,6 +90,12 @@ function matches(row: Record<string, any>, where: any): boolean {
   if (!where) return true;
   return Object.entries(where).every(([key, cond]: [string, any]) => {
     if (key === 'OR') return cond.some((w: any) => matches(row, w));
+    if (key === 'AND') return cond.every((w: any) => matches(row, w));
+    if (key === 'lead') {
+      const { replies, ...leadWhere } = cond;
+      return row.leadId === LEAD_ID && matches(LEAD, leadWhere)
+        && (!replies || REPLIES.some((r) => r.leadId === LEAD_ID && matches(r, replies.some)));
+    }
     if (key === 'campaign') {
       const campaign = CAMPAIGNS.find((c) => c.id === row.campaignId);
       return !!campaign && matches(campaign, cond);
@@ -134,20 +140,22 @@ beforeEach(() => {
     };
   });
 
-  mockedPrisma.inboundResponse.findMany.mockImplementation(async ({ where, include }: any) => {
-    const enrollments = include.lead.include.enrollments;
-    return REPLIES.filter((r) => matches(r, where)).map((r) => ({
+  // Unibox reads replies with select: the relations it asks for are loaded, scoped as asked
+  mockedPrisma.inboundResponse.findMany.mockImplementation(async ({ where, select }: any) =>
+    REPLIES.filter((r) => matches(r, where)).map((r) => ({
       ...r,
-      lead: {
-        ...LEAD,
-        enrollments: ENROLLMENTS
-          .filter((e) => matches(e, enrollments.where))
-          .map((e) => ({ ...e, campaign: includeCampaign(e.campaignId, enrollments.include.campaign) })),
-      },
-      campaign: includeCampaign(r.campaignId, include.campaign),
-      senderAccount: MAILBOXES.find((m) => m.id === r.senderAccountId) ?? null,
-    }));
-  });
+      ...(select.lead && {
+        lead: {
+          ...LEAD,
+          enrollments: ENROLLMENTS
+            .filter((e) => matches(e, select.lead.select.enrollments.where))
+            .map((e) => ({ id: e.id, status: e.status })),
+        },
+      }),
+      ...(select.campaign && { campaign: includeCampaign(r.campaignId, select.campaign) }),
+      ...(select.senderAccount && { senderAccount: MAILBOXES.find((m) => m.id === r.senderAccountId) ?? null }),
+    })),
+  );
 
   mockedPrisma.emailDispatch.findMany.mockImplementation(async ({ where }: any) =>
     DISPATCHES.filter((d) => matches(d, where)),
@@ -210,54 +218,69 @@ describe('GET /api/leads?id= history scope (M45)', () => {
   });
 });
 
+/** The caller's Unibox list and the messages of its first thread, opened as the page opens it. */
+async function openFirstThread() {
+  const res = await getUnibox(makeReq('/api/unibox'));
+  expect(res.status).toBe(200);
+  const { threads } = await res.json();
+  const opened = await getUnibox(makeReq(`/api/unibox?thread=${encodeURIComponent(threads[0].id)}`));
+  expect(opened.status).toBe(200);
+  const { messages } = await opened.json();
+  return { threads, thread: threads[0], messages };
+}
+
 describe('GET /api/unibox history scope (M45)', () => {
   it("threads a user's own replies with only their own dispatches and enrollments", async () => {
     mockedSession.mockResolvedValue(USER);
-    const res = await getUnibox(makeReq('/api/unibox'));
-    expect(res.status).toBe(200);
-    const threads = await res.json();
+    const { threads, thread, messages } = await openFirstThread();
 
     expect(threads).toHaveLength(1);
-    const [thread] = threads;
-    expect(thread.messages.map((m: any) => m.id)).toEqual([
+    expect(thread.id).toBe(`${LEAD_ID}-hello`);
+    expect(messages.map((m: any) => m.id)).toEqual([
       'd-own-legacy-campaign', 'd-own-campaign', 'r-own', 'd-own-manual', 'd-own-unibox-other-campaign', 'd-own-step-third-mailbox',
     ]);
     expect(thread.lead.enrollments.map((e: any) => e.id)).toEqual(['e-1']);
-    expect(thread.lead.enrollments[0].campaign).toEqual({ id: 'cmp-1', name: 'Launch' });
-    expect(thread.messages.find((m: any) => m.id === 'r-own').campaign).toEqual({ id: 'cmp-1', name: 'Launch' });
-    const text = JSON.stringify(threads);
+    expect(messages.find((m: any) => m.id === 'r-own').campaign).toEqual({ id: 'cmp-1', name: 'Launch' });
+    const text = JSON.stringify({ threads, messages });
     for (const other of OTHER_USER_TEXT) expect(text).not.toContain(other);
     expect(text).not.toContain('Rival Launch');
   });
 
   it("keeps the user's own Unibox reply in the thread when it is stamped with another user's campaign", async () => {
     mockedSession.mockResolvedValue(USER);
-    const [thread] = await (await getUnibox(makeReq('/api/unibox'))).json();
+    const { messages } = await openFirstThread();
 
-    const sent = thread.messages.find((m: any) => m.id === 'd-own-unibox-other-campaign');
+    const sent = messages.find((m: any) => m.id === 'd-own-unibox-other-campaign');
     expect(sent).toMatchObject({ type: 'outbound', body: 'unibox answer from user one' });
-    expect(thread.messages.map((m: any) => m.id)).not.toContain('d-legacy');
+    expect(messages.map((m: any) => m.id)).not.toContain('d-legacy');
   });
 
   it("leaves another user's Unibox reply out of the thread of the campaign owner it was stamped with", async () => {
     mockedSession.mockResolvedValue(RIVAL);
-    const threads = await (await getUnibox(makeReq('/api/unibox'))).json();
+    const { threads, thread, messages } = await openFirstThread();
 
     expect(threads).toHaveLength(1);
-    const [thread] = threads;
-    expect(thread.messages.map((m: any) => m.id)).toEqual(['d-other-campaign', 'd-other-manual', 'r-other']);
+    expect(messages.map((m: any) => m.id)).toEqual(['d-other-campaign', 'd-other-manual', 'r-other']);
     expect(thread.lead.enrollments.map((e: any) => e.id)).toEqual(['e-2']);
-    const text = JSON.stringify(threads);
+    const text = JSON.stringify({ threads, messages });
     expect(text).not.toContain('d-own-unibox-other-campaign');
     expect(text).not.toContain('unibox answer from user one');
     for (const other of USER_ONE_TEXT) expect(text).not.toContain(other);
   });
 
+  it("dates a thread by the caller's own latest message, never another user's dispatch", async () => {
+    mockedSession.mockResolvedValue(RIVAL);
+    const { thread } = await openFirstThread();
+
+    // r-other (09-07) is newer than user two's own sends; user one's 09-08 and 09-09 sends do not count
+    expect(thread.receivedAt).toBe(new Date('2026-09-07').toISOString());
+  });
+
   it('keeps every reply, dispatch and enrollment for admins', async () => {
     mockedSession.mockResolvedValue(ADMIN);
-    const [thread] = await (await getUnibox(makeReq('/api/unibox'))).json();
+    const { thread, messages } = await openFirstThread();
 
-    expect(thread.messages.map((m: any) => m.id).sort())
+    expect(messages.map((m: any) => m.id).sort())
       .toEqual([...DISPATCHES.map((d) => d.id), 'r-other', 'r-own'].sort());
     expect(thread.lead.enrollments.map((e: any) => e.id)).toEqual(['e-1', 'e-2']);
   });
@@ -269,7 +292,7 @@ describe('GET /api/unibox history scope (M45)', () => {
       { email: LEAD.email, reason: 'Unsubscribed', source: 'unsubscribe-link', createdAt: added },
     ]);
 
-    const [thread] = await (await getUnibox(makeReq('/api/unibox'))).json();
+    const { threads: [thread] } = await (await getUnibox(makeReq('/api/unibox'))).json();
 
     expect(mockedPrisma.suppressedEmail.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { email: { in: [LEAD.email] } },

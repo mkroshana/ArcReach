@@ -65,8 +65,12 @@ const MAILBOX = {
   imapPass: 'legacy-imap-password',
 };
 
-function includedMailbox(sel: true | { omit?: Record<string, boolean> }) {
+function includedMailbox(sel: true | { omit?: Record<string, boolean>; select?: Record<string, boolean> }) {
   const row: Record<string, unknown> = { ...MAILBOX };
+  if (sel !== true && sel.select) {
+    const select = sel.select;
+    return Object.fromEntries(Object.keys(select).filter((key) => select[key]).map((key) => [key, row[key]]));
+  }
   if (sel !== true) {
     for (const [key, on] of Object.entries(sel.omit ?? {})) if (on) delete row[key];
   }
@@ -89,19 +93,22 @@ function campaignRow(include?: any) {
   return row;
 }
 
+const LEAD_ID = '11111111-2222-3333-4444-555555555555';
+
+/** A reply loaded with `include` or `select`; its mailbox comes only when asked for. */
 function replyRow(include: any) {
   return {
     id: 'reply-1',
-    leadId: 'lead-1',
+    leadId: LEAD_ID,
     campaignId: null,
     subject: 'Re: Hello',
     body: 'Thanks',
     receivedAt: new Date('2026-09-01'),
     unread: true,
     senderAccountId: 'acc-1',
-    lead: { id: 'lead-1', email: 'lead@example.com', enrollments: [] },
+    lead: { id: LEAD_ID, email: 'lead@example.com', enrollments: [] },
     campaign: null,
-    senderAccount: includedMailbox(include.senderAccount),
+    senderAccount: include.senderAccount ? includedMailbox(include.senderAccount) : undefined,
   };
 }
 
@@ -165,8 +172,13 @@ describe('mailbox secrets in API responses', () => {
   });
 
   it('GET /api/unibox returns threads without mailbox passwords', async () => {
-    fake.inboundResponse.findMany.mockImplementation(async (args: any) => [replyRow(args.include)]);
+    fake.inboundResponse.findMany.mockImplementation(async (args: any) => [replyRow(args.select)]);
     await expectNoMailboxSecrets(await getUnibox(makeReq('/api/unibox', 'GET')));
+  });
+
+  it('GET /api/unibox?thread= returns the messages without mailbox passwords', async () => {
+    fake.inboundResponse.findMany.mockImplementation(async (args: any) => [replyRow(args.select)]);
+    await expectNoMailboxSecrets(await getUnibox(makeReq(`/api/unibox?thread=${LEAD_ID}-hello`, 'GET')));
   });
 
   it('PUT /api/unibox returns the updated reply without mailbox passwords', async () => {

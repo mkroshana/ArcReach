@@ -110,6 +110,8 @@ export default function LeadsPage() {
   const [groupToDelete, setGroupToDelete] = useState<any | null>(null);
   const [leadDisposalAction, setLeadDisposalAction] = useState<'KEEP' | 'DELETE' | 'MOVE'>('KEEP');
   const [disposalTargetGroupId, setDisposalTargetGroupId] = useState<string>('');
+  // Lead deletion is admin-only on the server; its controls stay hidden until the session says ADMIN.
+  const [isAdmin, setIsAdmin] = useState(false);
 
   const fetchLeadDetails = async (id: string) => {
     try {
@@ -191,6 +193,10 @@ export default function LeadsPage() {
   useEffect(() => {
     fetchLeads();
     fetchGroups();
+    fetch('/api/session')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => setIsAdmin(data?.role === 'ADMIN'))
+      .catch(() => {});
   }, []);
 
   const handleBulkVerify = async () => {
@@ -920,17 +926,19 @@ export default function LeadsPage() {
             {isVerifying ? `Verifying (${verifyProgress}%)` : 'Verify Deliverability'}
           </button>
           
-          <button 
-            onClick={() => {
-              setDeleteAllConfirmText('');
-              setShowDeleteAllConfirm(true);
-            }}
-            disabled={loading || leads.length === 0}
-            className="bg-rose-600 hover:bg-rose-500 disabled:bg-rose-800/40 text-white px-3.5 py-1.8 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            Delete All Leads
-          </button>
+          {isAdmin && (
+            <button
+              onClick={() => {
+                setDeleteAllConfirmText('');
+                setShowDeleteAllConfirm(true);
+              }}
+              disabled={loading || leads.length === 0}
+              className="bg-rose-600 hover:bg-rose-500 disabled:bg-rose-800/40 text-white px-3.5 py-1.8 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Delete All Leads
+            </button>
+          )}
         </div>
       </header>
 
@@ -1478,15 +1486,17 @@ export default function LeadsPage() {
                             >
                               <Archive className="w-3.5 h-3.5" />
                             </button>
-                            <button 
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDeleteLead(lead.id);
-                              }}
-                              className="p-1.5 hover:bg-rose-500/10 text-slate-400 hover:text-rose-600 rounded transition-colors"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            {isAdmin && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteLead(lead.id);
+                                }}
+                                className="p-1.5 hover:bg-rose-500/10 text-slate-400 hover:text-rose-600 rounded transition-colors"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -1647,12 +1657,14 @@ export default function LeadsPage() {
                               >
                                 Remove from group
                               </button>
-                              <button 
-                                onClick={() => handleDeleteLead(lead.id)}
-                                className="p-1.5 hover:bg-rose-500/10 text-slate-400 hover:text-rose-600 rounded transition-colors"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                              {isAdmin && (
+                                <button
+                                  onClick={() => handleDeleteLead(lead.id)}
+                                  className="p-1.5 hover:bg-rose-500/10 text-slate-400 hover:text-rose-600 rounded transition-colors"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -1887,12 +1899,14 @@ export default function LeadsPage() {
                           >
                             Archive Lead
                           </button>
-                          <button 
-                            onClick={() => handleDeleteLead(lead.id)}
-                            className="p-1.5 hover:bg-rose-500/10 text-slate-400 hover:text-rose-600 rounded transition-colors"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          {isAdmin && (
+                            <button
+                              onClick={() => handleDeleteLead(lead.id)}
+                              className="p-1.5 hover:bg-rose-500/10 text-slate-400 hover:text-rose-600 rounded transition-colors"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -2238,13 +2252,15 @@ export default function LeadsPage() {
                 <Archive className="w-3 h-3 text-slate-400" />
                 {activeTab === 'archived' ? 'Unarchive' : 'Archive'}
               </button>
-              <button
-                onClick={handleBulkDeleteLeads}
-                className="bg-rose-950/60 hover:bg-rose-900 text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1 transition-colors cursor-pointer border border-rose-800/40 text-rose-200"
-              >
-                <Trash2 className="w-3 h-3" />
-                Delete
-              </button>
+              {isAdmin && (
+                <button
+                  onClick={handleBulkDeleteLeads}
+                  className="bg-rose-950/60 hover:bg-rose-900 text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1 transition-colors cursor-pointer border border-rose-800/40 text-rose-200"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  Delete
+                </button>
+              )}
             </div>
             <button
               onClick={() => setSelectedLeadIds([])}
@@ -2354,21 +2370,23 @@ export default function LeadsPage() {
                   </div>
                 </label>
 
-                {/* DELETE option */}
-                <label className="flex items-start gap-3 p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200/60 dark:border-slate-800 rounded-xl cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-900/50 transition-colors">
-                  <input
-                    type="radio"
-                    name="disposalAction"
-                    value="DELETE"
-                    checked={leadDisposalAction === 'DELETE'}
-                    onChange={() => setLeadDisposalAction('DELETE')}
-                    className="mt-0.5 text-rose-600 focus:ring-rose-500/40 cursor-pointer"
-                  />
-                  <div>
-                    <span className="block text-xs font-bold text-rose-600 dark:text-rose-400">Delete associated leads</span>
-                    <span className="block text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">Permanently deletes all leads in this group from the CRM database.</span>
-                  </div>
-                </label>
+                {/* DELETE option (admin only) */}
+                {isAdmin && (
+                  <label className="flex items-start gap-3 p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200/60 dark:border-slate-800 rounded-xl cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-900/50 transition-colors">
+                    <input
+                      type="radio"
+                      name="disposalAction"
+                      value="DELETE"
+                      checked={leadDisposalAction === 'DELETE'}
+                      onChange={() => setLeadDisposalAction('DELETE')}
+                      className="mt-0.5 text-rose-600 focus:ring-rose-500/40 cursor-pointer"
+                    />
+                    <div>
+                      <span className="block text-xs font-bold text-rose-600 dark:text-rose-400">Delete associated leads</span>
+                      <span className="block text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">Permanently deletes all leads in this group from the CRM database.</span>
+                    </div>
+                  </label>
+                )}
 
                 {/* MOVE option */}
                 <label className="flex items-start gap-3 p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200/60 dark:border-slate-800 rounded-xl cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-900/50 transition-colors">

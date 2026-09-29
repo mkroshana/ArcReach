@@ -60,6 +60,11 @@ export async function DELETE(req: NextRequest) {
     const leadAction = searchParams.get('leadAction') || 'KEEP'; // KEEP, DELETE, MOVE
     const targetGroupId = searchParams.get('targetGroupId');
 
+    // Deleting the group's leads cascades to every user's history, so it is admin-only.
+    if (leadAction === 'DELETE' && session.role !== 'ADMIN') {
+      return NextResponse.json({ error: 'Forbidden. Admin role required.' }, { status: 403 });
+    }
+
     if (!id) {
       return NextResponse.json({ error: 'Group ID is required.' }, { status: 400 });
     }

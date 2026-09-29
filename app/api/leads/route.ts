@@ -278,6 +278,12 @@ export async function PUT(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   try {
     const session = await getSession();
+    // Leads are shared and a delete cascades to every user's enrollments,
+    // dispatches, events and replies, so only admins may delete them.
+    if (session.role !== 'ADMIN') {
+      return NextResponse.json({ error: 'Forbidden. Admin role required.' }, { status: 403 });
+    }
+
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
     const all = searchParams.get('all');

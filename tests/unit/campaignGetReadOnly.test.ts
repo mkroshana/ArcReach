@@ -17,6 +17,7 @@ const fake = vi.hoisted(() => {
     senderAccount: model(),
     suppressedEmail: model(),
     $transaction: vi.fn(),
+    $queryRaw: vi.fn(),
   };
 });
 
@@ -94,6 +95,7 @@ beforeEach(() => {
     model.findMany.mockResolvedValue([]);
   }
   fake.campaign.findUnique.mockResolvedValue(CAMPAIGN);
+  fake.$queryRaw.mockResolvedValue([]);
   // Enrollment reads the cohort's leads that may be emailed: the cohort filter AND the sendable one.
   fake.lead.findMany.mockImplementation(async ({ where }: any) =>
     where.AND?.some((w: any) => w.groups?.some?.groupId === 'g1') ? GROUP_LEADS : [],

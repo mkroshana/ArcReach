@@ -7,6 +7,21 @@ import { checkAudienceCohort, REMOVED_ENROLLMENT_STATUS, syncCohortEnrollments }
 import { activationBlocker, changesStepStructure, matchStoredSteps, STEP_STRUCTURE_LOCKED_ERROR } from '@/lib/campaignSteps';
 import { userStatusPause } from '@/lib/campaignPause';
 import { parseSendSchedule, sendScheduleError, timezoneError } from '@/lib/sendSchedule';
+import {
+  type MetricsScope,
+  countReplies,
+  countSendAttempts,
+  dailyEngagement,
+  engagementFunnel,
+  healthSummary,
+  metricsWindow,
+  percent,
+  sendSummary,
+  stepMetrics,
+} from '@/lib/engagementMetrics';
+
+/** Days the campaign page's engagement trend covers, today included. */
+const TREND_DAYS = 7;
 
 /**
  * Whether the campaign has started sending: a lead has moved past step 1 or
@@ -57,62 +72,22 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       where: { campaignId: id, status: { not: REMOVED_ENROLLMENT_STATUS } }
     });
 
-    // Total send *attempts* (includes retries and failed sends).
-    const sentRequestsCount = await prisma.emailDispatch.count({
-      where: { campaignId: id }
-    });
-
-    // Emails actually handed off to the provider (failed attempts excluded).
-    const sentCount = await prisma.emailDispatch.count({
-      where: { campaignId: id, status: 'Sent' }
-    });
-
-    // Emails confirmed delivered by the provider's delivery webhook.
-    const deliveredCount = await prisma.emailDispatch.count({
-      where: { campaignId: id, status: 'Sent', deliveredAt: { not: null } }
-    });
-
-    const opensCount = await prisma.emailDispatch.count({
-      where: {
-        campaignId: id,
-        status: 'Sent',
-        events: {
-          some: { eventType: 'open' }
-        }
-      }
-    });
-
-    const clicksCount = await prisma.emailDispatch.count({
-      where: {
-        campaignId: id,
-        status: 'Sent',
-        events: {
-          some: { eventType: 'click' }
-        }
-      }
-    });
-
-    const repliesCount = await prisma.inboundResponse.count({
-      where: { campaignId: id }
-    });
-
-    // Deliverability health for this campaign.
-    // Bounced: this campaign's sends the Azure delivery webhook reported as hard
-    // bounces, counted on the dispatch so a bounce of the last step (whose
-    // enrollment is already Completed) counts too.
-    // Failed: enrollments the send engine could not dispatch (SMTP/Azure send errors).
-    // Unsubscribed: enrolled leads who opted out via the unsubscribe link.
-    const bouncedCount = await prisma.emailDispatch.count({
-      where: { campaignId: id, bounceType: 'hard' }
-    });
-
-    const failedCount = await prisma.campaignEnrollment.count({
-      where: { campaignId: id, status: 'Failed' }
-    });
-
-    const unsubscribedCount = await prisma.campaignEnrollment.count({
-      where: { campaignId: id, lead: { status: 'Unsubscribed' } }
-    });
+    // Sends, opens, clicks, bounces, failed attempts and unsubscribes of this
+    // campaign's sequence sends, defined in lib/engagementMetrics as on the
+    // dashboard and the Accounts page, and counted in the database.
+    // Total Sent Requests counts every attempt, retries and failures included.
+    // Bounced: hard bounces, reported by the delivery webhook or at send time.
+    // Failed: send attempts the provider refused or that errored.
+    // Unsubscribed: this campaign's emails whose unsubscribe link was used.
+    const scope: MetricsScope = { kind: 'campaign', campaignId: id };
+    const [sends, health, sentRequestsCount, repliesCount, trend, stepCounts] = await Promise.all([
+      sendSummary(prisma, scope),
+      healthSummary(prisma, scope),
+      countSendAttempts(prisma, scope),
+      countReplies(prisma, scope),
+      dailyEngagement(prisma, scope, metricsWindow(TREND_DAYS)),
+      stepMetrics(prisma, [id], { engagement: true }),
+    ]);
 
     const validLeadsCount = await prisma.lead.count({
       where: { validationStatus: 'Valid' }
@@ -121,47 +96,6 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const unverifiedLeadsCount = await prisma.lead.count({
       where: { validationStatus: 'Unverified' }
     });
-
-    // Fetch daily trends for the last 7 days
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    sevenDaysAgo.setHours(0, 0, 0, 0);
-
-    // Select ONLY what the bucketing needs — full rows carry each dispatch's
-    // HTML body (~100KB), which at volume produced GB-scale payloads and OOMs.
-    const trendDispatches = await prisma.emailDispatch.findMany({
-      where: {
-        campaignId: id,
-        sentAt: { gte: sevenDaysAgo }
-      },
-      select: {
-        sentAt: true,
-        events: { select: { eventType: true } },
-      }
-    });
-
-    // Generate daily buckets
-    const dailyBuckets: Record<string, { name: string; opens: number; clicks: number }> = {};
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const label = d.toLocaleDateString('en-US', { day: '2-digit', month: 'short' });
-      dailyBuckets[label] = { name: label, opens: 0, clicks: 0 };
-    }
-
-    trendDispatches.forEach(dispatch => {
-      const label = new Date(dispatch.sentAt).toLocaleDateString('en-US', { day: '2-digit', month: 'short' });
-      if (dailyBuckets[label]) {
-        if (dispatch.events.some(e => e.eventType === 'open')) {
-          dailyBuckets[label].opens++;
-        }
-        if (dispatch.events.some(e => e.eventType === 'click')) {
-          dailyBuckets[label].clicks++;
-        }
-      }
-    });
-
-    const trend = Object.values(dailyBuckets);
 
     const meetingBookedCount = await prisma.campaignEnrollment.count({
       where: {
@@ -188,14 +122,14 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       }
     });
 
-    const funnel = [
-      { name: 'Sent', value: sentCount },
-      { name: 'Delivered', value: deliveredCount },
-      { name: 'Opened', value: opensCount },
-      { name: 'Clicked', value: clicksCount },
-      { name: 'Replied', value: repliesCount },
-      { name: 'Meeting Booked', value: meetingBookedCount }
-    ];
+    const funnel = engagementFunnel({
+      sent: sends.sent,
+      delivered: sends.delivered,
+      opened: sends.opened,
+      clicked: sends.clicked,
+      replies: repliesCount,
+      meetingsBooked: meetingBookedCount
+    });
 
     const sentimentBreakdown = [
       { name: 'Neutral', value: 0 },
@@ -224,18 +158,6 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       }
     });
 
-    // Per-step breakdown. One query, aggregated in memory by stepOrder
-    // (uses the dispatch's recorded stepOrder — accurate, not subject-matched).
-    const stepDispatchRows = await prisma.emailDispatch.findMany({
-      where: { campaignId: id, stepOrder: { not: null } },
-      select: {
-        stepOrder: true,
-        status: true,
-        deliveredAt: true,
-        events: { select: { eventType: true } },
-      },
-    });
-
     // Active leads currently sitting at each step (waiting to be sent).
     const activeByStep = await prisma.campaignEnrollment.groupBy({
       by: ['currentSequenceStep'],
@@ -244,53 +166,34 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     });
     const activeStepMap = new Map(activeByStep.map((a) => [a.currentSequenceStep, a._count.id]));
 
-    const stepStats = campaign.steps.map((s: any) => {
-      const rows = stepDispatchRows.filter((r) => r.stepOrder === s.stepOrder);
-      const sent = rows.filter((r) => r.status === 'Sent').length;
-      const failed = rows.filter((r) => r.status === 'Failed').length;
-      const delivered = rows.filter((r) => r.status === 'Sent' && r.deliveredAt).length;
-      const opened = rows.filter((r) => r.status === 'Sent' && r.events.some((e) => e.eventType === 'open')).length;
-      const clicked = rows.filter((r) => r.status === 'Sent' && r.events.some((e) => e.eventType === 'click')).length;
-      const active = activeStepMap.get(s.stepOrder) || 0;
-      const base = delivered > 0 ? delivered : sent;
-      return {
-        stepOrder: s.stepOrder,
-        subject: s.subject,
-        waitDays: s.waitDays,
-        active,
-        sent,
-        delivered,
-        opened,
-        clicked,
-        failed,
-        deliveryRate: sent > 0 ? Number(((delivered / sent) * 100).toFixed(1)) : 0,
-        openRate: base > 0 ? Number(((opened / base) * 100).toFixed(1)) : 0,
-        clickRate: base > 0 ? Number(((clicked / base) * 100).toFixed(1)) : 0,
-      };
-    });
-
-    // Engagement rates are measured against delivered mail when delivery
-    // confirmations are available, otherwise against actual sends.
-    const engagementBase = deliveredCount > 0 ? deliveredCount : sentCount;
+    // Per-step breakdown by the dispatch's recorded stepOrder, with the same
+    // definitions as the totals above.
+    const stepStats = campaign.steps.map((s: any) => ({
+      stepOrder: s.stepOrder,
+      subject: s.subject,
+      waitDays: s.waitDays,
+      active: activeStepMap.get(s.stepOrder) || 0,
+      ...stepCounts(id, s.stepOrder),
+    }));
 
     const telemetry = {
       enrollments: enrollmentsCount,
       validLeadsCount,
       unverifiedLeadsCount,
       sentRequests: sentRequestsCount,
-      sent: sentCount,
-      delivered: deliveredCount,
-      opens: opensCount,
-      clicks: clicksCount,
+      sent: sends.sent,
+      delivered: sends.delivered,
+      opens: sends.opened,
+      clicks: sends.clicked,
       replies: repliesCount,
-      bounced: bouncedCount,
-      failed: failedCount,
-      unsubscribed: unsubscribedCount,
-      deliveryRate: sentCount > 0 ? Number(((deliveredCount / sentCount) * 100).toFixed(1)) : 0,
-      openRate: engagementBase > 0 ? Number(((opensCount / engagementBase) * 100).toFixed(1)) : 0,
-      clickRate: engagementBase > 0 ? Number(((clicksCount / engagementBase) * 100).toFixed(1)) : 0,
-      replyRate: sentCount > 0 ? Number(((repliesCount / sentCount) * 100).toFixed(1)) : 0,
-      bounceRate: sentCount > 0 ? Number(((bouncedCount / sentCount) * 100).toFixed(1)) : 0,
+      bounced: health.bounced,
+      failed: health.failed,
+      unsubscribed: health.unsubscribed,
+      deliveryRate: sends.deliveryRate,
+      openRate: sends.openRate,
+      clickRate: sends.clickRate,
+      replyRate: percent(repliesCount, sends.sent),
+      bounceRate: health.bounceRate,
       trend,
       funnel,
       sentiment: sentimentBreakdown,

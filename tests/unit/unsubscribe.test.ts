@@ -8,6 +8,8 @@ vi.mock('../../lib/db', () => ({
     deletedLead: { findUnique: vi.fn() },
     campaignEnrollment: { updateMany: vi.fn() },
     suppressedEmail: { createMany: vi.fn() },
+    emailDispatch: { findUnique: vi.fn(), findFirst: vi.fn() },
+    emailEvent: { create: vi.fn() },
   },
 }));
 
@@ -195,5 +197,64 @@ describe('two-step unsubscribe with signed links (H16)', () => {
     }
     expect(mocked.lead.findUnique).not.toHaveBeenCalled();
     expectUnsubscribed(false);
+  });
+});
+
+describe('the unsubscribe is recorded on the email it came from (M31)', () => {
+  const token = signUnsubscribeToken('lead-1', 'dispatch-1');
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocked.suppressedEmail.createMany.mockResolvedValue({ count: 1 });
+    mocked.lead.findUnique.mockResolvedValue({ id: 'lead-1', email: 'jane@example.com', status: 'Neutral' });
+    mocked.emailDispatch.findUnique.mockResolvedValue({ messageId: 'msg-signed' });
+    mocked.emailDispatch.findFirst.mockResolvedValue({ messageId: 'msg-latest' });
+    mocked.emailEvent.create.mockResolvedValue({});
+  });
+
+  it('records an unsubscribe event on the dispatch a signed link names', async () => {
+    const res = await post(`?token=${token}`);
+
+    expect(res.status).toBe(200);
+    expect(mocked.emailDispatch.findUnique).toHaveBeenCalledWith({ where: { id: 'dispatch-1' }, select: { messageId: true } });
+    expect(mocked.emailEvent.create).toHaveBeenCalledWith({ data: { messageId: 'msg-signed', eventType: 'unsubscribe' } });
+  });
+
+  it("records a link sent before tokens on the lead's latest campaign email", async () => {
+    const res = await post('?id=lead-1');
+
+    expect(res.status).toBe(200);
+    expect(mocked.emailDispatch.findFirst).toHaveBeenCalledWith({
+      where: { leadId: 'lead-1', status: 'Sent', stepOrder: { not: null } },
+      orderBy: { sentAt: 'desc' },
+      select: { messageId: true },
+    });
+    expect(mocked.emailEvent.create).toHaveBeenCalledWith({ data: { messageId: 'msg-latest', eventType: 'unsubscribe' } });
+  });
+
+  it.each([
+    ['the address was already on the suppression list', () => mocked.suppressedEmail.createMany.mockResolvedValue({ count: 0 })],
+    ['the lead was already Unsubscribed', () => mocked.lead.findUnique.mockResolvedValue({ id: 'lead-1', email: 'jane@example.com', status: 'Unsubscribed' })],
+    ['the email it came from no longer exists', () => mocked.emailDispatch.findUnique.mockResolvedValue(null)],
+  ])('records nothing when %s', async (_label, arrange) => {
+    arrange();
+
+    const res = await post(`?token=${token}`);
+
+    expect(res.status).toBe(200);
+    expect(mocked.emailEvent.create).not.toHaveBeenCalled();
+  });
+
+  it('still unsubscribes the lead when the event cannot be recorded', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocked.emailEvent.create.mockRejectedValue(new Error('database unavailable'));
+
+    const res = await post(`?token=${token}`);
+
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('has been removed');
+    expect(mocked.lead.update).toHaveBeenCalledWith({ where: { id: 'lead-1' }, data: { status: 'Unsubscribed' } });
+    expect(consoleError).toHaveBeenCalled();
+    consoleError.mockRestore();
   });
 });

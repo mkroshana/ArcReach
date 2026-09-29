@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import type { Lead } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { leadEmailIn } from '@/lib/leadEmail';
-import { suppressEmail } from '@/lib/suppression';
+import { suppressEmails } from '@/lib/suppression';
+import { SEQUENCE_SEND, UNSUBSCRIBE_EVENT } from '@/lib/engagementMetrics';
 import { verifyUnsubscribeToken } from '@/lib/unsubscribeLink';
 
 // The page is self-contained: inline styles and inline SVG only, no scripts,
@@ -14,20 +15,41 @@ const HTML_HEADERS = {
 };
 
 /**
- * The lead id a link names, and the query that names it again: a signed token
- * (lib/unsubscribeLink), or the raw lead id of links sent before tokens.
- * 'missing' when the link names neither, 'invalid' when its token is not one
- * this app signed.
+ * The lead id a link names, the dispatch it was sent in (null for the raw lead
+ * id of links sent before tokens) and the query that names them again: a
+ * signed token (lib/unsubscribeLink), or the raw lead id. 'missing' when the
+ * link names neither, 'invalid' when its token is not one this app signed.
  */
-function linkTarget(req: NextRequest): { leadId: string; query: string } | 'missing' | 'invalid' {
+function linkTarget(req: NextRequest): { leadId: string; dispatchId: string | null; query: string } | 'missing' | 'invalid' {
   const { searchParams } = new URL(req.url);
   const token = searchParams.get('token');
   if (token) {
     const signed = verifyUnsubscribeToken(token);
-    return signed ? { leadId: signed.leadId, query: `token=${encodeURIComponent(token)}` } : 'invalid';
+    return signed
+      ? { leadId: signed.leadId, dispatchId: signed.dispatchId, query: `token=${encodeURIComponent(token)}` }
+      : 'invalid';
   }
   const leadId = searchParams.get('id');
-  return leadId ? { leadId, query: `id=${encodeURIComponent(leadId)}` } : 'missing';
+  return leadId ? { leadId, dispatchId: null, query: `id=${encodeURIComponent(leadId)}` } : 'missing';
+}
+
+/**
+ * Records the unsubscribe on the email it came from, where the Unsubscribed
+ * metrics count it by that email's campaign and the time it happened
+ * (lib/engagementMetrics): the dispatch a signed link names, or for a link
+ * sent before tokens, the lead's latest campaign email. Nothing when that
+ * email no longer exists.
+ */
+async function recordUnsubscribeEvent(leadId: string, dispatchId: string | null): Promise<void> {
+  const dispatch = dispatchId
+    ? await prisma.emailDispatch.findUnique({ where: { id: dispatchId }, select: { messageId: true } })
+    : await prisma.emailDispatch.findFirst({
+        where: { leadId, status: 'Sent', ...SEQUENCE_SEND },
+        orderBy: { sentAt: 'desc' },
+        select: { messageId: true },
+      });
+  if (!dispatch) return;
+  await prisma.emailEvent.create({ data: { messageId: dispatch.messageId, eventType: UNSUBSCRIBE_EVENT } });
 }
 
 /**
@@ -110,8 +132,9 @@ export async function GET(req: NextRequest) {
  * POST /api/unsubscribe?token=<token>  (links sent before tokens: ?id=<leadId>)
  *
  * Public endpoint (no auth required) that puts the lead's address on the
- * suppression list, marks the lead as Unsubscribed and pauses all their active
- * campaign enrollments. Posted by the confirmation page's button, and by mail
+ * suppression list, marks the lead as Unsubscribed, pauses all their active
+ * campaign enrollments and records the unsubscribe on the email it came from
+ * (recordUnsubscribeEvent). Posted by the confirmation page's button, and by mail
  * clients' RFC 8058 one-click unsubscribe (body 'List-Unsubscribe=One-Click',
  * offered by the List-Unsubscribe-Post header of campaign emails); the body is
  * not needed, so either is accepted. A deleted lead's address still goes on
@@ -130,7 +153,7 @@ export async function POST(req: NextRequest) {
     // The suppression list outlives the lead, so the opt-out holds even if the
     // lead is deleted and imported again. Also written for a lead already
     // Unsubscribed, which may predate the list.
-    await suppressEmail(prisma, email, 'Unsubscribed', 'unsubscribe-link');
+    const added = await suppressEmails(prisma, [{ email, reason: 'Unsubscribed' }], 'unsubscribe-link');
 
     // Idempotent — skip if already unsubscribed or the lead is gone
     if (lead && lead.status !== 'Unsubscribed') {
@@ -150,6 +173,15 @@ export async function POST(req: NextRequest) {
           nextActionDate: null,
         },
       });
+
+      // Counted once, when the address first goes on the list: a second click,
+      // or a mail client's one-click POST after the button, records nothing.
+      // A metrics write never fails the unsubscribe itself.
+      if (added > 0) {
+        await recordUnsubscribeEvent(lead.id, target.dispatchId).catch((error) =>
+          console.error('[Unsubscribe] Could not record the unsubscribe event:', error)
+        );
+      }
     }
 
     return new NextResponse(

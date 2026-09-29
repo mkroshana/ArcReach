@@ -1,228 +1,63 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
+import {
+  countReplies,
+  dailyEngagement,
+  engagementFunnel,
+  healthSummary,
+  metricsScopeFor,
+  metricsWindow,
+  sendSummary,
+} from '@/lib/engagementMetrics';
+
+/** Longest period the dashboard counts, in days (the page offers 7, 30 and 90). */
+const MAX_RANGE_DAYS = 365;
 
 export async function GET(req: NextRequest) {
   try {
     const session = await getSession();
-    
-    // Filter scopes
-    let campaignWhere = {};
-    let senderAccountWhere = {};
-    let dispatchWhere = {};
-    let inboundWhere = {};
-    let enrollmentWhere: any = {};
 
-    if (session.role !== 'ADMIN') {
-      campaignWhere = { userId: session.id };
-      senderAccountWhere = { userId: session.id };
-      dispatchWhere = {
-        lead: {
-          enrollments: {
-            some: {
-              campaign: {
-                userId: session.id
-              }
-            }
-          }
-        }
-      };
-      inboundWhere = {
-        lead: {
-          enrollments: {
-            some: {
-              campaign: {
-                userId: session.id
-              }
-            }
-          }
-        }
-      };
-      enrollmentWhere = { campaign: { userId: session.id } };
-    }
+    // Non-admins count the sends of the campaigns they own and the replies
+    // their mailboxes received, not everything sent to leads they share.
+    const scope = metricsScopeFor(session);
 
     const { searchParams } = new URL(req.url);
     const rangeParam = searchParams.get('range') || '7';
-    const rangeDays = parseInt(rangeParam) || 7;
+    const rangeDays = Math.min(Math.max(parseInt(rangeParam) || 7, 1), MAX_RANGE_DAYS);
 
-    const now = new Date();
-    
-    // Current period window
-    const startOfCurrentPeriod = new Date();
-    startOfCurrentPeriod.setDate(now.getDate() - rangeDays);
-    startOfCurrentPeriod.setHours(0, 0, 0, 0);
+    // Today and the rangeDays - 1 days before it, compared with the rangeDays
+    // days before that. The trend has one bucket per day of the same period.
+    const periods = metricsWindow(rangeDays);
 
-    // Prior period window of equal length
-    const startOfPriorPeriod = new Date();
-    startOfPriorPeriod.setDate(now.getDate() - (rangeDays * 2));
-    startOfPriorPeriod.setHours(0, 0, 0, 0);
+    // 1. Sends, opens and clicks of the emails sent in each period, and the
+    // bounces, failed attempts, unsubscribes and replies that happened in it
+    // (lib/engagementMetrics defines each, as on the campaign and Accounts
+    // pages). All counted in the database, the daily trend included: loading
+    // every dispatch in the period here OOM'd the server.
+    const [current, prior, health, totalReplies, priorReplies, trends] = await Promise.all([
+      sendSummary(prisma, scope, periods.current),
+      sendSummary(prisma, scope, periods.prior),
+      healthSummary(prisma, scope, periods.current),
+      countReplies(prisma, scope, periods.current),
+      countReplies(prisma, scope, periods.prior),
+      dailyEngagement(prisma, scope, periods),
+    ]);
 
-
-
-    // 1. Get current period stats (only count emails actually sent, not failed attempts)
-    const totalSent = await prisma.emailDispatch.count({
-      where: {
-        ...dispatchWhere,
-        status: 'Sent',
-        sentAt: { gte: startOfCurrentPeriod, lte: now }
+    // 2. Percentage change against the prior period
+    const calculateDelta = (value: number, priorValue: number): number => {
+      if (priorValue === 0) {
+        return value > 0 ? 100 : 0;
       }
-    });
-
-    const dispatchesWithOpens = await prisma.emailDispatch.count({
-      where: {
-        ...dispatchWhere,
-        status: 'Sent',
-        sentAt: { gte: startOfCurrentPeriod, lte: now },
-        events: {
-          some: { eventType: 'open' }
-        }
-      }
-    });
-
-    const dispatchesWithClicks = await prisma.emailDispatch.count({
-      where: {
-        ...dispatchWhere,
-        status: 'Sent',
-        sentAt: { gte: startOfCurrentPeriod, lte: now },
-        events: {
-          some: { eventType: 'click' }
-        }
-      }
-    });
-
-    const totalReplies = await prisma.inboundResponse.count({
-      where: {
-        ...inboundWhere,
-        receivedAt: { gte: startOfCurrentPeriod, lte: now }
-      }
-    });
-
-    const failedCount = await prisma.campaignEnrollment.count({
-      where: { 
-        ...enrollmentWhere, 
-        status: 'Failed',
-        enrolledAt: { gte: startOfCurrentPeriod, lte: now }
-      }
-    });
-
-    // Hard bounces the Azure delivery webhook reported in this period, counted
-    // on the dispatch by the campaign that sent it, so a bounce of a last step
-    // (whose enrollment is already Completed) counts too.
-    const bouncedCount = await prisma.emailDispatch.count({
-      where: {
-        ...(session.role !== 'ADMIN' ? { campaign: { userId: session.id } } : {}),
-        bounceType: 'hard',
-        bouncedAt: { gte: startOfCurrentPeriod, lte: now }
-      }
-    });
-
-    const unsubscribedCount = await prisma.campaignEnrollment.count({
-      where: { 
-        ...enrollmentWhere, 
-        lead: { status: 'Unsubscribed' },
-        enrolledAt: { gte: startOfCurrentPeriod, lte: now }
-      }
-    });
-
-    const averageOpenRate = totalSent > 0 ? (dispatchesWithOpens / totalSent) * 100 : 0;
-    const averageClickRate = totalSent > 0 ? (dispatchesWithClicks / totalSent) * 100 : 0;
-
-    // 2. Get prior period stats for delta comparison
-    const priorSent = await prisma.emailDispatch.count({
-      where: {
-        ...dispatchWhere,
-        status: 'Sent',
-        sentAt: { gte: startOfPriorPeriod, lt: startOfCurrentPeriod }
-      }
-    });
-
-    const priorOpens = await prisma.emailDispatch.count({
-      where: {
-        ...dispatchWhere,
-        status: 'Sent',
-        sentAt: { gte: startOfPriorPeriod, lt: startOfCurrentPeriod },
-        events: {
-          some: { eventType: 'open' }
-        }
-      }
-    });
-
-    const priorClicks = await prisma.emailDispatch.count({
-      where: {
-        ...dispatchWhere,
-        status: 'Sent',
-        sentAt: { gte: startOfPriorPeriod, lt: startOfCurrentPeriod },
-        events: {
-          some: { eventType: 'click' }
-        }
-      }
-    });
-
-    const priorReplies = await prisma.inboundResponse.count({
-      where: {
-        ...inboundWhere,
-        receivedAt: { gte: startOfPriorPeriod, lt: startOfCurrentPeriod }
-      }
-    });
-
-    const priorOpenRate = priorSent > 0 ? (priorOpens / priorSent) * 100 : 0;
-    const priorClickRate = priorSent > 0 ? (priorClicks / priorSent) * 100 : 0;
-
-    // Helper to calculate percentage change
-    const calculateDelta = (current: number, prior: number): number => {
-      if (prior === 0) {
-        return current > 0 ? 100 : 0;
-      }
-      return Number((((current - prior) / prior) * 100).toFixed(1));
+      return Number((((value - priorValue) / priorValue) * 100).toFixed(1));
     };
 
-    const sentDelta = calculateDelta(totalSent, priorSent);
-    const openRateDelta = calculateDelta(averageOpenRate, priorOpenRate);
-    const clickRateDelta = calculateDelta(averageClickRate, priorClickRate);
+    const sentDelta = calculateDelta(current.sent, prior.sent);
+    const openRateDelta = calculateDelta(current.openRate, prior.openRate);
+    const clickRateDelta = calculateDelta(current.clickRate, prior.clickRate);
     const repliesDelta = calculateDelta(totalReplies, priorReplies);
 
-    // 3. Fetch daily trends for the selected range period.
-    // Select ONLY what the bucketing needs — a bare findMany here returned
-    // every dispatch's full HTML body (~100KB each), which at thousands of
-    // sends per day meant ~GB-scale payloads on every 30s dashboard poll
-    // and OOM'd the server.
-    const trendDispatches = await prisma.emailDispatch.findMany({
-      where: {
-        ...dispatchWhere,
-        status: 'Sent',
-        sentAt: { gte: startOfCurrentPeriod, lte: now }
-      },
-      select: {
-        sentAt: true,
-        events: { select: { eventType: true } },
-      }
-    });
-
-    // Generate daily buckets
-    const dailyBuckets: Record<string, { name: string; sent: number; opens: number; clicks: number }> = {};
-    for (let i = rangeDays - 1; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const label = d.toLocaleDateString('en-US', { day: '2-digit', month: 'short' });
-      dailyBuckets[label] = { name: label, sent: 0, opens: 0, clicks: 0 };
-    }
-
-    trendDispatches.forEach(dispatch => {
-      const label = new Date(dispatch.sentAt).toLocaleDateString('en-US', { day: '2-digit', month: 'short' });
-      if (dailyBuckets[label]) {
-        dailyBuckets[label].sent++;
-        if (dispatch.events.some(e => e.eventType === 'open')) {
-          dailyBuckets[label].opens++;
-        }
-        if (dispatch.events.some(e => e.eventType === 'click')) {
-          dailyBuckets[label].clicks++;
-        }
-      }
-    });
-
-    const trends = Object.values(dailyBuckets);
-
-    // 4. Funnel and Sentiment breakdown
+    // 3. Funnel and Sentiment breakdown
     const meetingBookedCount = await prisma.lead.count({
       where: {
         status: 'Meeting_Booked',
@@ -254,13 +89,13 @@ export async function GET(req: NextRequest) {
       }
     });
 
-    const funnel = [
-      { name: 'Sent', value: totalSent },
-      { name: 'Opened', value: dispatchesWithOpens },
-      { name: 'Clicked', value: dispatchesWithClicks },
-      { name: 'Replied', value: totalReplies },
-      { name: 'Meeting Booked', value: meetingBookedCount }
-    ];
+    const funnel = engagementFunnel({
+      sent: current.sent,
+      opened: current.opened,
+      clicked: current.clicked,
+      replies: totalReplies,
+      meetingsBooked: meetingBookedCount
+    });
 
     const sentimentBreakdown = [
       { name: 'Neutral', value: 0 },
@@ -291,13 +126,13 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       stats: {
-        totalSent,
+        totalSent: current.sent,
         totalReplies,
-        averageOpenRate: Number(averageOpenRate.toFixed(1)),
-        averageClickRate: Number(averageClickRate.toFixed(1)),
-        failed: failedCount,
-        bounced: bouncedCount,
-        unsubscribed: unsubscribedCount,
+        averageOpenRate: current.openRate,
+        averageClickRate: current.clickRate,
+        failed: health.failed,
+        bounced: health.bounced,
+        unsubscribed: health.unsubscribed,
         deltas: {
           sent: sentDelta,
           openRate: openRateDelta,

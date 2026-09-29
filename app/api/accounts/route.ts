@@ -6,6 +6,7 @@ import { MASKED_SECRET, encryptSecret } from '@/lib/secrets';
 import { getGlobalSettings } from '@/lib/settings';
 import { getVerifiedDomains, unverifiedSenderMessage } from '@/lib/azureDomains';
 import { senderCapDispatchWhere } from '@/lib/sendEngine';
+import { type MetricsScope, countHardBounces, countReplies, percent, sendSummary } from '@/lib/engagementMetrics';
 import { type FieldRule, fieldRules, isPlainObject, pickUpdateFields } from '@/lib/updateAllowList';
 
 /** Scalar columns the mailbox PUT may write: the throttle, warmup and credential
@@ -65,75 +66,21 @@ export async function GET() {
     const now = new Date();
 
     const accountsWithStats = await Promise.all(accounts.map(async (account) => {
-      const dispatchWhereClause = {
-        // A 'Sending' row has not been accepted by the provider yet, and an
-        // 'Unknown' one was never confirmed sent.
-        status: { notIn: ['Sending', 'Unknown'] },
-        OR: [
-          { senderAccountId: account.id },
-          {
-            senderAccountId: null,
-            campaign: {
-              senderAccountId: account.id
-            }
-          }
-        ]
-      };
-
       // Counted as the send engine counts the mailbox's daily and warmup cap:
       // sends in the last 24 hours, not since midnight, and never Failed ones.
       const sentLast24Hours = await prisma.emailDispatch.count({
         where: senderCapDispatchWhere(account.id, now)
       });
 
-      const sentTotal = await prisma.emailDispatch.count({
-        where: dispatchWhereClause
-      });
-
-      const opens = await prisma.emailDispatch.count({
-        where: {
-          ...dispatchWhereClause,
-          events: {
-            some: { eventType: 'open' }
-          }
-        }
-      });
-
-      const clicks = await prisma.emailDispatch.count({
-        where: {
-          ...dispatchWhereClause,
-          events: {
-            some: { eventType: 'click' }
-          }
-        }
-      });
-
-      const delivered = await prisma.emailDispatch.count({
-        where: {
-          ...dispatchWhereClause,
-          status: 'Sent',
-          deliveredAt: { not: null }
-        }
-      });
-
-      const replies = await prisma.inboundResponse.count({
-        where: { senderAccountId: account.id }
-      });
-
-      // Hard bounces the Azure delivery webhook reported on this mailbox's sends.
-      const bounced = await prisma.emailDispatch.count({
-        where: {
-          ...dispatchWhereClause,
-          bounceType: 'hard'
-        }
-      });
-
-      // Engagement rates against delivered mail when available, else against total sends.
-      const engagementBase = delivered > 0 ? delivered : sentTotal;
-      const deliveryRate = sentTotal > 0 ? Number(((delivered / sentTotal) * 100).toFixed(1)) : 0;
-      const openRate = engagementBase > 0 ? Number(((opens / engagementBase) * 100).toFixed(1)) : 0;
-      const clickRate = engagementBase > 0 ? Number(((clicks / engagementBase) * 100).toFixed(1)) : 0;
-      const replyRate = sentTotal > 0 ? Number(((replies / sentTotal) * 100).toFixed(1)) : 0;
+      // The mailbox's campaign sends that ACS accepted, their opens, clicks and
+      // hard bounces (at send time or reported), defined in lib/engagementMetrics
+      // as on the campaign pages and the dashboard.
+      const scope: MetricsScope = { kind: 'mailbox', senderAccountId: account.id };
+      const [sends, bounced, replies] = await Promise.all([
+        sendSummary(prisma, scope),
+        countHardBounces(prisma, scope),
+        countReplies(prisma, scope),
+      ]);
 
       // Calculate effectiveDailyCap
       let effectiveDailyCap = account.dailyLimit;
@@ -147,16 +94,16 @@ export async function GET() {
       return {
         ...redactAccount(account),
         sentLast24Hours,
-        sentTotal,
-        delivered,
-        opens,
-        clicks,
+        sentTotal: sends.sent,
+        delivered: sends.delivered,
+        opens: sends.opened,
+        clicks: sends.clicked,
         replies,
         bounced,
-        deliveryRate,
-        openRate,
-        clickRate,
-        replyRate,
+        deliveryRate: sends.deliveryRate,
+        openRate: sends.openRate,
+        clickRate: sends.clickRate,
+        replyRate: percent(replies, sends.sent),
         effectiveDailyCap
       };
     }));

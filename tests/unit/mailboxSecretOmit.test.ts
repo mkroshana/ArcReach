@@ -17,10 +17,13 @@ const fake = vi.hoisted(() => {
     lead: model('count', 'groupBy', 'findMany'),
     suppressedEmail: model('findMany'),
     $transaction: vi.fn(),
+    $queryRaw: vi.fn(),
   };
 });
 
-vi.mock('@prisma/client', () => ({
+// The rest of the module is real: lib/engagementMetrics builds SQL with Prisma.sql.
+vi.mock('@prisma/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@prisma/client')>()),
   PrismaClient: class {
     constructor() {
       return fake;
@@ -136,6 +139,7 @@ describe('mailbox secrets in API responses', () => {
     fake.campaign.findMany.mockImplementation(async (args: any) => [campaignRow(args.include)]);
     fake.campaign.findUnique.mockImplementation(async (args: any) => campaignRow(args.include));
     fake.$transaction.mockImplementation(async (fn: (tx: typeof fake) => unknown) => fn(fake));
+    fake.$queryRaw.mockResolvedValue([]);
   });
 
   it('db.getCampaigns leaves the passwords off the primary and pool mailboxes', async () => {

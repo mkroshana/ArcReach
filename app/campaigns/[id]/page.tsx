@@ -237,8 +237,8 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
     { title: 'Total Sent Requests', value: campaign?.telemetry?.sentRequests, icon: SendHorizontal, color: '#64748b', sub: 'Includes retries & failures' },
     { title: 'Emails Sent', value: campaign?.telemetry?.sent, icon: Send, color: '#2563EB', sub: 'Accepted by provider' },
     { title: 'Delivered', value: campaign?.telemetry?.delivered, icon: CheckCircle2, color: '#059669', sub: `${campaign?.telemetry?.deliveryRate ?? 0}% delivery rate` },
-    { title: 'Opens', value: campaign?.telemetry?.opens, icon: Mail, color: '#2563EB', sub: `${campaign?.telemetry?.openRate ?? 0}% open rate` },
-    { title: 'Clicks', value: campaign?.telemetry?.clicks, icon: MousePointerClick, color: '#D97706', sub: `${campaign?.telemetry?.clickRate ?? 0}% click rate` },
+    { title: 'Unique Opens', value: campaign?.telemetry?.opens, icon: Mail, color: '#2563EB', sub: `${campaign?.telemetry?.openRate ?? 0}% open rate` },
+    { title: 'Unique Clicks', value: campaign?.telemetry?.clicks, icon: MousePointerClick, color: '#D97706', sub: `${campaign?.telemetry?.clickRate ?? 0}% click rate` },
     { title: 'Replies', value: campaign?.telemetry?.replies, icon: Reply, color: '#7C3AED', sub: `${campaign?.telemetry?.replyRate ?? 0}% reply rate` },
   ];
 
@@ -718,8 +718,8 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                     <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10 }} dy={10} />
                     <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10 }} allowDecimals={false} />
                     <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid rgba(100,116,139,0.2)', fontSize: 11 }} />
-                    <Area type="monotone" dataKey="opens" stroke="#4f46e5" strokeWidth={2} fillOpacity={1} fill="url(#cd-o)" />
-                    <Area type="monotone" dataKey="clicks" stroke="#818cf8" strokeWidth={2} fillOpacity={1} fill="url(#cd-c)" />
+                    <Area type="monotone" dataKey="opens" stroke="#4f46e5" strokeWidth={2} fillOpacity={1} fill="url(#cd-o)" name="Unique Opens" />
+                    <Area type="monotone" dataKey="clicks" stroke="#818cf8" strokeWidth={2} fillOpacity={1} fill="url(#cd-c)" name="Unique Clicks" />
                   </AreaChart>
                 </ResponsiveContainer>
               </Box>
@@ -734,8 +734,9 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                   <BarChart layout="vertical" data={campaign?.telemetry?.funnel || []} margin={{ top: 5, right: 5, left: 10, bottom: 5 }}>
                     <XAxis type="number" hide allowDecimals={false} />
                     <YAxis type="category" dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 9 }} width={75} />
-                    <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid rgba(100,116,139,0.2)', fontSize: 11 }} />
-                    <Bar dataKey="value" fill="#2563EB" radius={[0, 8, 8, 0]} barSize={14} name="Leads" />
+                    {/* Each stage names what it counts: emails, replies or leads. */}
+                    <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid rgba(100,116,139,0.2)', fontSize: 11 }} formatter={(value, name, item) => [value, item?.payload?.unit ?? name]} />
+                    <Bar dataKey="value" fill="#2563EB" radius={[0, 8, 8, 0]} barSize={14} name="Count" />
                   </BarChart>
                 </ResponsiveContainer>
               </Box>

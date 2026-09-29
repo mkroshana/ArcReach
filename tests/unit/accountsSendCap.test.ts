@@ -50,9 +50,9 @@ beforeEach(() => {
   mockedPrisma.campaign.findMany.mockResolvedValue([]);
   mockedPrisma.inboundResponse.count.mockResolvedValue(0);
   mockedPrisma.campaignEnrollment.count.mockResolvedValue(0);
-  // The lifetime stats filter through relations (OR, events) and are not under test here.
+  // The lifetime stats filter through AND, OR and relations (events) and are not under test here.
   mockedPrisma.emailDispatch.count.mockImplementation(async ({ where }: any) => {
-    if ('OR' in where) return 0;
+    if ('OR' in where || 'AND' in where) return 0;
     return dispatches.filter((d) => Object.entries(where).every(([key, cond]) => matchesValue((d as any)[key], cond))).length;
   });
 });

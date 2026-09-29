@@ -11,6 +11,7 @@ const fake = vi.hoisted(() => {
     emailDispatch: model(),
     inboundResponse: model(),
     lead: model(),
+    $queryRaw: vi.fn(),
   };
 });
 
@@ -25,6 +26,7 @@ vi.mock('../../lib/session', () => ({
 
 import { db } from '../../lib/db';
 import { getSession } from '../../lib/session';
+import { countRows } from './helpers/prismaWhere';
 import { GET as getCampaign } from '../../app/api/campaigns/[id]/route';
 import { GET as getDashboardStats } from '../../app/api/dashboard-stats/route';
 import { GET as getAccounts } from '../../app/api/accounts/route';
@@ -44,56 +46,38 @@ const CAMPAIGNS: Record<string, { userId: string; senderAccountId: string }> = {
 
 type DispatchRow = {
   id: string; campaignId: string | null; senderAccountId: string | null; status: string; sentAt: Date;
-  bounceType: string | null; bouncedAt: Date | null; deliveredAt: Date | null;
+  stepOrder: number | null; bounceType: string | null; bouncedAt: Date | null; deliveredAt: Date | null;
+  deliveryStatus: string | null; events: { eventType: string; timestamp: Date }[];
 };
 
 let dispatches: DispatchRow[];
 
+/** A campaign's step-1 send by default. */
 function addDispatch(row: Partial<DispatchRow> & { id: string }) {
   dispatches.push({
-    campaignId: 'cmp-1', senderAccountId: 'mb-1', status: 'Sent', sentAt: daysAgo(1),
-    bounceType: null, bouncedAt: null, deliveredAt: null, ...row,
+    campaignId: 'cmp-1', senderAccountId: 'mb-1', status: 'Sent', sentAt: daysAgo(1), stepOrder: 1,
+    bounceType: null, bouncedAt: null, deliveredAt: null, deliveryStatus: null, events: [], ...row,
   });
 }
 
-/** Filters the fake leaves at 0: relations to events, leads and replies are not under test here. */
-const UNMODELLED = ['events', 'lead'];
-
-/** Evaluates a dispatch filter; throws on shapes it doesn't model so a changed query can't silently match. */
-function matches(row: any, where: Record<string, any>): boolean {
-  return Object.entries(where).every(([key, cond]) => {
-    if (key === 'OR') return cond.some((w: any) => matches(row, w));
-    if (key === 'campaign') return !!row.campaignId && matches(CAMPAIGNS[row.campaignId], cond);
-    if (cond === null || typeof cond !== 'object') return (row[key] ?? null) === cond;
-    return Object.entries(cond).every(([op, value]: [string, any]) => {
-      switch (op) {
-        case 'in': return value.includes(row[key]);
-        case 'notIn': return !value.includes(row[key]);
-        case 'not': return value === null ? row[key] != null : row[key] !== value;
-        case 'gt': return row[key] != null && row[key] > value;
-        case 'gte': return row[key] != null && row[key] >= value;
-        case 'lt': return row[key] != null && row[key] < value;
-        case 'lte': return row[key] != null && row[key] <= value;
-        default: throw new Error(`Unmodelled filter: ${key} ${JSON.stringify(cond)}`);
-      }
-    });
-  });
-}
+/** A dispatch's campaign and events, for relation filters. */
+const RELATIONS = {
+  campaign: (row: DispatchRow) => (row.campaignId ? CAMPAIGNS[row.campaignId] : null),
+  events: (row: DispatchRow) => row.events,
+};
 
 beforeEach(() => {
   vi.resetAllMocks();
   mockedSession.mockResolvedValue(USER);
   dispatches = [];
-  for (const model of Object.values(fake)) {
+  for (const model of [fake.campaign, fake.campaignEnrollment, fake.emailDispatch, fake.inboundResponse, fake.lead]) {
     model.count.mockResolvedValue(0);
     model.groupBy.mockResolvedValue([]);
     model.findMany.mockResolvedValue([]);
   }
   fake.campaign.findUnique.mockResolvedValue({ id: 'cmp-1', name: 'Launch', userId: 'user-1', steps: [{ stepOrder: 1 }] });
-  fake.emailDispatch.count.mockImplementation(async ({ where }: any) => {
-    if (Object.keys(where).some((key) => UNMODELLED.includes(key))) return 0;
-    return dispatches.filter((d) => matches(d, where)).length;
-  });
+  fake.emailDispatch.count.mockImplementation(async ({ where }: any) => countRows(dispatches, where, RELATIONS));
+  fake.$queryRaw.mockResolvedValue([]);
   // Enrollment statuses no longer say anything about bounces: a last step's
   // enrollment is Completed before its delivery report arrives.
   fake.campaignEnrollment.count.mockResolvedValue(0);

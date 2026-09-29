@@ -11,10 +11,11 @@ const fake = vi.hoisted(() => ({
   campaignSenderAccount: { deleteMany: vi.fn(), createMany: vi.fn() },
   campaignStep: { findMany: vi.fn(), update: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
   campaignEnrollment: { count: vi.fn(), groupBy: vi.fn() },
-  emailDispatch: { count: vi.fn(), findMany: vi.fn() },
+  emailDispatch: { count: vi.fn(), findMany: vi.fn(), groupBy: vi.fn() },
   inboundResponse: { count: vi.fn() },
   lead: { count: vi.fn(), groupBy: vi.fn() },
   $transaction: vi.fn(),
+  $queryRaw: vi.fn(),
 }));
 
 vi.mock('../../lib/db', () => ({
@@ -114,6 +115,8 @@ beforeEach(() => {
     Object.keys(where).length === 1 ? dispatches.filter((d) => d.campaignId === where.campaignId).length : 0,
   );
   fake.emailDispatch.findMany.mockResolvedValue([]);
+  fake.emailDispatch.groupBy.mockResolvedValue([]);
+  fake.$queryRaw.mockResolvedValue([]);
   fake.inboundResponse.count.mockResolvedValue(0);
   fake.lead.count.mockResolvedValue(0);
   fake.lead.groupBy.mockResolvedValue([]);

@@ -232,14 +232,14 @@ export default function Dashboard() {
           {/* Deliverability health */}
           <Box sx={gridSx(3)}>
             <MetricCard title="Failed Sends" value={(stats.failed ?? 0).toLocaleString()} sub="Delivery errors at send time" color="#DC2626" icon={XCircle} />
-            <MetricCard title="Bounced" value={(stats.bounced ?? 0).toLocaleString()} sub="Hard bounces (delivery webhook)" color="#D97706" icon={AlertTriangle} />
+            <MetricCard title="Bounced" value={(stats.bounced ?? 0).toLocaleString()} sub="Hard bounces at send time or reported on delivery" color="#D97706" icon={AlertTriangle} />
             <MetricCard title="Unsubscribed" value={(stats.unsubscribed ?? 0).toLocaleString()} sub="Opted out of mailings" color="#64748B" icon={UserMinus} />
           </Box>
 
           {/* Engagement trend */}
           <ChartCard
             title="Engagement Trends"
-            subtitle="Daily emails sent, unique opens, and clicks over the selected period."
+            subtitle="Campaign emails sent each day, and how many of them were opened and clicked."
             height={350}
             action={
               <FormControl size="small">
@@ -265,7 +265,7 @@ export default function Dashboard() {
                 <Legend verticalAlign="top" height={28} iconType="plainline" wrapperStyle={{ fontSize: 11 }} />
                 <Area type="linear" dataKey="sent" stroke="#3b82f6" strokeWidth={2.5} fillOpacity={1} fill="url(#colorSent)" name="Emails Sent" dot={{ r: 2 }} />
                 <Area type="linear" dataKey="opens" stroke="#2dd4bf" strokeWidth={2.5} fillOpacity={1} fill="url(#colorOpens)" name="Unique Opens" dot={{ r: 2 }} />
-                <Area type="linear" dataKey="clicks" stroke="#f43f5e" strokeWidth={2.5} fillOpacity={1} fill="url(#colorClicks)" name="Total Clicks" dot={{ r: 2 }} />
+                <Area type="linear" dataKey="clicks" stroke="#f43f5e" strokeWidth={2.5} fillOpacity={1} fill="url(#colorClicks)" name="Unique Clicks" dot={{ r: 2 }} />
               </AreaChart>
             </ResponsiveContainer>
           </ChartCard>
@@ -276,8 +276,9 @@ export default function Dashboard() {
                 <BarChart layout="vertical" data={funnel} margin={{ top: 10, right: 24, left: 20, bottom: 10 }}>
                   <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: axisTickColor, fontSize: 10 }} allowDecimals={false} />
                   <YAxis type="category" dataKey="name" axisLine={false} tickLine={false} tick={{ fill: axisTickColor, fontSize: 10 }} width={90} />
-                  <Tooltip cursor={{ fill: alpha(schemePalette.text.secondary, 0.08) }} contentStyle={chartTooltipStyle} labelStyle={{ color: schemePalette.text.primary }} itemStyle={{ fontSize: 11 }} />
-                  <Bar dataKey="value" fill={schemePalette.primary.main} radius={[0, 8, 8, 0]} barSize={24} name="Leads">
+                  {/* Each stage names what it counts: emails, replies or leads. */}
+                  <Tooltip cursor={{ fill: alpha(schemePalette.text.secondary, 0.08) }} contentStyle={chartTooltipStyle} labelStyle={{ color: schemePalette.text.primary }} itemStyle={{ fontSize: 11 }} formatter={(value, name, item) => [value, item?.payload?.unit ?? name]} />
+                  <Bar dataKey="value" fill={schemePalette.primary.main} radius={[0, 8, 8, 0]} barSize={24} name="Count">
                     <LabelList dataKey="value" position="right" style={{ fontSize: 10, fontWeight: 700, fill: axisTickColor }} />
                   </Bar>
                 </BarChart>

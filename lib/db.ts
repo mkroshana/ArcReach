@@ -1,6 +1,7 @@
 import { PrismaClient, type Prisma } from '@prisma/client';
 import { hashPassword } from '@/lib/auth';
 import { MAILBOX_SECRET_OMIT } from '@/lib/mailboxSecrets';
+import { stepMetrics } from '@/lib/engagementMetrics';
 
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient | undefined };
 
@@ -98,6 +99,7 @@ export const db = {
    * Never ships raw enrollment/dispatch rows — with tens of thousands of rows
    * those payloads OOM'd the server (Prisma JSON.parse of a multi-MB engine
    * response per request). Four groupBy queries total, regardless of volume.
+   * Step sends count as on the campaign page (lib/engagementMetrics).
    */
   async getCampaigns(userId: string, role: string) {
     await ensureInit();
@@ -114,7 +116,7 @@ export const db = {
     if (campaigns.length === 0) return campaigns;
     const ids = campaigns.map((c) => c.id);
 
-    const [enrollByStatus, activeByStep, dispatchByStep, deliveredByStep] = await Promise.all([
+    const [enrollByStatus, activeByStep, stepCounts] = await Promise.all([
       prisma.campaignEnrollment.groupBy({
         by: ['campaignId', 'status'],
         where: { campaignId: { in: ids } },
@@ -125,25 +127,14 @@ export const db = {
         where: { campaignId: { in: ids }, status: 'Active' },
         _count: { id: true },
       }),
-      prisma.emailDispatch.groupBy({
-        by: ['campaignId', 'stepOrder', 'status'],
-        where: { campaignId: { in: ids }, stepOrder: { not: null } },
-        _count: { id: true },
-      }),
-      prisma.emailDispatch.groupBy({
-        by: ['campaignId', 'stepOrder'],
-        where: { campaignId: { in: ids }, stepOrder: { not: null }, status: 'Sent', deliveredAt: { not: null } },
-        _count: { id: true },
-      }),
+      stepMetrics(prisma, ids),
     ]);
 
     return campaigns.map((c) => {
       const enrollments = enrollByStatus.filter((e) => e.campaignId === c.id);
       const stepStats = c.steps.map((s) => {
         const active = activeByStep.find((a) => a.campaignId === c.id && a.currentSequenceStep === s.stepOrder)?._count.id || 0;
-        const sent = dispatchByStep.find((d) => d.campaignId === c.id && d.stepOrder === s.stepOrder && d.status === 'Sent')?._count.id || 0;
-        const failed = dispatchByStep.find((d) => d.campaignId === c.id && d.stepOrder === s.stepOrder && d.status === 'Failed')?._count.id || 0;
-        const delivered = deliveredByStep.find((d) => d.campaignId === c.id && d.stepOrder === s.stepOrder)?._count.id || 0;
+        const { sent, delivered, failed } = stepCounts(c.id, s.stepOrder);
         return { stepOrder: s.stepOrder, active, sent, delivered, failed };
       });
       return {

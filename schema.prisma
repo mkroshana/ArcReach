@@ -342,8 +342,9 @@ model EmailDispatch {
   // When a delivery report said the message bounced, and how: 'hard' (Bounced,
   // Suppressed or a permanent Failed; the address is suppressed) or 'soft' (any
   // other Failed). A bounce is final: later reports never overwrite it, except
-  // a hard bounce replacing a soft one. Bounced metrics count 'hard' rows by
-  // the dispatch's campaign and sender, whatever its enrollment's status since.
+  // a hard bounce replacing a soft one. Bounced metrics (lib/engagementMetrics)
+  // count 'hard' rows, and Failed ones the send engine gave a 'bounce' event,
+  // by the dispatch's campaign and sender, whatever its enrollment's status since.
   bouncedAt   DateTime?
   bounceType  String?
 
@@ -361,7 +362,8 @@ model EmailEvent {
   // 'machine_open' and 'machine_click' are hits lib/botFilter judged automated
   // (a scanner, crawler, link unfurler, HTTP library, Apple Mail Privacy
   // Protection or a prefetch), kept with the reason in botReason. Also
-  // 'bounce' and 'send_failed'.
+  // 'bounce', 'send_failed' and 'unsubscribe' (the email whose unsubscribe
+  // link was used, which lib/engagementMetrics counts).
   eventType  String
   clickedUrl String?
   botReason  String?

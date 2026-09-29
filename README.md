@@ -67,8 +67,9 @@ Azure Event Grid webhook events (delivery confirmations, opens, clicks) are capt
 Each outbound email writes an `EmailDispatch` row. To keep the campaign metrics
 (Total Sent Requests / Emails Sent / Delivered / Opens / Clicks) accurate:
 
-- A dispatch's `status` is `Sent` (handed to the provider) or `Failed`. Failed
-  attempts are excluded from the "Emails Sent" figure.
+- A dispatch's `status` is `Sending` (recorded before the provider call), `Sent`
+  (accepted by the provider) or `Failed`. Only `Sent` rows count toward the
+  "Emails Sent" figure.
 - Every campaign dispatch records its `stepOrder`, and both the send engine and
   the manual run guard against sending the **same step to the same lead twice**.
 - `deliveredAt` is stamped by the Azure delivery webhook for the "Delivered" metric.

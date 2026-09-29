@@ -107,7 +107,9 @@ export async function POST(req: NextRequest) {
         messageId,
         sentAt: new Date(),
         subject: subject || 'Re: Outreach',
-        body: replyBody
+        body: replyBody,
+        // Recorded only after the provider accepted it.
+        status: 'Sent'
       }
     });
 

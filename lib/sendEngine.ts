@@ -3,6 +3,7 @@ import { getGlobalSettings } from './settings';
 import { checkGlobalRateLimits } from './rateLimits';
 import { applyEmailTracking } from './emailTracking';
 import { sendMessage, sendingDisabledReason } from './emailProvider';
+import { sendableEnrollmentWhere, claimEnrollmentForSend, releaseEnrollmentClaim, RELEASED_CLAIM } from './sendEligibility';
 
 /**
  * Auto-resumes campaigns whose quota-driven pause has elapsed. Idempotent and
@@ -204,7 +205,7 @@ export async function handleSendFailure(
   const errMsg = err.message || String(err);
   console.log(`[SendFailureHandler] Lead: ${lead.email} | Type: ${classification} | Error: ${errMsg}`);
 
-  // Always mark the pre-created dispatch as Failed so it isn't counted in metrics
+  // Always mark the pre-created Sending dispatch as Failed so it isn't counted in metrics
   if (dispatch) {
     try {
       await prisma.emailDispatch.update({
@@ -232,7 +233,7 @@ export async function handleSendFailure(
         }),
         prisma.campaignEnrollment.update({
           where: { id: enrollment.id },
-          data: { nextActionDate: resumeTime },
+          data: { nextActionDate: resumeTime, ...RELEASED_CLAIM },
         }),
       ]);
     } catch (pauseErr: any) {
@@ -256,7 +257,8 @@ export async function handleSendFailure(
           nextActionDate,
           retryCount: { increment: 1 },
           lastError: errMsg,
-          lastBounceType: 'soft'
+          lastBounceType: 'soft',
+          ...RELEASED_CLAIM
         }
       });
     } else {
@@ -268,7 +270,8 @@ export async function handleSendFailure(
           status: 'Failed',
           nextActionDate: null,
           lastError: errMsg,
-          lastBounceType: 'soft'
+          lastBounceType: 'soft',
+          ...RELEASED_CLAIM
         }
       });
 
@@ -300,7 +303,8 @@ export async function handleSendFailure(
       status: 'Failed',
       nextActionDate: null,
       lastError: errMsg,
-      lastBounceType: 'hard'
+      lastBounceType: 'hard',
+      ...RELEASED_CLAIM
     }
   });
 
@@ -322,6 +326,27 @@ export async function handleSendFailure(
   }
 
   return { action: 'continue' };
+}
+
+/**
+ * Status of the dispatch already recorded for this (campaign, lead, step):
+ * 'Sent' once the provider accepted it, 'Sending' while a send is in flight or
+ * was interrupted, or null when the step has not been sent. Failed attempts
+ * don't count.
+ */
+export async function findStepDispatchStatus(
+  campaignId: string,
+  leadId: string,
+  stepOrder: number
+): Promise<'Sent' | 'Sending' | null> {
+  for (const status of ['Sent', 'Sending'] as const) {
+    const dispatch = await prisma.emailDispatch.findFirst({
+      where: { campaignId, leadId, stepOrder, status },
+      select: { id: true },
+    });
+    if (dispatch) return status;
+  }
+  return null;
 }
 
 /**
@@ -353,18 +378,11 @@ export async function processDueEmails() {
     // 1. Fetch leads that are due for action (enrolled in campaigns with nextActionDate in the past)
     const dueEnrollments = await prisma.campaignEnrollment.findMany({
       where: {
-        status: 'Active',
+        // Send guards: Active enrollment and campaign, lead still sendable.
+        // Each send re-checks them when it claims the enrollment below.
+        ...sendableEnrollmentWhere(),
         nextActionDate: {
           lte: now,
-        },
-        campaign: {
-          status: 'Active',
-        },
-        // Send guards: skip leads that should not receive emails
-        lead: {
-          isArchived: false,
-          status: { notIn: ['Bounced', 'Unsubscribed'] },
-          validationStatus: { notIn: ['Invalid'] },
         },
       },
       // Only the lead rides along per row. The campaign (whose steps carry
@@ -413,11 +431,13 @@ export async function processDueEmails() {
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
 
+    // Sends still in flight ('Sending') count toward the cap as well as 'Sent' ones.
     const senderSentToday = new Map<string, number>();
     for (const senderId of senderIds) {
       const count = await prisma.emailDispatch.count({
         where: {
           senderAccountId: senderId,
+          status: { in: ['Sending', 'Sent'] },
           sentAt: {
             gte: startOfToday
           }
@@ -497,16 +517,24 @@ export async function processDueEmails() {
         baseBody = `<html><head><meta charset="utf-8"></head><body>${bodyText}</body></html>`;
       }
 
+      // Claim the enrollment for this step. The claim re-checks, right before
+      // the send, that the enrollment and campaign are still Active and the
+      // lead still sendable, and keeps any other send path off this row.
+      const claimToken = await claimEnrollmentForSend(enrollment.id, currentStepOrder);
+      if (!claimToken) {
+        console.log(`[SendEngine] Lead ${lead.email} skipped (paused, suppressed, moved on or claimed by another send since this batch was loaded).`);
+        continue;
+      }
+
       // Idempotency guard: never send the same step to the same lead twice.
-      const alreadySent = await prisma.emailDispatch.findFirst({
-        where: {
-          campaignId: campaign.id,
-          leadId: lead.id,
-          stepOrder: currentStepOrder,
-          status: 'Sent',
-        },
-      });
-      if (alreadySent) {
+      const priorDispatch = await findStepDispatchStatus(campaign.id, lead.id, currentStepOrder);
+      if (priorDispatch === 'Sending') {
+        // Another send of this step is in flight or was interrupted; leave it alone.
+        console.log(`[SendEngine] Lead ${lead.email} skipped (step ${currentStepOrder} already has a dispatch in Sending).`);
+        await releaseEnrollmentClaim(enrollment.id, claimToken);
+        continue;
+      }
+      if (priorDispatch === 'Sent') {
         // Advance the enrollment past this already-sent step without re-dispatching.
         const nextStepOrder = currentStepOrder + 1;
         const nextStep = campaign.steps.find((s: any) => s.stepOrder === nextStepOrder);
@@ -515,12 +543,12 @@ export async function processDueEmails() {
           nextDate.setDate(now.getDate() + nextStep.waitDays);
           await prisma.campaignEnrollment.update({
             where: { id: enrollment.id },
-            data: { currentSequenceStep: nextStepOrder, nextActionDate: nextDate },
+            data: { currentSequenceStep: nextStepOrder, nextActionDate: nextDate, ...RELEASED_CLAIM },
           });
         } else {
           await prisma.campaignEnrollment.update({
             where: { id: enrollment.id },
-            data: { status: 'Completed', nextActionDate: null },
+            data: { status: 'Completed', nextActionDate: null, ...RELEASED_CLAIM },
           });
         }
         continue;
@@ -528,7 +556,8 @@ export async function processDueEmails() {
 
       let dispatch: { id: string } | null = null;
       try {
-        // Create dispatch record FIRST so we have a dispatchId for tracking URLs
+        // Create dispatch record FIRST so we have a dispatchId for tracking URLs.
+        // It stays 'Sending' until the provider accepts the message.
         dispatch = await prisma.emailDispatch.create({
           data: {
             leadId: lead.id,
@@ -538,7 +567,7 @@ export async function processDueEmails() {
             subject,
             body: baseBody,
             stepOrder: currentStepOrder,
-            status: 'Sent',
+            status: 'Sending',
           }
         });
 
@@ -565,41 +594,47 @@ export async function processDueEmails() {
           settings
         );
 
-        // Update dispatch with the final tracked body and messageId
-        const updateData: any = { body: finalBody };
+        // Mark the dispatch Sent with the final tracked body and messageId
+        const updateData: any = { body: finalBody, status: 'Sent' };
         if (providerMessageId) {
           updateData.messageId = providerMessageId;
         }
-        await prisma.emailDispatch.update({
-          where: { id: dispatch.id },
-          data: updateData,
-        });
 
         // 7. Advance enrollment to the next step since send succeeded
         const nextStepOrder = currentStepOrder + 1;
         const nextStep = campaign.steps.find(s => s.stepOrder === nextStepOrder);
 
+        let enrollmentAdvance;
         if (nextStep) {
           const nextDate = new Date();
           nextDate.setDate(now.getDate() + nextStep.waitDays);
 
-          await prisma.campaignEnrollment.update({
-            where: { id: enrollment.id },
-            data: {
-              currentSequenceStep: nextStepOrder,
-              nextActionDate: nextDate,
-            }
-          });
+          enrollmentAdvance = {
+            currentSequenceStep: nextStepOrder,
+            nextActionDate: nextDate,
+            ...RELEASED_CLAIM,
+          };
         } else {
           // Completed sequence
-          await prisma.campaignEnrollment.update({
-            where: { id: enrollment.id },
-            data: {
-              status: 'Completed',
-              nextActionDate: null,
-            }
-          });
+          enrollmentAdvance = {
+            status: 'Completed',
+            nextActionDate: null,
+            ...RELEASED_CLAIM,
+          };
         }
+
+        // The dispatch becomes Sent in the same transaction that advances the
+        // enrollment and releases its claim.
+        await prisma.$transaction([
+          prisma.emailDispatch.update({
+            where: { id: dispatch.id },
+            data: updateData,
+          }),
+          prisma.campaignEnrollment.update({
+            where: { id: enrollment.id },
+            data: enrollmentAdvance,
+          }),
+        ]);
 
         // Increment warmupSent counter if warmup is enabled
         if (chosenSender.warmupEnabled) {

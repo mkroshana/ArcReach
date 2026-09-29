@@ -233,6 +233,11 @@ model CampaignEnrollment {
   lastError           String?
   lastBounceType      String?
 
+  // Per-send claim taken via lib/sendEligibility.ts right before a send and
+  // released when it finishes; a claim older than 10 minutes counts as abandoned.
+  claimToken          String?
+  claimedAt           DateTime?
+
   // Prevents enrolling the same lead into the same campaign twice
   @@unique([leadId, campaignId]) 
 }
@@ -254,8 +259,9 @@ model EmailDispatch {
   subject     String?
   body        String?       @db.Text
 
-  // Send-attempt outcome: "Sent" (handed to the provider) or "Failed" (provider/SMTP error).
-  status      String        @default("Sent")
+  // Send-attempt outcome: "Sending" (recorded before the provider call), "Sent"
+  // (accepted by the provider) or "Failed" (provider/SMTP error).
+  status      String        @default("Sending")
   // Sequence step this dispatch belongs to (null for manual / non-campaign sends).
   stepOrder   Int?
   // Set by the Azure delivery webhook when the message is confirmed delivered.

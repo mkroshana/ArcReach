@@ -31,7 +31,8 @@ import {
   Archive,
   FolderPlus,
   Ban,
-  MailX
+  MailX,
+  Hourglass
 } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -2146,6 +2147,11 @@ export default function LeadsPage() {
                                         <span className="inline-flex items-center gap-1 bg-rose-50/70 dark:bg-rose-950/20 border border-rose-200/50 dark:border-rose-500/10 text-[9px] font-bold text-rose-600 dark:text-rose-400 px-2 py-0.5 rounded">
                                           <Ban className="w-3 h-3" />
                                           Failed
+                                        </span>
+                                      ) : event.status === 'Sending' ? (
+                                        <span className="inline-flex items-center gap-1 bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200/50 dark:border-amber-500/10 text-[9px] font-bold text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded">
+                                          <Hourglass className="w-3 h-3" />
+                                          Sending
                                         </span>
                                       ) : event.deliveredAt ? (
                                         <span className="inline-flex items-center gap-1 bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200/50 dark:border-emerald-500/10 text-[9px] font-bold text-emerald-600 dark:text-emerald-400 px-2 py-0.5 rounded">

@@ -100,6 +100,7 @@ describe('POST /api/unibox/reply mailbox ownership (H25)', () => {
         senderAccountId: 'mb-user1',
         campaignId: 'cmp-1',
         messageId: 'provider-msg-1',
+        status: 'Sent',
       }),
     });
   });

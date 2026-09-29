@@ -2,6 +2,19 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 
+/** Campaign names the in-use 409 spells out; any beyond this are only counted, so the toast stays readable. */
+const MAX_LISTED_CAMPAIGNS = 5;
+
+/** 409 text for a group that `total` campaigns still target, naming the ones in `visibleNames`. */
+function groupInUseMessage(total: number, visibleNames: string[]): string {
+  const listed = visibleNames.slice(0, MAX_LISTED_CAMPAIGNS).map((n) => `"${n}"`);
+  const unlisted = total - listed.length;
+  const detail = listed.length === 0 ? '' : `: ${listed.join(', ')}${unlisted > 0 ? ` and ${unlisted} more` : ''}`;
+  const one = total === 1;
+  return `Cannot delete this group while ${one ? 'a campaign targets' : `${total} campaigns target`} it${detail}. ` +
+    `Point ${one ? 'that campaign' : 'those campaigns'} at another audience or delete ${one ? 'it' : 'them'} first.`;
+}
+
 export async function GET(req: NextRequest) {
   try {
     const session = await getSession();
@@ -67,6 +80,21 @@ export async function DELETE(req: NextRequest) {
 
     if (!id) {
       return NextResponse.json({ error: 'Group ID is required.' }, { status: 400 });
+    }
+
+    // Refuse, deleting nothing, while any campaign targets this group as its audience; the
+    // enrollment sync would otherwise find no eligible leads and drop every enrollment. The sync
+    // also accepts a `group_` prefix on the id. Non-admins only get the names of their own campaigns.
+    const dependents = await prisma.campaign.findMany({
+      where: { audienceCohort: { in: [id, `group_${id}`] } },
+      select: { name: true, userId: true },
+      orderBy: { name: 'asc' },
+    });
+    if (dependents.length > 0) {
+      const visibleNames = dependents
+        .filter((c) => session.role === 'ADMIN' || c.userId === session.id)
+        .map((c) => c.name);
+      return NextResponse.json({ error: groupInUseMessage(dependents.length, visibleNames) }, { status: 409 });
     }
 
     // Retrieve memberships to check which leads are associated with the group

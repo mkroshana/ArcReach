@@ -371,7 +371,8 @@ export default function LeadsPage() {
         await fetchGroups(); // refresh group counts
         showToast('Lead group deleted successfully.');
       } else {
-        showToast('Failed to delete lead group.');
+        const err = await res.json();
+        showToast(err.error || 'Failed to delete lead group.', 'error');
       }
     } catch (err) {
       console.error(err);

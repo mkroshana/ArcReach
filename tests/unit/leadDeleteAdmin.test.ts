@@ -6,6 +6,7 @@ vi.mock('../../lib/db', () => ({
     lead: { delete: vi.fn(), deleteMany: vi.fn() },
     leadGroup: { delete: vi.fn() },
     leadGroupMembership: { findMany: vi.fn(), createMany: vi.fn() },
+    campaign: { findMany: vi.fn() },
   },
 }));
 
@@ -40,6 +41,7 @@ beforeEach(() => {
   mockedPrisma.leadGroup.delete.mockResolvedValue({});
   mockedPrisma.leadGroupMembership.findMany.mockResolvedValue([{ leadId: 'lead-1' }, { leadId: 'lead-2' }]);
   mockedPrisma.leadGroupMembership.createMany.mockResolvedValue({ count: 2 });
+  mockedPrisma.campaign.findMany.mockResolvedValue([]);
 });
 
 describe('DELETE /api/leads (H19)', () => {

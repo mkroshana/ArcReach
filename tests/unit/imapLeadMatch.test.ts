@@ -46,7 +46,7 @@ vi.mock('../../lib/db', () => ({
   prisma: {
     senderAccount: { findUnique: vi.fn(), updateMany: vi.fn() },
     lead: { findMany: vi.fn(), findFirst: vi.fn() },
-    inboundResponse: { findFirst: vi.fn(), create: vi.fn() },
+    inboundResponse: { findFirst: vi.fn(), createMany: vi.fn() },
     campaignEnrollment: { findMany: vi.fn(), update: vi.fn() },
     emailDispatch: { findFirst: vi.fn() },
   },
@@ -85,6 +85,7 @@ describe('IMAP reply matching', () => {
     mocked.lead.findMany.mockImplementation(async ({ where }: any) => leadsWhere(where));
     mocked.lead.findFirst.mockImplementation(async ({ where }: any) => leadsWhere(where)[0] ?? null);
     mocked.inboundResponse.findFirst.mockResolvedValue(null);
+    mocked.inboundResponse.createMany.mockResolvedValue({ count: 1 });
     mocked.emailDispatch.findFirst.mockResolvedValue({ campaignId: 'cmp-1' });
     mocked.campaignEnrollment.findMany.mockResolvedValue([
       { id: 'enr-1', leadId: 'lead-1', campaignId: 'cmp-1', status: 'Active', campaign: { id: 'cmp-1', name: 'Q3', stopOnReply: true } },
@@ -100,8 +101,9 @@ describe('IMAP reply matching', () => {
 
     expect(result).toEqual({ success: true, syncedCount: 1 });
     expect(server.written.some((w) => / UID FETCH 2 \(BODY\.PEEK\[TEXT\]\)/.test(w))).toBe(true);
-    expect(mocked.inboundResponse.create).toHaveBeenCalledWith({
+    expect(mocked.inboundResponse.createMany).toHaveBeenCalledWith({
       data: expect.objectContaining({ leadId: 'lead-1', campaignId: 'cmp-1', senderAccountId: 'mbx_1', body: expect.stringContaining('please stop') }),
+      skipDuplicates: true,
     });
     expect(mocked.campaignEnrollment.update).toHaveBeenCalledWith({ where: { id: 'enr-1' }, data: { status: 'Paused' } });
   });

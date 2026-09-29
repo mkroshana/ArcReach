@@ -93,7 +93,7 @@ vi.mock('../../lib/db', () => ({
   prisma: {
     senderAccount: { findUnique: vi.fn(), updateMany: vi.fn() },
     lead: { findMany: vi.fn(), findFirst: vi.fn() },
-    inboundResponse: { findFirst: vi.fn(), create: vi.fn() },
+    inboundResponse: { findFirst: vi.fn(), createMany: vi.fn() },
     campaignEnrollment: { findMany: vi.fn(), update: vi.fn() },
     emailDispatch: { findFirst: vi.fn() },
   },
@@ -199,9 +199,11 @@ beforeEach(() => {
   mocked.lead.findMany.mockImplementation(async ({ where }: any) => leadsWhere(where));
   mocked.lead.findFirst.mockImplementation(async ({ where }: any) => leadsWhere(where)[0] ?? null);
   mocked.inboundResponse.findFirst.mockImplementation(async ({ where }: any) => replies.find((r) => matchesWhere(r, where)) ?? null);
-  mocked.inboundResponse.create.mockImplementation(async ({ data }: any) => {
+  // Unique by mailbox and Message-ID, like the table
+  mocked.inboundResponse.createMany.mockImplementation(async ({ data }: any) => {
+    if (replies.some((r) => r.senderAccountId === data.senderAccountId && r.messageId === data.messageId)) return { count: 0 };
     replies.push(data);
-    return data;
+    return { count: 1 };
   });
   mocked.campaignEnrollment.findMany.mockResolvedValue([]);
   mocked.emailDispatch.findFirst.mockResolvedValue(null);
@@ -302,7 +304,7 @@ describe('IMAP reply sync checkpoint (H32)', () => {
     mailboxRow.imapUidValidity = VALIDITY;
     mailboxRow.imapLastUid = 10;
     inbox([...range(1, 10).map((uid) => msg(uid, 'news@vendor.test')), msg(11, 'amy@acme.test'), msg(12, 'news@vendor.test')]);
-    mocked.inboundResponse.create.mockRejectedValueOnce(new Error('database unavailable'));
+    mocked.inboundResponse.createMany.mockRejectedValueOnce(new Error('database unavailable'));
 
     const failed = await sync();
     expect(failed.success).toBe(false);

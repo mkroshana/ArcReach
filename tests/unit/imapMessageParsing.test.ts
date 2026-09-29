@@ -45,7 +45,7 @@ vi.mock('../../lib/db', () => ({
   prisma: {
     senderAccount: { findUnique: vi.fn(), updateMany: vi.fn() },
     lead: { findMany: vi.fn(), findFirst: vi.fn() },
-    inboundResponse: { findFirst: vi.fn(), create: vi.fn() },
+    inboundResponse: { findFirst: vi.fn(), createMany: vi.fn() },
     campaignEnrollment: { findMany: vi.fn(), update: vi.fn() },
     emailDispatch: { findFirst: vi.fn() },
   },
@@ -313,6 +313,7 @@ describe('IMAP reply sync end to end (H33, M55, L16)', () => {
     mocked.lead.findMany.mockImplementation(async (args: any) => leadsWhere(args));
     mocked.lead.findFirst.mockImplementation(async (args: any) => leadsWhere(args)[0] ?? null);
     mocked.inboundResponse.findFirst.mockResolvedValue(null);
+    mocked.inboundResponse.createMany.mockResolvedValue({ count: 1 });
     mocked.emailDispatch.findFirst.mockResolvedValue({ campaignId: 'cmp-1' });
     mocked.campaignEnrollment.findMany.mockResolvedValue([]);
   });
@@ -325,17 +326,19 @@ describe('IMAP reply sync end to end (H33, M55, L16)', () => {
     const result = await syncMailboxReplies('mbx_1');
 
     expect(result).toEqual({ success: true, syncedCount: 1 });
-    expect(server.written.some((w) => /UID FETCH 7 \(UID BODY\.PEEK\[HEADER\.FIELDS \(.*CONTENT-TYPE CONTENT-TRANSFER-ENCODING\)\]\)/.test(w))).toBe(true);
-    expect(mocked.inboundResponse.create).toHaveBeenCalledWith({
+    expect(server.written.some((w) => /UID FETCH 7 \(UID INTERNALDATE BODY\.PEEK\[HEADER\.FIELDS \(.*CONTENT-TYPE CONTENT-TRANSFER-ENCODING\)\]\)/.test(w))).toBe(true);
+    expect(mocked.inboundResponse.createMany).toHaveBeenCalledWith({
       data: {
         leadId: 'lead-1',
         campaignId: 'cmp-1',
         senderAccountId: 'mbx_1',
+        messageId: '<AM9PR07MB7777@AM9PR07MB7777.eurprd07.prod.outlook.test>',
         subject: 'Re: Save the Date: March 5 – Q3 pipeline review',
         body: 'That’s great, let’s talk Thursday at 2pm.\n\nBest,\nJürgen',
         receivedAt: new Date('2026-09-29T14:05:31.000Z'),
         unread: true,
       },
+      skipDuplicates: true,
     });
   });
 
@@ -346,8 +349,9 @@ describe('IMAP reply sync end to end (H33, M55, L16)', () => {
     const result = await syncMailboxReplies('mbx_1');
 
     expect(result).toEqual({ success: true, syncedCount: 1 });
-    expect(mocked.inboundResponse.create).toHaveBeenCalledWith({
+    expect(mocked.inboundResponse.createMany).toHaveBeenCalledWith({
       data: expect.objectContaining({ subject: 'Re: Grüße', body: 'Grüße aus München, bis Donnerstag!' }),
+      skipDuplicates: true,
     });
   });
 });

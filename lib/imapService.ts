@@ -1,5 +1,6 @@
 import net from 'net';
 import tls from 'tls';
+import { createHash } from 'crypto';
 import { prisma } from './db';
 import { decodeCharset, decodeMimeHeader } from './mime';
 import { decryptSecret } from './secrets';
@@ -15,7 +16,11 @@ interface ImapMessage {
   body: string;
 }
 
-const activeSyncs = new Set<string>();
+// Mailboxes syncing in this process. Kept on globalThis because the worker
+// (instrumentation) and the Unibox route are separate bundles, each with its own
+// copy of this module, and both sync the same mailboxes.
+const globalForImap = globalThis as unknown as { imapActiveSyncs: Set<string> | undefined };
+const activeSyncs = (globalForImap.imapActiveSyncs ??= new Set<string>());
 
 /** Most new INBOX messages one sync reads, oldest first; the rest wait for the next sync. */
 export const IMAP_SYNC_BATCH_SIZE = 200;
@@ -57,6 +62,48 @@ export function parseSearchUids(resp: string): number[] {
     }
   }
   return uids;
+}
+
+/** `d` when Postgres can store it as a reply's receivedAt (years 1970-9999), else null; an Invalid Date is null. */
+function storableDate(d: Date): Date | null {
+  const t = d.getTime();
+  return t >= 0 && t < Date.UTC(10000, 0, 1) ? d : null;
+}
+
+/** An RFC 3501 INTERNALDATE such as "17-Jul-1996 02:44:25 -0700" (the day may be space-padded), or null. */
+export function parseInternalDate(value: string | null | undefined): Date | null {
+  const m = value?.match(/^\s*(\d{1,2})-([A-Za-z]{3})-(\d{4}) (\d{2}):(\d{2}):(\d{2}) ([+-])(\d{2})(\d{2})\s*$/);
+  if (!m) return null;
+  const month = IMAP_MONTHS.findIndex(name => name.toLowerCase() === m[2].toLowerCase());
+  if (month === -1) return null;
+  const offsetMinutes = (m[7] === '-' ? -1 : 1) * (Number(m[8]) * 60 + Number(m[9]));
+  const utc = Date.UTC(Number(m[3]), month, Number(m[1]), Number(m[4]), Number(m[5]), Number(m[6]));
+  return storableDate(new Date(utc - offsetMinutes * 60_000));
+}
+
+/**
+ * When a reply was received: its Date header, else the server's INTERNALDATE, else
+ * `now`. A missing, unparseable or out-of-range Date never reaches the database,
+ * where it would fail the write and stop the mailbox's sync at that message.
+ */
+export function replyReceivedAt(dateHeader: string, internalDate: string | null | undefined, now: Date = new Date()): Date {
+  return (dateHeader ? storableDate(new Date(dateHeader)) : null) ?? parseInternalDate(internalDate) ?? now;
+}
+
+/** Longest Message-ID stored as it is; a longer one is stored hashed so it fits the unique index. */
+const MESSAGE_ID_MAX_CHARS = 255;
+
+/**
+ * The key a reply is recorded under, unique per mailbox: its Message-ID (the <...>
+ * token when there is one), hashed when long or not printable ASCII, or for a
+ * message without one a stand-in from the INBOX UIDVALIDITY and UID. Stand-ins
+ * hold a space, which a Message-ID stored as it is never does, so they can't collide.
+ */
+export function replyDedupeKey(messageIdHeader: string, uidValidity: number, uid: number): string {
+  const id = messageIdHeader.match(/<[^<>\s]+>/)?.[0] ?? messageIdHeader.trim();
+  if (!id) return `uid ${uidValidity} ${uid}`;
+  if (id.length <= MESSAGE_ID_MAX_CHARS && /^[!-~]+$/.test(id)) return id;
+  return `sha256 ${createHash('sha256').update(octets(id)).digest('hex')}`;
 }
 
 /**
@@ -335,10 +382,11 @@ export async function syncMailboxReplies(mailboxId: string) {
             const tagFetchHeaders = makeTag('A4_FETCH_HEADERS');
             
             // Add header FETCH command dynamically. BODY.PEEK leaves the \Seen flag alone.
-            // The content headers say how to decode the body fetched below.
+            // The content headers say how to decode the body fetched below, and
+            // INTERNALDATE dates a reply whose Date header is missing or unreadable.
             commandsQueue.splice(currentCommandIdx + 1, 0, {
               tag: tagFetchHeaders,
-              cmd: `UID FETCH ${uids.join(',')} (UID BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES CONTENT-TYPE CONTENT-TRANSFER-ENCODING)])`,
+              cmd: `UID FETCH ${uids.join(',')} (UID INTERNALDATE BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES CONTENT-TYPE CONTENT-TRANSFER-ENCODING)])`,
               handler: async (headerResp) => {
                 if (!headerResp.includes(`${tagFetchHeaders} OK`)) {
                   throw new Error('IMAP Fetch headers failed: ' + headerResp);
@@ -370,7 +418,7 @@ export async function syncMailboxReplies(mailboxId: string) {
                           from: msg.from,
                           subject: msg.subject,
                           date: msg.date,
-                          messageId: msg.messageId,
+                          messageId: replyDedupeKey(msg.messageId, batch.uidValidity!, msg.uid),
                           inReplyTo: msg.inReplyTo,
                           references: msg.references,
                           // A message without Content-Type is text/plain (RFC 2045)
@@ -399,12 +447,16 @@ export async function syncMailboxReplies(mailboxId: string) {
         
         if (!lead) continue;
         
+        // Replies recorded before Message-IDs were stored have none, so a message read
+        // again (a mailbox's first sync reads the last 7 days) is matched to them as
+        // before, by lead and a Date within 10 seconds.
         const timeWindowStart = new Date(msg.date.getTime() - 10000);
         const timeWindowEnd = new Date(msg.date.getTime() + 10000);
         
         const existing = await prisma.inboundResponse.findFirst({
           where: {
             leadId: lead.id,
+            messageId: null,
             receivedAt: {
               gte: timeWindowStart,
               lte: timeWindowEnd
@@ -431,17 +483,22 @@ export async function syncMailboxReplies(mailboxId: string) {
         });
         const campaignId = lastDispatch?.campaignId || activeEnrollments[0]?.campaignId || null;
         
-        await prisma.inboundResponse.create({
+        // The Message-ID is unique per mailbox, so a message another sync already
+        // recorded (one in another process, or an earlier read of this batch) is skipped.
+        const { count } = await prisma.inboundResponse.createMany({
           data: {
             leadId: lead.id,
             campaignId,
             senderAccountId: mailbox.id,
+            messageId: msg.messageId,
             subject: msg.subject || 'No Subject',
             body: msg.body || '',
             receivedAt: msg.date,
             unread: true
-          }
+          },
+          skipDuplicates: true
         });
+        if (count === 0) continue;
         newRepliesCount++;
         
         for (const enrollment of activeEnrollments) {
@@ -665,13 +722,11 @@ export function parseHeaderResponse(fetchResp: string): HeaderInfo[] {
     const fromEmail = parseMailboxAddress(headerText(fields.get('from')));
     if (!fromEmail.includes('@')) continue;
 
-    const dateStr = fields.get('date') ?? '';
-
     result.push({
       uid: fetched.uid,
       from: fromEmail.toLowerCase(),
       subject: decodeMimeHeader(headerText(fields.get('subject'))),
-      date: dateStr ? new Date(dateStr) : new Date(),
+      date: replyReceivedAt(fields.get('date') ?? '', fetched.items.get('INTERNALDATE')),
       messageId: fields.get('message-id') ?? '',
       inReplyTo: fields.get('in-reply-to') ?? '',
       references: (fields.get('references') ?? '').replace(/\s+/g, ' '),

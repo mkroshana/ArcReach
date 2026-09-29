@@ -42,6 +42,15 @@ export async function acquireLease(name: string, holderId: string = LEASE_HOLDER
 }
 
 /**
+ * Whether a process other than `holderId` holds the named lease: the row exists,
+ * names another holder and has not expired.
+ */
+export async function leaseHeldElsewhere(name: string = SEND_WORKER_LEASE, holderId: string = LEASE_HOLDER_ID, now: Date = new Date()): Promise<boolean> {
+  const lease = await prisma.workerLease.findUnique({ where: { name } });
+  return lease !== null && lease.holderId !== holderId && lease.expiresAt > now;
+}
+
+/**
  * Writes the heartbeat for a finished tick, but only while `holderId` still
  * holds the lease. `error` is null when the tick succeeded.
  */

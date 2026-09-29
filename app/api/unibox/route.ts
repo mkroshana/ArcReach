@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { UnauthorizedError, unauthorizedResponse } from '@/lib/sessionError';
 import { syncMailboxReplies, getActiveImapAccounts } from '@/lib/imapService';
+import { leaseHeldElsewhere } from '@/lib/workerLease';
 import { MAILBOX_SECRET_OMIT } from '@/lib/mailboxSecrets';
 import { CAMPAIGN_LABEL_SELECT, dispatchScope, enrollmentScope, replyScope } from '@/lib/leadHistoryScope';
 import { normalizeEmail } from '@/lib/leadEmail';
@@ -29,8 +30,10 @@ export async function GET(req: NextRequest) {
     // Find all active sender accounts with IMAP configured for this user/admin using shared helper
     const activeImapAccounts = await getActiveImapAccounts(session.id, session.role);
     
-    // Concurrently trigger IMAP sync for all eligible accounts
-    if (activeImapAccounts.length > 0) {
+    // Concurrently trigger IMAP sync for all eligible accounts. The worker holding the
+    // lease syncs every mailbox every 3 minutes; while another process holds it, a
+    // sync from here would read the same mail at the same time, so it is left to that worker.
+    if (activeImapAccounts.length > 0 && !(await leaseHeldElsewhere())) {
       if (shouldSync) {
         await Promise.allSettled(
           activeImapAccounts.map(acc => syncMailboxReplies(acc.id))

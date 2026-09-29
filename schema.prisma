@@ -392,10 +392,16 @@ model InboundResponse {
   campaign        Campaign?      @relation(fields: [campaignId], references: [id], onDelete: SetNull)
   senderAccountId String?        // Captures which account received the inbound reply
   senderAccount   SenderAccount? @relation(fields: [senderAccountId], references: [id], onDelete: SetNull)
+  // The reply's Message-ID (hashed when long or not plain ASCII; a stand-in built from the
+  // INBOX UIDVALIDITY and UID when it has none), unique per mailbox so a message read by two
+  // syncs at once, or read again, is recorded once. Null on replies recorded before it was stored.
+  messageId       String?
   subject         String
   body            String         @db.Text
   receivedAt      DateTime       @default(now())
   unread          Boolean        @default(true)
+
+  @@unique([senderAccountId, messageId])
 }
 
 // ------------------------------------------------------

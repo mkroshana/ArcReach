@@ -40,7 +40,7 @@ export function useTasks(): TaskContextValue {
 /** Map a request to a human label, or null to track it as anonymous (bar only). */
 function labelForRequest(url: string, method: string): string | null {
   const m = method.toUpperCase();
-  if (/\/api\/campaigns\/[^/]+\/run/.test(url)) return 'Sending campaign emails';
+  if (/\/api\/campaigns\/[^/]+\/run/.test(url)) return 'Queuing campaign leads';
   if (/\/api\/send-email\/test/.test(url)) return 'Sending test email';
   if (/\/api\/unibox\/reply/.test(url)) return 'Sending reply';
   if (/\/api\/leads\/bulk/.test(url) && m !== 'GET') return 'Processing leads';

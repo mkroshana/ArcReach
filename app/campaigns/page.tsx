@@ -16,6 +16,7 @@ import {
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { queuedLeadsMessage } from '@/lib/campaignSteps';
 
 interface DbCampaign {
   id: string;
@@ -80,10 +81,11 @@ export default function CampaignsPage() {
       setExecutingId(key);
       const url = `/api/campaigns/${id}/run` + (stepOrder ? `?stepOrder=${stepOrder}` : '');
       const res = await fetch(url, { method: 'POST' });
-      const data = await res.json();
-      if (res.ok && data.success) { showToast(`Manual cycle completed! Sent ${data.dispatchedCount} emails.`); loadData(); }
-      else showToast(data.error || 'Failed to dispatch manual cycle.', 'error');
-    } catch { showToast('Failed to execute dispatch cycle.', 'error'); }
+      const data = await res.json().catch(() => null);
+      // The route only queues leads; the background worker sends them.
+      if (res.ok && typeof data?.queued === 'number') { showToast(queuedLeadsMessage(data.queued)); loadData(); }
+      else showToast(data?.error || 'Failed to queue leads.', 'error');
+    } catch { showToast('Failed to queue leads.', 'error'); }
     finally { setExecutingId(null); }
   };
 

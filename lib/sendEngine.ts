@@ -692,7 +692,7 @@ export async function processDueEmails() {
       } catch (err: any) {
         console.error(`[SendEngine Failure] Could not send to ${lead.email}:`, err.message || err);
 
-        // Soft/hard bounce classification + retry/backoff (shared with the manual run route).
+        // Soft/hard bounce classification + retry/backoff (shared with the send reconciler).
         const result = await handleSendFailure(enrollment, lead, dispatch, err, campaign.name, campaign.id);
         if (result.action === 'break') {
           // Quota limit hit — any further sends this cycle will also fail.

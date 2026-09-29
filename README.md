@@ -78,11 +78,12 @@ Each outbound email writes an `EmailDispatch` row. To keep the campaign metrics
   checked (no operation id, or ACS no longer knows an operation over a day old)
   becomes `Unknown`: it is never sent again and counts toward sending caps and
   rate limits, but not as sent.
-- Every campaign dispatch records its `stepOrder`, and both the send engine and
-  the manual run guard against sending the **same step to the same lead twice**.
+- Every campaign dispatch records its `stepOrder`, and the send engine guards
+  against sending the **same step to the same lead twice**. Run Now and Send
+  Step only queue leads (mark them due); the send engine sends them.
 - `deliveredAt` is stamped by the Azure delivery webhook for the "Delivered" metric.
 
-The send engine and run route enforce the dedup guard automatically, so under
+The send engine enforces the dedup guard automatically, so under
 normal operation no manual cleanup is required. The one-off maintenance script
 [scripts/audit-dispatches.ts](file:///d:/Development/ArcReach/scripts/audit-dispatches.ts)
 exists for legacy data created before these guards, or if duplicates ever slip

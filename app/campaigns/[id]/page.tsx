@@ -15,7 +15,7 @@ import {
 } from 'recharts';
 import { useToast } from '@/components/Toast';
 import VariableToolbar from '@/components/VariableToolbar';
-import { activationBlocker, findIncompleteSteps } from '@/lib/campaignSteps';
+import { activationBlocker, findIncompleteSteps, queuedLeadsMessage } from '@/lib/campaignSteps';
 import {
   Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
   Select, MenuItem, FormControl, InputLabel, Switch, Skeleton, ToggleButtonGroup, ToggleButton,
@@ -194,10 +194,11 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
     try {
       setRunningCampaign(true);
       const res = await fetch(`/api/campaigns/${campaignId}/run`, { method: 'POST' });
-      const data = await res.json();
-      if (res.ok && data.success) { showToast(`Campaign processed! Sent ${data.dispatchedCount} emails.`); await loadCampaign(); }
-      else showToast(data.error || 'Failed to process campaign cycle.', 'error');
-    } catch (err) { console.error(err); showToast('Error occurred while executing campaign.', 'error'); }
+      const data = await res.json().catch(() => null);
+      // The route only queues leads; the background worker sends them.
+      if (res.ok && typeof data?.queued === 'number') { showToast(queuedLeadsMessage(data.queued)); await loadCampaign(); }
+      else showToast(data?.error || 'Failed to queue leads.', 'error');
+    } catch (err) { console.error(err); showToast('Failed to queue leads.', 'error'); }
     finally { setRunningCampaign(false); }
   };
 

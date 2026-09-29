@@ -158,13 +158,16 @@ describe('send routes return 409 unless Azure is configured (H1)', () => {
     expectNothingRecorded();
   });
 
-  it('lets the manual run send once Azure is configured', async () => {
+  it('lets the manual run queue leads once Azure is configured, leaving the send to the worker', async () => {
     useSettings(AZURE_SETTINGS);
 
     const res = await run();
     expect(res.status).toBe(200);
-    expect((await res.json()).dispatchedCount).toBe(1);
-    expect(mockedSend).toHaveBeenCalledTimes(1);
+    expect(await res.json()).toEqual({ queued: 1 });
+    expect(mockedPrisma.campaignEnrollment.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { nextActionDate: expect.any(Date) } }),
+    );
+    expect(mockedSend).not.toHaveBeenCalled();
   });
 
   it('lets the Unibox reply and test send through once Azure is configured', async () => {

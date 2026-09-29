@@ -34,3 +34,9 @@ export function activationBlocker(steps: StepContent[]): string | null {
   const details = incomplete.map((s) => `Step ${s.stepNumber} has no ${s.missing.join(' or ')}`).join('; ');
   return `${details}. Complete every step before activating this campaign.`;
 }
+
+/** What Run Now and Send Step report once the run route has queued `queued` leads for the worker to send. */
+export function queuedLeadsMessage(queued: number): string {
+  if (queued === 0) return 'No leads to queue.';
+  return `Queued ${queued} lead${queued === 1 ? '' : 's'}. Sending starts within 30 seconds, inside the campaign's sending window.`;
+}

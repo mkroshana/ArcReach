@@ -130,10 +130,10 @@ function applyEnrollmentData(e: EnrollmentRow, data: Record<string, any>) {
   }
 }
 
-function makeRunReq(): NextRequest {
-  return new NextRequest('http://localhost/api/campaigns/cmp-1/run', { method: 'POST' });
+function makeRunReq(query = ''): NextRequest {
+  return new NextRequest(`http://localhost/api/campaigns/cmp-1/run${query}`, { method: 'POST' });
 }
-const run = () => postRun(makeRunReq(), { params: Promise.resolve({ id: 'cmp-1' }) });
+const run = (query?: string) => postRun(makeRunReq(query), { params: Promise.resolve({ id: 'cmp-1' }) });
 
 /** Runs a send pass with setTimeout faked, so the bookkeeping retry delays pass at once. */
 async function withFakeTimers<T>(pass: () => Promise<T>): Promise<T> {
@@ -402,33 +402,128 @@ describe('processDueEmails claims each send and records it as Sending first (C5,
   });
 });
 
-describe('POST /api/campaigns/[id]/run claims each send (C5, H7)', () => {
-  it('stops sending as soon as the campaign is paused mid-run', async () => {
-    addLead('lead-2');
-    mockedSend.mockImplementation(async () => {
-      campaign.status = 'Paused';
-      return { providerMessageId: 'provider-msg-1' };
-    });
+describe('POST /api/campaigns/[id]/run only queues leads for the worker (H3, M66)', () => {
+  const FUTURE = () => new Date(Date.now() + 3 * 86400000);
 
+  /** Moves a lead's enrollment to `step`, waiting until `nextActionDate`. */
+  function waitAt(leadId: string, step: number, nextActionDate: Date | null = FUTURE(), retryCount = 0) {
+    Object.assign(enrollmentOf(leadId), { currentSequenceStep: step, nextActionDate, retryCount });
+  }
+
+  it('marks every sendable lead due at its current step, sends nothing itself, and the worker sends them', async () => {
+    addLead('lead-2');
+    addLead('lead-3');
+    waitAt('lead-1', 1);
+    waitAt('lead-2', 2);
+    waitAt('lead-3', 3); // past the last step: nothing left to send
+
+    const before = Date.now();
     const res = await run();
 
     expect(res.status).toBe(200);
-    expect((await res.json()).dispatchedCount).toBe(1);
-    expect(mockedSend).toHaveBeenCalledTimes(1);
-    expect(dispatches).toHaveLength(1);
-    expect(dispatches[0]).toMatchObject({ leadId: 'lead-1', status: 'Sent' });
-    expect(enrollmentOf('lead-1')).toMatchObject({ currentSequenceStep: 2, claimToken: null });
-    expect(enrollmentOf('lead-2')).toMatchObject({ currentSequenceStep: 1, claimToken: null });
+    expect(await res.json()).toEqual({ queued: 2 });
+    expect(mockedSend).not.toHaveBeenCalled();
+    expect(dispatches).toHaveLength(0);
+    for (const leadId of ['lead-1', 'lead-2']) {
+      expect(enrollmentOf(leadId).nextActionDate!.getTime()).toBeGreaterThanOrEqual(before);
+      expect(enrollmentOf(leadId).nextActionDate!.getTime()).toBeLessThanOrEqual(Date.now());
+    }
+    expect(enrollmentOf('lead-3').nextActionDate!.getTime()).toBeGreaterThan(Date.now());
+
+    await processDueEmails();
+
+    expect(mockedSend).toHaveBeenCalledTimes(2);
+    expect(dispatches.map((d) => [d.leadId, d.stepOrder, d.status])).toEqual([
+      ['lead-1', 1, 'Sent'],
+      ['lead-2', 2, 'Sent'],
+    ]);
   });
 
-  it('does not send an enrollment the background worker is sending', async () => {
+  it('Send Step queues only the leads at the requested step', async () => {
+    addLead('lead-2');
+    waitAt('lead-1', 1);
+    waitAt('lead-2', 2);
+
+    const res = await run('?stepOrder=2');
+
+    expect(await res.json()).toEqual({ queued: 1 });
+    expect(enrollmentOf('lead-1').nextActionDate!.getTime()).toBeGreaterThan(Date.now());
+    expect(enrollmentOf('lead-2').nextActionDate!.getTime()).toBeLessThanOrEqual(Date.now());
+    expect(mockedSend).not.toHaveBeenCalled();
+  });
+
+  it('leaves a lead in soft-failure backoff at its retry time', async () => {
+    addLead('lead-2');
+    const retryAt = new Date(Date.now() + 3600000);
+    waitAt('lead-1', 1, retryAt, 1);
+    waitAt('lead-2', 1, PAST, 1); // its retry is already due
+
+    const res = await run();
+
+    expect(await res.json()).toEqual({ queued: 1 });
+    expect(enrollmentOf('lead-1').nextActionDate).toEqual(retryAt);
+    expect(enrollmentOf('lead-2').nextActionDate!.getTime()).toBeGreaterThan(PAST.getTime());
+  });
+
+  it.each<[string, () => void]>([
+    ['the lead unsubscribed', () => { leads.get('lead-1')!.status = 'Unsubscribed'; }],
+    ['the lead bounced', () => { leads.get('lead-1')!.status = 'Bounced'; }],
+    ['the lead was marked Invalid', () => { leads.get('lead-1')!.validationStatus = 'Invalid'; }],
+    ['the lead was archived', () => { leads.get('lead-1')!.isArchived = true; }],
+    ['a reply paused the enrollment', () => { enrollmentOf('lead-1').status = 'Paused'; }],
+    ['the enrollment Failed', () => { enrollmentOf('lead-1').status = 'Failed'; }],
+  ])('does not queue a lead when %s', async (_label, change) => {
+    const waitingUntil = FUTURE();
+    waitAt('lead-1', 1, waitingUntil);
+    change();
+
+    const res = await run();
+
+    expect(await res.json()).toEqual({ queued: 0 });
+    expect(enrollmentOf('lead-1').nextActionDate).toEqual(waitingUntil);
+  });
+
+  it.each(['Paused', 'Draft'])('returns 409 for a %s campaign and queues nothing', async (status) => {
+    campaign.status = status;
+    waitAt('lead-1', 1);
+
+    const res = await run();
+
+    expect(res.status).toBe(409);
+    expect((await res.json()).success).toBe(false);
+    expect(fake.campaignEnrollment.updateMany).not.toHaveBeenCalled();
+  });
+
+  it.each(['?stepOrder=7', '?stepOrder=abc'])('returns 400 for a step the campaign does not have (%s)', async (query) => {
+    const res = await run(query);
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ success: false, error: 'This campaign has no such step.' });
+    expect(fake.campaignEnrollment.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('leaves the send to the worker, which holds a queued lead until the sending window opens', async () => {
+    const today = new Date().toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'short' });
+    campaign.sendSchedule = {
+      days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].filter((d) => d !== today),
+      window: { start: '00:00', end: '23:59' },
+    };
+    waitAt('lead-1', 1);
+
+    expect(await (await run()).json()).toEqual({ queued: 1 });
+    await processDueEmails();
+
+    expect(mockedSend).not.toHaveBeenCalled();
+    expect(enrollmentOf('lead-1')).toMatchObject({ currentSequenceStep: 1, claimToken: null });
+  });
+
+  it('leaves the claim of an enrollment the background worker is sending', async () => {
     Object.assign(enrollmentOf('lead-1'), { claimToken: 'worker', claimedAt: new Date() });
     addDispatch({ status: 'Sending', stepOrder: 1 });
 
     const res = await run();
 
     expect(res.status).toBe(200);
-    expect((await res.json()).dispatchedCount).toBe(0);
     expect(mockedSend).not.toHaveBeenCalled();
     expect(enrollmentOf('lead-1')).toMatchObject({ currentSequenceStep: 1, claimToken: 'worker' });
   });
@@ -487,8 +582,8 @@ describe('a send ACS accepted is recorded, never failed or sent again (H4, H5)',
 
     // Once the claim expires, later passes find the step's dispatch in Sending and leave it alone.
     enrollmentOf('lead-1').claimedAt = new Date(Date.now() - SEND_CLAIM_TTL_MS - 1);
-    await processDueEmails();
     await run();
+    await processDueEmails();
     expect(mockedSend).toHaveBeenCalledTimes(1);
     expect(dispatches).toHaveLength(1);
   });
@@ -515,29 +610,6 @@ describe('a send ACS accepted is recorded, never failed or sent again (H4, H5)',
     });
   });
 
-  it('the manual run reports an accepted send as dispatched after a database error, and records it', async () => {
-    fake.$transaction.mockRejectedValueOnce(poolTimeout());
-
-    const res = await withFakeTimers(() => run());
-
-    expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ success: true, dispatchedCount: 1, errors: [] });
-    expect(mockedSend).toHaveBeenCalledTimes(1);
-    expect(mockedSend.mock.calls[0][0].operationId).toBe(dispatches[0].operationId);
-    expect(dispatches[0]).toMatchObject({ status: 'Sent', messageId: 'provider-msg-1' });
-    expect(campaign.status).toBe('Active');
-    expect(enrollmentOf('lead-1')).toMatchObject({ currentSequenceStep: 2, retryCount: 0, claimToken: null });
-  });
-
-  it('the manual run still classifies a send the provider refused', async () => {
-    mockedSend.mockRejectedValue(new Error('Connection timed out'));
-
-    const res = await run();
-
-    expect(await res.json()).toMatchObject({ success: false, dispatchedCount: 0, errors: [{ email: 'lead-1@prospect.test' }] });
-    expect(dispatches[0].status).toBe('Failed');
-    expect(enrollmentOf('lead-1')).toMatchObject({ currentSequenceStep: 1, retryCount: 1, claimToken: null });
-  });
 });
 
 describe('sends interrupted by a crash are reconciled with ACS (H6)', () => {
@@ -704,16 +776,6 @@ describe('sends interrupted by a crash are reconciled with ACS (H6)', () => {
     expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('Marked 1 interrupted dispatch(es)'));
 
     await processDueEmails();
-    expect(mockedSend).not.toHaveBeenCalled();
-    expect(enrollmentOf('lead-1')).toMatchObject({ currentSequenceStep: 2, claimToken: null });
-  });
-
-  it('the manual run advances past an Unknown step without sending it', async () => {
-    addDispatch({ status: 'Unknown', stepOrder: 1 });
-
-    const res = await run();
-
-    expect((await res.json()).dispatchedCount).toBe(0);
     expect(mockedSend).not.toHaveBeenCalled();
     expect(enrollmentOf('lead-1')).toMatchObject({ currentSequenceStep: 2, claimToken: null });
   });

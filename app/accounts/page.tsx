@@ -41,9 +41,9 @@ export default function AccountsPage() {
   const [globalRateLimitMinute, setGlobalRateLimitMinute] = useState(5);
   const [globalRateLimitHour, setGlobalRateLimitHour] = useState(100);
 
-  const totalSentToday = accounts.reduce((sum, a) => sum + (a.sentToday || 0), 0);
+  const totalSentLast24Hours = accounts.reduce((sum, a) => sum + (a.sentLast24Hours || 0), 0);
   const totalDailyLimit = accounts.reduce((sum, a) => sum + (a.dailyLimit || 0), 0);
-  const remainingCapacity = Math.max(0, totalDailyLimit - totalSentToday);
+  const remainingCapacity = Math.max(0, totalDailyLimit - totalSentLast24Hours);
 
   const [smtpHost, setSmtpHost] = useState('');
   const [smtpPort, setSmtpPort] = useState('');
@@ -337,7 +337,7 @@ export default function AccountsPage() {
                         <TableCell sx={{ fontFamily: 'monospace', fontSize: 12 }}>
                           {account.warmupEnabled ? (
                             <>
-                              <Box component="span" sx={{ color: 'warning.main', fontWeight: 700 }}>{account.effectiveDailyCap} today</Box>
+                              <Box component="span" sx={{ color: 'warning.main', fontWeight: 700 }}>{account.effectiveDailyCap} now</Box>
                               <Box component="span" sx={{ color: 'text.secondary' }}> / {account.dailyLimit}</Box>
                             </>
                           ) : (<>{account.dailyLimit} daily max</>)}
@@ -378,7 +378,7 @@ export default function AccountsPage() {
                   const startedAt = selectedWarmupAccount.warmupStartedAt ? new Date(selectedWarmupAccount.warmupStartedAt) : new Date();
                   const daysActive = Math.max(0, Math.floor((new Date().getTime() - startedAt.getTime()) / 86400000));
                   const effectiveCap = selectedWarmupAccount.effectiveDailyCap ?? selectedWarmupAccount.dailyLimit;
-                  return <Box component="span" sx={{ color: 'warning.main', fontWeight: 600 }}>Warmup Day {daysActive + 1} · Today's Cap: {effectiveCap} / {selectedWarmupAccount.dailyLimit} daily limit</Box>;
+                  return <Box component="span" sx={{ color: 'warning.main', fontWeight: 600 }}>Warmup Day {daysActive + 1} · Current Cap: {effectiveCap} / {selectedWarmupAccount.dailyLimit} daily limit</Box>;
                 })() : 'Configure sending rate limits, connection details, and credentials for this mailbox.'}
               </Typography>
             </Box>
@@ -522,7 +522,7 @@ export default function AccountsPage() {
                               <Box component="ul" sx={{ pl: 2, m: 0, fontSize: 11, color: 'warning.main' }}>
                                 <li>Started On: <Box component="strong" sx={{ fontFamily: 'monospace' }}>{selectedWarmupAccount.warmupStartedAt ? new Date(selectedWarmupAccount.warmupStartedAt).toLocaleDateString() : 'Just now'}</Box></li>
                                 <li>Lifetime Warmup Emails: <Box component="strong" sx={{ fontFamily: 'monospace' }}>{selectedWarmupAccount.warmupSent ?? 0}</Box></li>
-                                <li>Today's Effective Limit: <Box component="strong" sx={{ fontFamily: 'monospace' }}>{selectedWarmupAccount.effectiveDailyCap ?? selectedWarmupAccount.dailyLimit}</Box> emails</li>
+                                <li>Current Limit: <Box component="strong" sx={{ fontFamily: 'monospace' }}>{selectedWarmupAccount.effectiveDailyCap ?? selectedWarmupAccount.dailyLimit}</Box> emails per 24 hours</li>
                               </Box>
                             </Box>
                           </Stack>
@@ -627,9 +627,9 @@ export default function AccountsPage() {
                   <Box sx={{ mt: 2, pt: 2, borderTop: 1, borderColor: 'divider' }}>
                     <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                       <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Combined Daily Capacity</Typography>
-                      <Typography variant="caption" sx={{ fontWeight: 700, color: 'primary.main', fontFamily: 'monospace' }}>{totalSentToday} / {totalDailyLimit} sent today</Typography>
+                      <Typography variant="caption" sx={{ fontWeight: 700, color: 'primary.main', fontFamily: 'monospace' }}>{totalSentLast24Hours} / {totalDailyLimit} sent in the last 24 hours</Typography>
                     </Stack>
-                    <LinearProgress variant="determinate" value={Math.min(100, totalDailyLimit > 0 ? (totalSentToday / totalDailyLimit) * 100 : 0)} sx={{ height: 6, borderRadius: 999 }} />
+                    <LinearProgress variant="determinate" value={Math.min(100, totalDailyLimit > 0 ? (totalSentLast24Hours / totalDailyLimit) * 100 : 0)} sx={{ height: 6, borderRadius: 999 }} />
                     <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 1.5, mt: 2, p: 1.5, borderRadius: '12px', bgcolor: 'action.hover', border: 1, borderColor: 'divider', textAlign: 'center', fontSize: 10 }}>
                       <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Remaining</Typography><Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{remainingCapacity} / day</Typography></Box>
                       <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Mailboxes</Typography><Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{accounts.length}</Typography></Box>

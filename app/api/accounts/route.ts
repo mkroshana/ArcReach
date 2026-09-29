@@ -5,6 +5,7 @@ import { getSession } from '@/lib/session';
 import { MASKED_SECRET, encryptSecret } from '@/lib/secrets';
 import { getGlobalSettings } from '@/lib/settings';
 import { getVerifiedDomains, unverifiedSenderMessage } from '@/lib/azureDomains';
+import { senderCapDispatchWhere } from '@/lib/sendEngine';
 import { type FieldRule, fieldRules, isPlainObject, pickUpdateFields } from '@/lib/updateAllowList';
 
 /** Scalar columns the mailbox PUT may write: the throttle, warmup and credential
@@ -61,9 +62,7 @@ export async function GET() {
     // Fetch accounts with constraints. Admins see all, users only see theirs.
     const accounts = await db.getAccounts(session.id, session.role);
     
-    // Calculate emails sent today (since midnight) for each account
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
+    const now = new Date();
 
     const accountsWithStats = await Promise.all(accounts.map(async (account) => {
       const campaigns = await prisma.campaign.findMany({
@@ -87,11 +86,10 @@ export async function GET() {
         ]
       };
 
-      const sentToday = await prisma.emailDispatch.count({
-        where: {
-          ...dispatchWhereClause,
-          sentAt: { gte: startOfToday }
-        }
+      // Counted as the send engine counts the mailbox's daily and warmup cap:
+      // sends in the last 24 hours, not since midnight, and never Failed ones.
+      const sentLast24Hours = await prisma.emailDispatch.count({
+        where: senderCapDispatchWhere(account.id, now)
       });
 
       const sentTotal = await prisma.emailDispatch.count({
@@ -143,7 +141,6 @@ export async function GET() {
       const replyRate = sentTotal > 0 ? Number(((replies / sentTotal) * 100).toFixed(1)) : 0;
 
       // Calculate effectiveDailyCap
-      const now = new Date();
       let effectiveDailyCap = account.dailyLimit;
       if (account.warmupEnabled && account.warmupStartedAt) {
         const startedAt = new Date(account.warmupStartedAt);
@@ -154,7 +151,7 @@ export async function GET() {
 
       return {
         ...redactAccount(account),
-        sentToday,
+        sentLast24Hours,
         sentTotal,
         delivered,
         opens,

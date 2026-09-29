@@ -43,7 +43,7 @@ import { getSession } from '../../lib/session';
 import { getGlobalSettings } from '../../lib/settings';
 import { checkGlobalRateLimits } from '../../lib/rateLimits';
 import { sendMessage, getAzureSendStatus } from '../../lib/emailProvider';
-import { processDueEmails, BOOKKEEPING_RETRIES, MAX_SEND_ATTEMPTS } from '../../lib/sendEngine';
+import { processDueEmails, BOOKKEEPING_RETRIES, MAX_SEND_ATTEMPTS, SENDER_CAP_WINDOW_MS } from '../../lib/sendEngine';
 import { SEND_CLAIM_TTL_MS, claimEnrollmentForSend, releaseEnrollmentClaim, sendableEnrollmentWhere } from '../../lib/sendEligibility';
 import { reconcileStaleSendingDispatches, STALE_SENDING_MS, NOT_FOUND_RETRY_MAX_AGE_MS, RECONCILE_BATCH } from '../../lib/sendReconciler';
 import { POST as postRun } from '../../app/api/campaigns/[id]/run/route';
@@ -105,6 +105,7 @@ function matchesValue(value: any, cond: any): boolean {
   if ('not' in cond) return value !== cond.not;
   if ('lt' in cond) return value !== null && value < cond.lt;
   if ('lte' in cond) return value !== null && value <= cond.lte;
+  if ('gt' in cond) return value !== null && value > cond.gt;
   if ('gte' in cond) return value !== null && value >= cond.gte;
   if ('some' in cond && Object.keys(cond.some).length === 0) return value.length > 0;
   throw new Error(`Unmodelled filter: ${JSON.stringify(cond)}`);
@@ -225,9 +226,16 @@ beforeEach(() => {
     return { count: hit.length };
   });
   fake.senderAccount.updateMany.mockResolvedValue({ count: 1 });
-  fake.emailDispatch.findFirst.mockImplementation(async ({ where }: any) => {
-    const row = dispatches.find((d) => matchesFields(d, where));
-    return row ? { id: row.id } : null;
+  // The step idempotency guard's lookup, and the sender-cap one ordered by sentAt.
+  fake.emailDispatch.findFirst.mockImplementation(async ({ where, orderBy, skip = 0 }: any) => {
+    const hits = dispatches.filter((d) => matchesFields(d, where));
+    if (orderBy) {
+      if (Object.keys(orderBy).join() !== 'sentAt') throw new Error(`Unmodelled orderBy: ${JSON.stringify(orderBy)}`);
+      const direction = orderBy.sentAt === 'desc' ? -1 : 1;
+      hits.sort((x, y) => direction * (x.sentAt.getTime() - y.sentAt.getTime()));
+    }
+    const row = hits[skip];
+    return row ? { id: row.id, sentAt: row.sentAt } : null;
   });
   // The reconciler's stale-dispatch query, with the relations it selects.
   fake.emailDispatch.findMany.mockImplementation(async ({ where, take }: any) =>
@@ -1225,5 +1233,105 @@ describe('the next step is dated from the send, even when the cycle crosses midn
     expect(enrollmentOf('lead-1')).toMatchObject({
       currentSequenceStep: 2, nextActionDate: WAIT_DAYS_LATER, retryCount: 0, lastError: null, claimToken: null,
     });
+  });
+});
+
+describe('per-mailbox caps count real sends over a rolling 24 hours (M10, M11)', () => {
+  const HOUR = 3600000;
+  // A server clock half an hour past midnight UTC, which reset the old count.
+  const NOW = new Date('2026-03-11T00:30:00Z');
+  const ago = (ms: number) => new Date(NOW.getTime() - ms);
+  const SECOND_SENDER = { ...SENDER, id: 'mb-2', emailAddress: 'two@acme.test', name: 'Two' };
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOW);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('does not count Failed attempts toward the cap', async () => {
+    campaign.senderAccount = { ...SENDER, dailyLimit: 2 };
+    addDispatch({ status: 'Failed', leadId: 'lead-other', sentAt: ago(HOUR) });
+    addDispatch({ status: 'Failed', leadId: 'lead-other', sentAt: ago(2 * HOUR) });
+
+    await processDueEmails();
+
+    expect(mockedSend).toHaveBeenCalledTimes(1);
+    expect(enrollmentOf('lead-1').currentSequenceStep).toBe(2);
+  });
+
+  it('keeps counting sends made before midnight, and defers to when the oldest leaves the window, not to midnight', async () => {
+    campaign.senderAccount = { ...SENDER, dailyLimit: 2 };
+    addDispatch({ status: 'Sent', leadId: 'lead-other', sentAt: ago(7 * HOUR) });
+    addDispatch({ status: 'Sent', leadId: 'lead-other', sentAt: ago(3 * HOUR) });
+    addLead('lead-2');
+    addLead('lead-3');
+
+    await processDueEmails();
+
+    expect(mockedSend).not.toHaveBeenCalled();
+    for (const leadId of ['lead-1', 'lead-2', 'lead-3']) {
+      expect(enrollmentOf(leadId)).toMatchObject({ currentSequenceStep: 1, nextActionDate: new Date(ago(7 * HOUR).getTime() + SENDER_CAP_WINDOW_MS) });
+    }
+    // Looked up once for the mailbox, not once per deferred lead.
+    expect(fake.emailDispatch.findFirst.mock.calls.filter(([args]: any) => args.orderBy)).toHaveLength(1);
+  });
+
+  it('stops counting a send exactly 24 hours after it was made', async () => {
+    campaign.senderAccount = { ...SENDER, dailyLimit: 1 };
+    addDispatch({ status: 'Sent', leadId: 'lead-other', sentAt: ago(SENDER_CAP_WINDOW_MS) });
+
+    await processDueEmails();
+
+    expect(mockedSend).toHaveBeenCalledTimes(1);
+  });
+
+  it('defers until enough sends leave the window to drop under a warmup cap already exceeded', async () => {
+    campaign.senderAccount = { ...SENDER, warmupEnabled: true, warmupStartedAt: ago(HOUR), warmupLimit: 2, warmupRamp: 5 };
+    addDispatch({ status: 'Sent', leadId: 'lead-other', sentAt: ago(20 * HOUR) });
+    addDispatch({ status: 'Unknown', leadId: 'lead-other', sentAt: ago(10 * HOUR) });
+    addDispatch({ status: 'Sending', leadId: 'lead-other', sentAt: ago(HOUR) });
+    addDispatch({ status: 'Failed', leadId: 'lead-other', sentAt: ago(HOUR / 2) });
+
+    await processDueEmails();
+
+    // Three count against a cap of 2: under it once the 10-hour-old send leaves too.
+    expect(mockedSend).not.toHaveBeenCalled();
+    expect(enrollmentOf('lead-1').nextActionDate).toEqual(new Date(ago(10 * HOUR).getTime() + SENDER_CAP_WINDOW_MS));
+  });
+
+  it('defers a pool to the first mailbox that frees up, then sends from it', async () => {
+    campaign.senderAccount = { ...SENDER, dailyLimit: 1 };
+    campaign.senders = [
+      { senderAccountId: 'mb-1', senderAccount: { ...SENDER, dailyLimit: 1 } },
+      { senderAccountId: 'mb-2', senderAccount: { ...SECOND_SENDER, dailyLimit: 1 } },
+    ];
+    addDispatch({ status: 'Sent', leadId: 'lead-other', senderAccountId: 'mb-1', sentAt: ago(2 * HOUR) });
+    addDispatch({ status: 'Sent', leadId: 'lead-other', senderAccountId: 'mb-2', sentAt: ago(20 * HOUR) });
+
+    await processDueEmails();
+
+    const freesAt = new Date(ago(20 * HOUR).getTime() + SENDER_CAP_WINDOW_MS);
+    expect(mockedSend).not.toHaveBeenCalled();
+    expect(enrollmentOf('lead-1').nextActionDate).toEqual(freesAt);
+
+    vi.setSystemTime(freesAt);
+    await processDueEmails();
+
+    expect(mockedSend).toHaveBeenCalledTimes(1);
+    expect(mockedSend).toHaveBeenCalledWith(expect.objectContaining({ sender: expect.objectContaining({ id: 'mb-2' }) }), expect.anything());
+    expect(dispatches.at(-1)).toMatchObject({ leadId: 'lead-1', senderAccountId: 'mb-2', status: 'Sent' });
+  });
+
+  it('checks again in a day when every cap is 0', async () => {
+    campaign.senderAccount = { ...SENDER, dailyLimit: 0 };
+
+    await processDueEmails();
+
+    expect(mockedSend).not.toHaveBeenCalled();
+    expect(enrollmentOf('lead-1').nextActionDate).toEqual(new Date(NOW.getTime() + SENDER_CAP_WINDOW_MS));
   });
 });

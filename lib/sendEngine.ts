@@ -82,6 +82,63 @@ export function getEffectiveDailyCap(
   return Math.min(senderAccount.dailyLimit, currentCap);
 }
 
+/** A mailbox's daily and warmup caps limit its sends in any rolling 24 hours, not per calendar day. */
+export const SENDER_CAP_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The dispatches a mailbox's daily and warmup caps count: its sends in the 24
+ * hours before `now` that are in flight ('Sending'), accepted ('Sent') or
+ * never confirmed ('Unknown'). A 'Failed' attempt sent nothing and does not
+ * count. Each send stops counting exactly 24 hours after it was made.
+ */
+export function senderCapDispatchWhere(senderAccountId: string, now: Date): Prisma.EmailDispatchWhereInput {
+  return {
+    senderAccountId,
+    status: { in: ['Sending', 'Sent', 'Unknown'] },
+    sentAt: { gt: new Date(now.getTime() - SENDER_CAP_WINDOW_MS) },
+  };
+}
+
+/**
+ * When a mailbox at its cap can send again: once its cap-th newest counted
+ * send leaves the 24-hour window, fewer than cap sends remain in it. `now`
+ * when fewer than cap sends count (it is under its cap already), and null for
+ * a cap of 0, which no send leaving the window lifts.
+ */
+async function senderCapacityFreesAt(
+  sender: Parameters<typeof getEffectiveDailyCap>[0] & { id: string },
+  now: Date
+): Promise<Date | null> {
+  const cap = getEffectiveDailyCap(sender, now);
+  if (cap <= 0) return null;
+  const capthNewest = await prisma.emailDispatch.findFirst({
+    where: senderCapDispatchWhere(sender.id, now),
+    orderBy: { sentAt: 'desc' },
+    skip: cap - 1,
+    select: { sentAt: true },
+  });
+  return capthNewest ? new Date(capthNewest.sentAt.getTime() + SENDER_CAP_WINDOW_MS) : now;
+}
+
+/**
+ * When the first mailbox in a pool that is at its caps can send again, or null
+ * when no send leaving the window frees any of them. Each mailbox is looked up
+ * once per cycle through `cache`: at its cap, it sends nothing more that cycle.
+ */
+async function poolCapacityFreesAt(
+  pool: Array<any>,
+  now: Date,
+  cache: Map<string, Date | null>
+): Promise<Date | null> {
+  let earliest: Date | null = null;
+  for (const sender of pool) {
+    if (!cache.has(sender.id)) cache.set(sender.id, await senderCapacityFreesAt(sender, now));
+    const freesAt = cache.get(sender.id) ?? null;
+    if (freesAt && (!earliest || freesAt < earliest)) earliest = freesAt;
+  }
+  return earliest;
+}
+
 /**
  * Resolves the pool of senders for a campaign, defaulting to the primary sender if pool is empty.
  */
@@ -96,12 +153,13 @@ export function resolveCampaignSenders(campaign: {
 }
 
 /**
- * Picks the sender with the maximum remaining daily capacity (least-loaded under cap).
+ * Picks the sender with the maximum remaining capacity under its cap over the
+ * last 24 hours (least-loaded under cap).
  * Returns null if all senders in the pool are at cap.
  */
 export function pickSender(
   pool: Array<any>,
-  sentToday: Map<string, number>,
+  sentLast24Hours: Map<string, number>,
   now: Date
 ): any | null {
   let selectedSender: any | null = null;
@@ -109,7 +167,7 @@ export function pickSender(
 
   for (const sender of pool) {
     const cap = getEffectiveDailyCap(sender, now);
-    const sent = sentToday.get(sender.id) || 0;
+    const sent = sentLast24Hours.get(sender.id) || 0;
     const remaining = cap - sent;
 
     if (remaining > 0 && remaining > maxRemaining) {
@@ -642,7 +700,7 @@ export async function processDueEmails() {
     });
     const campaignMap = new Map(dueCampaigns.map((c) => [c.id, c]));
 
-    // Build map of sent counts today for each unique sender in the batch
+    // Build map of sent counts over the last 24 hours for each unique sender in the batch
     const senderIds = new Set<string>();
     for (const campaign of dueCampaigns) {
       if (campaign.senderAccountId) {
@@ -657,24 +715,17 @@ export async function processDueEmails() {
       }
     }
 
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
-
     // Sends still in flight ('Sending') or never confirmed ('Unknown') count
-    // toward the cap as well as 'Sent' ones.
-    const senderSentToday = new Map<string, number>();
+    // toward the cap as well as 'Sent' ones; 'Failed' attempts do not.
+    const senderSentLast24Hours = new Map<string, number>();
     for (const senderId of senderIds) {
       const count = await prisma.emailDispatch.count({
-        where: {
-          senderAccountId: senderId,
-          status: { in: ['Sending', 'Sent', 'Unknown'] },
-          sentAt: {
-            gte: startOfToday
-          }
-        }
+        where: senderCapDispatchWhere(senderId, now)
       });
-      senderSentToday.set(senderId, count);
+      senderSentLast24Hours.set(senderId, count);
     }
+    // When each mailbox found at its cap this cycle can send again.
+    const senderCapacityFreesAtCache = new Map<string, Date | null>();
 
     // 2. Validate global rate limits before processing any sends
     const rateCheck = await checkGlobalRateLimits();
@@ -697,16 +748,17 @@ export async function processDueEmails() {
 
       // Resolve the pool and pick a sender per send (least-loaded under cap)
       const senderPool = resolveCampaignSenders(campaign);
-      const chosenSender = pickSender(senderPool, senderSentToday, now);
+      const chosenSender = pickSender(senderPool, senderSentLast24Hours, now);
 
       if (!chosenSender) {
-        console.log(`[SendEngine] All senders in pool for campaign "${campaign.name}" are at cap. Deferring lead ${lead.email} to tomorrow.`);
-        const nextDay = new Date();
-        nextDay.setDate(nextDay.getDate() + 1);
-        nextDay.setHours(0, 0, 0, 0);
+        // Wait until the first mailbox in the pool drops under its cap as its
+        // sends leave the 24-hour window; with every cap at 0, check in a day.
+        const freesAt = await poolCapacityFreesAt(senderPool, now, senderCapacityFreesAtCache);
+        const deferUntil = freesAt ?? new Date(now.getTime() + SENDER_CAP_WINDOW_MS);
+        console.log(`[SendEngine] All senders in pool for campaign "${campaign.name}" are at cap. Deferring lead ${lead.email} until ${deferUntil.toISOString()}.`);
         await prisma.campaignEnrollment.update({
           where: { id: enrollment.id },
-          data: { nextActionDate: nextDay }
+          data: { nextActionDate: deferUntil }
         });
         continue;
       }
@@ -870,7 +922,7 @@ export async function processDueEmails() {
       });
 
       // Update local sent count tracking
-      senderSentToday.set(chosenSender.id, (senderSentToday.get(chosenSender.id) || 0) + 1);
+      senderSentLast24Hours.set(chosenSender.id, (senderSentLast24Hours.get(chosenSender.id) || 0) + 1);
     }
 
     console.log('[SendEngine] Cycle completed.');

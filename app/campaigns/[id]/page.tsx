@@ -672,7 +672,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                                 </Stack>
                                 <Stack direction="row" spacing={2} sx={{ mt: 0.5, color: 'text.secondary', fontSize: 10 }}>
                                   <span>Provider: <Box component="strong" sx={{ color: 'text.primary' }}>{mailbox.provider}</Box></span>
-                                  <span>Today: <Box component="strong">{mailbox.sentToday} / {mailbox.effectiveDailyCap}</Box></span>
+                                  <span>Last 24 Hours: <Box component="strong">{mailbox.sentLast24Hours} / {mailbox.effectiveDailyCap}</Box></span>
                                   <span>Total: <Box component="strong">{mailbox.sentTotal}</Box></span>
                                 </Stack>
                               </Box>

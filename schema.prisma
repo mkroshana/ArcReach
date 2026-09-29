@@ -330,6 +330,17 @@ model EmailDispatch {
   stepOrder   Int?
   // Set by the Azure delivery webhook when the message is confirmed delivered.
   deliveredAt DateTime?
+  // Status of the last ACS delivery report for this message (Delivered,
+  // Expanded, Bounced, Suppressed, Quarantined, FilteredSpam or Failed), set by
+  // the Azure delivery webhook (lib/deliveryReport.ts).
+  deliveryStatus String?
+  // When a delivery report said the message bounced, and how: 'hard' (Bounced,
+  // Suppressed or a permanent Failed; the address is suppressed) or 'soft' (any
+  // other Failed). A bounce is final: later reports never overwrite it, except
+  // a hard bounce replacing a soft one. Bounced metrics count 'hard' rows by
+  // the dispatch's campaign and sender, whatever its enrollment's status since.
+  bouncedAt   DateTime?
+  bounceType  String?
 
   events      EmailEvent[]
 

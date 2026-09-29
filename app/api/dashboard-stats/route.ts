@@ -105,11 +105,14 @@ export async function GET(req: NextRequest) {
       }
     });
 
-    const bouncedCount = await prisma.campaignEnrollment.count({
-      where: { 
-        ...enrollmentWhere, 
-        status: 'Bounced',
-        enrolledAt: { gte: startOfCurrentPeriod, lte: now }
+    // Hard bounces the Azure delivery webhook reported in this period, counted
+    // on the dispatch by the campaign that sent it, so a bounce of a last step
+    // (whose enrollment is already Completed) counts too.
+    const bouncedCount = await prisma.emailDispatch.count({
+      where: {
+        ...(session.role !== 'ADMIN' ? { campaign: { userId: session.id } } : {}),
+        bounceType: 'hard',
+        bouncedAt: { gte: startOfCurrentPeriod, lte: now }
       }
     });
 

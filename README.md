@@ -84,6 +84,14 @@ Each outbound email writes an `EmailDispatch` row. To keep the campaign metrics
   queues leads that are due or that the campaign has not emailed yet, never a
   follow-up before its wait days pass; Send Step queues every lead at its step.
 - `deliveredAt` is stamped by the Azure delivery webhook for the "Delivered" metric.
+  The webhook records every ACS delivery status in `deliveryStatus`. Bounced and
+  Suppressed, and a Failed whose reason names a bad address (5.1.x, "user
+  unknown"), are hard bounces: `bounceType` `hard` with `bouncedAt`, and the
+  address goes on the suppression list. Any other Failed is a soft bounce that
+  leaves the lead mailable. The Bounced metrics on the dashboard, campaign and
+  Accounts pages count hard-bounced dispatches. The webhook answers 500 when an
+  event fails so Event Grid redelivers it, and 200 for a message it has no
+  dispatch for.
 
 The send engine enforces the dedup guard automatically, so under
 normal operation no manual cleanup is required. The one-off maintenance script

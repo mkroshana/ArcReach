@@ -65,12 +65,6 @@ export async function GET() {
     const now = new Date();
 
     const accountsWithStats = await Promise.all(accounts.map(async (account) => {
-      const campaigns = await prisma.campaign.findMany({
-        where: { senderAccountId: account.id },
-        select: { id: true }
-      });
-      const campaignIds = campaigns.map(c => c.id);
-
       const dispatchWhereClause = {
         // A 'Sending' row has not been accepted by the provider yet, and an
         // 'Unknown' one was never confirmed sent.
@@ -126,10 +120,11 @@ export async function GET() {
         where: { senderAccountId: account.id }
       });
 
-      const bounced = await prisma.campaignEnrollment.count({
+      // Hard bounces the Azure delivery webhook reported on this mailbox's sends.
+      const bounced = await prisma.emailDispatch.count({
         where: {
-          campaignId: { in: campaignIds },
-          status: 'Bounced'
+          ...dispatchWhereClause,
+          bounceType: 'hard'
         }
       });
 

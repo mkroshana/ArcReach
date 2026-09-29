@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/db';
-import { suppressEmail } from '@/lib/suppression';
+import { applyDeliveryReport, findReportedDispatch, reportedAt } from '@/lib/deliveryReport';
 import crypto from 'crypto';
 
 const SECRET_HEADER = 'x-arcreach-webhook-secret';
@@ -35,6 +34,10 @@ export async function POST(req: NextRequest) {
     }
 
     const events = await req.json();
+    // Events that could not be processed. Any at all fails the response, so
+    // Event Grid redelivers the batch with backoff; the events that were
+    // applied change nothing the second time (see applyDeliveryReport).
+    let failed = 0;
 
     for (const event of events) {
       try {
@@ -46,7 +49,7 @@ export async function POST(req: NextRequest) {
         const data = event.data || {};
         const rawMessageId = data.messageId || data.messageid;
 
-        if (!rawMessageId) continue;
+        if (typeof rawMessageId !== 'string' || !rawMessageId.trim()) continue;
 
         // Clean message ID of any wrapping angle brackets and whitespace
         let messageId = rawMessageId.trim();
@@ -54,72 +57,34 @@ export async function POST(req: NextRequest) {
           messageId = messageId.slice(1, -1).trim();
         }
 
-        // Find the email dispatch linked to the messageId (with case-insensitive fallback)
-        let dispatch = await prisma.emailDispatch.findUnique({
-          where: { messageId }
-        });
+        // ACS reports under the send's Operation-Id, stored on campaign sends before the provider call.
+        const dispatch = await findReportedDispatch(messageId);
 
         if (!dispatch) {
-          dispatch = await prisma.emailDispatch.findFirst({
-            where: {
-              messageId: {
-                equals: messageId,
-                mode: 'insensitive'
-              }
-            }
-          });
-        }
-
-        if (!dispatch) {
-          console.log(`[Webhook] Dispatch log not found for Message ID: ${messageId}`);
+          // Acknowledged, not retried. A campaign send's dispatch holds its
+          // operation id before the email leaves, so a report for it cannot
+          // arrive first; an unknown id is mail this app did not send (another
+          // sender on the same ACS resource) or a dispatch deleted with its
+          // lead, and no retry will find it. Failing it would only keep Event
+          // Grid redelivering the batch for 24 hours and delay the reports
+          // behind it. Only a Unibox reply or mailbox test, recorded once ACS
+          // accepted it, could in theory be reported in the moment before its
+          // row is written.
+          console.warn(`[Webhook] No dispatch for message ${messageId} (${event.eventType}); acknowledged without changes.`);
           continue;
         }
 
         // Process Communication Services Events
         switch (event.eventType) {
-          case 'Microsoft.Communication.EmailDeliveryReportReceived':
-            console.log('Delivery Report Received:', data);
-            const status = data.status; // "Delivered" or "Failed" (Bounce)
-
-            if (status === 'Delivered') {
-              // Record the confirmed-delivery timestamp for accurate "Delivered" metrics.
-              await prisma.emailDispatch.update({
-                where: { id: dispatch.id },
-                data: { deliveredAt: new Date() },
-              });
-            } else if (status === 'Failed') {
-              // A mailbox test send went to the testing user, so there is no lead to mark
-              if (dispatch.leadId) {
-                // Update Lead: mark as Bounced + Invalid deliverability
-                const bouncedLead = await prisma.lead.update({
-                  where: { id: dispatch.leadId },
-                  data: {
-                    status: 'Bounced',
-                    validationStatus: 'Invalid',
-                  }
-                });
-                // The suppression list outlives the lead, so the address is never mailed again
-                await suppressEmail(prisma, bouncedLead.email, 'HardBounce', 'delivery-webhook');
-                // Update active enrollments to Bounced
-                await prisma.campaignEnrollment.updateMany({
-                  where: { leadId: dispatch.leadId, status: 'Active' },
-                  data: {
-                    status: 'Bounced',
-                    nextActionDate: null,
-                    lastError: 'Azure webhook delivery report: Failed',
-                    lastBounceType: 'hard'
-                  }
-                });
-              }
-              // Create an audit trail EmailEvent for the bounce
-              await prisma.emailEvent.create({
-                data: {
-                  messageId: dispatch.messageId,
-                  eventType: 'bounce',
-                }
-              });
-            }
+          case 'Microsoft.Communication.EmailDeliveryReportReceived': {
+            const statusMessage = data.deliveryStatusDetails?.statusMessage;
+            await applyDeliveryReport(dispatch, {
+              status: data.status,
+              statusMessage: typeof statusMessage === 'string' ? statusMessage : null,
+              at: reportedAt(data.deliveryAttemptTimeStamp, event.eventTime),
+            });
             break;
+          }
 
           case 'Microsoft.Communication.EmailEngagementTrackingReportReceived':
             console.log('[Webhook] EmailEngagementTrackingReportReceived case ignored to prevent double-tracking. Self-hosted endpoints serve as the single source of truth.', data);
@@ -129,10 +94,14 @@ export async function POST(req: NextRequest) {
             console.log('Unhandled event type:', event.eventType);
         }
       } catch (err: any) {
+        failed++;
         console.error(`[Webhook] Error processing individual Event Grid event:`, err);
       }
     }
 
+    if (failed > 0) {
+      return NextResponse.json({ status: 'error', failed }, { status: 500 });
+    }
     return NextResponse.json({ status: 'success' }, { status: 200 });
   } catch (error: any) {
     console.error('Webhook processing error:', error);

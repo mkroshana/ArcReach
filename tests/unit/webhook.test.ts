@@ -7,6 +7,7 @@ vi.mock('../../lib/db', () => ({
     lead: { update: vi.fn() },
     campaignEnrollment: { updateMany: vi.fn() },
     emailEvent: { create: vi.fn() },
+    suppressedEmail: { createMany: vi.fn() },
   },
 }));
 
@@ -86,6 +87,7 @@ describe('webhook delivery report for a mailbox test send (L3)', () => {
     vi.clearAllMocks();
     vi.spyOn(console, 'log').mockImplementation(() => {});
     process.env.WEBHOOK_SECRET = 'test-secret-value';
+    mockedPrisma.suppressedEmail.createMany.mockResolvedValue({ count: 1 });
   });
   afterEach(() => {
     vi.restoreAllMocks();
@@ -99,12 +101,14 @@ describe('webhook delivery report for a mailbox test send (L3)', () => {
     const res = await failedReport('op-test');
     expect(res.status).toBe(200);
     expect(mockedPrisma.lead.update).not.toHaveBeenCalled();
+    expect(mockedPrisma.suppressedEmail.createMany).not.toHaveBeenCalled();
     expect(mockedPrisma.campaignEnrollment.updateMany).not.toHaveBeenCalled();
     expect(mockedPrisma.emailEvent.create).toHaveBeenCalledWith({ data: { messageId: 'op-test', eventType: 'bounce' } });
   });
 
   it('still marks the lead and its enrollments Bounced for a dispatch to a lead', async () => {
     mockedPrisma.emailDispatch.findUnique.mockResolvedValue({ id: 'd-1', messageId: 'op-1', leadId: 'lead-1' });
+    mockedPrisma.lead.update.mockResolvedValue({ id: 'lead-1', email: 'jane@example.com' });
 
     expect((await failedReport('op-1')).status).toBe(200);
     expect(mockedPrisma.lead.update).toHaveBeenCalledWith({
@@ -114,5 +118,10 @@ describe('webhook delivery report for a mailbox test send (L3)', () => {
       expect.objectContaining({ where: { leadId: 'lead-1', status: 'Active' } }),
     );
     expect(mockedPrisma.emailEvent.create).toHaveBeenCalledTimes(1);
+    // The address stays suppressed if the lead is deleted and imported again (H18).
+    expect(mockedPrisma.suppressedEmail.createMany).toHaveBeenCalledWith({
+      data: [{ email: 'jane@example.com', reason: 'HardBounce', source: 'delivery-webhook' }],
+      skipDuplicates: true,
+    });
   });
 });

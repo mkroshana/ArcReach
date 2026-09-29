@@ -15,6 +15,7 @@ const fake = vi.hoisted(() => {
     lead: model(),
     leadGroup: model(),
     senderAccount: model(),
+    suppressedEmail: model(),
     $transaction: vi.fn(),
   };
 });
@@ -46,7 +47,11 @@ const CAMPAIGN = {
 };
 
 /** Leads later imported into group g1 for a different campaign. */
-const GROUP_LEADS = [{ id: 'lead-1' }, { id: 'lead-2' }, { id: 'lead-3' }];
+const GROUP_LEADS = [
+  { id: 'lead-1', email: 'lead-1@example.com' },
+  { id: 'lead-2', email: 'lead-2@example.com' },
+  { id: 'lead-3', email: 'lead-3@example.com' },
+];
 
 const params = { params: Promise.resolve({ id: 'cmp-1' }) };
 
@@ -83,14 +88,15 @@ function expectEnrolled(createMany: any, campaignId: string) {
 beforeEach(() => {
   vi.resetAllMocks();
   mockedSession.mockResolvedValue(USER);
-  for (const model of [fake.campaignEnrollment, fake.emailDispatch, fake.inboundResponse, fake.lead]) {
+  for (const model of [fake.campaignEnrollment, fake.emailDispatch, fake.inboundResponse, fake.lead, fake.suppressedEmail]) {
     model.count.mockResolvedValue(0);
     model.groupBy.mockResolvedValue([]);
     model.findMany.mockResolvedValue([]);
   }
   fake.campaign.findUnique.mockResolvedValue(CAMPAIGN);
+  // Enrollment reads the cohort's leads that may be emailed: the cohort filter AND the sendable one.
   fake.lead.findMany.mockImplementation(async ({ where }: any) =>
-    where.groups?.some?.groupId === 'g1' ? GROUP_LEADS : [],
+    where.AND?.some((w: any) => w.groups?.some?.groupId === 'g1') ? GROUP_LEADS : [],
   );
   fake.senderAccount.findMany.mockImplementation(async ({ where }: any) =>
     where.id.in.map((id: string) => ({ id })),

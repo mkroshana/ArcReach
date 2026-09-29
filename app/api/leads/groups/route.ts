@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
+import { deleteLeads } from '@/lib/leadDelete';
 
 /** Campaign names the in-use 409 spells out; any beyond this are only counted, so the toast stays readable. */
 const MAX_LISTED_CAMPAIGNS = 5;
@@ -106,10 +107,8 @@ export async function DELETE(req: NextRequest) {
 
     if (leadIds.length > 0) {
       if (leadAction === 'DELETE') {
-        // Delete all leads associated with this group
-        await prisma.lead.deleteMany({
-          where: { id: { in: leadIds } }
-        });
+        // Delete all leads associated with this group, keeping the ids of emailed ones for their unsubscribe links
+        await deleteLeads(prisma, { id: { in: leadIds } });
       } else if (leadAction === 'MOVE' && targetGroupId) {
         // Transfer memberships to the target group, skipping duplicates
         await prisma.leadGroupMembership.createMany({

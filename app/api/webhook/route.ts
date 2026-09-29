@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { suppressEmail } from '@/lib/suppression';
 import crypto from 'crypto';
 
 const SECRET_HEADER = 'x-arcreach-webhook-secret';
@@ -90,13 +91,15 @@ export async function POST(req: NextRequest) {
               // A mailbox test send went to the testing user, so there is no lead to mark
               if (dispatch.leadId) {
                 // Update Lead: mark as Bounced + Invalid deliverability
-                await prisma.lead.update({
+                const bouncedLead = await prisma.lead.update({
                   where: { id: dispatch.leadId },
                   data: {
                     status: 'Bounced',
                     validationStatus: 'Invalid',
                   }
                 });
+                // The suppression list outlives the lead, so the address is never mailed again
+                await suppressEmail(prisma, bouncedLead.email, 'HardBounce', 'delivery-webhook');
                 // Update active enrollments to Bounced
                 await prisma.campaignEnrollment.updateMany({
                   where: { leadId: dispatch.leadId, status: 'Active' },

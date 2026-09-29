@@ -3,9 +3,11 @@ import { NextRequest } from 'next/server';
 
 vi.mock('../../lib/db', () => ({
   prisma: {
-    lead: { findUnique: vi.fn(), update: vi.fn() },
+    lead: { findUnique: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
     leadAlias: { findUnique: vi.fn() },
+    deletedLead: { findUnique: vi.fn() },
     campaignEnrollment: { updateMany: vi.fn() },
+    suppressedEmail: { createMany: vi.fn() },
   },
 }));
 
@@ -21,6 +23,7 @@ function makeReq(query: string): NextRequest {
 describe('unsubscribe GET page', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocked.suppressedEmail.createMany.mockResolvedValue({ count: 1 });
   });
 
   it('HTML-escapes the lead email so stored markup cannot run (M49)', async () => {
@@ -58,9 +61,11 @@ describe('unsubscribe GET page', () => {
 
     mocked.lead.findUnique.mockResolvedValue(null);
     mocked.leadAlias.findUnique.mockResolvedValue(null);
+    mocked.deletedLead.findUnique.mockResolvedValue(null);
     const notFound = await GET(makeReq('?id=nope'));
     expect(notFound.status).toBe(404);
     expect(notFound.headers.get('content-security-policy')).toContain("default-src 'none'");
+    expect(mocked.suppressedEmail.createMany).not.toHaveBeenCalled();
   });
 
   it('unsubscribes the kept lead when the link carries the id of a lead merged into it (H31)', async () => {
@@ -75,5 +80,37 @@ describe('unsubscribe GET page', () => {
       where: { leadId: 'lead-kept', status: 'Active' },
       data: { status: 'Paused', nextActionDate: null },
     });
+  });
+
+  it.each([
+    ['a subscribed lead', 'Neutral'],
+    ['a lead already Unsubscribed before the suppression list existed', 'Unsubscribed'],
+  ])('puts the normalised address of %s on the suppression list (H18)', async (_label, status) => {
+    mocked.lead.findUnique.mockResolvedValue({ id: 'lead-1', email: ' Jane@Example.com', status });
+
+    const res = await GET(makeReq('?id=lead-1'));
+    expect(res.status).toBe(200);
+    expect(mocked.suppressedEmail.createMany).toHaveBeenCalledWith({
+      data: [{ email: 'jane@example.com', reason: 'Unsubscribed', source: 'unsubscribe-link' }],
+      skipDuplicates: true,
+    });
+  });
+
+  it('suppresses the address of a deleted lead whose link is clicked, with no lead left to update (H18)', async () => {
+    mocked.lead.findUnique.mockResolvedValue(null);
+    mocked.leadAlias.findUnique.mockResolvedValue(null);
+    mocked.deletedLead.findUnique.mockResolvedValue({ id: 'lead-gone', email: 'jane@example.com' });
+    mocked.lead.findFirst.mockResolvedValue(null);
+
+    const res = await GET(makeReq('?id=lead-gone'));
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('<strong>jane@example.com</strong> has been removed');
+    expect(mocked.lead.findFirst).toHaveBeenCalledWith({ where: { email: { in: ['jane@example.com'], mode: 'insensitive' } } });
+    expect(mocked.suppressedEmail.createMany).toHaveBeenCalledWith({
+      data: [{ email: 'jane@example.com', reason: 'Unsubscribed', source: 'unsubscribe-link' }],
+      skipDuplicates: true,
+    });
+    expect(mocked.lead.update).not.toHaveBeenCalled();
+    expect(mocked.campaignEnrollment.updateMany).not.toHaveBeenCalled();
   });
 });

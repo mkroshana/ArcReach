@@ -10,6 +10,7 @@ vi.mock('../../lib/db', () => ({
     lead: { findUnique: vi.fn() },
     senderAccount: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     inboundResponse: { findFirst: vi.fn() },
+    suppressedEmail: { findMany: vi.fn() },
     $transaction: vi.fn(),
   },
 }));
@@ -100,7 +101,8 @@ beforeEach(() => {
   mockedPrisma.campaign.findMany.mockResolvedValue([CAMPAIGN]);
   mockedPrisma.campaignEnrollment.findMany.mockResolvedValue([ENROLLMENT]);
   mockedPrisma.campaignEnrollment.updateMany.mockResolvedValue({ count: 1 });
-  mockedPrisma.campaignEnrollment.findFirst.mockResolvedValue({ id: 'enr-1' });
+  mockedPrisma.campaignEnrollment.findFirst.mockResolvedValue({ id: 'enr-1', lead: { email: 'lead@prospect.test' } });
+  mockedPrisma.suppressedEmail.findMany.mockResolvedValue([]);
   mockedPrisma.$transaction.mockImplementation(async (fn: (tx: typeof mockedPrisma) => unknown) => fn(mockedPrisma));
   mockedPrisma.emailDispatch.updateMany.mockResolvedValue({ count: 1 });
   mockedPrisma.emailDispatch.count.mockResolvedValue(0);

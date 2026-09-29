@@ -3,7 +3,8 @@ import { NextRequest } from 'next/server';
 
 vi.mock('../../lib/db', () => ({
   prisma: {
-    lead: { delete: vi.fn(), deleteMany: vi.fn() },
+    lead: { findMany: vi.fn(), deleteMany: vi.fn() },
+    deletedLead: { createMany: vi.fn() },
     leadGroup: { delete: vi.fn() },
     leadGroupMembership: { findMany: vi.fn(), createMany: vi.fn() },
     campaign: { findMany: vi.fn() },
@@ -34,10 +35,41 @@ function makeReq(path: string, body?: unknown): NextRequest {
   });
 }
 
+/** The Lead table the delete reads: lead-1 was emailed and has a merged-in alias, lead-2 was never emailed. */
+const LEADS = [
+  { id: 'lead-1', email: 'one@acme.com', aliases: [{ id: 'lead-1-old' }], _count: { dispatches: 2 } },
+  { id: 'lead-2', email: 'two@acme.com', aliases: [], _count: { dispatches: 0 } },
+];
+
+/** Asserts the delete read `where`, kept lead-1's ids for its unsubscribe links and deleted `ids`. */
+function expectDeleted(where: unknown, ids: string[]) {
+  expect(mockedPrisma.lead.findMany).toHaveBeenCalledWith({
+    where,
+    select: { id: true, email: true, aliases: { select: { id: true } }, _count: { select: { dispatches: true } } },
+    take: 5000,
+  });
+  if (ids.includes('lead-1')) {
+    expect(mockedPrisma.deletedLead.createMany).toHaveBeenCalledWith({
+      data: [{ id: 'lead-1', email: 'one@acme.com' }, { id: 'lead-1-old', email: 'one@acme.com' }],
+      skipDuplicates: true,
+    });
+  } else {
+    expect(mockedPrisma.deletedLead.createMany).not.toHaveBeenCalled();
+  }
+  expect(mockedPrisma.lead.deleteMany).toHaveBeenCalledWith({ where: { id: { in: ids } } });
+  // The id list is written before the delete cascades the lead's aliases away
+  if (ids.includes('lead-1')) {
+    expect(mockedPrisma.deletedLead.createMany.mock.invocationCallOrder[0])
+      .toBeLessThan(mockedPrisma.lead.deleteMany.mock.invocationCallOrder[0]);
+  }
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
-  mockedPrisma.lead.delete.mockResolvedValue({});
-  mockedPrisma.lead.deleteMany.mockResolvedValue({ count: 0 });
+  mockedPrisma.lead.findMany.mockImplementation(async ({ where }: any) =>
+    LEADS.filter((l) => where.id === undefined || (typeof where.id === 'string' ? where.id === l.id : where.id.in.includes(l.id))));
+  mockedPrisma.lead.deleteMany.mockImplementation(async ({ where }: any) => ({ count: where.id.in.length }));
+  mockedPrisma.deletedLead.createMany.mockImplementation(async ({ data }: any) => ({ count: data.length }));
   mockedPrisma.leadGroup.delete.mockResolvedValue({});
   mockedPrisma.leadGroupMembership.findMany.mockResolvedValue([{ leadId: 'lead-1' }, { leadId: 'lead-2' }]);
   mockedPrisma.leadGroupMembership.createMany.mockResolvedValue({ count: 2 });
@@ -56,29 +88,62 @@ describe('DELETE /api/leads (H19)', () => {
       expect(res.status).toBe(403);
       expect((await res.json()).error).toBe('Forbidden. Admin role required.');
     }
-    expect(mockedPrisma.lead.delete).not.toHaveBeenCalled();
+    expect(mockedPrisma.lead.findMany).not.toHaveBeenCalled();
     expect(mockedPrisma.lead.deleteMany).not.toHaveBeenCalled();
+    expect(mockedPrisma.deletedLead.createMany).not.toHaveBeenCalled();
   });
 
-  it('lets an ADMIN delete all leads', async () => {
+  it('lets an ADMIN delete all leads, keeping the ids of emailed ones (H18)', async () => {
     mockedSession.mockResolvedValue(ADMIN);
     const res = await deleteLeads(makeReq('/api/leads?all=true'));
     expect(res.status).toBe(200);
-    expect(mockedPrisma.lead.deleteMany).toHaveBeenCalledWith({});
+    expectDeleted({}, ['lead-1', 'lead-2']);
   });
 
-  it('lets an ADMIN delete a single lead', async () => {
+  it('lets an ADMIN delete a single lead, keeping its ids (H18)', async () => {
     mockedSession.mockResolvedValue(ADMIN);
     const res = await deleteLeads(makeReq('/api/leads?id=lead-1'));
     expect(res.status).toBe(200);
-    expect(mockedPrisma.lead.delete).toHaveBeenCalledWith({ where: { id: 'lead-1' } });
+    expectDeleted({ id: 'lead-1' }, ['lead-1']);
   });
 
-  it('lets an ADMIN bulk delete selected leads', async () => {
+  it('keeps no address for a lead that was never emailed', async () => {
+    mockedSession.mockResolvedValue(ADMIN);
+    const res = await deleteLeads(makeReq('/api/leads?id=lead-2'));
+    expect(res.status).toBe(200);
+    expectDeleted({ id: 'lead-2' }, ['lead-2']);
+  });
+
+  it('answers 404 for a single lead that does not exist', async () => {
+    mockedSession.mockResolvedValue(ADMIN);
+    const res = await deleteLeads(makeReq('/api/leads?id=nope'));
+    expect(res.status).toBe(404);
+    expect((await res.json()).error).toBe('Lead not found.');
+    expect(mockedPrisma.lead.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('lets an ADMIN bulk delete selected leads, keeping the ids of emailed ones (H18)', async () => {
     mockedSession.mockResolvedValue(ADMIN);
     const res = await deleteLeads(makeReq('/api/leads', { ids: ['lead-1', 'lead-2'] }));
     expect(res.status).toBe(200);
-    expect(mockedPrisma.lead.deleteMany).toHaveBeenCalledWith({ where: { id: { in: ['lead-1', 'lead-2'] } } });
+    expectDeleted({ id: { in: ['lead-1', 'lead-2'] } }, ['lead-1', 'lead-2']);
+  });
+
+  it('deletes a large selection in rounds of 5000', async () => {
+    mockedSession.mockResolvedValue(ADMIN);
+    const many = Array.from({ length: 5001 }, (_, i) => ({ id: `bulk-${i}`, email: `b${i}@acme.com`, aliases: [], _count: { dispatches: 1 } }));
+    let remaining = [...many];
+    mockedPrisma.lead.findMany.mockImplementation(async ({ take }: any) => remaining.slice(0, take));
+    mockedPrisma.lead.deleteMany.mockImplementation(async ({ where }: any) => {
+      remaining = remaining.filter((l) => !where.id.in.includes(l.id));
+      return { count: where.id.in.length };
+    });
+
+    const res = await deleteLeads(makeReq('/api/leads?all=true'));
+    expect(res.status).toBe(200);
+    expect(remaining).toHaveLength(0);
+    expect(mockedPrisma.lead.deleteMany.mock.calls.map(([args]: any) => args.where.id.in.length)).toEqual([5000, 1]);
+    expect(mockedPrisma.deletedLead.createMany.mock.calls.map(([args]: any) => args.data.length)).toEqual([5000, 1]);
   });
 });
 
@@ -106,7 +171,7 @@ describe('DELETE /api/leads/groups (H19)', () => {
     mockedSession.mockResolvedValue(ADMIN);
     const res = await deleteGroup(makeReq('/api/leads/groups?id=group-1&leadAction=DELETE'));
     expect(res.status).toBe(200);
-    expect(mockedPrisma.lead.deleteMany).toHaveBeenCalledWith({ where: { id: { in: ['lead-1', 'lead-2'] } } });
+    expectDeleted({ id: { in: ['lead-1', 'lead-2'] } }, ['lead-1', 'lead-2']);
     expect(mockedPrisma.leadGroup.delete).toHaveBeenCalledWith({ where: { id: 'group-1' } });
   });
 });

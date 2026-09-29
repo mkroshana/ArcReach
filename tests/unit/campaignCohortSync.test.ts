@@ -15,6 +15,7 @@ const fake = vi.hoisted(() => ({
   lead: { findMany: vi.fn() },
   leadGroup: { findUnique: vi.fn() },
   senderAccount: { findMany: vi.fn() },
+  suppressedEmail: { findMany: vi.fn() },
   $transaction: vi.fn(),
 }));
 
@@ -38,7 +39,7 @@ const mockedSession = vi.mocked(getSession);
 const USER = { id: 'user-1', name: 'User', email: 'user@example.com', role: 'USER' as const };
 const GROUP_IDS = ['g1', 'g2'];
 
-type LeadRow = { id: string; validationStatus: string; isArchived: boolean; groupIds: string[] };
+type LeadRow = { id: string; email: string; status: string; validationStatus: string; isArchived: boolean; groupIds: string[] };
 type EnrollmentRow = {
   id: string; leadId: string; campaignId: string; status: string;
   currentSequenceStep: number; nextActionDate: Date | null;
@@ -48,12 +49,28 @@ let campaign: { id: string; userId: string; status: string; audienceCohort: stri
 let leads: LeadRow[];
 let enrollments: EnrollmentRow[];
 let dispatches: { leadId: string; campaignId: string | null }[];
+/** Addresses on the suppression list. */
+let suppressed: string[];
 let nextEnrollmentId = 0;
 
 const DUE = new Date('2026-09-01T09:00:00Z');
 
-function lead(id: string, validationStatus: string, groupIds: string[] = [], isArchived = false): LeadRow {
-  return { id, validationStatus, isArchived, groupIds };
+function lead(id: string, validationStatus: string, groupIds: string[] = [], isArchived = false, status = 'Neutral'): LeadRow {
+  return { id, email: `${id}@example.com`, status, validationStatus, isArchived, groupIds };
+}
+
+/** Evaluates the lead filters enrollment builds: the cohort's (validation, archived, group) AND the sendable one. */
+function matchesLead(l: LeadRow, where: Record<string, any>): boolean {
+  return Object.entries(where).every(([key, cond]) => {
+    if (key === 'AND') return cond.every((w: any) => matchesLead(l, w));
+    if (key === 'groups') return l.groupIds.includes(cond.some.groupId);
+    const value = (l as any)[key];
+    if (cond !== null && typeof cond === 'object') {
+      if ('notIn' in cond) return !cond.notIn.includes(value);
+      throw new Error(`Unmodelled filter on ${key}: ${JSON.stringify(cond)}`);
+    }
+    return value === cond;
+  });
 }
 
 function enrollment(leadId: string, status: string, currentSequenceStep = 1, campaignId = 'cmp-1'): EnrollmentRow {
@@ -98,6 +115,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   mockedSession.mockResolvedValue(USER);
   nextEnrollmentId = 0;
+  suppressed = [];
 
   campaign = { id: 'cmp-1', userId: 'user-1', status: 'Active', audienceCohort: 'Valid', senderAccountId: 'mb-1' };
   leads = [
@@ -143,11 +161,10 @@ beforeEach(() => {
   fake.campaignStep.findMany.mockResolvedValue(STEPS);
   fake.leadGroup.findUnique.mockImplementation(async ({ where }: any) => (GROUP_IDS.includes(where.id) ? { id: where.id } : null));
   fake.lead.findMany.mockImplementation(async ({ where }: any) =>
-    leads
-      .filter((l) => where.isArchived === undefined || l.isArchived === where.isArchived)
-      .filter((l) => where.validationStatus === undefined || l.validationStatus === where.validationStatus)
-      .filter((l) => where.groups === undefined || l.groupIds.includes(where.groups.some.groupId))
-      .map((l) => ({ id: l.id })),
+    leads.filter((l) => matchesLead(l, where)).map((l) => ({ id: l.id, email: l.email })),
+  );
+  fake.suppressedEmail.findMany.mockImplementation(async ({ where }: any) =>
+    suppressed.filter((email) => where.email.in.includes(email)).map((email) => ({ email, reason: 'Unsubscribed' })),
   );
   fake.campaignEnrollment.count.mockImplementation(async ({ where }: any) =>
     enrollments.filter((e) => e.campaignId === where.campaignId).length,
@@ -297,5 +314,52 @@ describe('audienceCohort validation (L26)', () => {
     expect(res.status).toBe(200);
     expect(mockedDb.createCampaign).toHaveBeenCalledWith(expect.objectContaining({ audienceCohort: 'g1' }));
     expect(enrollments.filter((e) => e.campaignId === 'cmp-new').map((e) => e.leadId).sort()).toEqual(['in-both', 'new-g1', 'replied-g1']);
+  });
+});
+
+describe('only leads that may be emailed are enrolled (M23)', () => {
+  beforeEach(() => {
+    leads.push(
+      lead('unsubscribed-g1', 'Valid', ['g1'], false, 'Unsubscribed'),
+      lead('bounced-g1', 'Invalid', ['g1'], false, 'Bounced'),
+      lead('invalid-g1', 'Invalid', ['g1']),
+      lead('suppressed-g1', 'Valid', ['g1']), // re-imported after its lead was deleted
+      lead('unsubscribed-valid', 'Valid', [], false, 'Unsubscribed'),
+    );
+    suppressed = ['suppressed-g1@example.com'];
+  });
+
+  it('POST enrolls none of the cohort\'s unsubscribed, bounced, invalid or suppressed leads', async () => {
+    mockedDb.createCampaign.mockImplementation(async (data: any) => ({ id: 'cmp-new', ...data }));
+
+    const res = await postCampaign(makeReq('POST', '/api/campaigns', { name: 'Launch', senderAccountId: 'mb-1', audienceCohort: 'g1' }));
+
+    expect(res.status).toBe(200);
+    expect(enrollments.filter((e) => e.campaignId === 'cmp-new').map((e) => e.leadId).sort()).toEqual(['in-both', 'new-g1', 'replied-g1']);
+  });
+
+  it('POST with the Valid cohort skips a Valid lead that unsubscribed', async () => {
+    mockedDb.createCampaign.mockImplementation(async (data: any) => ({ id: 'cmp-new', ...data }));
+
+    await postCampaign(makeReq('POST', '/api/campaigns', { name: 'Launch', senderAccountId: 'mb-1', audienceCohort: 'Valid' }));
+
+    const enrolled = enrollments.filter((e) => e.campaignId === 'cmp-new').map((e) => e.leadId);
+    expect(enrolled).not.toContain('unsubscribed-valid');
+    expect(enrolled).not.toContain('suppressed-g1');
+    expect(enrolled).toContain('new-g1');
+  });
+
+  it('changing the audience enrolls none of them, and an Active enrollment of a lead that may no longer be emailed leaves', async () => {
+    leads.find((l) => l.id === 'in-both')!.status = 'Unsubscribed'; // enrolled before it opted out
+
+    const res = await pageSave({ audienceCohort: 'g1' });
+
+    expect(res.status).toBe(200);
+    for (const leadId of ['unsubscribed-g1', 'bounced-g1', 'invalid-g1', 'suppressed-g1']) {
+      expect(enrollmentOf(leadId)).toBeUndefined();
+    }
+    expect(enrollmentOf('new-g1')).toMatchObject({ status: 'Active', currentSequenceStep: 1 });
+    // Emailed by this campaign, so it keeps its history as Removed instead of showing as queued forever.
+    expect(enrollmentOf('in-both')).toMatchObject({ status: 'Removed', nextActionDate: null, currentSequenceStep: 2 });
   });
 });

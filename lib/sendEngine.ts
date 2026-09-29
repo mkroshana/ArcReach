@@ -7,6 +7,7 @@ import { applyEmailTracking } from './emailTracking';
 import { personalizeEmail, renderEmailBody } from './personalize';
 import { sendMessage, sendingDisabledReason } from './emailProvider';
 import { sendableEnrollmentWhere, claimEnrollmentForSend, releaseEnrollmentClaim, RELEASED_CLAIM } from './sendEligibility';
+import { suppressEmail } from './suppression';
 import { type SendSchedule, SCHEDULE_DAYS, isValidTimezone, minutesOfDay, parseSendSchedule } from './sendSchedule';
 import type { PauseReason } from './campaignPause';
 
@@ -469,6 +470,9 @@ export async function handleSendFailure(
       ...RELEASED_CLAIM
     }
   });
+
+  // The suppression list outlives the lead, so the address is never mailed again
+  await suppressEmail(prisma, lead.email, 'HardBounce', 'send-engine');
 
   await prisma.lead.update({
     where: { id: lead.id },

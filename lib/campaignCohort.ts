@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
+import { findEnrollableLeadIds } from '@/lib/sendEligibility';
 
 /**
  * A campaign's audienceCohort names the leads it enrolls: every non-archived
@@ -36,24 +37,23 @@ export async function checkAudienceCohort(cohort: unknown): Promise<string | nul
 }
 
 /**
- * Bring a campaign's enrollments in line with `cohort`. Leads new to the cohort
- * are enrolled Active at step 1. For a lead that left it, an Active enrollment
- * this campaign never emailed is deleted, and an Active one it did email is
- * marked Removed so its history stays and the send engine (Active only) skips
- * it. Every other enrollment (Paused on a reply or unsubscribe, Bounced, Failed,
- * Completed, Removed) is left as it is and, since the lead is still enrolled,
- * is never reactivated or re-enrolled at step 1.
+ * Bring a campaign's enrollments in line with `cohort`. The cohort's leads that
+ * may be enrolled (findEnrollableLeadIds: not archived, unsubscribed, bounced,
+ * invalid or on the suppression list) and are new to it are enrolled Active at
+ * step 1. For a lead that left the cohort or may no longer be enrolled, an
+ * Active enrollment this campaign never emailed is deleted, and an Active one
+ * it did email is marked Removed so its history stays and the send engine
+ * (Active only) skips it. Every other enrollment (Paused on a reply or
+ * unsubscribe, Bounced, Failed, Completed, Removed) is left as it is and, since
+ * the lead is still enrolled, is never reactivated or re-enrolled at step 1.
  */
 export async function syncCohortEnrollments(
   tx: Prisma.TransactionClient,
   campaignId: string,
   cohort: string,
 ): Promise<void> {
-  const eligibleLeads = await tx.lead.findMany({
-    where: cohortLeadWhere(cohort),
-    select: { id: true },
-  });
-  const eligibleLeadIds = new Set(eligibleLeads.map((lead) => lead.id));
+  const enrollableLeadIds = await findEnrollableLeadIds(tx, cohortLeadWhere(cohort));
+  const eligibleLeadIds = new Set(enrollableLeadIds);
 
   const existingEnrollments = await tx.campaignEnrollment.findMany({
     where: { campaignId },
@@ -86,11 +86,11 @@ export async function syncCohortEnrollments(
   }
 
   const enrolledLeadIds = new Set(existingEnrollments.map((env) => env.leadId));
-  const newLeadsToEnroll = eligibleLeads.filter((lead) => !enrolledLeadIds.has(lead.id));
+  const newLeadsToEnroll = enrollableLeadIds.filter((leadId) => !enrolledLeadIds.has(leadId));
   if (newLeadsToEnroll.length > 0) {
     await tx.campaignEnrollment.createMany({
-      data: newLeadsToEnroll.map((lead) => ({
-        leadId: lead.id,
+      data: newLeadsToEnroll.map((leadId) => ({
+        leadId,
         campaignId,
         status: 'Active',
         currentSequenceStep: 1,

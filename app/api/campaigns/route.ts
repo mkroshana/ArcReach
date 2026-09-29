@@ -6,6 +6,7 @@ import { checkAudienceCohort, cohortLeadWhere } from '@/lib/campaignCohort';
 import { activationBlocker } from '@/lib/campaignSteps';
 import { userStatusPause } from '@/lib/campaignPause';
 import { isValidTimezone } from '@/lib/sendSchedule';
+import { findEnrollableLeadIds } from '@/lib/sendEligibility';
 import { type FieldRule, fieldRules, isPlainObject, pickUpdateFields } from '@/lib/updateAllowList';
 
 /** Campaign statuses the app sets and the UI offers. */
@@ -78,16 +79,13 @@ export async function POST(req: NextRequest) {
       } : undefined
     });
 
-    // Auto-enroll eligible leads matching chosen cohort
-    const eligibleLeads = await prisma.lead.findMany({
-      where: cohortLeadWhere(selectedCohort),
-      select: { id: true }
-    });
+    // Auto-enroll the chosen cohort's leads that may be emailed
+    const eligibleLeadIds = await findEnrollableLeadIds(prisma, cohortLeadWhere(selectedCohort));
 
-    if (eligibleLeads.length > 0) {
+    if (eligibleLeadIds.length > 0) {
       await prisma.campaignEnrollment.createMany({
-        data: eligibleLeads.map(lead => ({
-          leadId: lead.id,
+        data: eligibleLeadIds.map(leadId => ({
+          leadId,
           campaignId: newCampaign.id,
           status: 'Active',
           currentSequenceStep: 1,

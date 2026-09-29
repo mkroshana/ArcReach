@@ -11,9 +11,10 @@ vi.mock('../../lib/db', () => ({
   prisma: {
     user: { findUnique: vi.fn() },
     senderAccount: { findUnique: vi.fn() },
-    lead: { update: vi.fn(), updateMany: vi.fn() },
+    lead: { update: vi.fn(), updateMany: vi.fn(), findMany: vi.fn() },
     leadGroupMembership: { findMany: vi.fn() },
     campaignEnrollment: { updateMany: vi.fn() },
+    suppressedEmail: { findMany: vi.fn() },
   },
 }));
 
@@ -280,6 +281,9 @@ describe('PUT /api/leads', () => {
     mockedPrisma.lead.updateMany.mockResolvedValue({ count: 2 });
     mockedPrisma.leadGroupMembership.findMany.mockResolvedValue([{ leadId: 'lead-1' }, { leadId: 'lead-2' }]);
     mockedPrisma.campaignEnrollment.updateMany.mockResolvedValue({ count: 0 });
+    // Neither lead is on the suppression list, and both may be emailed.
+    mockedPrisma.lead.findMany.mockResolvedValue([{ id: 'lead-1', email: 'one@example.com' }, { id: 'lead-2', email: 'two@example.com' }]);
+    mockedPrisma.suppressedEmail.findMany.mockResolvedValue([]);
   });
 
   function expectNoWrites() {

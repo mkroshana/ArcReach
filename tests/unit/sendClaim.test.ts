@@ -16,6 +16,7 @@ const fake = vi.hoisted(() => ({
   emailEvent: { create: vi.fn() },
   lead: { update: vi.fn() },
   senderAccount: { update: vi.fn(), updateMany: vi.fn() },
+  suppressedEmail: { findMany: vi.fn(), createMany: vi.fn() },
   $transaction: vi.fn(),
 }));
 
@@ -72,6 +73,8 @@ let campaign: any;
 let leads: Map<string, LeadRow>;
 let enrollments: EnrollmentRow[];
 let dispatches: DispatchRow[];
+/** The suppression list, keyed by address. */
+let suppressed: Map<string, { email: string; reason: string; source: string }>;
 let nextDispatchId = 0;
 /** Models written through the $transaction callback's client, in order. */
 let txWrites: string[];
@@ -183,9 +186,20 @@ beforeEach(() => {
   leads = new Map();
   enrollments = [];
   dispatches = [];
+  suppressed = new Map();
   nextDispatchId = 0;
   txWrites = [];
   addLead('lead-1');
+
+  fake.suppressedEmail.findMany.mockImplementation(async ({ where }: any) =>
+    [...suppressed.values()].filter((row) => matchesFields(row, where)).map(({ email, reason }) => ({ email, reason })),
+  );
+  fake.suppressedEmail.createMany.mockImplementation(async ({ data, skipDuplicates }: any) => {
+    const fresh = data.filter((row: any) => !suppressed.has(row.email));
+    if (!skipDuplicates && fresh.length < data.length) throw new Error('Unique constraint failed on suppressedEmail');
+    fresh.forEach((row: any) => suppressed.set(row.email, { ...row }));
+    return { count: fresh.length };
+  });
 
   vi.mocked(getSession).mockResolvedValue({ id: 'admin-1', name: 'Admin', email: 'admin@example.com', role: 'ADMIN' } as any);
   vi.mocked(getGlobalSettings).mockResolvedValue({
@@ -261,7 +275,7 @@ beforeEach(() => {
   });
   fake.campaignEnrollment.findFirst.mockImplementation(async ({ where }: any) => {
     const row = enrollments.find((e) => matchesEnrollment(e, where));
-    return row ? structuredClone(row) : null;
+    return row ? { ...structuredClone(row), lead: { ...leads.get(row.leadId)! } } : null;
   });
   fake.emailDispatch.count.mockImplementation(async ({ where }: any) =>
     dispatches.filter((d) => matchesFields(d, where)).length,
@@ -338,8 +352,23 @@ describe('claimEnrollmentForSend (C5, H7)', () => {
     expect(data).toEqual({ claimToken: token, claimedAt: T0 });
     expect(fake.campaignEnrollment.findFirst).toHaveBeenCalledWith({
       where: { ...sendableEnrollmentWhere(), id: 'enr-lead-1', claimToken: token },
-      select: { id: true },
+      select: { id: true, lead: { select: { email: true } } },
     });
+    expect(fake.suppressedEmail.findMany).toHaveBeenCalledWith({
+      where: { email: { in: ['lead-1@prospect.test'] } },
+      select: { email: true, reason: true },
+    });
+  });
+
+  it('refuses the claim and pauses the enrollment when the address is on the suppression list, whatever the lead\'s status (H18)', async () => {
+    // Unsubscribed once; its status was set back to Neutral since (Unibox sets any CRM status).
+    suppressed.set('lead-1@prospect.test', { email: 'lead-1@prospect.test', reason: 'Unsubscribed', source: 'unsubscribe-link' });
+
+    expect(await claimEnrollmentForSend('enr-lead-1', 1, T0)).toBeNull();
+
+    // Paused, so the due query stops picking it up, and released.
+    expect(enrollmentOf('lead-1')).toMatchObject({ status: 'Paused', nextActionDate: null, claimToken: null, claimedAt: null });
+    expect(await claimEnrollmentForSend('enr-lead-1', 1, T0)).toBeNull();
   });
 
   it.each<[string, () => void]>([
@@ -414,6 +443,22 @@ describe('processDueEmails claims each send and records it as Sending first (C5,
     expect(mockedSend).not.toHaveBeenCalled();
     expect(dispatches).toHaveLength(0);
     expect(enrollmentOf('lead-1')).toMatchObject({ currentSequenceStep: 1, claimToken: null });
+  });
+
+  it('never sends to an address on the suppression list and pauses its enrollment, then sends the others (H18)', async () => {
+    addLead('lead-2');
+    suppressed.set('lead-1@prospect.test', { email: 'lead-1@prospect.test', reason: 'HardBounce', source: 'delivery-webhook' });
+
+    await processDueEmails();
+
+    expect(mockedSend).toHaveBeenCalledTimes(1);
+    expect(mockedSend.mock.calls[0][0].to).toBe('lead-2@prospect.test');
+    expect(enrollmentOf('lead-1')).toMatchObject({ status: 'Paused', currentSequenceStep: 1, nextActionDate: null, claimToken: null });
+
+    // Paused, it is not loaded again.
+    enrollmentOf('lead-2').nextActionDate = PAST;
+    await processDueEmails();
+    expect(mockedSend.mock.calls.map(([msg]) => msg.to)).toEqual(['lead-2@prospect.test', 'lead-2@prospect.test']);
   });
 
   it('does not send an enrollment another send path has claimed', async () => {
@@ -518,6 +563,19 @@ describe('POST /api/campaigns/[id]/run only queues leads for the worker (H3, M66
       ['lead-2', 2, 'Sent'],
       ['lead-3', 2, 'Sent'],
     ]);
+  });
+
+  it('does not queue or count a lead whose address is on the suppression list (H18)', async () => {
+    addLead('lead-2');
+    waitAt('lead-1', 1);
+    waitAt('lead-2', 1);
+    suppressed.set('lead-2@prospect.test', { email: 'lead-2@prospect.test', reason: 'Unsubscribed', source: 'unsubscribe-link' });
+
+    const res = await run();
+
+    expect(await res.json()).toEqual({ queued: 1 });
+    expect(enrollmentOf('lead-1').nextActionDate!.getTime()).toBeLessThanOrEqual(Date.now());
+    expect(enrollmentOf('lead-2').nextActionDate!.getTime()).toBeGreaterThan(Date.now());
   });
 
   it('never pulls a follow-up forward: Run Now again after step 1 went out queues nothing until its wait days pass', async () => {
@@ -893,6 +951,8 @@ describe('sends interrupted by a crash are reconciled with ACS (H6)', () => {
     expect(enrollmentOf('lead-1')).toMatchObject({ status: 'Failed', lastBounceType: 'hard', lastError: 'Recipient address rejected.' });
     expect(fake.lead.update).toHaveBeenCalledWith({ where: { id: 'lead-1' }, data: { status: 'Bounced', validationStatus: 'Invalid' } });
     expect(fake.emailEvent.create).toHaveBeenCalledWith({ data: { messageId: dispatches[0].messageId, eventType: 'bounce' } });
+    // The address stays suppressed if the lead is deleted and imported again (H18).
+    expect([...suppressed.values()]).toEqual([{ email: 'lead-1@prospect.test', reason: 'HardBounce', source: 'send-engine' }]);
   });
 
   it('deletes a dispatch ACS never received and clears the abandoned claim, so the next cycle sends the step', async () => {

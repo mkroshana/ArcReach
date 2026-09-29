@@ -215,6 +215,36 @@ model LeadAlias {
   @@index([leadId])
 }
 
+enum SuppressionReason {
+  Unsubscribed
+  HardBounce
+  Invalid
+  Complaint
+}
+
+// Addresses that are never enrolled or emailed again. Kept apart from Lead,
+// with no relation to it, so deleting a lead (which cascades its history)
+// never lifts its suppression and a lead created again for the address comes
+// back suppressed. Written on unsubscribe, hard bounce and a failed
+// verification; read and written through lib/suppression.ts.
+model SuppressedEmail {
+  email     String            @id // stored trimmed and lowercased (lib/leadEmail)
+  reason    SuppressionReason // the first reason recorded for the address
+  source    String            // what recorded it: unsubscribe-link, delivery-webhook, send-engine, verification or backfill
+  createdAt DateTime          @default(now())
+}
+
+// Id and address of a deleted lead that had been emailed, and of each lead
+// merged into it (LeadAlias). Unsubscribe links in mail already sent carry that
+// id, so /api/unsubscribe still finds the address after the delete and puts it
+// on the suppression list. No relation to Lead, so the delete leaves it in
+// place; written by lib/leadDelete.ts on every lead delete.
+model DeletedLead {
+  id        String   @id // the deleted lead's id, or the id of a lead merged into it
+  email     String   // the lead's address, stored trimmed and lowercased (lib/leadEmail)
+  deletedAt DateTime @default(now())
+}
+
 model LeadGroup {
   id          String                  @id @default(uuid())
   name        String                  @unique

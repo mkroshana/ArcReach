@@ -420,7 +420,8 @@ export default function LeadsPage() {
     setConfirmDialog({
       isOpen: true,
       title: 'Re-activate Leads',
-      message: `Are you sure you want to re-activate the ${selectedLeadIds.length} selected suppressed leads? This will reset their campaign sequences to step 1.`,
+      message: `Are you sure you want to re-activate the ${selectedLeadIds.length} selected leads? This will reset their campaign sequences to step 1. ` +
+        'Leads whose address is on the suppression list (unsubscribed, hard-bounced or failed verification) cannot be re-activated; if any are selected, nothing is changed.',
       confirmLabel: 'Re-activate',
       isDestructive: false,
       onConfirm: async () => {
@@ -449,7 +450,9 @@ export default function LeadsPage() {
             setSelectedLeadIds([]);
             showToast('Selected leads re-activated and sequences reset to step 1.');
           } else {
-            showToast('Failed to re-activate selected leads.');
+            // A 409 names the selected leads on the suppression list, which stay suppressed
+            const err = await res.json().catch(() => ({}));
+            showToast(err.error || 'Failed to re-activate selected leads.', 'error');
           }
         } catch (err) {
           console.error(err);
@@ -608,7 +611,11 @@ export default function LeadsPage() {
         setSelectedGroupForAdd('');
         setShowAddLead(false);
         await fetchGroups(); // refresh groups for counts
-        showToast('Prospect added to CRM.');
+        if (created.suppressedReason) {
+          showToast('Prospect added to CRM. Its address is on the suppression list, so it will not be emailed.', 'warning');
+        } else {
+          showToast('Prospect added to CRM.');
+        }
       } else {
         const errText = await res.text();
         showToast(errText || 'Failed to create lead.');
@@ -783,6 +790,7 @@ export default function LeadsPage() {
     // Process in batches of 1,000
     const batchSize = 1000;
     let totalImported = 0;
+    let totalSuppressed = 0;
 
     for (let i = 0; i < mappedLeads.length; i += batchSize) {
       const batch = mappedLeads.slice(i, i + batchSize);
@@ -799,6 +807,7 @@ export default function LeadsPage() {
         if (res.ok) {
           const result = await res.json();
           totalImported += (result.count || 0);
+          totalSuppressed += (result.suppressed || 0);
         } else {
           console.error(`Failed to import batch starting at index ${i}`);
         }
@@ -817,7 +826,15 @@ export default function LeadsPage() {
     setImportProgress('');
     
     await fetchGroups(); // refresh group counts
-    showToast(`Spreadsheet imported! Added ${totalImported} new contacts to CRM.`);
+    if (totalSuppressed > 0) {
+      showToast(
+        `Spreadsheet imported! Added ${totalImported} new contacts to CRM. ` +
+        `${totalSuppressed} ${totalSuppressed === 1 ? 'is' : 'are'} on the suppression list (unsubscribed, bounced or invalid) and will not be emailed.`,
+        'warning'
+      );
+    } else {
+      showToast(`Spreadsheet imported! Added ${totalImported} new contacts to CRM.`);
+    }
     fetchLeads();
   };
 

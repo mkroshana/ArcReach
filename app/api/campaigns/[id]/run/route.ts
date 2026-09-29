@@ -4,7 +4,7 @@ import { prisma } from '@/lib/db';
 import { getGlobalSettings } from '@/lib/settings';
 import { getSession } from '@/lib/session';
 import { sendingDisabledReason } from '@/lib/emailProvider';
-import { sendableEnrollmentWhere } from '@/lib/sendEligibility';
+import { sendableEnrollmentWhere, withoutSuppressedLeads } from '@/lib/sendEligibility';
 
 /** Most enrollments one queueing write names by id. */
 const QUEUE_WRITE_CHUNK = 1000;
@@ -75,8 +75,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     // back by the sending window or a sender cap), so a lead waiting out a
     // step's wait days stays put. Send Step queues every lead at its step;
     // skipping the wait is its purpose. Sendable leads are read with
-    // sendableEnrollmentWhere(), which filters on the campaign and lead; each
-    // write then re-checks only the enrollment's own columns, including the
+    // sendableEnrollmentWhere(), which filters on the campaign and lead, less
+    // those on the suppression list (withoutSuppressedLeads); each write then
+    // re-checks only the enrollment's own columns, including the
     // step it was read at, which Postgres re-evaluates on each row it locks,
     // so an enrollment the worker sends, advances or backs off meanwhile is not
     // queued. The send claim re-checks the campaign and lead before anything
@@ -94,10 +95,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         { currentSequenceStep: { in: stepOrders } },
         { OR: [...due, { lead: { dispatches: { none: { campaignId: id, status: { in: ['Sent', 'Sending', 'Unknown'] } } } } }] },
       ];
-    const sendable = await prisma.campaignEnrollment.findMany({
+    const sendable = await withoutSuppressedLeads(await prisma.campaignEnrollment.findMany({
       where: { AND: [queueable, ...selected, sendableEnrollmentWhere()] },
-      select: { id: true, currentSequenceStep: true },
-    });
+      select: { id: true, currentSequenceStep: true, lead: { select: { email: true } } },
+    }));
     const idsByStep = new Map<number, string[]>();
     for (const e of sendable) {
       const ids = idsByStep.get(e.currentSequenceStep) ?? [];

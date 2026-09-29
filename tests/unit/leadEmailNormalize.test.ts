@@ -12,12 +12,14 @@ const fake = vi.hoisted(() => {
   type Row = Record<string, any>;
   const tables: Record<string, Row[]> = {
     lead: [], campaign: [], campaignEnrollment: [], emailDispatch: [], inboundResponse: [], leadGroupMembership: [], leadAlias: [],
+    suppressedEmail: [],
   };
   const uniqueKeys: Record<string, string[][]> = {
     lead: [['id'], ['email']],
     campaignEnrollment: [['id'], ['leadId', 'campaignId']],
     leadGroupMembership: [['leadId', 'groupId']],
     leadAlias: [['id']],
+    suppressedEmail: [['email']],
   };
   const leadChildren = ['campaignEnrollment', 'emailDispatch', 'inboundResponse', 'leadGroupMembership', 'leadAlias'];
   let seq = 0;

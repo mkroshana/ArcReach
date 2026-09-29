@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { leadEmailIn } from '@/lib/leadEmail';
+import { suppressEmail } from '@/lib/suppression';
 
 // The page is self-contained: inline styles and inline SVG only, no scripts,
 // external resources, forms or framing.
@@ -12,10 +14,13 @@ const HTML_HEADERS = {
 /**
  * GET /api/unsubscribe?id=<leadId>
  * 
- * Public endpoint (no auth required) that marks a lead as Unsubscribed
- * and pauses all their active campaign enrollments. The id of a lead merged
- * into another (a case variant of its email) resolves to the kept lead.
- * Returns a styled HTML confirmation page.
+ * Public endpoint (no auth required) that puts the lead's address on the
+ * suppression list, marks the lead as Unsubscribed and pauses all their active
+ * campaign enrollments. The id of a lead merged into another (a case variant of
+ * its email) resolves to the kept lead. The id of a deleted lead that was
+ * emailed still works: its address goes on the suppression list, and a lead
+ * imported again for it is unsubscribed too. Returns a styled HTML
+ * confirmation page.
  */
 export async function GET(req: NextRequest) {
   try {
@@ -29,19 +34,33 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    const lead =
+    let lead =
       (await prisma.lead.findUnique({ where: { id: leadId } })) ??
-      (await prisma.leadAlias.findUnique({ where: { id: leadId }, select: { lead: true } }))?.lead;
+      (await prisma.leadAlias.findUnique({ where: { id: leadId }, select: { lead: true } }))?.lead ??
+      null;
 
-    if (!lead) {
+    // The id of a deleted lead resolves to the address it had (lib/leadDelete),
+    // and to the lead imported again for that address, if there is one
+    const deletedEmail = lead ? null : (await prisma.deletedLead.findUnique({ where: { id: leadId } }))?.email ?? null;
+    if (deletedEmail) {
+      lead = await prisma.lead.findFirst({ where: leadEmailIn([deletedEmail]) });
+    }
+    const email = lead?.email ?? deletedEmail;
+
+    if (!email) {
       return new NextResponse(renderPage('Not Found', 'We could not find your subscription record.', false), {
         status: 404,
         headers: HTML_HEADERS,
       });
     }
 
-    // Idempotent — skip if already unsubscribed
-    if (lead.status !== 'Unsubscribed') {
+    // The suppression list outlives the lead, so the opt-out holds even if the
+    // lead is deleted and imported again. Also written for a lead already
+    // Unsubscribed, which may predate the list.
+    await suppressEmail(prisma, email, 'Unsubscribed', 'unsubscribe-link');
+
+    // Idempotent — skip if already unsubscribed or the lead is gone
+    if (lead && lead.status !== 'Unsubscribed') {
       await prisma.lead.update({
         where: { id: lead.id },
         data: { status: 'Unsubscribed' },
@@ -65,7 +84,7 @@ export async function GET(req: NextRequest) {
         'Unsubscribed Successfully',
         'has been removed from all future mailings. You will no longer receive emails from us.',
         true,
-        lead.email
+        email
       ),
       {
         status: 200,

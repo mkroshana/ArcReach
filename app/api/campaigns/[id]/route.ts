@@ -32,56 +32,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       return NextResponse.json({ error: 'Unauthorized access to this campaign.' }, { status: 403 });
     }
 
-    // Calculate real campaign telemetry metrics
-    let enrollmentsCount = await prisma.campaignEnrollment.count({
+    // Calculate real campaign telemetry metrics. GET is read-only: leads are
+    // enrolled when the campaign is created (POST) or saved (PUT), never on view.
+    const enrollmentsCount = await prisma.campaignEnrollment.count({
       where: { campaignId: id }
     });
-
-    // Auto-migrate: if no enrollments exist, populate with eligible leads matching selected cohort
-    if (enrollmentsCount === 0) {
-      const selectedCohort = campaign.audienceCohort || 'Valid';
-      let eligibleLeads: any[] = [];
-      if (selectedCohort === 'Unverified') {
-        eligibleLeads = await prisma.lead.findMany({
-          where: { validationStatus: 'Unverified', isArchived: false }
-        });
-      } else if (selectedCohort === 'Valid') {
-        eligibleLeads = await prisma.lead.findMany({
-          where: { validationStatus: 'Valid', isArchived: false }
-        });
-      } else if (selectedCohort === 'HighIntent') {
-        eligibleLeads = [];
-      } else {
-        // Assume selectedCohort is a groupId
-        const groupId = selectedCohort.startsWith('group_') ? selectedCohort.replace('group_', '') : selectedCohort;
-        eligibleLeads = await prisma.lead.findMany({
-          where: {
-            isArchived: false,
-            groups: {
-              some: {
-                groupId: groupId
-              }
-            }
-          }
-        });
-      }
-
-      if (eligibleLeads.length > 0) {
-        await prisma.campaignEnrollment.createMany({
-          data: eligibleLeads.map(lead => ({
-            leadId: lead.id,
-            campaignId: id,
-            status: 'Active',
-            currentSequenceStep: 1,
-            nextActionDate: new Date()
-          })),
-          skipDuplicates: true
-        });
-        enrollmentsCount = await prisma.campaignEnrollment.count({
-          where: { campaignId: id }
-        });
-      }
-    }
 
     // Total send *attempts* (includes retries and failed sends).
     const sentRequestsCount = await prisma.emailDispatch.count({

@@ -902,7 +902,6 @@ export async function processDueEmails() {
             body: finalBody,
             isHtml,
             sender: chosenSender,
-            trackOpens: campaign.trackOpens,
             operationId,
           },
           settings

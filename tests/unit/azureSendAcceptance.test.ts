@@ -36,6 +36,8 @@ let baseUrl: string;
 let hits: Hit[];
 /** Full URL and Authorization header of each request, in the order received. */
 let signed: Array<{ url: string; authorization: string | undefined }>;
+/** Raw body of each request, in the order received. */
+let bodies: string[];
 /** Answers the Nth request (1-based) the stub receives. */
 let reply: (method: string, n: number) => Reply;
 
@@ -43,11 +45,14 @@ beforeEach(async () => {
   sdk.clientOptions.length = 0;
   hits = [];
   signed = [];
+  bodies = [];
   vi.spyOn(console, 'log').mockImplementation(() => {});
   vi.spyOn(console, 'warn').mockImplementation(() => {});
   server = http.createServer((req, res) => {
-    req.resume();
+    const chunks: Buffer[] = [];
+    req.on('data', (chunk: Buffer) => chunks.push(chunk));
     req.on('end', () => {
+      bodies.push(Buffer.concat(chunks).toString('utf8'));
       hits.push({
         method: req.method!,
         path: req.url!.split('?')[0],
@@ -156,6 +161,18 @@ describe('Azure send: one POST under the Operation-Id, and acceptance is final (
       name: 'EmailSendError', message: 'Recipient address rejected.', code: 'InvalidRecipient',
     });
     expect(hits.map((h) => h.method)).toEqual(['POST', 'GET']);
+  });
+});
+
+describe('Azure send: ACS engagement tracking is always off (L5)', () => {
+  it('asks ACS on the wire to skip its own pixel and link rewriting, since our own tracking is the only one', async () => {
+    reply = (method) => (method === 'POST' ? accepted : status('Succeeded'));
+
+    await send();
+
+    const posted = JSON.parse(bodies[0]);
+    expect(posted.userEngagementTrackingDisabled).toBe(true);
+    expect(posted).not.toHaveProperty('disableUserEngagementTracking');
   });
 });
 

@@ -15,7 +15,7 @@
  */
 import { randomUUID } from 'crypto';
 import nodemailer from 'nodemailer';
-import { EmailClient, type EmailSendOptionalParams } from '@azure/communication-email';
+import { EmailClient, type EmailMessage, type EmailSendOptionalParams } from '@azure/communication-email';
 import { getVerifiedDomains, resolveAzureFromAddress } from './azureDomains';
 import { decryptSecret } from './secrets';
 
@@ -91,8 +91,6 @@ export interface MessageInput {
   sender: SenderInput;
   /** Overrides the SMTP "From" display name (Azure ignores this field). */
   fromName?: string;
-  /** When false, disables Azure user-engagement tracking. Defaults to true. */
-  trackOpens?: boolean;
   /**
    * ACS Operation-Id (a UUID) to send under. Callers that record a dispatch
    * store it there before sending; one is generated when omitted.
@@ -129,10 +127,10 @@ export async function sendMessage(
   settings: ProviderSettings | null | undefined
 ): Promise<SendResult> {
   const provider = settings?.activeProvider;
-  const { to, subject, body, isHtml, sender, trackOpens = true } = input;
+  const { to, subject, body, isHtml, sender } = input;
 
   if (provider === 'AZURE') {
-    return sendViaAzure({ to, subject, body, isHtml, sender, trackOpens, operationId: input.operationId }, settings!);
+    return sendViaAzure({ to, subject, body, isHtml, sender, operationId: input.operationId }, settings!);
   }
 
   // SMTP / GOOGLE / MICROSOFT all use nodemailer with the same shape.
@@ -146,7 +144,7 @@ export async function sendMessage(
 }
 
 async function sendViaAzure(
-  input: { to: string; subject: string; body: string; isHtml: boolean; sender: SenderInput; trackOpens: boolean; operationId?: string },
+  input: { to: string; subject: string; body: string; isHtml: boolean; sender: SenderInput; operationId?: string },
   settings: ProviderSettings
 ): Promise<SendResult> {
   let connString: string | null | undefined;
@@ -186,13 +184,16 @@ async function sendViaAzure(
     );
   }
 
-  const message: any = {
+  const message: EmailMessage = {
     senderAddress: fromAddress,
     content: input.isHtml
       ? { subject: input.subject, html: input.body }
       : { subject: input.subject, plainText: input.body },
     recipients: { to: [{ address: input.to }] },
-    userEngagementTrackingDisabled: !input.trackOpens,
+    // Opens and clicks are tracked only by our own pixel and link rewriting,
+    // so ACS must never add its pixel or rewrite links, whatever the resource
+    // setting or the campaign's Track Opens.
+    disableUserEngagementTracking: true,
   };
 
   // Only set Reply-To when one is explicitly configured; otherwise omit the

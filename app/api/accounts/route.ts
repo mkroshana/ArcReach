@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Prisma } from '@prisma/client';
 import { db, prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
+import { UnauthorizedError, unauthorizedResponse } from '@/lib/sessionError';
 import { MASKED_SECRET, encryptSecret } from '@/lib/secrets';
 import { getGlobalSettings } from '@/lib/settings';
 import { getVerifiedDomains, unverifiedSenderMessage } from '@/lib/azureDomains';
@@ -110,6 +111,7 @@ export async function GET() {
 
     return NextResponse.json(accountsWithStats);
   } catch (error: any) {
+    if (error instanceof UnauthorizedError) return unauthorizedResponse();
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
@@ -185,6 +187,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(redactAccount(newAccount));
   } catch (error: any) {
+    if (error instanceof UnauthorizedError) return unauthorizedResponse();
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
@@ -251,6 +254,7 @@ export async function PUT(req: NextRequest) {
     const updated = await db.updateAccount(id, updates);
     return NextResponse.json(redactAccount(updated));
   } catch (error: any) {
+    if (error instanceof UnauthorizedError) return unauthorizedResponse();
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
@@ -290,6 +294,7 @@ export async function DELETE(req: NextRequest) {
     await db.deleteAccount(id);
     return NextResponse.json({ success: true });
   } catch (error: any) {
+    if (error instanceof UnauthorizedError) return unauthorizedResponse();
     // P2003: a campaign picked this mailbox as primary sender after the check above, and the
     // Restrict foreign key refused the delete.
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { LeadValidationStatus } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
+import { UnauthorizedError, unauthorizedResponse } from '@/lib/sessionError';
 import { CAMPAIGN_LABEL_SELECT, dispatchScope, replyScope } from '@/lib/leadHistoryScope';
 import { type FieldRule, fieldRules, isPlainObject, pickUpdateFields } from '@/lib/updateAllowList';
 import { leadEmailIn, normalizeEmail } from '@/lib/leadEmail';
@@ -138,6 +139,7 @@ export async function GET(req: NextRequest) {
     
     return NextResponse.json(await withSuppression(prisma, leads));
   } catch (error: any) {
+    if (error instanceof UnauthorizedError) return unauthorizedResponse();
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
@@ -217,6 +219,7 @@ export async function POST(req: NextRequest) {
     // suppression tells the leads page the address is on the suppression list
     return NextResponse.json({ ...created, suppression });
   } catch (error: any) {
+    if (error instanceof UnauthorizedError) return unauthorizedResponse();
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
@@ -325,6 +328,7 @@ export async function PUT(req: NextRequest) {
     const [withEntry] = await withSuppression(prisma, [updated]);
     return NextResponse.json(withEntry);
   } catch (error: any) {
+    if (error instanceof UnauthorizedError) return unauthorizedResponse();
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
@@ -369,6 +373,7 @@ export async function DELETE(req: NextRequest) {
 
     return NextResponse.json({ error: 'Lead ID, ids array, or all parameter is required.' }, { status: 400 });
   } catch (error: any) {
+    if (error instanceof UnauthorizedError) return unauthorizedResponse();
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

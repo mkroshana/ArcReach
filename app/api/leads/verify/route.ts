@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
+import { UnauthorizedError, unauthorizedResponse } from '@/lib/sessionError';
 import { findEnrollableLeadIds } from '@/lib/sendEligibility';
 import { liftsSuppression, suppressEmail, suppressionReasons } from '@/lib/suppression';
 import { normalizeEmail } from '@/lib/leadEmail';
@@ -134,6 +135,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, verifiedLeads });
   } catch (error: any) {
+    if (error instanceof UnauthorizedError) return unauthorizedResponse();
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

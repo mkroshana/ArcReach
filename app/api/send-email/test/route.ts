@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getGlobalSettings } from '@/lib/settings';
 import { getSession } from '@/lib/session';
+import { UnauthorizedError, unauthorizedResponse } from '@/lib/sessionError';
 import { checkGlobalRateLimits } from '@/lib/rateLimits';
 import { sendMessage, sendingDisabledReason, EmailConfigError, EmailSendError } from '@/lib/emailProvider';
 import { findDirectSender } from '@/lib/senderOwnership';
@@ -129,6 +130,7 @@ export async function POST(req: NextRequest) {
       throw err;
     }
   } catch (error: any) {
+    if (error instanceof UnauthorizedError) return unauthorizedResponse();
     console.error('[Test Email Error]', error);
     return NextResponse.json({ success: false, error: error.message || 'Failed to send test email.' }, { status: 500 });
   }

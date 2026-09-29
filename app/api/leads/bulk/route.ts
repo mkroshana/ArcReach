@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
+import { UnauthorizedError, unauthorizedResponse } from '@/lib/sessionError';
 import { leadEmailIn, normalizeEmail } from '@/lib/leadEmail';
 import { findEnrollableLeadIds } from '@/lib/sendEligibility';
 import { suppressedLeadFields, suppressionReasons } from '@/lib/suppression';
@@ -121,6 +122,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, count: newlyCreatedLeads.length, suppressed });
   } catch (error: any) {
+    if (error instanceof UnauthorizedError) return unauthorizedResponse();
     console.error('Failed bulk ingestion:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

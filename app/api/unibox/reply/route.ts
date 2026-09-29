@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getGlobalSettings } from '@/lib/settings';
 import { getSession } from '@/lib/session';
+import { UnauthorizedError, unauthorizedResponse } from '@/lib/sessionError';
 import { checkGlobalRateLimits } from '@/lib/rateLimits';
 import { sendMessage, sendingDisabledReason } from '@/lib/emailProvider';
 import { findDirectSender } from '@/lib/senderOwnership';
@@ -133,6 +134,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, dispatch });
   } catch (error: any) {
+    if (error instanceof UnauthorizedError) return unauthorizedResponse();
     console.error('[Unibox Reply Error]', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

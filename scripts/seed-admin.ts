@@ -16,12 +16,18 @@ async function main() {
 
   if (existingUser) {
     console.log(`[Seed] Admin user "${email}" already exists. Updating password and ensuring ADMIN role...`);
+    if (existingUser.disabledAt) {
+      console.log(`[Seed] Admin user "${email}" was disabled. Enabling it again...`);
+    }
     await prisma.user.update({
       where: { email },
       data: {
         name,
         passwordHash: hashPassword(password),
-        role: 'ADMIN'
+        role: 'ADMIN',
+        disabledAt: null,
+        // A reset password ends every session signed before it, as in the app's own password changes
+        tokenVersion: { increment: 1 }
       }
     });
   } else {

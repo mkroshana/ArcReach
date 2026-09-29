@@ -19,6 +19,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid email or password.' }, { status: 401 });
     }
 
+    if (user.disabledAt) {
+      return NextResponse.json({ error: 'This account has been disabled. Ask an admin to enable it.' }, { status: 403 });
+    }
+
     // Transparently upgrade legacy / low-cost hashes to the current work factor.
     if (needsRehash(user.passwordHash)) {
       try {
@@ -39,7 +43,7 @@ export async function POST(req: NextRequest) {
       role: user.role
     };
 
-    await setSession(sessionData);
+    await setSession({ ...sessionData, tokenVersion: user.tokenVersion });
 
     return NextResponse.json({ success: true, user: sessionData });
   } catch (error: any) {

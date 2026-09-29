@@ -64,9 +64,10 @@ jobs:
           echo $! > /tmp/devserver.pid
 
       - name: Wait for dev server to be ready
+        # Probes the public /login page: API routes answer a request with no session cookie with 401.
         run: |
           for i in $(seq 1 60); do
-            if curl -sf http://localhost:3000/api/system-status > /dev/null 2>&1; then
+            if curl -sf http://localhost:3000/login > /dev/null 2>&1; then
               echo "Dev server is ready."
               exit 0
             fi

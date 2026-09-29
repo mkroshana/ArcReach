@@ -24,7 +24,9 @@ model User {
   passwordHash   String
   role           Role            @default(USER)
   createdAt      DateTime        @default(now())
-  
+  tokenVersion   Int             @default(0) // Signed into each session; bumping it ends every session issued before (see lib/session.ts)
+  disabledAt     DateTime?       // Set while an admin has disabled the account: sign-in and every session are refused
+
   // Ownership Relations
   campaigns      Campaign[]
   senderAccounts SenderAccount[]

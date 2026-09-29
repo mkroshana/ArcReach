@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getSession, setSession } from '@/lib/session';
+import { UnauthorizedError, unauthorizedResponse } from '@/lib/sessionError';
 import { verifyPassword, hashPassword } from '@/lib/auth';
 import { MASKED_SECRET, encryptSecret } from '@/lib/secrets';
 import { passwordPolicyError } from '@/lib/passwordPolicy';
@@ -74,6 +75,7 @@ export async function GET() {
       settings: settingsPayload
     });
   } catch (error: any) {
+    if (error instanceof UnauthorizedError) return unauthorizedResponse();
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
@@ -97,16 +99,10 @@ export async function PUT(req: NextRequest) {
       if (organization !== undefined) dataToUpdate.organization = organization;
       if (timezone !== undefined) dataToUpdate.timezone = timezone;
 
-      const updatedUser = await prisma.user.update({
+      // getSession reads the name from the database, so the session cookie needs no update.
+      await prisma.user.update({
         where: { id: session.id },
         data: dataToUpdate
-      });
-      // Sync active cookies session as well
-      await setSession({
-        id: session.id,
-        email: session.email,
-        role: session.role,
-        name: updatedUser.name || session.name
       });
     }
 
@@ -132,10 +128,13 @@ export async function PUT(req: NextRequest) {
         return NextResponse.json({ error: 'Current password does not match.' }, { status: 400 });
       }
 
-      await prisma.user.update({
+      // Bumping tokenVersion ends every other session; this one is re-issued so the user stays signed in here.
+      const { tokenVersion } = await prisma.user.update({
         where: { id: session.id },
-        data: { passwordHash: hashPassword(newPassword) }
+        data: { passwordHash: hashPassword(newPassword), tokenVersion: { increment: 1 } },
+        select: { tokenVersion: true }
       });
+      await setSession({ ...session, tokenVersion });
     }
 
     // From here on, only admins can reach the settings-write paths. If nothing
@@ -206,6 +205,7 @@ export async function PUT(req: NextRequest) {
       settings: redactSettings(updatedSettings)
     });
   } catch (error: any) {
+    if (error instanceof UnauthorizedError) return unauthorizedResponse();
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

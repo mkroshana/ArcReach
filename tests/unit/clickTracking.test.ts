@@ -412,7 +412,7 @@ describe('automated opens and clicks are kept as machine events, never counted (
 });
 
 describe("a signed-in app user's hits are never recorded (M37)", () => {
-  const USER = { id: 'u-1', name: 'Operator', email: 'op@acme.test', role: 'USER' as const };
+  const USER = { id: 'u-1', name: 'Operator', email: 'op@acme.test', role: 'USER' as const, tokenVersion: 0 };
 
   const withCookie = (req: NextRequest, cookie: string) =>
     new NextRequest(req.url, { method: req.method, headers: { 'user-agent': CHROME, cookie: `user_session=${cookie}` } });

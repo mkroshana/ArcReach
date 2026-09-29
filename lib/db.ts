@@ -179,7 +179,8 @@ export const db = {
         email: true,
         name: true,
         role: true,
-        createdAt: true
+        createdAt: true,
+        disabledAt: true
       },
       orderBy: { createdAt: 'desc' }
     });
@@ -203,7 +204,8 @@ export const db = {
     await ensureInit();
     return client.user.update({
       where: { id },
-      data: { role },
+      // Bumping tokenVersion ends the user's sessions, so they sign in again under the new role.
+      data: { role, tokenVersion: { increment: 1 } },
       select: { id: true, email: true, name: true, role: true, createdAt: true }
     });
   },
@@ -212,8 +214,22 @@ export const db = {
     await ensureInit();
     return prisma.user.update({
       where: { id },
-      data: { passwordHash: hashPassword(password) },
-      select: { id: true, email: true, name: true, role: true, createdAt: true }
+      // Bumping tokenVersion ends every session signed in with the old password.
+      data: { passwordHash: hashPassword(password), tokenVersion: { increment: 1 } },
+      select: { id: true, email: true, name: true, role: true, createdAt: true, tokenVersion: true }
+    });
+  },
+
+  /**
+   * Disables (sign-in refused, every session ended by bumping tokenVersion) or re-enables user `id`.
+   * Re-enabling leaves tokenVersion alone, so sessions from before the disable stay dead.
+   */
+  async setUserDisabled(id: string, disabled: boolean, client: Prisma.TransactionClient = prisma) {
+    await ensureInit();
+    return client.user.update({
+      where: { id },
+      data: disabled ? { disabledAt: new Date(), tokenVersion: { increment: 1 } } : { disabledAt: null },
+      select: { id: true, email: true, name: true, role: true, createdAt: true, disabledAt: true }
     });
   },
 

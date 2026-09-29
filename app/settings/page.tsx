@@ -188,7 +188,7 @@ export default function SettingsPage() {
         body: JSON.stringify({ currentPassword, newPassword }),
       });
       if (res.ok) {
-        triggerToast('Password updated successfully.');
+        triggerToast('Password updated. Your other sessions were signed out.');
         setCurrentPassword(''); setNewPassword(''); setConfirmPassword('');
       } else {
         const errData = await res.json();

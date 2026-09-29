@@ -3,7 +3,7 @@
 
 import { useState, useEffect } from 'react';
 import {
-  Users, Shield, Trash2, UserPlus, AlertTriangle, Mail, Lock, Eye, EyeOff, Copy, RefreshCw, KeyRound,
+  Users, Shield, Trash2, UserPlus, UserX, UserCheck, AlertTriangle, Mail, Lock, Eye, EyeOff, Copy, RefreshCw, KeyRound,
 } from 'lucide-react';
 import {
   Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
@@ -13,6 +13,7 @@ import {
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { passwordPolicyError } from '@/lib/passwordPolicy';
 
 interface DbUser {
   id: string;
@@ -20,6 +21,7 @@ interface DbUser {
   name: string;
   role: 'ADMIN' | 'USER';
   createdAt: string;
+  disabledAt: string | null;
 }
 
 function generatePassword(length = 16): string {
@@ -133,10 +135,8 @@ export default function UsersAdminPage() {
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newEmail) return;
-    if (!newPassword || newPassword.length < 8) {
-      showToast('Set a password of at least 8 characters (use Generate for a strong one).', 'error');
-      return;
-    }
+    const passwordError = passwordPolicyError(newPassword);
+    if (passwordError) { showToast(passwordError, 'error'); return; }
     try {
       setSubmitting(true);
       const res = await fetch('/api/users', {
@@ -164,10 +164,8 @@ export default function UsersAdminPage() {
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!resetUser) return;
-    if (!resetPassword || resetPassword.length < 8) {
-      showToast('Set a password of at least 8 characters (use Generate for a strong one).', 'error');
-      return;
-    }
+    const passwordError = passwordPolicyError(resetPassword);
+    if (passwordError) { showToast(passwordError, 'error'); return; }
     try {
       setResetting(true);
       const res = await fetch('/api/users', {
@@ -179,7 +177,9 @@ export default function UsersAdminPage() {
         const errObj = await res.json().catch(() => ({}));
         throw new Error(errObj.error || 'Failed to reset password.');
       }
-      showToast(`Password reset for ${resetUser.email}`);
+      showToast(resetUser.id === currentSession?.id
+        ? 'Password reset. Your other sessions were signed out.'
+        : `Password reset for ${resetUser.email}. They were signed out everywhere.`);
       setResetUser(null); setResetPassword('');
     } catch (err: any) {
       showToast(err.message || 'Failed to reset password', 'error');
@@ -201,26 +201,57 @@ export default function UsersAdminPage() {
         const errObj = await res.json().catch(() => ({}));
         throw new Error(errObj.error || 'Failed to update role.');
       }
-      showToast(`User permissions changed to ${targetRole}`);
+      showToast(`Role changed to ${targetRole}. They were signed out and must sign in again.`);
       await fetchUsers();
     } catch (err: any) {
       showToast(err.message || 'Failed to modify role', 'error');
     }
   };
 
+  const setUserDisabled = async (user: DbUser, disabled: boolean) => {
+    try {
+      const res = await fetch('/api/users', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: user.id, disabled }),
+      });
+      if (!res.ok) {
+        const errObj = await res.json().catch(() => ({}));
+        throw new Error(errObj.error || `Failed to ${disabled ? 'disable' : 'enable'} user.`);
+      }
+      showToast(disabled ? `${user.email} is disabled and was signed out` : `${user.email} is enabled and can sign in again`);
+      await fetchUsers();
+    } catch (err: any) {
+      showToast(err.message || `Failed to ${disabled ? 'disable' : 'enable'} user`, 'error');
+    }
+  };
+
+  const handleDisableUser = (user: DbUser) => {
+    if (currentSession && user.id === currentSession.id) { showToast('You cannot disable your own account.', 'error'); return; }
+    setConfirmState({
+      title: 'Disable User?',
+      message: `${user.email} will be signed out everywhere at once and can not sign in until an admin enables the account again. Their mailboxes and campaigns are kept as they are, and their Active campaigns keep sending.`,
+      confirmLabel: 'Disable User',
+      onConfirm: async () => {
+        setConfirmState(null);
+        await setUserDisabled(user, true);
+      },
+    });
+  };
+
   const handleDeleteUser = (userId: string) => {
     if (currentSession && userId === currentSession.id) { showToast('Cannot delete your own active session.', 'error'); return; }
     setConfirmState({
-      title: 'Remove User?',
-      message: `Permanently delete the account for ${users.find((u) => u.id === userId)?.email || 'this user'}? This cannot be undone. If they still own any mailboxes or campaigns, nothing is deleted until those are reassigned to another user or deleted.`,
-      confirmLabel: 'Remove',
+      title: 'Delete User?',
+      message: `Permanently delete the account for ${users.find((u) => u.id === userId)?.email || 'this user'}? This cannot be undone. Only a user who owns no mailboxes or campaigns can be deleted; to keep their work, disable them instead.`,
+      confirmLabel: 'Delete User',
       onConfirm: async () => {
         setConfirmState(null);
         try {
           const res = await fetch(`/api/users?id=${userId}`, { method: 'DELETE' });
           if (!res.ok) {
             const errObj = await res.json().catch(() => ({}));
-            throw new Error(errObj.error || 'Failed to revoke permissions.');
+            throw new Error(errObj.error || 'Failed to delete user.');
           }
           showToast('User deleted');
           await fetchUsers();
@@ -299,14 +330,19 @@ export default function UsersAdminPage() {
                       </TableCell>
                       <TableCell sx={{ fontFamily: 'monospace', fontSize: 12, color: 'text.secondary' }}>{item.email}</TableCell>
                       <TableCell>
-                        <Chip
-                          size="small"
-                          icon={item.role === 'ADMIN' ? <Shield size={12} /> : <Users size={12} />}
-                          label={item.role}
-                          color={item.role === 'ADMIN' ? 'error' : 'primary'}
-                          variant="outlined"
-                          sx={{ fontWeight: 700, fontSize: 10 }}
-                        />
+                        <Stack direction="row" spacing={1}>
+                          <Chip
+                            size="small"
+                            icon={item.role === 'ADMIN' ? <Shield size={12} /> : <Users size={12} />}
+                            label={item.role}
+                            color={item.role === 'ADMIN' ? 'error' : 'primary'}
+                            variant="outlined"
+                            sx={{ fontWeight: 700, fontSize: 10 }}
+                          />
+                          {item.disabledAt && (
+                            <Chip size="small" icon={<UserX size={12} />} label="Disabled" variant="outlined" sx={{ fontWeight: 700, fontSize: 10 }} />
+                          )}
+                        </Stack>
                       </TableCell>
                       <TableCell sx={{ color: 'text.secondary' }}>
                         {new Date(item.createdAt).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' })}
@@ -328,9 +364,24 @@ export default function UsersAdminPage() {
                               <KeyRound size={14} />
                             </IconButton>
                           </MuiTooltip>
-                          <MuiTooltip title={isSelf ? 'Cannot delete yourself' : 'Remove user'}>
+                          {item.disabledAt ? (
+                            <MuiTooltip title="Enable user">
+                              <IconButton aria-label="Enable user" size="small" sx={{ border: 1, borderColor: 'divider' }} onClick={() => setUserDisabled(item, false)}>
+                                <UserCheck size={14} />
+                              </IconButton>
+                            </MuiTooltip>
+                          ) : (
+                            <MuiTooltip title={isSelf ? 'Cannot disable yourself' : 'Disable user'}>
+                              <span>
+                                <IconButton aria-label="Disable user" size="small" disabled={isSelf} onClick={() => handleDisableUser(item)} sx={{ border: 1, borderColor: 'divider' }}>
+                                  <UserX size={14} />
+                                </IconButton>
+                              </span>
+                            </MuiTooltip>
+                          )}
+                          <MuiTooltip title={isSelf ? 'Cannot delete yourself' : 'Delete user'}>
                             <span>
-                              <IconButton aria-label="Remove user" size="small" disabled={isSelf} onClick={() => handleDeleteUser(item.id)} sx={{ border: 1, borderColor: (t) => alpha(t.palette.error.main, 0.3), color: 'error.main' }}>
+                              <IconButton aria-label="Delete user" size="small" disabled={isSelf} onClick={() => handleDeleteUser(item.id)} sx={{ border: 1, borderColor: (t) => alpha(t.palette.error.main, 0.3), color: 'error.main' }}>
                                 <Trash2 size={14} />
                               </IconButton>
                             </span>

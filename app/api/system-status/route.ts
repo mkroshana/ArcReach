@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getGlobalSettings } from '@/lib/settings';
 import { getSession } from '@/lib/session';
+import { UnauthorizedError, unauthorizedResponse } from '@/lib/sessionError';
 import { getVerifiedDomains } from '@/lib/azureDomains';
 
 export async function GET() {
@@ -82,6 +83,7 @@ export async function GET() {
       activeProvider
     });
   } catch (error: any) {
+    if (error instanceof UnauthorizedError) return unauthorizedResponse();
     return NextResponse.json({
       database: 'DOWN',
       azureStatus: 'UNCONFIGURED',

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
+import { UnauthorizedError, unauthorizedResponse } from '@/lib/sessionError';
 import { syncMailboxReplies, getActiveImapAccounts } from '@/lib/imapService';
 import { MAILBOX_SECRET_OMIT } from '@/lib/mailboxSecrets';
 import { CAMPAIGN_LABEL_SELECT, dispatchScope, enrollmentScope, replyScope } from '@/lib/leadHistoryScope';
@@ -175,6 +176,7 @@ export async function GET(req: NextRequest) {
     
     return NextResponse.json(threads);
   } catch (error: any) {
+    if (error instanceof UnauthorizedError) return unauthorizedResponse();
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
@@ -273,6 +275,7 @@ export async function PUT(req: NextRequest) {
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
+    if (error instanceof UnauthorizedError) return unauthorizedResponse();
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { SignJWT } from 'jose';
+import { PrismaClient } from '@prisma/client';
 import { getVerifiedDomains } from '../../lib/azureDomains';
 
 const BASE_URL = 'http://localhost:3000';
@@ -17,8 +18,11 @@ interface TestSession {
   role: 'ADMIN' | 'USER';
 }
 
-async function signSession(session: TestSession): Promise<string> {
-  return new SignJWT({ ...session })
+/** DEFAULT_ADMIN's User.tokenVersion, read before the tests: the server refuses a cookie signed under any other (H26). */
+let adminTokenVersion = 0;
+
+async function signSession(session: TestSession, tokenVersion = adminTokenVersion): Promise<string> {
+  return new SignJWT({ ...session, tokenVersion })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
     .setExpirationTime('7d')
@@ -61,6 +65,17 @@ describe('ArcReach Live API Integration Tests', () => {
   
   // Ensure Next.js dev server is reachable
   beforeAll(async () => {
+    const prisma = new PrismaClient();
+    try {
+      const admin = await prisma.user.findUnique({ where: { id: DEFAULT_ADMIN.id }, select: { tokenVersion: true } });
+      if (!admin) {
+        throw new Error(`The integration tests sign in as ${DEFAULT_ADMIN.id}; create that admin in the dev database first.`);
+      }
+      adminTokenVersion = admin.tokenVersion;
+    } finally {
+      await prisma.$disconnect();
+    }
+
     try {
       await testFetch(`${BASE_URL}/api/system-status`);
     } catch (e) {
@@ -786,13 +801,22 @@ describe('ArcReach Live API Integration Tests', () => {
     });
 
     it('should prevent deleting the currently logged-in admin user via cookie session', async () => {
-      // Sign a valid session cookie for a temporary admin "temp-admin-123"
+      const res = await testFetch(`${BASE_URL}/api/users?id=${DEFAULT_ADMIN.id}`, {
+        method: 'DELETE',
+      });
+      expect(res.status).toBe(400);
+      const data = await res.json();
+      expect(data.error).toContain('Cannot delete your own active session');
+    });
+
+    it('should refuse a validly signed session for a user who does not exist', async () => {
+      // Sign a valid session cookie for "temp-admin-123", who is not in the database
       const token = await signSession({
         id: 'temp-admin-123',
         name: 'Temporary Admin',
         email: 'temp@arcreach.com',
         role: 'ADMIN',
-      });
+      }, 0);
 
       const res = await fetch(`${BASE_URL}/api/users?id=temp-admin-123`, {
         method: 'DELETE',
@@ -800,9 +824,7 @@ describe('ArcReach Live API Integration Tests', () => {
           'Cookie': `user_session=${token}`,
         },
       });
-      expect(res.status).toBe(400);
-      const data = await res.json();
-      expect(data.error).toContain('Cannot delete your own active session');
+      expect(res.status).toBe(401);
     });
 
     it('should successfully create, toggle role, and delete a temporary user', async () => {

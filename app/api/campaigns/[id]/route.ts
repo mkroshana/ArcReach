@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
+import { UnauthorizedError, unauthorizedResponse } from '@/lib/sessionError';
 import { checkCampaignSenders } from '@/lib/senderOwnership';
 import { MAILBOX_SECRET_OMIT } from '@/lib/mailboxSecrets';
 import { checkAudienceCohort, REMOVED_ENROLLMENT_STATUS, syncCohortEnrollments } from '@/lib/campaignCohort';
@@ -207,6 +208,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       telemetry
     });
   } catch (error: any) {
+    if (error instanceof UnauthorizedError) return unauthorizedResponse();
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
@@ -390,6 +392,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
     return NextResponse.json(updatedCampaign);
   } catch (error: any) {
+    if (error instanceof UnauthorizedError) return unauthorizedResponse();
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

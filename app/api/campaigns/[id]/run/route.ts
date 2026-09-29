@@ -3,6 +3,7 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { getGlobalSettings } from '@/lib/settings';
 import { getSession } from '@/lib/session';
+import { UnauthorizedError, unauthorizedResponse } from '@/lib/sessionError';
 import { sendingDisabledReason } from '@/lib/emailProvider';
 import { sendableEnrollmentWhere, withoutSuppressedLeads } from '@/lib/sendEligibility';
 
@@ -120,6 +121,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ queued });
 
   } catch (error: any) {
+    if (error instanceof UnauthorizedError) return unauthorizedResponse();
     console.error('[Campaign Run Route Error]', error);
     return NextResponse.json({ success: false, error: error.message || 'Failed to run campaign.' }, { status: 500 });
   }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import nodemailer from 'nodemailer';
 import { getSession } from '@/lib/session';
+import { UnauthorizedError, unauthorizedResponse } from '@/lib/sessionError';
 import { getGlobalSettings } from '@/lib/settings';
 import { MASKED_SECRET, decryptSecret } from '@/lib/secrets';
 
@@ -59,6 +60,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, logs, error: err.message });
     }
   } catch (error: any) {
+    if (error instanceof UnauthorizedError) return unauthorizedResponse();
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

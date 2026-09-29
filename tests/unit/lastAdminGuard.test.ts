@@ -18,6 +18,7 @@ vi.mock('../../lib/db', () => ({
 
 vi.mock('../../lib/session', () => ({
   getSession: vi.fn(),
+  setSession: vi.fn(),
 }));
 
 import { db, prisma } from '../../lib/db';

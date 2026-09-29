@@ -43,7 +43,11 @@ export function Sidebar() {
 
   useEffect(() => {
     setMounted(true);
-    fetch('/api/session').then(res => res.json()).then(data => setSessionState(data)).catch(() => {});
+    fetch('/api/session').then(res => {
+      // A missing, revoked or disabled session answers 401 (and its cookie is cleared): sign in again.
+      if (res.status === 401) { window.location.href = '/login'; return null; }
+      return res.json();
+    }).then(data => setSessionState(data)).catch(() => {});
     fetch('/api/system-status').then(res => res.json()).then(data => setSystemStatus(data)).catch(() => {});
   }, []);
 

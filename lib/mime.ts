@@ -6,12 +6,31 @@
  *
  * Uses only TextDecoder/atob so it runs in both the browser and Node.
  */
-function decodeBytes(bytes: number[], charset: string): string {
-  try {
-    return new TextDecoder(charset || 'utf-8').decode(new Uint8Array(bytes));
-  } catch {
-    return new TextDecoder('utf-8').decode(new Uint8Array(bytes));
+
+/**
+ * Text of `bytes` in the declared `charset` (an RFC 2231 language suffix such as
+ * "utf-8*en" is ignored). A missing, unknown or us-ascii charset is read as UTF-8
+ * when the bytes are valid UTF-8, since mail often leaves 8-bit text undeclared,
+ * and as windows-1252 otherwise.
+ */
+export function decodeCharset(bytes: Uint8Array, charset?: string | null): string {
+  const label = (charset || '').split('*')[0].trim().toLowerCase();
+  if (label && label !== 'us-ascii' && label !== 'ascii') {
+    try {
+      return new TextDecoder(label).decode(bytes);
+    } catch {
+      // Unknown label: read it like an undeclared charset
+    }
   }
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    return new TextDecoder('windows-1252').decode(bytes);
+  }
+}
+
+function decodeBytes(bytes: number[], charset: string): string {
+  return decodeCharset(new Uint8Array(bytes), charset);
 }
 
 export function decodeMimeHeader(input?: string | null): string {

@@ -1,7 +1,7 @@
 import net from 'net';
 import tls from 'tls';
 import { prisma } from './db';
-import { decodeMimeHeader } from './mime';
+import { decodeCharset, decodeMimeHeader } from './mime';
 import { decryptSecret } from './secrets';
 import { leadEmailIn, normalizeEmail } from './leadEmail';
 
@@ -66,6 +66,26 @@ export function parseSearchUids(resp: string): number[] {
 export function describeImapCommand(tag: string, cmd: string): string {
   const verb = cmd.trim().split(/\s+/)[0] || '';
   return `${tag} ${verb}`;
+}
+
+/**
+ * IMAP LOGIN as the lines the client sends: the first after the tag, each later one
+ * once the server answers the literal announced at the end of the previous line with
+ * a "+" continuation request. User and password go as quoted strings with backslash
+ * and double quote escaped, or as literals when they hold characters a quoted string
+ * can't carry (non-ASCII, CR or LF).
+ */
+export function imapLoginLines(user: string, pass: string): string[] {
+  const lines = ['LOGIN'];
+  for (const value of [user, pass]) {
+    if (/^[\x01-\x09\x0b\x0c\x0e-\x7f]*$/.test(value)) {
+      lines[lines.length - 1] += ` "${value.replace(/[\\"]/g, '\\$&')}"`;
+    } else {
+      lines[lines.length - 1] += ` {${Buffer.byteLength(value, 'utf8')}}`;
+      lines.push(value);
+    }
+  }
+  return lines;
 }
 
 /**
@@ -143,8 +163,10 @@ export async function syncMailboxReplies(mailboxId: string) {
         let initialResponseReceived = false;
         let buffer = '';
         
-        const commandsQueue: { tag: string; cmd: string; handler: (resp: string) => void | Promise<void> }[] = [];
+        // `continuation`: lines sent after each "+" continuation request, carrying literals
+        const commandsQueue: { tag: string; cmd: string; continuation?: string[]; handler: (resp: string) => void | Promise<void> }[] = [];
         let currentCommandIdx = -1;
+        let continuationsSent = 0;
         const fetchedMessages: ImapMessage[] = [];
         
         const makeTag = (prefix: string) => `${prefix}_${Math.random().toString(36).substring(2, 8)}`;
@@ -155,6 +177,7 @@ export async function syncMailboxReplies(mailboxId: string) {
         
         const executeNext = () => {
           currentCommandIdx++;
+          continuationsSent = 0;
           if (currentCommandIdx < commandsQueue.length) {
             const item = commandsQueue[currentCommandIdx];
             console.log(`[IMAP Sync] Sending: ${describeImapCommand(item.tag, item.cmd)}`);
@@ -170,7 +193,9 @@ export async function syncMailboxReplies(mailboxId: string) {
         };
         
         socket!.on('data', (chunk) => {
-          buffer += chunk.toString('utf8');
+          // One char per octet: FETCH literal lengths count octets, and a UTF-8 character
+          // split across chunks survives until the text is decoded with its charset
+          buffer += chunk.toString('latin1');
           
           if (!initialResponseReceived) {
             if (buffer.includes('\r\n')) {
@@ -183,6 +208,15 @@ export async function syncMailboxReplies(mailboxId: string) {
           
           if (currentCommandIdx >= 0 && currentCommandIdx < commandsQueue.length) {
             const item = commandsQueue[currentCommandIdx];
+            
+            // "+" asks for the literal announced at the end of the last line sent
+            const pendingLines = item.continuation ?? [];
+            const continuationRequest = continuationsSent < pendingLines.length ? /(?:^|\n)(\+[^\n]*\n)/.exec(buffer) : null;
+            if (continuationRequest) {
+              const start = continuationRequest.index + continuationRequest[0].length - continuationRequest[1].length;
+              buffer = buffer.substring(0, start) + buffer.substring(start + continuationRequest[1].length);
+              socket!.write(`${pendingLines[continuationsSent++]}\r\n`);
+            }
             
             const tagPattern = `${item.tag} `;
             const tagIdx = buffer.indexOf(tagPattern);
@@ -227,9 +261,11 @@ export async function syncMailboxReplies(mailboxId: string) {
         // Build commands queue
         // 1. LOGIN — decrypt stored password just-in-time for the protocol command.
         const imapPassPlain = decryptSecret(mailbox.imapPass) || '';
+        const [loginCmd, ...loginContinuation] = imapLoginLines(mailbox.imapUser!, imapPassPlain);
         commandsQueue.push({
           tag: tagLogin,
-          cmd: `LOGIN "${mailbox.imapUser!.replace(/"/g, '\\"')}" "${imapPassPlain.replace(/"/g, '\\"')}"`,
+          cmd: loginCmd,
+          continuation: loginContinuation,
           handler: (resp) => {
             if (!resp.includes(`${tagLogin} OK`)) {
               throw new Error('IMAP Login failed: ' + resp);
@@ -299,9 +335,10 @@ export async function syncMailboxReplies(mailboxId: string) {
             const tagFetchHeaders = makeTag('A4_FETCH_HEADERS');
             
             // Add header FETCH command dynamically. BODY.PEEK leaves the \Seen flag alone.
+            // The content headers say how to decode the body fetched below.
             commandsQueue.splice(currentCommandIdx + 1, 0, {
               tag: tagFetchHeaders,
-              cmd: `UID FETCH ${uids.join(',')} (UID BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES)])`,
+              cmd: `UID FETCH ${uids.join(',')} (UID BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES CONTENT-TYPE CONTENT-TRANSFER-ENCODING)])`,
               handler: async (headerResp) => {
                 if (!headerResp.includes(`${tagFetchHeaders} OK`)) {
                   throw new Error('IMAP Fetch headers failed: ' + headerResp);
@@ -336,7 +373,8 @@ export async function syncMailboxReplies(mailboxId: string) {
                           messageId: msg.messageId,
                           inReplyTo: msg.inReplyTo,
                           references: msg.references,
-                          body: cleanMimeBody(bodyParsedText)
+                          // A message without Content-Type is text/plain (RFC 2045)
+                          body: cleanMimeBody(bodyParsedText, msg.contentType || 'text/plain', msg.transferEncoding)
                         });
                       }
                     };
@@ -447,98 +485,210 @@ interface HeaderInfo {
   messageId: string;
   inReplyTo: string;
   references: string;
+  contentType: string;
+  transferEncoding: string;
+}
+
+/** One untagged FETCH response: its UID and its data items by upper-case name. */
+interface FetchData {
+  uid: number | null;
+  /** Section data such as BODY[TEXT] exactly as sent, one char per octet; null for NIL. */
+  items: Map<string, string | null>;
 }
 
 /**
- * The UID data item of one FETCH response. Servers put it before or after the
- * header literal: "* 3 FETCH (UID 42 BODY[...] {n}" or "... {n}\r\n<headers>\r\n\r\n UID 42)".
+ * Bytes of a string read from the IMAP connection (one char per octet). Text that
+ * was already decoded, so holds characters past U+00FF, is taken as UTF-8.
  */
-function fetchResponseUid(block: string): number | null {
-  const literal = block.match(/\{\d+\}\r\n/);
-  const prelude = literal ? block.slice(0, literal.index) : block;
-  let uidMatch = prelude.match(/\bUID\s+(\d+)/i);
-  if (!uidMatch && literal && literal.index !== undefined) {
-    const headersEnd = block.indexOf('\r\n\r\n', literal.index);
-    if (headersEnd !== -1) uidMatch = block.slice(headersEnd).match(/\bUID\s+(\d+)/i);
+function octets(str: string): Buffer {
+  return Buffer.from(str, /[^\x00-\xff]/.test(str) ? 'utf8' : 'latin1');
+}
+
+/**
+ * The untagged FETCH responses of a command response. A {N} literal is read as
+ * exactly N octets, so header and body data never run into the rest of the
+ * response (a later UID or FLAGS item, the closing parenthesis, the tagged OK).
+ */
+function readFetchResponses(resp: string): FetchData[] {
+  const out: FetchData[] = [];
+  let pos = 0;
+  while (pos < resp.length) {
+    // One response line, continued after each literal it announces. Literals are
+    // replaced by NUL, which IMAP never sends outside a literal.
+    let line = '';
+    const literals: string[] = [];
+    for (;;) {
+      const eol = resp.indexOf('\r\n', pos);
+      const segment = resp.substring(pos, eol === -1 ? resp.length : eol);
+      pos = eol === -1 ? resp.length : eol + 2;
+      const literal = eol === -1 ? null : segment.match(/\{(\d+)\+?\}$/);
+      if (!literal || literal.index === undefined) {
+        line += segment;
+        break;
+      }
+      line += segment.substring(0, literal.index) + '\0';
+      literals.push(resp.substring(pos, pos + Number(literal[1])));
+      pos += Number(literal[1]);
+    }
+
+    const head = line.match(/^\* \d+ FETCH \(/i);
+    if (!head) continue;
+    const s = line.substring(head[0].length);
+    let i = 0;
+    let nextLiteral = 0;
+    const skipSpaces = () => {
+      while (s[i] === ' ') i++;
+    };
+    // An atom; a section such as BODY[HEADER.FIELDS (FROM DATE)] is one atom
+    const readAtom = () => {
+      const start = i;
+      while (i < s.length && !' ()"\0'.includes(s[i])) {
+        if (s[i] === '[') {
+          const close = s.indexOf(']', i);
+          i = close === -1 ? s.length : close + 1;
+        } else {
+          i++;
+        }
+      }
+      return s.substring(start, i);
+    };
+    // A literal, quoted string, NIL, atom, or parenthesised list (read past, returned raw)
+    const readValue = (): string | null => {
+      skipSpaces();
+      if (s[i] === '\0') {
+        i++;
+        return literals[nextLiteral++] ?? '';
+      }
+      if (s[i] === '"') {
+        let value = '';
+        for (i++; i < s.length && s[i] !== '"'; i++) {
+          if (s[i] === '\\') i++;
+          value += s[i] ?? '';
+        }
+        i++;
+        return value;
+      }
+      if (s[i] === '(') {
+        const start = i++;
+        for (skipSpaces(); i < s.length && s[i] !== ')'; skipSpaces()) readValue();
+        i++;
+        return s.substring(start, i);
+      }
+      const atom = readAtom();
+      return atom.toUpperCase() === 'NIL' ? null : atom;
+    };
+
+    const items = new Map<string, string | null>();
+    for (skipSpaces(); i < s.length && s[i] !== ')'; skipSpaces()) {
+      const name = readAtom().toUpperCase();
+      if (!name) break;
+      // BODY[TEXT]<0> is the partial form of BODY[TEXT]
+      items.set(name.replace(/<\d+>$/, ''), readValue());
+    }
+    const uid = items.get('UID');
+    out.push({ uid: uid && /^\d+$/.test(uid) ? Number(uid) : null, items });
   }
-  return uidMatch ? Number(uidMatch[1]) : null;
+  return out;
+}
+
+/**
+ * Header fields of a header block by lower-case name, first occurrence kept.
+ * Folded lines are unfolded first, and a field name only matches at a line start.
+ */
+export function parseHeaderFields(block: string): Map<string, string> {
+  const fields = new Map<string, string>();
+  const unfolded = block.replace(/\r?\n(?=[ \t])/g, '');
+  for (const line of unfolded.split(/\r?\n/)) {
+    const field = line.match(/^([!-9;-~]+)[ \t]*:(.*)$/);
+    if (!field) continue;
+    const name = field[1].toLowerCase();
+    if (!fields.has(name)) fields.set(name, field[2].trim());
+  }
+  return fields;
+}
+
+/**
+ * The address of the first mailbox in an address header value, such as
+ * `"Doe, Jane" <jane@acme.test>`, `=?UTF-8?B?...?= <jane@acme.test>` or
+ * `jane@acme.test (Jane Doe)`. Quoted display names and comments may hold
+ * '<', ',' or '@' and are never read as the address.
+ */
+export function parseMailboxAddress(value: string): string {
+  let bare = '';
+  let quoted = false;
+  let commentDepth = 0;
+  for (let i = 0; i < value.length; i++) {
+    const c = value[i];
+    if (c === '\\' && (quoted || commentDepth > 0)) {
+      if (quoted) bare += c + (value[i + 1] ?? '');
+      i++;
+    } else if (quoted) {
+      bare += c;
+      if (c === '"') quoted = false;
+    } else if (commentDepth > 0) {
+      if (c === '(') commentDepth++;
+      else if (c === ')') commentDepth--;
+    } else if (c === '(') {
+      commentDepth = 1;
+    } else if (c === '"') {
+      quoted = true;
+      bare += c;
+    } else if (c === '<') {
+      const end = value.indexOf('>', i);
+      return value.substring(i + 1, end === -1 ? value.length : end).trim();
+    } else if (c === ',') {
+      break;
+    } else {
+      bare += c;
+    }
+  }
+  // No angle brackets: the value is a bare address (a quoted local part stays)
+  return bare.trim();
+}
+
+/** A header value as text, raw 8-bit bytes read as UTF-8 (else windows-1252). RFC 2047 words stay encoded. */
+function headerText(value: string | undefined): string {
+  return decodeCharset(octets(value ?? ''));
 }
 
 export function parseHeaderResponse(fetchResp: string): HeaderInfo[] {
   const result: HeaderInfo[] = [];
-  // One block per untagged response, each starting with "* ", the first one included
-  const msgBlocks = fetchResp.split(/\r\n(?=\* )/);
-  
-  for (const block of msgBlocks) {
-    const trimmed = block.trim();
-    if (!trimmed) continue;
-    
-    const match = trimmed.match(/^\*\s+\d+\s+FETCH\s+\(/i);
-    if (!match) continue;
-    
+
+  for (const fetched of readFetchResponses(fetchResp)) {
     // Without a UID the body can't be fetched (an unsolicited flag update, say)
-    const uid = fetchResponseUid(trimmed);
-    if (uid === null) continue;
-    
-    const fromMatch = trimmed.match(/From:\s*([^\r\n]+)/i);
-    const subjectMatch = trimmed.match(/Subject:\s*([^\r\n]+)/i);
-    const dateMatch = trimmed.match(/Date:\s*([^\r\n]+)/i);
-    const msgIdMatch = trimmed.match(/Message-ID:\s*([^\r\n]+)/i);
-    const inReplyToMatch = trimmed.match(/In-Reply-To:\s*([^\r\n]+)/i);
-    const refsMatch = trimmed.match(/References:\s*([^\r\n]+)/i);
-    
-    if (!fromMatch) continue;
-    
-    const rawFrom = fromMatch[1].trim();
-    const emailMatch = rawFrom.match(/<([^>]+)>/);
-    const fromEmail = emailMatch ? emailMatch[1].trim() : rawFrom;
-    
-    const subject = subjectMatch ? decodeMimeHeader(subjectMatch[1].trim()) : '';
-    const dateStr = dateMatch ? dateMatch[1].trim() : '';
-    const date = dateStr ? new Date(dateStr) : new Date();
-    const messageId = msgIdMatch ? msgIdMatch[1].trim() : '';
-    const inReplyTo = inReplyToMatch ? inReplyToMatch[1].trim() : '';
-    const references = refsMatch ? refsMatch[1].trim() : '';
-    
+    if (fetched.uid === null) continue;
+    const block = [...fetched.items].find(([name]) => name.startsWith('BODY[HEADER'))?.[1];
+    if (!block) continue;
+
+    const fields = parseHeaderFields(block);
+    // The address is read before any RFC 2047 decoding, which could put '<' or ',' in the display name
+    const fromEmail = parseMailboxAddress(headerText(fields.get('from')));
+    if (!fromEmail.includes('@')) continue;
+
+    const dateStr = fields.get('date') ?? '';
+
     result.push({
-      uid,
+      uid: fetched.uid,
       from: fromEmail.toLowerCase(),
-      subject,
-      date,
-      messageId,
-      inReplyTo,
-      references
+      subject: decodeMimeHeader(headerText(fields.get('subject'))),
+      date: dateStr ? new Date(dateStr) : new Date(),
+      messageId: fields.get('message-id') ?? '',
+      inReplyTo: fields.get('in-reply-to') ?? '',
+      references: (fields.get('references') ?? '').replace(/\s+/g, ' '),
+      contentType: fields.get('content-type') ?? '',
+      transferEncoding: fields.get('content-transfer-encoding') ?? ''
     });
   }
-  
+
   return result;
 }
 
+/** The BODY[TEXT] data of a body FETCH response, exactly as sent (one char per octet), without the rest of the response. */
 export function parseBodyResponse(fetchResp: string): string {
-  const bodyHeaderMatch = fetchResp.match(/BODY\[(?:TEXT)?\]\s*\{\d+\}\r\n/i);
-  let body = '';
-  
-  if (bodyHeaderMatch && bodyHeaderMatch.index !== undefined) {
-    const startIdx = bodyHeaderMatch.index + bodyHeaderMatch[0].length;
-    let rawBody = fetchResp.substring(startIdx).trim();
-    if (rawBody.endsWith(')')) {
-      rawBody = rawBody.slice(0, -1).trim();
-    }
-    body = rawBody;
-  } else {
-    const headerEndIdx = fetchResp.search(/\r\n\r\n/);
-    if (headerEndIdx !== -1) {
-      let rawBody = fetchResp.substring(headerEndIdx + 4).trim();
-      if (rawBody.endsWith(')')) {
-        rawBody = rawBody.slice(0, -1).trim();
-      }
-      body = rawBody;
-    } else {
-      body = fetchResp;
-    }
+  for (const fetched of readFetchResponses(fetchResp)) {
+    if (fetched.items.has('BODY[TEXT]')) return fetched.items.get('BODY[TEXT]') ?? '';
   }
-  
-  return body;
+  return '';
 }
 
 function parseFetchResponse(fetchResp: string): ImapMessage[] {
@@ -607,26 +757,27 @@ function parseFetchResponse(fetchResp: string): ImapMessage[] {
   return emails;
 }
 
-export function decodeQuotedPrintable(str: string): string {
-  // Only decode if we detect quoted-printable signatures:
-  // e.g. "=3D" or soft line breaks "=\r\n" or "=\n"
-  if (!/=3D/i.test(str) && !/=\r?\n/.test(str)) {
-    return str;
-  }
-  
-  // 1. Remove soft line breaks (an equals sign at the end of a line)
-  let result = str.replace(/=+(?:\r?\n|$)/g, '');
-  
-  // 2. Decode hex escapes: =XX
-  result = result.replace(/=([0-9A-F]{2})/gi, (match, hex) => {
-    try {
-      return String.fromCharCode(parseInt(hex, 16));
-    } catch {
-      return match;
+/** Octets of quoted-printable text: soft line breaks removed and =XX escapes decoded. */
+function quotedPrintableBytes(str: string): Buffer {
+  const src = octets(str.replace(/=[ \t]*(?:\r?\n|$)/g, ''));
+  const out = Buffer.alloc(src.length);
+  let n = 0;
+  for (let i = 0; i < src.length; i++) {
+    const hex = src[i] === 0x3d ? src.toString('latin1', i + 1, i + 3) : '';
+    if (/^[0-9A-Fa-f]{2}$/.test(hex)) {
+      out[n++] = parseInt(hex, 16);
+      i += 2;
+    } else {
+      // A '=' not followed by two hex digits is kept as it is
+      out[n++] = src[i];
     }
-  });
-  
-  return result;
+  }
+  return out.subarray(0, n);
+}
+
+/** Quoted-printable text decoded to bytes and read in `charset` (UTF-8, else windows-1252, when not given). */
+export function decodeQuotedPrintable(str: string, charset?: string): string {
+  return decodeCharset(quotedPrintableBytes(str), charset);
 }
 
 export function cleanReplyHistory(text: string): string {
@@ -687,160 +838,112 @@ export function cleanReplyHistory(text: string): string {
   return cleanLines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
-export function cleanMimeBody(body: string): string {
+/**
+ * Readable reply text of a message body, without the quoted reply history. `body`
+ * is BODY[TEXT] as read from the IMAP connection (one char per octet), and
+ * `contentType` and `transferEncoding` are the message's Content-Type and
+ * Content-Transfer-Encoding: the first text/plain part is used, else the first
+ * text/html part with its tags stripped, decoded with its declared charset. A body
+ * given without its Content-Type is read by its own MIME headers or boundary lines.
+ */
+export function cleanMimeBody(body: string, contentType = '', transferEncoding = ''): string {
   if (!body) return '';
-  
-  // 1. Try to extract boundary from a Content-Type header within the body itself
-  //    (this handles cases where BODY[TEXT] includes the MIME structure)
-  let boundary = '';
-  
-  const ctBoundaryMatch = body.match(/Content-Type:\s*multipart\/\w+;\s*boundary=["']?([^\s"';\r\n]+)["']?/i);
-  if (ctBoundaryMatch) {
-    boundary = ctBoundaryMatch[1];
-  }
-  
-  // 2. Fallback: detect boundary from a line starting with "--" that looks like a MIME boundary
-  if (!boundary) {
-    const lines = body.split(/\r?\n/);
-    const boundaryLine = lines.find(line => {
-      const t = line.trim();
-      // Must start with --, be longer than just --, and not be a text separator like "---"
-      return t.startsWith('--') && t.length > 10 && /^--[a-zA-Z0-9_=.+/-]+--?$/.test(t);
-    });
-    if (boundaryLine) {
-      boundary = boundaryLine.trim().slice(2).replace(/--$/, '');
-    }
-  }
-  
-  if (boundary) {
-    return extractFromMultipart(body, boundary);
-  }
-  
-  // 3. Not multipart — check for single-part with Content-Type headers embedded
-  //    (e.g. BODY[TEXT] that starts with Content-Type: text/plain)
-  const singlePartMatch = body.match(/Content-Type:\s*text\/plain[^\r\n]*\r?\n(?:Content-Transfer-Encoding:\s*(\S+)\r?\n)?(?:[^\r\n]+\r?\n)*?\r?\n/i);
-  if (singlePartMatch && singlePartMatch.index !== undefined) {
-    const encoding = singlePartMatch[1] || '';
-    const contentStart = singlePartMatch.index + singlePartMatch[0].length;
-    let rawContent = body.substring(contentStart);
-    
-    // Trim trailing boundary or MIME artifacts
-    const trailingBoundary = rawContent.search(/\r?\n--[a-zA-Z0-9_=.+/-]+/);
-    if (trailingBoundary !== -1) {
-      rawContent = rawContent.substring(0, trailingBoundary);
-    }
-    
-    rawContent = decodeTransferEncoding(rawContent, encoding);
-    return cleanReplyHistory(rawContent);
-  }
-  
-  // 4. Check if entire body looks like raw MIME headers + content dump
-  //    (contains things like "Content-Type:", "From:", "Message-ID:" near the start)
-  const hasMimeHeaders = /^(Content-Type:|MIME-Version:|Content-Transfer-Encoding:|From:|Date:|Message-ID:|Subject:)/mi.test(body.substring(0, 500));
-  if (hasMimeHeaders) {
-    // Try to extract just the readable text by finding the first blank line separator
-    const headerEndIdx = body.search(/\r?\n\r?\n/);
-    if (headerEndIdx !== -1) {
-      let rawBody = body.substring(headerEndIdx + (body[headerEndIdx] === '\r' ? 4 : 2)).trim();
-      
-      // Check if after the blank line we hit another MIME part
-      const innerBoundaryMatch = rawBody.match(/Content-Type:\s*multipart\/\w+;\s*boundary=["']?([^\s"';\r\n]+)["']?/i);
-      if (innerBoundaryMatch) {
-        return extractFromMultipart(rawBody, innerBoundaryMatch[1]);
-      }
-      
-      // Check if it starts with another Content-Type
-      const innerCtMatch = rawBody.match(/^Content-Type:\s*text\/plain[^\r\n]*\r?\n(?:Content-Transfer-Encoding:\s*(\S+)\r?\n)?(?:[^\r\n]+\r?\n)*?\r?\n/i);
-      if (innerCtMatch) {
-        const encoding = innerCtMatch[1] || '';
-        rawBody = rawBody.substring(innerCtMatch[0].length);
-        rawBody = decodeTransferEncoding(rawBody, encoding);
-      }
-      
-      // Strip any remaining Content-Type / MIME lines that leaked through
-      rawBody = stripLeakedMimeHeaders(rawBody);
-      
-      if (rawBody.endsWith(')')) {
-        rawBody = rawBody.slice(0, -1).trim();
-      }
-      return cleanReplyHistory(rawBody);
-    }
-  }
-  
-  // 5. Final fallback: decode QP and clean reply chain
-  let result = decodeQuotedPrintable(body);
-  result = stripLeakedMimeHeaders(result);
-  return cleanReplyHistory(result);
+  const entity = contentType ? { body, contentType, transferEncoding } : sniffBodyHeaders(body);
+  const found = mimeEntityText(entity.body, entity.contentType, entity.transferEncoding);
+  if (!found) return '';
+  return cleanReplyHistory(found.html ? stripHtmlTags(found.text) : found.text);
 }
 
-function decodeTransferEncoding(content: string, encoding: string): string {
-  const enc = encoding.toLowerCase().trim();
-  if (enc === 'quoted-printable') {
-    return decodeQuotedPrintable(content);
+/** A Content-Type value's media type (text/plain when missing or malformed, RFC 2045) and lower-case parameters. */
+function parseContentType(value: string): { type: string; params: Record<string, string> } {
+  const type = value.match(/^\s*([^\s/;]+\/[^\s;]+)/)?.[1].toLowerCase() ?? 'text/plain';
+  const params: Record<string, string> = {};
+  for (const param of value.matchAll(/;\s*([^\s=;]+)\s*=\s*(?:"((?:[^"\\]|\\.)*)"|([^\s;]+))/g)) {
+    params[param[1].toLowerCase()] = param[2] !== undefined ? param[2].replace(/\\(.)/g, '$1') : param[3];
   }
-  if (enc === 'base64') {
-    try {
-      return Buffer.from(content.replace(/\s+/g, ''), 'base64').toString('utf8');
-    } catch {
-      return content;
-    }
-  }
-  return content;
+  return { type, params };
 }
 
-function extractFromMultipart(body: string, boundary: string): string {
-  const parts = body.split('--' + boundary);
-  
-  let textPart = '';
-  let htmlPart = '';
-  
-  for (const part of parts) {
-    const trimmedPart = part.trim();
-    if (!trimmedPart || trimmedPart === '--') continue;
-    
-    // Find the blank line separator between headers and body
-    const blankLineMatch = trimmedPart.match(/\r?\n\r?\n/);
-    if (blankLineMatch && blankLineMatch.index !== undefined) {
-      const headers = trimmedPart.substring(0, blankLineMatch.index);
-      let partBody = trimmedPart.substring(blankLineMatch.index + blankLineMatch[0].length);
-      
-      // Clean trailing boundary/closing paren artifacts
-      if (partBody.endsWith(')')) {
-        partBody = partBody.slice(0, -1).trim();
-      }
-      
-      const isPlain = /Content-Type:\s*text\/plain/i.test(headers);
-      const isHtml = /Content-Type:\s*text\/html/i.test(headers);
-      
-      // Detect encoding
-      const encodingMatch = headers.match(/Content-Transfer-Encoding:\s*(\S+)/i);
-      const encoding = encodingMatch ? encodingMatch[1] : '';
-      
-      const decoded = decodeTransferEncoding(partBody, encoding);
-      
-      if (isPlain) {
-        textPart = decoded;
-        break; // Prefer text/plain, take first one
-      } else if (isHtml && !htmlPart) {
-        htmlPart = decoded;
-      } else if (!headers.includes('Content-Type') && !textPart) {
-        // No Content-Type header — treat as plain text
-        textPart = decoded;
-      }
+/** Content decoded from its Content-Transfer-Encoding and read in its charset. */
+function decodeBodyText(content: string, transferEncoding: string, charset?: string): string {
+  const encoding = transferEncoding.trim().toLowerCase();
+  const bytes = encoding === 'base64'
+    ? Buffer.from(content.replace(/[^A-Za-z0-9+/]/g, ''), 'base64')
+    : encoding === 'quoted-printable' ? quotedPrintableBytes(content) : octets(content);
+  return decodeCharset(bytes, charset);
+}
+
+/** The body parts of a multipart body, without preamble, epilogue or delimiter lines. */
+function splitMultipart(body: string, boundary: string): string[] {
+  const escaped = boundary.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const delimiter = new RegExp(`(?:^|\\r?\\n)--${escaped}(--)?[ \\t]*(?=\\r?\\n|$)`, 'g');
+  const parts: string[] = [];
+  let start = -1;
+  for (const match of body.matchAll(delimiter)) {
+    if (start !== -1) parts.push(body.substring(start, match.index).replace(/^\r?\n/, ''));
+    if (match[1]) return parts;
+    start = match.index + match[0].length;
+  }
+  // A body cut short before its close delimiter keeps its last part
+  if (start !== -1) parts.push(body.substring(start).replace(/^\r?\n/, ''));
+  return parts;
+}
+
+/**
+ * The readable text of a MIME entity: text/plain, else text/html (flagged, tags
+ * still in), decoded from its transfer encoding and charset. In a multipart the
+ * first text/plain part wins over the first text/html one; attachments are skipped.
+ */
+function mimeEntityText(body: string, contentType: string, transferEncoding: string, depth = 0): { text: string; html: boolean } | null {
+  const { type, params } = parseContentType(contentType);
+  if (type.startsWith('multipart/')) {
+    if (!params.boundary || depth > 10) return null;
+    let html: { text: string; html: boolean } | null = null;
+    for (const part of splitMultipart(body, params.boundary)) {
+      // A part without headers starts with the blank line
+      const blank = part.match(/^\r?\n|\r?\n\r?\n/);
+      const headerEnd = blank?.index ?? part.length;
+      const fields = parseHeaderFields(part.substring(0, headerEnd));
+      if (/^\s*attachment/i.test(fields.get('content-disposition') ?? '')) continue;
+      const found = mimeEntityText(
+        blank ? part.substring(headerEnd + blank[0].length) : '',
+        fields.get('content-type') || 'text/plain',
+        fields.get('content-transfer-encoding') ?? '',
+        depth + 1
+      );
+      if (found && !found.html) return found;
+      html ??= found;
+    }
+    return html;
+  }
+  if (type !== 'text/plain' && type !== 'text/html') return null;
+  return { text: decodeBodyText(body, transferEncoding, params.charset), html: type === 'text/html' };
+}
+
+/**
+ * Content headers for a body given without its message header, read from the body
+ * itself: a leading MIME header block, else a "--boundary" line, else plain text
+ * (quoted-printable when it has =XX escapes or soft line breaks).
+ */
+function sniffBodyHeaders(body: string): { body: string; contentType: string; transferEncoding: string } {
+  const blank = body.match(/\r?\n\r?\n/);
+  if (blank && blank.index !== undefined && /^[!-9;-~]+[ \t]*:/.test(body)) {
+    const fields = parseHeaderFields(body.substring(0, blank.index));
+    const contentType = fields.get('content-type');
+    if (contentType) {
+      return {
+        body: body.substring(blank.index + blank[0].length),
+        contentType,
+        transferEncoding: fields.get('content-transfer-encoding') ?? '',
+      };
     }
   }
-  
-  if (textPart) {
-    return cleanReplyHistory(textPart);
+  const boundaryLine = body.match(/^--(?=[^\r\n]*[A-Za-z0-9])([A-Za-z0-9'()+_,./:=?-]{8,})[ \t]*\r?$/m);
+  if (boundaryLine) {
+    return { body, contentType: `multipart/mixed; boundary="${boundaryLine[1].replace(/--$/, '')}"`, transferEncoding: '' };
   }
-  
-  // Fallback to HTML part, strip tags
-  if (htmlPart) {
-    return cleanReplyHistory(stripHtmlTags(htmlPart));
-  }
-  
-  // Nothing worked — try decoding raw body
-  return cleanReplyHistory(decodeQuotedPrintable(body));
+  const quotedPrintable = /=(?:[0-9A-Fa-f]{2}|\r?\n)/.test(body);
+  return { body, contentType: 'text/plain', transferEncoding: quotedPrintable ? 'quoted-printable' : '' };
 }
 
 function stripHtmlTags(html: string): string {
@@ -864,32 +967,6 @@ function stripHtmlTags(html: string): string {
   text = text.replace(/[ \t]+/g, ' ');
   text = text.replace(/\n{3,}/g, '\n\n');
   return text.trim();
-}
-
-function stripLeakedMimeHeaders(text: string): string {
-  // Remove lines that look like leaked MIME headers
-  const lines = text.split(/\r?\n/);
-  const cleaned: string[] = [];
-  
-  for (const line of lines) {
-    const t = line.trim();
-    // Skip lines that are clearly MIME headers
-    if (/^Content-Type:\s/i.test(t)) continue;
-    if (/^Content-Transfer-Encoding:\s/i.test(t)) continue;
-    if (/^MIME-Version:\s/i.test(t)) continue;
-    if (/^Content-Disposition:\s/i.test(t)) continue;
-    if (/^Message-ID:\s/i.test(t)) continue;
-    if (/^In-Reply-To:\s/i.test(t)) continue;
-    if (/^References:\s/i.test(t)) continue;
-    // Skip boundary markers
-    if (/^--[a-zA-Z0-9_=.+/-]{10,}--?$/.test(t)) continue;
-    // Skip IMAP fetch artifacts like "{530}" octet counts
-    if (/^\{\d+\}$/.test(t)) continue;
-    
-    cleaned.push(line);
-  }
-  
-  return cleaned.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 export async function getActiveImapAccounts(userId: string, role: string) {

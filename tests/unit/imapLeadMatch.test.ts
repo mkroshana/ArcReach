@@ -7,19 +7,15 @@ const server = vi.hoisted(() => ({
   written: [] as string[],
 }));
 
+/** A header FETCH response whose literal length counts the header block's octets. */
+function fetchHeaders(seq: number, lines: string[]): string {
+  const text = [...lines, '', ''].join('\r\n');
+  return `* ${seq} FETCH (UID ${seq} BODY[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES)] {${Buffer.byteLength(text)}}\r\n${text})`;
+}
+
 const HEADERS = [
-  '* 1 FETCH (UID 1 BODY[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES)] {90}',
-  'From: Vendor News <news@vendor.test>',
-  'Subject: Weekly digest',
-  'Date: Tue, 29 Sep 2026 10:00:00 +0000',
-  '',
-  ')',
-  '* 2 FETCH (UID 2 BODY[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES)] {110}',
-  'From: John Smith <JOHN.smith@ACME.com>',
-  'Subject: Re: Quick question',
-  'Date: Tue, 29 Sep 2026 11:00:00 +0000',
-  '',
-  ')',
+  fetchHeaders(1, ['From: Vendor News <news@vendor.test>', 'Subject: Weekly digest', 'Date: Tue, 29 Sep 2026 10:00:00 +0000']),
+  fetchHeaders(2, ['From: John Smith <JOHN.smith@ACME.com>', 'Subject: Re: Quick question', 'Date: Tue, 29 Sep 2026 11:00:00 +0000']),
 ].join('\r\n');
 
 vi.mock('tls', () => {

@@ -368,20 +368,26 @@ describe('IMAP sync leaves mail unread (M53)', () => {
 
 describe('parseHeaderResponse (M56)', () => {
   it('returns every message of a multi-message FETCH response, the first one included', () => {
+    const literal = (lines: string[]) => {
+      const text = lines.join('\r\n');
+      return `{${Buffer.byteLength(text)}}\r\n${text}`;
+    };
     const resp = [
-      '* 1 FETCH (UID 41 BODY[HEADER.FIELDS (FROM SUBJECT DATE)] {84}',
-      'From: Amy <amy@acme.test>',
-      'Subject: Re: Hello',
-      'Date: Tue, 29 Sep 2026 10:00:00 +0000',
-      '',
-      ')',
+      `* 1 FETCH (UID 41 BODY[HEADER.FIELDS (FROM SUBJECT DATE)] ${literal([
+        'From: Amy <amy@acme.test>',
+        'Subject: Re: Hello',
+        'Date: Tue, 29 Sep 2026 10:00:00 +0000',
+        '',
+        '',
+      ])})`,
       // Some servers send the UID after the header literal.
-      '* 2 FETCH (BODY[HEADER.FIELDS (FROM SUBJECT DATE)] {76}',
-      'From: ben@acme.test',
-      'Subject: Re: Hi',
-      'Date: Tue, 29 Sep 2026 11:00:00 +0000',
-      '',
-      ' UID 42)',
+      `* 2 FETCH (BODY[HEADER.FIELDS (FROM SUBJECT DATE)] ${literal([
+        'From: ben@acme.test',
+        'Subject: Re: Hi',
+        'Date: Tue, 29 Sep 2026 11:00:00 +0000',
+        '',
+        '',
+      ])} UID 42)`,
       // An unsolicited flag update has no UID and is skipped.
       '* 3 FETCH (FLAGS (\\Seen))',
       'A4 OK FETCH completed',

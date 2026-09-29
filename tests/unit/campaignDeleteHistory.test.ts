@@ -61,12 +61,13 @@ describe('deleting a campaign keeps what it sent and received', () => {
     });
   });
 
-  it('sends the recipient to the app instead when the dispatch row is gone', async () => {
+  it('shows a neutral page instead when the dispatch row is gone', async () => {
     mockedPrisma.emailDispatch.findUnique.mockResolvedValue(null);
 
     const res = await trackClick(makeClick('d-gone'), { params: Promise.resolve({ dispatchId: 'd-gone' }) });
 
-    expect(res.headers.get('location')).not.toBe(TARGET);
+    expect(res.status).toBe(404);
+    expect(res.headers.get('location')).toBeNull();
     expect(mockedPrisma.emailEvent.create).not.toHaveBeenCalled();
   });
 });

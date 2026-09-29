@@ -23,7 +23,8 @@ const NAMED_ENTITIES: Record<string, string> = {
   hellip: '…',
 };
 
-function decodeEntities(text: string): string {
+/** Decodes HTML character references (&amp;, &#39;, &#x27; ...); also used for link hrefs (lib/emailTracking). */
+export function decodeEntities(text: string): string {
   // Single pass, so "&amp;lt;" becomes the literal text "&lt;" rather than "<".
   return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (match, entity: string) => {
     if (entity[0] === '#') {

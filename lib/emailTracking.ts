@@ -8,6 +8,8 @@
  * (lib/unsubscribeLink).
  */
 
+import { decodeEntities } from './emailText';
+
 const APP_URL = process.env.APP_URL || 'http://localhost:3000';
 
 /**
@@ -26,36 +28,81 @@ export function injectTrackingPixel(htmlBody: string, dispatchId: string): strin
   return htmlBody + pixelTag;
 }
 
+// Matches href="..." or href='...' in anchor tags
+const ANCHOR_HREF = /(<a\s[^>]*href\s*=\s*)(["'])([^"']+)\2/gi;
+
+/**
+ * The URL a click-tracked link for this href sends the recipient to: the href
+ * as a mail client opens it, with HTML character references (&amp;) decoded.
+ * Null for links that are not click-tracked: mailto:, tel:, anchor links,
+ * unsubscribe links and already-tracked URLs. Applied both when links are
+ * rewritten and when the click route matches a click's url against them.
+ */
+export function clickTarget(href: string): string | null {
+  const url = decodeEntities(href).trim();
+  if (
+    !url ||
+    url.startsWith('mailto:') ||
+    url.startsWith('tel:') ||
+    url.startsWith('#') ||
+    url.includes('/api/track/') ||
+    url.includes('/api/unsubscribe')
+  ) {
+    return null;
+  }
+  return url;
+}
+
 /**
  * Rewrites all <a href="..."> links in an HTML email body to route
  * through the click tracking endpoint: GET /api/track/click/[dispatchId]?url=...
- * 
- * Skips mailto: links, anchor (#) links, and the tracking pixel URL itself.
+ *
+ * Skips the links clickTarget does not track.
  */
 export function rewriteLinksForTracking(htmlBody: string, dispatchId: string): string {
   const trackBaseUrl = `${APP_URL}/api/track/click/${dispatchId}`;
 
-  // Match href="..." or href='...' in anchor tags
-  return htmlBody.replace(
-    /(<a\s[^>]*href\s*=\s*)(["'])([^"']+)\2/gi,
-    (fullMatch, prefix, quote, originalUrl) => {
-      const trimmedUrl = originalUrl.trim();
-
-      // Skip mailto:, tel:, anchor links, unsubscribe links, and already-tracked URLs
-      if (
-        trimmedUrl.startsWith('mailto:') ||
-        trimmedUrl.startsWith('tel:') ||
-        trimmedUrl.startsWith('#') ||
-        trimmedUrl.includes('/api/track/') ||
-        trimmedUrl.includes('/api/unsubscribe')
-      ) {
-        return fullMatch;
-      }
-
-      const trackedUrl = `${trackBaseUrl}?url=${encodeURIComponent(trimmedUrl)}`;
-      return `${prefix}${quote}${trackedUrl}${quote}`;
+  return htmlBody.replace(ANCHOR_HREF, (fullMatch, prefix, quote, originalUrl) => {
+    const target = clickTarget(originalUrl);
+    if (target === null) {
+      return fullMatch;
     }
-  );
+
+    // A decoded &#39; is a quote encodeURIComponent keeps, and it would end a single-quoted href.
+    const trackedUrl = `${trackBaseUrl}?url=${encodeURIComponent(target).replace(/'/g, '%27')}`;
+    return `${prefix}${quote}${trackedUrl}${quote}`;
+  });
+}
+
+/**
+ * The click targets a stored dispatch body really sent (see clickTarget): the
+ * url of each link tracked for this dispatch, and each link that would be
+ * tracked in a body stored before its links were rewritten (a send still
+ * Sending or settled by the reconciler). The click route records and
+ * redirects only to these.
+ */
+export function sentClickTargets(body: string | null | undefined, dispatchId: string): Set<string> {
+  const targets = new Set<string>();
+  if (!body) return targets;
+
+  const trackPath = `/api/track/click/${dispatchId}`;
+  for (const [, , , href] of body.matchAll(ANCHOR_HREF)) {
+    let target: string | null;
+    if (href.includes('/api/track/click/')) {
+      // A tracked link: its url, if it is this dispatch's.
+      try {
+        const tracked = new URL(decodeEntities(href).trim(), APP_URL);
+        const url = tracked.pathname === trackPath ? tracked.searchParams.get('url') : null;
+        target = url === null ? null : clickTarget(url);
+      } catch {
+        target = null;
+      }
+    } else {
+      target = clickTarget(href);
+    }
+    if (target !== null) targets.add(target);
+  }
+  return targets;
 }
 
 /**

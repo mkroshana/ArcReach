@@ -9,6 +9,19 @@ const TRACKING_PIXEL = Buffer.from(
   'base64'
 );
 
+function pixelResponse(): NextResponse {
+  return new NextResponse(TRACKING_PIXEL, {
+    status: 200,
+    headers: {
+      'Content-Type': 'image/png',
+      'Content-Length': String(TRACKING_PIXEL.length),
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+    },
+  });
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ dispatchId: string }> }
@@ -51,14 +64,13 @@ export async function GET(
   }
 
   // Always return the pixel, even if recording failed
-  return new NextResponse(TRACKING_PIXEL, {
-    status: 200,
-    headers: {
-      'Content-Type': 'image/png',
-      'Content-Length': String(TRACKING_PIXEL.length),
-      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
-      'Pragma': 'no-cache',
-      'Expires': '0',
-    },
-  });
+  return pixelResponse();
+}
+
+/**
+ * HEAD returns the pixel's headers but never records an open: link checkers
+ * and proxies send HEAD, a mail client loading the image never does.
+ */
+export async function HEAD() {
+  return pixelResponse();
 }

@@ -4,7 +4,7 @@
 import {
   ArrowLeft, Save, Send, Settings, Users, AlignLeft, Clock, ToggleLeft, Plus, Trash2,
   SplitSquareHorizontal, Mail, CheckCircle2, MousePointerClick, Reply, SendHorizontal,
-  Sparkles, Play, Loader2, XCircle, AlertTriangle, UserMinus,
+  Sparkles, Play, Loader2, XCircle, AlertTriangle, UserMinus, TimerOff,
 } from 'lucide-react';
 import Link from 'next/link';
 import { use, useState, useEffect } from 'react';
@@ -16,6 +16,7 @@ import {
 import { useToast } from '@/components/Toast';
 import VariableToolbar from '@/components/VariableToolbar';
 import { activationBlocker, findIncompleteSteps, queuedLeadsMessage } from '@/lib/campaignSteps';
+import { autoResumeNote } from '@/lib/campaignPause';
 import { sendScheduleError, timezoneError } from '@/lib/sendSchedule';
 import {
   Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
@@ -64,6 +65,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
   const [status, setStatus] = useState('Draft');
   const [audienceCohort, setAudienceCohort] = useState('Valid');
   const [runningCampaign, setRunningCampaign] = useState(false);
+  const [keepingPaused, setKeepingPaused] = useState(false);
   const [timezone, setTimezone] = useState('America/New_York');
   const [stopOnReply, setStopOnReply] = useState(true);
   const [trackOpens, setTrackOpens] = useState(true);
@@ -215,6 +217,25 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
     finally { setRunningCampaign(false); }
   };
 
+  // Setting Paused again cancels the auto-resume the send engine scheduled. Only
+  // the status is refreshed, so unsaved edits in the form stay as they are.
+  const handleKeepPaused = async () => {
+    try {
+      setKeepingPaused(true);
+      const res = await fetch('/api/campaigns', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: campaignId, status: 'Paused' }),
+      });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data) {
+        setCampaign((prev: any) => ({ ...prev, status: data.status, pausedUntil: data.pausedUntil, pauseReason: data.pauseReason }));
+        setStatus(data.status);
+        showToast('Auto-resume cancelled. The campaign stays paused until you activate it.');
+      } else showToast(data?.error || 'Failed to keep the campaign paused.', 'error');
+    } catch (err) { console.error(err); showToast('Error keeping the campaign paused.', 'error'); }
+    finally { setKeepingPaused(false); }
+  };
+
   if (loading) {
     return (
       <Box sx={{ maxWidth: 1100, mx: 'auto', pb: 8, display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -249,6 +270,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
   ];
 
   const statusColor = status === 'Active' ? 'success' : status === 'Paused' ? 'warning' : 'default';
+  const resumeNote = campaign ? autoResumeNote(campaign) : null;
   const incompleteSteps = showStepErrors ? findIncompleteSteps(steps) : [];
 
   return (
@@ -283,6 +305,16 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
               Primary Mailbox: {campaign?.senderAccount?.emailAddress || 'N/A'}
               {campaign?.senders && campaign.senders.length > 0 && ` (+${campaign.senders.length} rotated)`}
             </Typography>
+            {resumeNote && (
+              <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap', mt: 1 }}>
+                <Typography variant="caption" sx={{ color: 'warning.main', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <Clock size={12} style={{ flexShrink: 0 }} /> {resumeNote}
+                </Typography>
+                <Button size="small" variant="outlined" color="inherit" disabled={keepingPaused} startIcon={<TimerOff size={12} />} onClick={handleKeepPaused} sx={{ borderColor: 'divider', color: 'text.secondary', py: 0 }}>
+                  {keepingPaused ? 'Keeping Paused…' : 'Keep Paused'}
+                </Button>
+              </Stack>
+            )}
           </Box>
         </Stack>
         <Stack direction="row" spacing={1}>

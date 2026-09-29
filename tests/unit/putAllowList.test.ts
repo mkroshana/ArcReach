@@ -110,10 +110,10 @@ describe('PUT /api/campaigns', () => {
     expect((await res.json()).error).toBe('Field "status" must be one of Draft, Active, Paused.');
   });
 
-  it('writes exactly the status sent by the campaign list toggle', async () => {
+  it('writes exactly the status sent by the campaign list toggle, clearing any auto-resume (H8)', async () => {
     const res = await putCampaign(makeReq('/api/campaigns', { id: 'cmp-1', status: 'Paused' }));
     expect(res.status).toBe(200);
-    expect(mockedDb.updateCampaign).toHaveBeenCalledWith('cmp-1', { status: 'Paused' });
+    expect(mockedDb.updateCampaign).toHaveBeenCalledWith('cmp-1', { status: 'Paused', pausedUntil: null, pauseReason: 'user' });
   });
 
   it('keeps the ownership check', async () => {
@@ -125,7 +125,7 @@ describe('PUT /api/campaigns', () => {
   it('drops userId for a USER', async () => {
     const res = await putCampaign(makeReq('/api/campaigns', { id: 'cmp-1', userId: 'user-2', status: 'Active' }));
     expect(res.status).toBe(200);
-    expect(mockedDb.updateCampaign).toHaveBeenCalledWith('cmp-1', { status: 'Active' });
+    expect(mockedDb.updateCampaign).toHaveBeenCalledWith('cmp-1', { status: 'Active', pausedUntil: null, pauseReason: null });
     expect(mockedPrisma.user.findUnique).not.toHaveBeenCalled();
   });
 

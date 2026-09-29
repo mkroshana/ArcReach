@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   Plus, PlayCircle, Search, Layers, Filter, FileSpreadsheet, RefreshCw,
-  Mail, User, ChevronRight, ChevronDown, Sparkles, Inbox, Trash2, Play, Pause, Send, Check,
+  Mail, User, ChevronRight, ChevronDown, Sparkles, Inbox, Trash2, Play, Pause, Send, Check, Clock, TimerOff,
 } from 'lucide-react';
 import {
   Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
@@ -17,11 +17,14 @@ import {
 import { alpha } from '@mui/material/styles';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { queuedLeadsMessage } from '@/lib/campaignSteps';
+import { autoResumeNote } from '@/lib/campaignPause';
 
 interface DbCampaign {
   id: string;
   name: string;
   status: 'Active' | 'Draft' | 'Paused';
+  pausedUntil?: string | null;
+  pauseReason?: string | null;
   senderAccountId: string;
   senderAccount?: { emailAddress: string };
   userId: string | null;
@@ -73,6 +76,22 @@ export default function CampaignsPage() {
         showToast(data?.error || 'Failed to update status.', 'error');
       }
     } catch { showToast('Error updating status.', 'error'); }
+  };
+
+  // Setting Paused again cancels the auto-resume the send engine scheduled.
+  const handleKeepPaused = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const res = await fetch('/api/campaigns', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, status: 'Paused' }),
+      });
+      if (res.ok) { showToast('Auto-resume cancelled. The campaign stays paused until you activate it.'); loadData(); }
+      else {
+        const data = await res.json().catch(() => null);
+        showToast(data?.error || 'Failed to keep the campaign paused.', 'error');
+      }
+    } catch { showToast('Error keeping the campaign paused.', 'error'); }
   };
 
   const handleRunCampaign = async (id: string, stepOrder?: number) => {
@@ -226,6 +245,7 @@ export default function CampaignsPage() {
               <TableBody>
                 {filteredCampaigns.map(campaign => {
                   const isExpanded = expandedCampaignId === campaign.id;
+                  const resumeNote = autoResumeNote(campaign);
                   return (
                     <Fragment key={campaign.id}>
                       <TableRow hover onClick={() => setExpandedCampaignId(isExpanded ? null : campaign.id)} sx={{ cursor: 'pointer', bgcolor: isExpanded ? 'action.hover' : undefined }}>
@@ -258,6 +278,11 @@ export default function CampaignsPage() {
                             variant="outlined"
                             sx={{ fontWeight: 700, fontSize: 10 }}
                           />
+                          {resumeNote && (
+                            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
+                              <Clock size={11} style={{ flexShrink: 0 }} /> {resumeNote}
+                            </Typography>
+                          )}
                         </TableCell>
                         <TableCell align="right" onClick={(e) => e.stopPropagation()}>
                           <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
@@ -284,6 +309,16 @@ export default function CampaignsPage() {
                                   </Typography>
                                 </Box>
                                 <Stack direction="row" spacing={1}>
+                                  {resumeNote && (
+                                    <Button
+                                      size="small" variant="outlined" color="inherit"
+                                      startIcon={<TimerOff size={12} />}
+                                      onClick={(e) => handleKeepPaused(campaign.id, e)}
+                                      sx={{ borderColor: 'divider' }}
+                                    >
+                                      Keep Paused
+                                    </Button>
+                                  )}
                                   <Button
                                     size="small" variant="outlined" color="inherit"
                                     startIcon={campaign.status === 'Active' ? <Pause size={12} color="#d97706" /> : <Play size={12} color="#10b981" />}

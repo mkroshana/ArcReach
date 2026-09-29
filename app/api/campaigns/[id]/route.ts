@@ -5,6 +5,7 @@ import { checkCampaignSenders } from '@/lib/senderOwnership';
 import { MAILBOX_SECRET_OMIT } from '@/lib/mailboxSecrets';
 import { checkAudienceCohort, REMOVED_ENROLLMENT_STATUS, syncCohortEnrollments } from '@/lib/campaignCohort';
 import { activationBlocker } from '@/lib/campaignSteps';
+import { userStatusPause } from '@/lib/campaignPause';
 import { parseSendSchedule, sendScheduleError, timezoneError } from '@/lib/sendSchedule';
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -359,6 +360,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const updates: any = {};
     if (name !== undefined) updates.name = name;
     if (status !== undefined) updates.status = status;
+    // The page resends its status with every save, so only a status other than
+    // the stored one is a user change. Like any, it cancels the send engine's
+    // auto-resume; saving a campaign the engine paused keeps its timer.
+    if (status !== undefined && status !== campaign.status) Object.assign(updates, userStatusPause(status));
     if (senderAccountId !== undefined) updates.senderAccountId = senderAccountId;
     if (timezone !== undefined) updates.timezone = timezone;
     if (sendSchedule !== undefined) updates.sendSchedule = parseSendSchedule(sendSchedule);

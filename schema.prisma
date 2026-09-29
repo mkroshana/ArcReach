@@ -122,8 +122,13 @@ model Campaign {
   updatedAt       DateTime             @updatedAt
 
   // When set, the send engine auto-resumes this campaign to Active once
-  // `pausedUntil <= now`. Null = paused indefinitely (manual pause).
+  // `pausedUntil <= now`. Null = paused indefinitely (manual pause). Only the
+  // send engine sets it, when it pauses an Active campaign; any status a user
+  // sets clears it.
   pausedUntil     DateTime?
+  // Why the campaign is Paused: 'quota' or 'systemic' when the send engine
+  // paused it (with pausedUntil), 'user' when a user did. Null otherwise.
+  pauseReason     String?
 
   // Advanced scheduling and options (From original schema & UI elements)
   timezone        String               @default("UTC")

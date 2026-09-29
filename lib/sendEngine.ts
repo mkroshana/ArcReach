@@ -7,11 +7,13 @@ import { applyEmailTracking } from './emailTracking';
 import { sendMessage, sendingDisabledReason } from './emailProvider';
 import { sendableEnrollmentWhere, claimEnrollmentForSend, releaseEnrollmentClaim, RELEASED_CLAIM } from './sendEligibility';
 import { type SendSchedule, SCHEDULE_DAYS, isValidTimezone, minutesOfDay, parseSendSchedule } from './sendSchedule';
+import type { PauseReason } from './campaignPause';
 
 /**
  * Auto-resumes campaigns whose quota-driven pause has elapsed. Idempotent and
  * safe to run concurrently — `updateMany` is row-level atomic, so each due row
- * flips to Active exactly once even if multiple workers race.
+ * flips to Active exactly once even if multiple workers race. Any status a
+ * user sets clears pausedUntil, so a user's pause is never resumed here.
  *
  * Returns the number of campaigns resumed.
  */
@@ -24,6 +26,7 @@ export async function autoResumeQuotaPausedCampaigns(now: Date = new Date()): Pr
     data: {
       status: 'Active',
       pausedUntil: null,
+      pauseReason: null,
     },
   });
   if (count > 0) {
@@ -122,6 +125,14 @@ export const MAX_SEND_ATTEMPTS = 3;
 export const RETRY_BACKOFF_HOURS = [1, 6, 24]; // hour mapping: attempt 1 -> +1h, 2 -> +6h, 3 -> +24h
 
 /**
+ * Azure HMAC clock-skew rejection: host clock drifted >5 min, needs an App
+ * Service restart; requests recover after resync.
+ */
+function isClockSkewError(message: string): boolean {
+  return message.toLowerCase().includes('time difference between the originating client');
+}
+
+/**
  * Classifies an email sending error into quota limits, hard bounce, or soft transient failure.
  */
 export function classifyFailure(err: any): 'quota' | 'hard' | 'soft' {
@@ -131,9 +142,7 @@ export function classifyFailure(err: any): 'quota' | 'hard' | 'soft' {
   // send this cycle will fail identically, so treat like quota: pause the
   // campaign and auto-resume later instead of burning per-lead retries (which
   // would eventually mark innocent leads Failed/Risky).
-  //  - Azure HMAC clock-skew rejection: host clock drifted >5 min, needs an
-  //    App Service restart; requests recover after resync.
-  if (errStr.includes('time difference between the originating client')) {
+  if (isClockSkewError(errStr)) {
     return 'quota';
   }
 
@@ -222,23 +231,30 @@ export async function handleSendFailure(
 
   if (classification === 'quota') {
     try {
-      console.log(`[SendFailureHandler] Quota limit hit. Pausing campaign "${campaignName}" (${campaignId}) for 1 hour.`);
-
       const resumeTime = new Date();
       resumeTime.setHours(resumeTime.getHours() + 1);
+      const pauseReason: PauseReason = isClockSkewError(errMsg) ? 'systemic' : 'quota';
 
       // Atomically pause the campaign with its scheduled resume time and
-      // postpone the enrollment so it retries after the reset.
-      await prisma.$transaction([
-        prisma.campaign.update({
-          where: { id: campaignId },
-          data: { status: 'Paused', pausedUntil: resumeTime },
+      // postpone the enrollment so it retries after the reset. Only an Active
+      // campaign is paused: a status a user set since the send began stands,
+      // and the timer never resumes it.
+      const [paused] = await prisma.$transaction([
+        prisma.campaign.updateMany({
+          where: { id: campaignId, status: 'Active' },
+          data: { status: 'Paused', pausedUntil: resumeTime, pauseReason },
         }),
         prisma.campaignEnrollment.update({
           where: { id: enrollment.id },
           data: { nextActionDate: resumeTime, ...RELEASED_CLAIM },
         }),
       ]);
+      const cause = pauseReason === 'quota' ? 'Quota limit hit' : 'Systemic send failure';
+      if (paused.count > 0) {
+        console.log(`[SendFailureHandler] ${cause}. Paused campaign "${campaignName}" (${campaignId}) for 1 hour.`);
+      } else {
+        console.log(`[SendFailureHandler] ${cause}. Campaign "${campaignName}" (${campaignId}) is no longer Active, so it was not paused.`);
+      }
     } catch (pauseErr: any) {
       console.error('[SendFailureHandler] Failed to pause campaign on quota limit:', pauseErr.message);
     }

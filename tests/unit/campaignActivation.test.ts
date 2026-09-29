@@ -204,11 +204,11 @@ describe('PUT /api/campaigns refuses to activate a campaign with incomplete step
   it('activates a campaign whose steps are complete, and pauses one whose steps are not', async () => {
     mockedDb.getCampaigns.mockResolvedValue([{ id: 'cmp-1', steps: COMPLETE_STEPS }]);
     expect((await toggle('Active')).status).toBe(200);
-    expect(mockedDb.updateCampaign).toHaveBeenLastCalledWith('cmp-1', { status: 'Active' });
+    expect(mockedDb.updateCampaign).toHaveBeenLastCalledWith('cmp-1', { status: 'Active', pausedUntil: null, pauseReason: null });
 
     mockedDb.getCampaigns.mockResolvedValue([{ id: 'cmp-1', steps: [] }]);
     expect((await toggle('Paused')).status).toBe(200);
-    expect(mockedDb.updateCampaign).toHaveBeenLastCalledWith('cmp-1', { status: 'Paused' });
+    expect(mockedDb.updateCampaign).toHaveBeenLastCalledWith('cmp-1', { status: 'Paused', pausedUntil: null, pauseReason: 'user' });
   });
 });
 

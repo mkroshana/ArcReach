@@ -14,7 +14,7 @@ describe('autoResumeQuotaPausedCampaigns', () => {
     vi.clearAllMocks();
   });
 
-  it('flips Paused rows whose pausedUntil has elapsed back to Active and clears the timer', async () => {
+  it('flips Paused rows whose pausedUntil has elapsed back to Active and clears the timer and reason', async () => {
     const now = new Date('2026-06-25T12:00:00Z');
     vi.mocked(prisma.campaign.updateMany).mockResolvedValue({ count: 2 });
 
@@ -29,6 +29,7 @@ describe('autoResumeQuotaPausedCampaigns', () => {
       data: {
         status: 'Active',
         pausedUntil: null,
+        pauseReason: null,
       },
     });
   });

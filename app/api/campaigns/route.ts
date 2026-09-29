@@ -4,17 +4,21 @@ import { getSession } from '@/lib/session';
 import { checkCampaignSenders } from '@/lib/senderOwnership';
 import { checkAudienceCohort, cohortLeadWhere } from '@/lib/campaignCohort';
 import { activationBlocker } from '@/lib/campaignSteps';
+import { userStatusPause } from '@/lib/campaignPause';
+import { isValidTimezone } from '@/lib/sendSchedule';
 import { type FieldRule, fieldRules, isPlainObject, pickUpdateFields } from '@/lib/updateAllowList';
 
 /** Campaign statuses the app sets and the UI offers. */
 const CAMPAIGN_STATUSES = ['Draft', 'Active', 'Paused'];
 
 /** Scalar columns the collection PUT may write. Sender mailboxes, audience and
- *  steps are edited through /api/campaigns/[id]; pausedUntil belongs to the send engine. */
+ *  steps are edited through /api/campaigns/[id]; pausedUntil and pauseReason
+ *  are set by the send engine and cleared by a status the caller sets. */
 const CAMPAIGN_UPDATE_FIELDS: Record<string, FieldRule> = {
   name: fieldRules.nonEmptyString,
   status: fieldRules.oneOf(CAMPAIGN_STATUSES),
-  timezone: fieldRules.nonEmptyString,
+  // The send engine keeps a window in an unknown timezone closed, as PUT /api/campaigns/[id] checks.
+  timezone: { expected: 'a valid timezone such as America/New_York or UTC', valid: isValidTimezone },
   stopOnReply: fieldRules.boolean,
   trackOpens: fieldRules.boolean,
   trackClicks: fieldRules.boolean,
@@ -133,6 +137,13 @@ export async function PUT(req: NextRequest) {
       if (stepsError) {
         return NextResponse.json({ error: stepsError }, { status: 400 });
       }
+    }
+
+    // Callers send only the fields they change, so a status here is the user's
+    // choice and cancels any auto-resume the send engine scheduled. Sending
+    // Paused for a campaign the engine paused is Keep Paused.
+    if (updates.status !== undefined) {
+      Object.assign(updates, userStatusPause(updates.status));
     }
 
     if (updates.userId !== undefined) {

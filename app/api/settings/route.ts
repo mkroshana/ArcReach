@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db';
 import { getSession, setSession } from '@/lib/session';
 import { verifyPassword, hashPassword } from '@/lib/auth';
 import { MASKED_SECRET, encryptSecret } from '@/lib/secrets';
+import { passwordPolicyError } from '@/lib/passwordPolicy';
 
 /** Fields that are never returned in plaintext and must be skipped on PUT when
  * the client echoes back the mask. */
@@ -117,6 +118,10 @@ export async function PUT(req: NextRequest) {
     if (newPassword !== undefined) {
       if (!currentPassword) {
         return NextResponse.json({ error: 'Current password is required.' }, { status: 400 });
+      }
+      const passwordError = passwordPolicyError(newPassword);
+      if (passwordError) {
+        return NextResponse.json({ error: passwordError }, { status: 400 });
       }
 
       const userObj = await prisma.user.findUnique({

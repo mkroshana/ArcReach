@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Prisma } from '@prisma/client';
 import { db, prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
+import { passwordPolicyError } from '@/lib/passwordPolicy';
 
 class AdminConflictError extends Error {}
 
@@ -62,8 +63,9 @@ export async function POST(req: NextRequest) {
     if (!email || !role) {
       return NextResponse.json({ error: 'Email and role are required' }, { status: 400 });
     }
-    if (!password || password.length < 8) {
-      return NextResponse.json({ error: 'A password of at least 8 characters is required.' }, { status: 400 });
+    const passwordError = passwordPolicyError(password);
+    if (passwordError) {
+      return NextResponse.json({ error: passwordError }, { status: 400 });
     }
 
     const newUser = await db.createUser({
@@ -93,8 +95,9 @@ export async function PUT(req: NextRequest) {
     if (!role && password === undefined) {
       return NextResponse.json({ error: 'A role or password is required' }, { status: 400 });
     }
-    if (password !== undefined && (!password || password.length < 8)) {
-      return NextResponse.json({ error: 'A password of at least 8 characters is required.' }, { status: 400 });
+    const passwordError = password !== undefined ? passwordPolicyError(password) : null;
+    if (passwordError) {
+      return NextResponse.json({ error: passwordError }, { status: 400 });
     }
 
     const demoting = !!role && role !== 'ADMIN';

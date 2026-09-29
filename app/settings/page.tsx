@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useTimezones } from '@/hooks/use-timezones';
+import { MIN_PASSWORD_LENGTH, passwordPolicyError } from '@/lib/passwordPolicy';
 import {
   Box, Card, CardContent, Stack, Typography, Button, IconButton, TextField, Select, MenuItem,
   FormControl, InputLabel, Snackbar, Alert, InputAdornment, CircularProgress, Avatar,
@@ -163,6 +164,8 @@ export default function SettingsPage() {
   const handleUpdatePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentPassword || !newPassword) { triggerToast('Please fill out all password fields.'); return; }
+    const passwordError = passwordPolicyError(newPassword);
+    if (passwordError) { triggerToast(passwordError); return; }
     if (newPassword !== confirmPassword) { triggerToast('New passwords do not match.'); return; }
     try {
       const res = await fetch('/api/settings', {
@@ -303,7 +306,7 @@ export default function SettingsPage() {
                       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
                         <TextField
                           fullWidth size="small" label="New Password" type={showNewPass ? 'text' : 'password'}
-                          value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Min. 8 characters"
+                          value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder={`Min. ${MIN_PASSWORD_LENGTH} characters`}
                           slotProps={{ input: { sx: { fontFamily: 'monospace' }, endAdornment: (<InputAdornment position="end"><IconButton aria-label={showNewPass ? 'Hide new password' : 'Show new password'} size="small" onClick={() => setShowNewPass(!showNewPass)}>{showNewPass ? <EyeOff size={14} /> : <Eye size={14} />}</IconButton></InputAdornment>) } }}
                         />
                         <TextField

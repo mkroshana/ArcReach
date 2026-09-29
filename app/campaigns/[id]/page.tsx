@@ -16,6 +16,7 @@ import {
 import { useToast } from '@/components/Toast';
 import VariableToolbar from '@/components/VariableToolbar';
 import { activationBlocker, findIncompleteSteps, queuedLeadsMessage } from '@/lib/campaignSteps';
+import { sendScheduleError, timezoneError } from '@/lib/sendSchedule';
 import {
   Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
   Select, MenuItem, FormControl, InputLabel, Switch, Skeleton, ToggleButtonGroup, ToggleButton,
@@ -73,9 +74,10 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
   const [availableMailboxes, setAvailableMailboxes] = useState<any[]>([]);
   const [primarySenderId, setPrimarySenderId] = useState<string>('');
   const [selectedPoolIds, setSelectedPoolIds] = useState<string[]>([]);
-  const [selectedDays, setSelectedDays] = useState<string[]>(['Mon', 'Tue', 'Wed', 'Thu', 'Fri']);
-  const [startTime, setStartTime] = useState('09:00');
-  const [endTime, setEndTime] = useState('17:00');
+  const [selectedDays, setSelectedDays] = useState<string[]>([]);
+  const [startTime, setStartTime] = useState('');
+  const [endTime, setEndTime] = useState('');
+  const [savedWindowNote, setSavedWindowNote] = useState<string | null>(null);
 
   const loadTemplates = async () => { try { const r = await fetch('/api/templates'); if (r.ok) setTemplates(await r.json()); } catch (e) { console.error(e); } };
   const loadGroups = async () => { try { const r = await fetch('/api/leads/groups'); if (r.ok) setGroups(await r.json()); } catch (e) { console.error(e); } };
@@ -114,14 +116,18 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
         setSteps(data.steps || []);
         setPrimarySenderId(data.senderAccountId || '');
         setSelectedPoolIds(data.senders ? data.senders.map((s: any) => s.senderAccountId) : []);
-        if (data.sendSchedule) {
-          try {
-            const sched = typeof data.sendSchedule === 'string' ? JSON.parse(data.sendSchedule) : data.sendSchedule;
-            if (sched.days) setSelectedDays(sched.days);
-            if (sched.window?.start) setStartTime(sched.window.start);
-            if (sched.window?.end) setEndTime(sched.window.end);
-          } catch (e) { console.error(e); }
+        // The form shows the schedule as saved, even when empty, never unsaved defaults.
+        let sched: any = data.sendSchedule;
+        if (typeof sched === 'string') {
+          try { sched = JSON.parse(sched); } catch (e) { console.error(e); sched = undefined; }
         }
+        setSelectedDays(Array.isArray(sched?.days) ? sched.days : []);
+        setStartTime(typeof sched?.window?.start === 'string' ? sched.window.start : '');
+        setEndTime(typeof sched?.window?.end === 'string' ? sched.window.end : '');
+        // What the send engine does with the saved window, which the form may not show.
+        if (data.sendSchedule == null) setSavedWindowNote('No sending window is saved, so this campaign sends at any hour. Choose days and times, then save.');
+        else if (sendScheduleError(sched) || timezoneError(data.timezone)) setSavedWindowNote('The saved sending window is incomplete or its timezone is unknown, so this campaign sends nothing until you fix it and save.');
+        else setSavedWindowNote(null);
       } else showToast('Failed to load campaign details.', 'error');
     } catch (err) { console.error(err); showToast('Error loading campaign.', 'error'); }
     finally { setLoading(false); }
@@ -166,6 +172,13 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
         showToast(blocker, 'error');
         return;
       }
+    }
+    // The send engine never sends on an incomplete window, so only a complete one is saved.
+    const windowError = timezoneError(timezone) ?? sendScheduleError({ days: selectedDays, window: { start: startTime, end: endTime } });
+    if (windowError) {
+      setActiveTab('Schedule');
+      showToast(windowError, 'error');
+      return;
     }
     try {
       setSaving(true);
@@ -497,6 +510,12 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                   <Clock size={16} color="#2563EB" />
                   <Typography variant="overline" sx={{ fontWeight: 700 }}>Target Cadence Window</Typography>
                 </Stack>
+                {savedWindowNote && (
+                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 2, color: 'warning.main' }}>
+                    <AlertTriangle size={14} />
+                    <Typography variant="caption" sx={{ fontWeight: 600 }}>{savedWindowNote}</Typography>
+                  </Stack>
+                )}
                 <Stack spacing={2.5}>
                   <FormControl fullWidth size="small">
                     <InputLabel>Outbox Timezone</InputLabel>

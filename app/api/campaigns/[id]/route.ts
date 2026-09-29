@@ -5,6 +5,7 @@ import { checkCampaignSenders } from '@/lib/senderOwnership';
 import { MAILBOX_SECRET_OMIT } from '@/lib/mailboxSecrets';
 import { checkAudienceCohort, REMOVED_ENROLLMENT_STATUS, syncCohortEnrollments } from '@/lib/campaignCohort';
 import { activationBlocker } from '@/lib/campaignSteps';
+import { parseSendSchedule, sendScheduleError, timezoneError } from '@/lib/sendSchedule';
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -326,6 +327,13 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       return NextResponse.json({ error: senderError.error }, { status: senderError.status });
     }
 
+    // The send engine keeps an incomplete window or unknown timezone closed, so neither is saved.
+    const windowError = (timezone !== undefined ? timezoneError(timezone) : null)
+      ?? (sendSchedule !== undefined ? sendScheduleError(sendSchedule) : null);
+    if (windowError) {
+      return NextResponse.json({ error: windowError }, { status: 400 });
+    }
+
     // The page sends the stored audience on every save, so only a different value
     // is validated and re-synced; a status change or step edit leaves enrollments alone.
     const cohortChanged = audienceCohort !== undefined && audienceCohort !== campaign.audienceCohort;
@@ -353,7 +361,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     if (status !== undefined) updates.status = status;
     if (senderAccountId !== undefined) updates.senderAccountId = senderAccountId;
     if (timezone !== undefined) updates.timezone = timezone;
-    if (sendSchedule !== undefined) updates.sendSchedule = sendSchedule;
+    if (sendSchedule !== undefined) updates.sendSchedule = parseSendSchedule(sendSchedule);
     if (stopOnReply !== undefined) updates.stopOnReply = !!stopOnReply;
     if (trackOpens !== undefined) updates.trackOpens = !!trackOpens;
     if (trackClicks !== undefined) updates.trackClicks = !!trackClicks;

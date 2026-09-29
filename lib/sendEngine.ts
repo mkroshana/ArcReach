@@ -6,6 +6,7 @@ import { checkGlobalRateLimits } from './rateLimits';
 import { applyEmailTracking } from './emailTracking';
 import { sendMessage, sendingDisabledReason } from './emailProvider';
 import { sendableEnrollmentWhere, claimEnrollmentForSend, releaseEnrollmentClaim, RELEASED_CLAIM } from './sendEligibility';
+import { type SendSchedule, SCHEDULE_DAYS, isValidTimezone, minutesOfDay, parseSendSchedule } from './sendSchedule';
 
 /**
  * Auto-resumes campaigns whose quota-driven pause has elapsed. Idempotent and
@@ -748,40 +749,105 @@ export async function processDueEmails() {
   }
 }
 
+const MINUTE_MS = 60_000;
+const MINUTES_PER_DAY = 24 * 60;
+
+type LocalTime = { day: string; minute: number };
+
+/** Reads an instant's weekday ('Mon'..'Sun') and minute of the day in `timezone`, or null for an unknown timezone. */
+function localClock(timezone: unknown): ((at: number) => LocalTime) | null {
+  if (!isValidTimezone(timezone)) return null;
+  const format = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone, weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  });
+  return (at) => {
+    const parts = format.formatToParts(at);
+    const part = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
+    return { day: part('weekday'), minute: (Number(part('hour')) % 24) * 60 + Number(part('minute')) };
+  };
+}
+
+/** A stored schedule (a JSON value, or legacy JSON text) as a complete window, or null when it is not one. */
+function storedSchedule(schedule: unknown): SendSchedule | null {
+  return parseSendSchedule(typeof schedule === 'string' ? JSON.parse(schedule) : schedule);
+}
+
 /**
- * Helper to check if current time is within the campaign's allowed schedule in its timezone.
+ * Whether the window is open at a local weekday and minute; both bounds are
+ * inclusive to the minute. A window running past midnight belongs to the day
+ * it opens on: Mon 22:00-06:00 sends from Monday 22:00 until Tuesday 06:00.
  */
-export function checkSendingWindow(timezone: string, schedule: any): boolean {
-    if (!schedule) return true;
-    try {
-      const sched = typeof schedule === 'string' ? JSON.parse(schedule) : schedule;
-      if (!sched || !sched.days || !sched.window) return true;
-      
-      const now = new Date();
-      // Format current time in campaign timezone
-      const targetTimeStr = now.toLocaleTimeString('en-US', { timeZone: timezone, hour12: false }); // e.g. "14:30:22"
-      const targetDayStr = now.toLocaleDateString('en-US', { timeZone: timezone, weekday: 'short' }); // e.g. "Mon"
-      
-      // Verify Day
-      const allowedDays = sched.days || [];
-      if (allowedDays.length > 0 && !allowedDays.includes(targetDayStr)) {
-        return false;
-      }
-      
-      // Verify Time Window (HH:MM)
-      const start = sched.window.start;
-      const end = sched.window.end;
-      if (start && end) {
-        const currentTime = targetTimeStr.substring(0, 5); // e.g. "14:30"
-        if (currentTime < start || currentTime > end) {
-          return false;
+function windowOpenAt(sched: SendSchedule, local: LocalTime): boolean {
+  const start = minutesOfDay(sched.window.start);
+  const end = minutesOfDay(sched.window.end);
+  if (start <= end) {
+    return local.minute >= start && local.minute <= end && sched.days.includes(local.day);
+  }
+  if (local.minute >= start) return sched.days.includes(local.day);
+  if (local.minute <= end) {
+    const previousDay = SCHEDULE_DAYS[(SCHEDULE_DAYS.indexOf(local.day) + 6) % 7];
+    return sched.days.includes(previousDay);
+  }
+  return false;
+}
+
+/**
+ * Whether `now` is inside the campaign's sending window in its timezone. A
+ * campaign with no saved schedule may send at any time. A schedule with no
+ * days or a missing or malformed HH:MM time, an unknown timezone, or any
+ * error keeps the window closed.
+ */
+export function checkSendingWindow(timezone: string, schedule: unknown, now: Date = new Date()): boolean {
+  if (schedule === null || schedule === undefined) return true;
+  try {
+    const sched = storedSchedule(schedule);
+    const clock = localClock(timezone);
+    if (!sched || !clock) return false;
+    return windowOpenAt(sched, clock(now.getTime()));
+  } catch (err) {
+    console.error('[SendEngine] Error in checkSendingWindow:', err);
+    return false; // fail closed: never send on a window that could not be checked
+  }
+}
+
+/**
+ * The first moment at or after `from` when checkSendingWindow is open: `from`
+ * itself when the window is open then, otherwise the minute it next opens in
+ * the campaign's timezone, across daylight-saving changes. Null when the
+ * schedule or timezone is invalid, so the window never opens.
+ */
+export function nextWindowOpening(timezone: string, schedule: unknown, from: Date): Date | null {
+  if (schedule === null || schedule === undefined) return from;
+  try {
+    const sched = storedSchedule(schedule);
+    const clock = localClock(timezone);
+    if (!sched || !clock) return null;
+    if (windowOpenAt(sched, clock(from.getTime()))) return from;
+
+    const start = minutesOfDay(sched.window.start);
+    let t = Math.floor(from.getTime() / MINUTE_MS) * MINUTE_MS;
+    // Each pass jumps to the next time the local clock reads the start time.
+    // The window only opens there, so a week of passes (plus one for a
+    // daylight-saving change) always reaches a permitted day.
+    for (let pass = 0; pass < 10; pass++) {
+      const wait = (start - clock(t).minute + MINUTES_PER_DAY) % MINUTES_PER_DAY || MINUTES_PER_DAY;
+      const next = t + wait * MINUTE_MS;
+      if (clock(next).minute !== start) {
+        // A daylight-saving change moved the clock on the way, possibly past the
+        // start time, so find the first open minute one at a time.
+        for (let at = t + MINUTE_MS; at <= next; at += MINUTE_MS) {
+          if (windowOpenAt(sched, clock(at))) return new Date(at);
         }
+      } else if (windowOpenAt(sched, clock(next))) {
+        return new Date(next);
       }
-      return true;
-    } catch (err) {
-      console.error('[SendEngine] Error in checkSendingWindow:', err);
-      return true; // fail-safe to allow sending
+      t = next;
     }
+    return null;
+  } catch (err) {
+    console.error('[SendEngine] Error in nextWindowOpening:', err);
+    return null;
+  }
 }
 
 /**

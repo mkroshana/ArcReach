@@ -5,7 +5,7 @@ import { getSession } from '@/lib/session';
 import { applyEmailTracking } from '@/lib/emailTracking';
 import { checkGlobalRateLimits } from '@/lib/rateLimits';
 import { resolveCampaignSenders, pickSender, handleSendFailure } from '@/lib/sendEngine';
-import { sendMessage } from '@/lib/emailProvider';
+import { sendMessage, sendingDisabledReason } from '@/lib/emailProvider';
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -43,6 +43,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       }, { status: 400 });
     }
 
+    // Only Azure Communication Services sends; refuse before any dispatch is
+    // recorded or any enrollment moves.
+    const settings = await getGlobalSettings();
+    const sendingDisabled = sendingDisabledReason(settings);
+    if (sendingDisabled) {
+      return NextResponse.json({ success: false, error: sendingDisabled }, { status: 409 });
+    }
+
     // Check global outbound rate limits before initiating the manual execution cycle
     const rateCheck = await checkGlobalRateLimits();
     if (!rateCheck.allowed) {
@@ -78,9 +86,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         dispatchedCount: 0
       });
     }
-
-    // 3. Fetch global settings for delivery configuration
-    const settings = await getGlobalSettings();
 
     // Build map of sent counts today for each unique sender in the batch/pool
     const senderIds = new Set<string>();

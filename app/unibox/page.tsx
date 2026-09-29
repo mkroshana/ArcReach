@@ -257,7 +257,8 @@ export default function UniboxPage() {
         setReplyText('');
         showToast(`Reply sent to ${selectedEmail.lead.email}!`);
       } else {
-        showToast('Failed to dispatch reply.');
+        const data = await res.json().catch(() => ({}));
+        showToast(data.error || 'Failed to dispatch reply.');
       }
     } catch (err) { console.error(err); showToast('Error occurred dispatching reply.'); }
   };

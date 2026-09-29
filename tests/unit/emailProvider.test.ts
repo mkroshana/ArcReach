@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { sendMessage, EmailConfigError, EmailSendError } from '../../lib/emailProvider';
+import { sendMessage, sendingDisabledReason, EmailConfigError, EmailSendError } from '../../lib/emailProvider';
 import { encryptSecret } from '../../lib/secrets';
 
 const sendMail = vi.fn();
@@ -23,13 +23,38 @@ beforeEach(() => {
   beginSend.mockReset();
 });
 
+describe('sendingDisabledReason (H1)', () => {
+  const azure = {
+    activeProvider: 'AZURE',
+    azureConnString: encryptSecret('endpoint=https://x;accesskey=y'),
+    azureSenderDomains: ['thejobshelpers.com'],
+  };
+
+  it('allows sending only when Azure is selected with a connection string and a verified domain', () => {
+    expect(sendingDisabledReason(azure)).toBeNull();
+  });
+
+  it('refuses when there is no settings row, sending is DISABLED, or the retired MOCK value is stored', () => {
+    for (const settings of [null, undefined, { ...azure, activeProvider: 'DISABLED' }, { ...azure, activeProvider: 'MOCK' }, { ...azure, activeProvider: null }]) {
+      expect(sendingDisabledReason(settings)).toMatch(/^Sending is disabled\./);
+    }
+  });
+
+  it('refuses Azure without a connection string or verified sender domains', () => {
+    for (const settings of [{ ...azure, azureConnString: null }, { ...azure, azureConnString: '' }, { ...azure, azureSenderDomains: [] }]) {
+      expect(sendingDisabledReason(settings)).toContain('connection string and at least one verified sender domain');
+    }
+  });
+});
+
 describe('sendMessage', () => {
-  it('MOCK provider returns no provider message id and does not call any transport', async () => {
-    const result = await sendMessage(
-      { to: 'lead@x.com', subject: 's', body: 'b', isHtml: false, sender },
-      { activeProvider: 'MOCK' }
-    );
-    expect(result.providerMessageId).toBeNull();
+  it('never reports success without sending: no settings, DISABLED and MOCK throw EmailConfigError and call no transport', async () => {
+    const credentials = { azureConnString: encryptSecret('endpoint=https://x;accesskey=y'), azureSenderDomains: ['thejobshelpers.com'] };
+    for (const settings of [null, { ...credentials, activeProvider: 'DISABLED' }, { ...credentials, activeProvider: 'MOCK' }]) {
+      await expect(
+        sendMessage({ to: 'lead@x.com', subject: 's', body: 'b', isHtml: false, sender }, settings)
+      ).rejects.toBeInstanceOf(EmailConfigError);
+    }
     expect(sendMail).not.toHaveBeenCalled();
     expect(beginSend).not.toHaveBeenCalled();
   });

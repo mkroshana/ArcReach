@@ -1,5 +1,5 @@
 /**
- * Single entry point for outbound email delivery. Owns the MOCK / AZURE / SMTP
+ * Single entry point for outbound email delivery. Owns the AZURE / SMTP
  * branching that was previously duplicated across the send engine, campaign
  * run route, manual send, send-test, and unibox-reply routes.
  *
@@ -78,29 +78,48 @@ export interface MessageInput {
 }
 
 export interface SendResult {
-  /** Provider-supplied message ID. Null for MOCK and the rare provider that
+  /** Provider-supplied message ID. Null for the rare provider that
    *  acknowledges without returning an ID. */
   providerMessageId: string | null;
+}
+
+const SENDING_DISABLED_MESSAGE =
+  'Sending is disabled. An admin must select Azure Communication Services as the delivery provider in Settings.';
+
+/**
+ * Azure Communication Services is the only sanctioned provider. Returns why
+ * sending is refused (no settings row, any other provider, or ACS missing its
+ * connection string or verified domains), or null when ACS can send. Callers
+ * check this before recording dispatches or moving enrollments, so nothing is
+ * marked sent while sending is disabled.
+ */
+export function sendingDisabledReason(settings: ProviderSettings | null | undefined): string | null {
+  if (settings?.activeProvider !== 'AZURE') return SENDING_DISABLED_MESSAGE;
+  if (!settings.azureConnString || getVerifiedDomains(settings).length === 0) {
+    return 'Sending is disabled. An admin must save the Azure Communication Services connection string and at least one verified sender domain in Settings.';
+  }
+  return null;
 }
 
 export async function sendMessage(
   input: MessageInput,
   settings: ProviderSettings | null | undefined
 ): Promise<SendResult> {
-  const provider = settings?.activeProvider || 'MOCK';
+  const provider = settings?.activeProvider;
   const { to, subject, body, isHtml, sender, trackOpens = true } = input;
-
-  if (provider === 'MOCK') {
-    console.log(`[EmailProvider/Mock] From: ${sender.emailAddress} → To: ${to} | Subject: ${subject}`);
-    return { providerMessageId: null };
-  }
 
   if (provider === 'AZURE') {
     return sendViaAzure({ to, subject, body, isHtml, sender, trackOpens }, settings!);
   }
 
   // SMTP / GOOGLE / MICROSOFT all use nodemailer with the same shape.
-  return sendViaSmtp({ to, subject, body, isHtml, sender, fromName: input.fromName }, settings!);
+  if (provider === 'SMTP' || provider === 'GOOGLE' || provider === 'MICROSOFT') {
+    return sendViaSmtp({ to, subject, body, isHtml, sender, fromName: input.fromName }, settings!);
+  }
+
+  // No settings row, DISABLED, or the retired MOCK value: nothing is sent, so
+  // never report success.
+  throw new EmailConfigError(SENDING_DISABLED_MESSAGE);
 }
 
 async function sendViaAzure(

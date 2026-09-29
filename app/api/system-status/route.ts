@@ -36,7 +36,7 @@ export async function GET() {
 
     // 2. Compute Azure API status
     let azureStatus = 'NOT_ACTIVE';
-    const activeProvider = globalSettings?.activeProvider || 'MOCK';
+    const activeProvider = globalSettings?.activeProvider || 'DISABLED';
     if (activeProvider === 'AZURE') {
       const connString = globalSettings?.azureConnString;
       if (!connString || getVerifiedDomains(globalSettings).length === 0) {
@@ -90,7 +90,7 @@ export async function GET() {
       accountsCount: 0,
       activeCampaignsCount: 0,
       leadsCount: 0,
-      activeProvider: 'MOCK',
+      activeProvider: 'DISABLED',
       error: error.message
     }, { status: 500 });
   }

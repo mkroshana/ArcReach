@@ -36,7 +36,7 @@ model User {
 // Single row under the fixed id "global"; read and write it via lib/settings.ts.
 model GlobalSettings {
   id                String   @id @default("global")
-  activeProvider    String   @default("MOCK")
+  activeProvider    String   @default("DISABLED") // AZURE sends; DISABLED (or anything else) sends nothing
   azureConnString   String?
   azureSenderDomain String?  // deprecated — read-only fallback for migration to azureSenderDomains
   azureSenderDomains Json?   // string[] of verified sender domains

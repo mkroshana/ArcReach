@@ -3,7 +3,7 @@ import { prisma } from '@/lib/db';
 import { getGlobalSettings } from '@/lib/settings';
 import { getSession } from '@/lib/session';
 import { checkGlobalRateLimits } from '@/lib/rateLimits';
-import { sendMessage } from '@/lib/emailProvider';
+import { sendMessage, sendingDisabledReason } from '@/lib/emailProvider';
 import { findDirectSender } from '@/lib/senderOwnership';
 
 export async function POST(req: NextRequest) {
@@ -32,8 +32,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Lead not found.' }, { status: 404 });
     }
 
-    // Fetch global settings
+    // Fetch global settings; only Azure Communication Services sends
     const settings = await getGlobalSettings();
+    const sendingDisabled = sendingDisabledReason(settings);
+    if (sendingDisabled) {
+      return NextResponse.json({ error: sendingDisabled }, { status: 409 });
+    }
 
     // Non-admins may only reply to leads that wrote to one of their own mailboxes
     if (session.role !== 'ADMIN') {

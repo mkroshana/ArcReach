@@ -54,6 +54,9 @@ const CAMPAIGNS = [
   { id: 'cmp-2', userId: 'user-2', senderAccountId: 'mb-user2', trackOpens: true, trackClicks: true },
 ];
 
+/** Azure selected and configured, so the sending guard lets these routes through. */
+const AZURE_SETTINGS = { id: 'global', activeProvider: 'AZURE', azureConnString: 'enc:v1:conn', azureSenderDomains: ['acme.test'] };
+
 function makeReq(path: string, body: unknown): NextRequest {
   return new NextRequest(`http://localhost${path}`, {
     method: 'POST',
@@ -86,7 +89,7 @@ beforeEach(() => {
 
 describe('POST /api/unibox/reply mailbox ownership (H25)', () => {
   beforeEach(() => {
-    mockedPrisma.globalSettings.findUnique.mockResolvedValue({ id: 'global', activeProvider: 'AZURE' });
+    mockedPrisma.globalSettings.findUnique.mockResolvedValue(AZURE_SETTINGS);
     mockedPrisma.lead.findUnique.mockImplementation(async ({ where }: any) =>
       ({ id: where.id, email: `${where.id}@prospect.test`, name: 'Prospect' }),
     );
@@ -168,7 +171,7 @@ describe('POST /api/unibox/reply mailbox ownership (H25)', () => {
 
 describe('POST /api/send-email mailbox and campaign ownership (H25)', () => {
   beforeEach(() => {
-    mockedPrisma.globalSettings.findUnique.mockResolvedValue({ id: 'global', activeProvider: 'AZURE' });
+    mockedPrisma.globalSettings.findUnique.mockResolvedValue(AZURE_SETTINGS);
     mockedPrisma.lead.findUnique.mockResolvedValue({ id: 'lead-9', email: 'prospect@prospect.test' });
   });
 
@@ -229,7 +232,7 @@ describe('POST /api/send-email mailbox and campaign ownership (H25)', () => {
 
 describe('POST /api/send-email/test mailbox ownership (H25)', () => {
   beforeEach(() => {
-    mockedPrisma.globalSettings.findUnique.mockResolvedValue({ id: 'global', activeProvider: 'AZURE' });
+    mockedPrisma.globalSettings.findUnique.mockResolvedValue(AZURE_SETTINGS);
   });
 
   const test = (senderAccountId: unknown) => postTestEmail(makeReq('/api/send-email/test', { senderAccountId }));

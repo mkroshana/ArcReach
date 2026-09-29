@@ -53,7 +53,7 @@ export async function GET() {
     let settingsPayload: any = null;
     if (session.role === 'ADMIN') {
       const settings = await ensureGlobalSettings({
-        activeProvider: 'MOCK',
+        activeProvider: 'DISABLED',
         smtpHost: 'smtp.mailgun.org',
         smtpPort: 587,
         smtpUser: 'postmaster@sandbox.arcreach.com',
@@ -154,8 +154,9 @@ export async function PUT(req: NextRequest) {
 
     const settingsData: any = {};
     if (activeProvider !== undefined) {
-      if (activeProvider !== 'AZURE' && activeProvider !== 'MOCK') {
-        return NextResponse.json({ error: 'Only AZURE or MOCK delivery providers are supported.' }, { status: 400 });
+      // Azure Communication Services is the only provider; DISABLED sends nothing.
+      if (activeProvider !== 'AZURE' && activeProvider !== 'DISABLED') {
+        return NextResponse.json({ error: 'Delivery provider must be AZURE or DISABLED.' }, { status: 400 });
       }
       settingsData.activeProvider = activeProvider;
     }
@@ -184,7 +185,7 @@ export async function PUT(req: NextRequest) {
     }
 
     const updatedSettings = await saveGlobalSettings(settingsData, {
-      activeProvider: activeProvider || 'MOCK',
+      activeProvider: activeProvider || 'DISABLED',
       azureConnString: encrypted(liveAzureConn),
       azureSenderDomain: azureSenderDomain || null,
       azureSenderDomains: azureSenderDomains !== undefined ? normalizeDomains(azureSenderDomains) : undefined,

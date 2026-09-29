@@ -17,7 +17,7 @@ import {
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 
-const isSmtpDisabled = (provider: string) => provider === 'AZURE' || provider === 'MOCK';
+const isSmtpDisabled = (provider: string) => provider === 'AZURE' || provider === 'DISABLED';
 
 export default function AccountsPage() {
   const [accounts, setAccounts] = useState<any[]>([]);
@@ -37,7 +37,7 @@ export default function AccountsPage() {
   const [dailyLimit, setDailyLimit] = useState(500);
   const [replyTo, setReplyTo] = useState('');
   const [editReplyTo, setEditReplyTo] = useState('');
-  const [globalActiveProvider, setGlobalActiveProvider] = useState('MOCK');
+  const [globalActiveProvider, setGlobalActiveProvider] = useState('DISABLED');
   const [globalRateLimitMinute, setGlobalRateLimitMinute] = useState(5);
   const [globalRateLimitHour, setGlobalRateLimitHour] = useState(100);
 
@@ -114,7 +114,7 @@ export default function AccountsPage() {
       const settingsRes = await fetch('/api/settings');
       if (settingsRes.ok) {
         const settingsData = await settingsRes.json();
-        setGlobalActiveProvider(settingsData.settings?.activeProvider || 'MOCK');
+        setGlobalActiveProvider(settingsData.settings?.activeProvider || 'DISABLED');
         if (settingsData.settings) {
           const gMin = settingsData.settings.rateLimitMinute ?? 5;
           const gHour = settingsData.settings.rateLimitHour ?? 100;

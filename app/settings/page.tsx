@@ -2,11 +2,12 @@
 'use client';
 
 import {
-  Save, User, Key, Eye, EyeOff, RefreshCw, Lock, Info,
+  Save, User, Key, Eye, EyeOff, RefreshCw, Lock, MailX,
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useTimezones } from '@/hooks/use-timezones';
 import { MIN_PASSWORD_LENGTH, passwordPolicyError } from '@/lib/passwordPolicy';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import {
   Box, Card, CardContent, Stack, Typography, Button, IconButton, TextField, Select, MenuItem,
   FormControl, InputLabel, Snackbar, Alert, InputAdornment, CircularProgress, Avatar,
@@ -17,11 +18,11 @@ import { alpha } from '@mui/material/styles';
 const getGlobalSmtpStatusLabel = (provider: string) => {
   switch (provider) {
     case 'AZURE': return '[Inactive — Routed via Azure Communication Services]';
-    case 'MOCK': return '[Inactive — Simulated via Development Sandbox]';
+    case 'DISABLED': return '[Inactive — Sending Disabled]';
     default: return '';
   }
 };
-const isGlobalSmtpDisabled = (provider: string) => provider === 'AZURE' || provider === 'MOCK';
+const isGlobalSmtpDisabled = (provider: string) => provider === 'AZURE' || provider === 'DISABLED';
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<'profile' | 'integrations'>('profile');
@@ -44,7 +45,9 @@ export default function SettingsPage() {
   const [showNewPass, setShowNewPass] = useState(false);
   const [showConfirmPass, setShowConfirmPass] = useState(false);
 
-  const [activeProvider, setActiveProvider] = useState('MOCK');
+  // Empty until loaded: showing a provider before the server says which would be a guess.
+  const [activeProvider, setActiveProvider] = useState('');
+  const [pendingProvider, setPendingProvider] = useState<string | null>(null);
   const [azureConnString, setAzureConnString] = useState('');
   const [azureSenderDomains, setAzureSenderDomains] = useState<string[]>([]);
   const [showAzureConnString, setShowAzureConnString] = useState(false);
@@ -80,7 +83,8 @@ export default function SettingsPage() {
         setOrgName(data.user.organization || '');
         setTimezone(data.user.timezone || 'America/New_York');
         if (data.settings) {
-          setActiveProvider(data.settings.activeProvider || 'MOCK');
+          // Anything but AZURE (including the retired MOCK value) sends nothing.
+          setActiveProvider(data.settings.activeProvider === 'AZURE' ? 'AZURE' : 'DISABLED');
           setAzureConnString(data.settings.azureConnString || '');
           const domains = Array.isArray(data.settings.azureSenderDomains) ? data.settings.azureSenderDomains
             : (data.settings.azureSenderDomain ? [data.settings.azureSenderDomain] : []);
@@ -183,14 +187,22 @@ export default function SettingsPage() {
   };
 
   const handleProviderChange = async (newProvider: string) => {
+    const previousProvider = activeProvider;
+    setPendingProvider(null);
     setActiveProvider(newProvider);
     try {
       const res = await fetch('/api/settings', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ activeProvider: newProvider }),
       });
-      triggerToast(res.ok ? `Active delivery provider updated to ${newProvider}` : 'Failed to update active delivery provider.');
-    } catch (e) { console.error(e); triggerToast('Error updating active delivery provider.'); }
+      if (res.ok) {
+        triggerToast(newProvider === 'AZURE' ? 'Delivery provider set to Azure Communication Services.' : 'Sending disabled. No email will be sent.');
+      } else {
+        setActiveProvider(previousProvider);
+        const data = await res.json().catch(() => ({}));
+        triggerToast(data.error || 'Failed to update active delivery provider.');
+      }
+    } catch (e) { console.error(e); setActiveProvider(previousProvider); triggerToast('Error updating active delivery provider.'); }
   };
 
   const handleSaveAzureConfig = async (e: React.FormEvent) => {
@@ -223,6 +235,17 @@ export default function SettingsPage() {
 
   return (
     <Box sx={{ maxWidth: 900, mx: 'auto', pb: 8, display: 'flex', flexDirection: 'column', gap: 3 }}>
+      <ConfirmDialog
+        isOpen={pendingProvider !== null}
+        title={pendingProvider === 'AZURE' ? 'Switch to Azure Communication Services?' : 'Disable Sending?'}
+        message={pendingProvider === 'AZURE'
+          ? 'Active campaigns will send real email to their leads through Azure Communication Services once its connection string and verified sender domains are saved.'
+          : 'No email will be sent while sending is disabled. Active campaigns stop progressing, and campaign runs, Unibox replies and test emails are refused until Azure Communication Services is selected again.'}
+        confirmLabel={pendingProvider === 'AZURE' ? 'Use Azure' : 'Disable Sending'}
+        onConfirm={() => { if (pendingProvider) handleProviderChange(pendingProvider); }}
+        onCancel={() => setPendingProvider(null)}
+        isDestructive={pendingProvider !== 'AZURE'}
+      />
       <Snackbar open={!!toastMessage} anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }} autoHideDuration={4000} onClose={() => setToastMessage('')}>
         {toastMessage ? <Alert severity="info" variant="filled" sx={{ borderRadius: '12px' }}>{toastMessage}</Alert> : undefined}
       </Snackbar>
@@ -336,19 +359,19 @@ export default function SettingsPage() {
 
                   <FormControl size="small" sx={{ maxWidth: 380, mb: 2.5 }} fullWidth>
                     <InputLabel>Provider</InputLabel>
-                    <Select label="Provider" value={activeProvider} onChange={(e) => handleProviderChange(e.target.value)}>
-                      <MenuItem value="MOCK">Development Sandbox (MOCK)</MenuItem>
+                    <Select label="Provider" value={activeProvider} onChange={(e) => { if (e.target.value !== activeProvider) setPendingProvider(e.target.value); }}>
+                      <MenuItem value="DISABLED">Sending Disabled (no email is sent)</MenuItem>
                       <MenuItem value="AZURE">Azure Communication Services</MenuItem>
                     </Select>
                   </FormControl>
 
-                  {activeProvider === 'MOCK' && (
+                  {activeProvider === 'DISABLED' && (
                     <Card sx={{ bgcolor: 'action.hover' }}>
                       <CardContent sx={{ display: 'flex', gap: 1.5, alignItems: 'flex-start' }}>
-                        <Info size={16} color="#2563EB" style={{ marginTop: 2, flexShrink: 0 }} />
+                        <MailX size={16} color="#d97706" style={{ marginTop: 2, flexShrink: 0 }} />
                         <Box>
-                          <Typography variant="body2" sx={{ fontWeight: 700 }}>Development Sandbox Mode Active</Typography>
-                          <Typography variant="caption" sx={{ color: 'text.secondary' }}>Emails generated by outreach sequences are simulated and logged to the server console — no real email is dispatched.</Typography>
+                          <Typography variant="body2" sx={{ fontWeight: 700 }}>Sending Disabled</Typography>
+                          <Typography variant="caption" sx={{ color: 'text.secondary' }}>No email is sent and campaigns do not progress. Campaign runs, Unibox replies and test emails are refused until Azure Communication Services is selected and configured.</Typography>
                         </Box>
                       </CardContent>
                     </Card>

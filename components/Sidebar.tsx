@@ -71,7 +71,7 @@ export function Sidebar() {
       if (systemStatus.azureStatus === 'OPERATIONAL') { azureColor = '#10b981'; azureText = 'Online'; }
       else if (systemStatus.azureStatus === 'UNCONFIGURED') { azureColor = '#f59e0b'; azureText = 'Not Setup'; }
       else { azureColor = '#f43f5e'; azureText = 'Offline'; }
-    } else { azureColor = '#3b82f6'; azureText = 'Sandbox'; }
+    } else { azureColor = '#f59e0b'; azureText = 'Disabled'; }
   }
 
   return (

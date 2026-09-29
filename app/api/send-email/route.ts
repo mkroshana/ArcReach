@@ -4,7 +4,7 @@ import { getGlobalSettings } from '@/lib/settings';
 import { applyEmailTracking } from '@/lib/emailTracking';
 import { checkGlobalRateLimits } from '@/lib/rateLimits';
 import { getSession } from '@/lib/session';
-import { sendMessage, EmailConfigError, EmailSendError } from '@/lib/emailProvider';
+import { sendMessage, sendingDisabledReason, EmailConfigError, EmailSendError } from '@/lib/emailProvider';
 import { findDirectSender } from '@/lib/senderOwnership';
 
 export async function POST(req: NextRequest) {
@@ -57,17 +57,12 @@ export async function POST(req: NextRequest) {
       activeSenderAccount = found.account;
     }
 
-    // 3. Determine active provider and SMTP settings to use
-    const provider = settings?.activeProvider || 'MOCK';
-    
-    if (provider === 'MOCK') {
-      console.log(`[Mock Send Relay] Campaign: ${campaignId || 'manual'}, Lead: ${leadData.email}`);
-      return NextResponse.json({ 
-        success: true, 
-        message: 'Email queued for sending (Mock relay fallback).',
-        messageId: `mock-msg-${Date.now()}-${Math.random().toString(36).substring(7)}` 
-      });
+    // 3. Only Azure Communication Services sends; refuse before any lead or dispatch is written
+    const sendingDisabled = sendingDisabledReason(settings);
+    if (sendingDisabled) {
+      return NextResponse.json({ success: false, error: sendingDisabled }, { status: 409 });
     }
+    const provider = settings?.activeProvider;
 
     const isHtml = bodyText ? /<[a-z][\s\S]*>/i.test(bodyText) : false;
     let baseBody = bodyText || '';

@@ -2,7 +2,7 @@ import { prisma } from './db';
 import { getGlobalSettings } from './settings';
 import { checkGlobalRateLimits } from './rateLimits';
 import { applyEmailTracking } from './emailTracking';
-import { sendMessage } from './emailProvider';
+import { sendMessage, sendingDisabledReason } from './emailProvider';
 
 /**
  * Auto-resumes campaigns whose quota-driven pause has elapsed. Idempotent and
@@ -341,6 +341,15 @@ export async function processDueEmails() {
   try {
     const now = new Date();
 
+    // Only Azure Communication Services sends. Without it nothing is dispatched
+    // and no enrollment moves, so campaigns pick up where they were once it is.
+    const settings = await getGlobalSettings();
+    const sendingDisabled = sendingDisabledReason(settings);
+    if (sendingDisabled) {
+      console.warn(`[SendEngine] ${sendingDisabled} Skipping this cycle.`);
+      return;
+    }
+
     // 1. Fetch leads that are due for action (enrolled in campaigns with nextActionDate in the past)
     const dueEnrollments = await prisma.campaignEnrollment.findMany({
       where: {
@@ -423,9 +432,6 @@ export async function processDueEmails() {
       console.log(`[SendEngine] Global rate limit restriction hit: ${rateCheck.reason}. Aborting current cycle.`);
       return;
     }
-
-    // 3. Fetch global settings
-    const settings = await getGlobalSettings();
 
     for (const enrollment of dueEnrollments) {
       const campaign = campaignMap.get(enrollment.campaignId);

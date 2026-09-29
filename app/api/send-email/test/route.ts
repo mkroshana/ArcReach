@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getGlobalSettings } from '@/lib/settings';
 import { getSession } from '@/lib/session';
-import { sendMessage, EmailConfigError, EmailSendError } from '@/lib/emailProvider';
+import { sendMessage, sendingDisabledReason, EmailConfigError, EmailSendError } from '@/lib/emailProvider';
 import { findDirectSender } from '@/lib/senderOwnership';
 
 /**
@@ -27,9 +27,13 @@ export async function POST(req: NextRequest) {
     }
     const senderAccount = found.account;
 
-    // Fetch global settings
+    // Fetch global settings; only Azure Communication Services sends
     const settings = await getGlobalSettings();
-    const provider = settings?.activeProvider || 'MOCK';
+    const sendingDisabled = sendingDisabledReason(settings);
+    if (sendingDisabled) {
+      return NextResponse.json({ success: false, error: sendingDisabled }, { status: 409 });
+    }
+    const provider = settings?.activeProvider;
 
     // Build the test email content
     const recipientEmail = session.email;
@@ -66,8 +70,8 @@ export async function POST(req: NextRequest) {
       );
 
       const fallbackId = `mock-test-${Date.now()}-${Math.random().toString(36).substring(7)}`;
-      const messageId = providerMessageId || (provider === 'MOCK' ? fallbackId : fallbackId);
-      const label = provider === 'AZURE' ? ' via Azure Communication Services' : provider === 'MOCK' ? ' (Mock mode)' : '';
+      const messageId = providerMessageId || fallbackId;
+      const label = provider === 'AZURE' ? ' via Azure Communication Services' : '';
 
       return NextResponse.json({
         success: true,

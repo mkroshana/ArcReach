@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 /**
  * One in-memory campaign, enrollment, lead and dispatch. The fakes apply the
@@ -16,7 +16,7 @@ const fake = vi.hoisted(() => ({
 
 vi.mock('../../lib/db', () => ({ prisma: fake }));
 
-import { handleSendFailure, MAX_CONSECUTIVE_QUOTA_FAILURES, MAX_SEND_ATTEMPTS } from '../../lib/sendEngine';
+import { handleSendFailure, MAX_CONSECUTIVE_QUOTA_FAILURES, MAX_SEND_ATTEMPTS, RETRY_BACKOFF_HOURS } from '../../lib/sendEngine';
 import { sendMessage, EmailConfigError, EmailSendError } from '../../lib/emailProvider';
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -222,5 +222,37 @@ describe('quota refusals pause the campaign; only worded ones count against a le
 
     expect(campaign).toMatchObject({ status: 'Active', pausedUntil: null, pauseReason: null });
     expect(enrollment).toMatchObject({ retryCount: 1, quotaFailures: 0, lastBounceType: 'soft' });
+  });
+});
+
+describe('a soft failure backs off through every retry delay before failing the lead (M1)', () => {
+  const T0 = new Date('2026-06-10T12:00:00Z');
+  const timeout = () => new Error('Connection timed out ETIMEDOUT');
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(T0);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it(`retries after ${RETRY_BACKOFF_HOURS.join('h, ')}h, then fails the enrollment and marks the lead Risky`, async () => {
+    enrollment.retryCount = 0;
+
+    for (const [retries, hours] of RETRY_BACKOFF_HOURS.entries()) {
+      expect(await fail(timeout())).toEqual({ action: 'continue' });
+      expect(enrollment).toMatchObject({
+        status: 'Active', retryCount: retries + 1, lastBounceType: 'soft', nextActionDate: new Date(T0.getTime() + hours * HOUR_MS),
+      });
+      expect(fake.lead.update).not.toHaveBeenCalled();
+    }
+    expect(enrollment.retryCount).toBe(MAX_SEND_ATTEMPTS - 1);
+
+    expect(await fail(timeout())).toEqual({ action: 'continue' });
+
+    expect(enrollment).toMatchObject({ status: 'Failed', nextActionDate: null, lastBounceType: 'soft' });
+    expect(lead.validationStatus).toBe('Risky');
   });
 });

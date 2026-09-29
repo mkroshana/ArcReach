@@ -1,7 +1,7 @@
 import { prisma } from './db';
 import { getGlobalSettings } from './settings';
 import { getAzureSendStatus, sendingDisabledReason, EmailSendError, type AzureSendStatus } from './emailProvider';
-import { handleSendFailure, recordAcceptedSend } from './sendEngine';
+import { advanceAfterSentStep, handleSendFailure, recordAcceptedSend } from './sendEngine';
 import { RELEASED_CLAIM, SEND_CLAIM_TTL_MS } from './sendEligibility';
 
 /** A dispatch still 'Sending' this long after it was recorded was interrupted by a crash or restart. */
@@ -16,19 +16,6 @@ export const RECONCILE_BATCH = 25;
  * operation, so it is marked Unknown instead of being sent again.
  */
 export const NOT_FOUND_RETRY_MAX_AGE_MS = 24 * 60 * 60 * 1000;
-
-type Step = { stepOrder: number; waitDays: number };
-
-/** The enrollment update after step `stepOrder` was sent at `sentAt`, as the send paths compute it. */
-function advanceAfterStep(steps: Step[], stepOrder: number, sentAt: Date) {
-  const nextStep = steps.find((s) => s.stepOrder === stepOrder + 1);
-  if (nextStep) {
-    const nextActionDate = new Date(sentAt);
-    nextActionDate.setDate(nextActionDate.getDate() + nextStep.waitDays);
-    return { currentSequenceStep: stepOrder + 1, nextActionDate, quotaFailures: 0, ...RELEASED_CLAIM };
-  }
-  return { status: 'Completed', nextActionDate: null, quotaFailures: 0, ...RELEASED_CLAIM };
-}
 
 /**
  * Settles dispatches left 'Sending' by a send that was interrupted (process
@@ -120,7 +107,7 @@ export async function reconcileStaleSendingDispatches(now: Date = new Date()): P
             // Advanced only while it is still Active on this step.
             enrollmentWhere: waiting ? { status: 'Active', currentSequenceStep: waiting.currentSequenceStep } : undefined,
             enrollmentAdvance: waiting
-              ? advanceAfterStep(dispatch.campaign?.steps ?? [], waiting.currentSequenceStep, dispatch.sentAt)
+              ? advanceAfterSentStep(dispatch.campaign?.steps ?? [], waiting.currentSequenceStep, dispatch.sentAt)
               : {},
             sender: dispatch.senderAccount,
           });

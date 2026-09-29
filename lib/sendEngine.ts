@@ -121,8 +121,9 @@ export function pickSender(
   return selectedSender;
 }
 
-export const MAX_SEND_ATTEMPTS = 3;
 export const RETRY_BACKOFF_HOURS = [1, 6, 24]; // hour mapping: attempt 1 -> +1h, 2 -> +6h, 3 -> +24h
+// The first send plus one retry per backoff: a soft failure after the last backoff fails the enrollment.
+export const MAX_SEND_ATTEMPTS = RETRY_BACKOFF_HOURS.length + 1;
 
 /**
  * Azure HMAC clock-skew rejection: host clock drifted >5 min, needs an App
@@ -433,6 +434,29 @@ export async function findStepDispatchStatus(
     if (dispatch) return status;
   }
   return null;
+}
+
+/**
+ * The enrollment update once step `stepOrder` was sent at `sentAt`: on to the
+ * next step `waitDays` days after the send, or Completed after the last one.
+ * The send ends any quota streak, resets the retry budget (which is per step)
+ * and releases the claim.
+ */
+export function advanceAfterSentStep(
+  steps: Array<{ stepOrder: number; waitDays: number }>,
+  stepOrder: number,
+  sentAt: Date
+): Prisma.CampaignEnrollmentUpdateManyMutationInput {
+  const settled = { retryCount: 0, lastError: null, quotaFailures: 0, ...RELEASED_CLAIM };
+  const nextStep = steps.find((s) => s.stepOrder === stepOrder + 1);
+  if (nextStep) {
+    // Days are added to the send time's own date. Mixing in a date read earlier
+    // (a cycle that crossed midnight) moves the step a day, or at a month end a month.
+    const nextActionDate = new Date(sentAt);
+    nextActionDate.setDate(nextActionDate.getDate() + nextStep.waitDays);
+    return { currentSequenceStep: stepOrder + 1, nextActionDate, ...settled };
+  }
+  return { status: 'Completed', nextActionDate: null, ...settled };
 }
 
 /** Retries of recordAcceptedSend's transaction after its first attempt fails. */
@@ -758,21 +782,10 @@ export async function processDueEmails() {
       if (priorDispatch === 'Sent' || priorDispatch === 'Unknown') {
         // Advance the enrollment past this already-sent step without re-dispatching.
         // An 'Unknown' send may have gone out, so it is never sent again either.
-        const nextStepOrder = currentStepOrder + 1;
-        const nextStep = campaign.steps.find((s: any) => s.stepOrder === nextStepOrder);
-        if (nextStep) {
-          const nextDate = new Date();
-          nextDate.setDate(now.getDate() + nextStep.waitDays);
-          await prisma.campaignEnrollment.update({
-            where: { id: enrollment.id },
-            data: { currentSequenceStep: nextStepOrder, nextActionDate: nextDate, ...RELEASED_CLAIM },
-          });
-        } else {
-          await prisma.campaignEnrollment.update({
-            where: { id: enrollment.id },
-            data: { status: 'Completed', nextActionDate: null, ...RELEASED_CLAIM },
-          });
-        }
+        await prisma.campaignEnrollment.update({
+          where: { id: enrollment.id },
+          data: advanceAfterSentStep(campaign.steps, currentStepOrder, new Date()),
+        });
         continue;
       }
 
@@ -840,31 +853,8 @@ export async function processDueEmails() {
         continue;
       }
 
-      // 7. Advance enrollment to the next step since send succeeded
-      const nextStepOrder = currentStepOrder + 1;
-      const nextStep = campaign.steps.find(s => s.stepOrder === nextStepOrder);
-
-      // A sent step ends any quota streak.
-      let enrollmentAdvance;
-      if (nextStep) {
-        const nextDate = new Date();
-        nextDate.setDate(now.getDate() + nextStep.waitDays);
-
-        enrollmentAdvance = {
-          currentSequenceStep: nextStepOrder,
-          nextActionDate: nextDate,
-          quotaFailures: 0,
-          ...RELEASED_CLAIM,
-        };
-      } else {
-        // Completed sequence
-        enrollmentAdvance = {
-          status: 'Completed',
-          nextActionDate: null,
-          quotaFailures: 0,
-          ...RELEASED_CLAIM,
-        };
-      }
+      // 7. Advance enrollment to the next step since send succeeded, counting its wait days from now
+      const enrollmentAdvance = advanceAfterSentStep(campaign.steps, currentStepOrder, new Date());
 
       // The provider accepted the message: mark the dispatch Sent, advance the
       // enrollment and release its claim in one retried transaction. A failure

@@ -43,7 +43,7 @@ import { getSession } from '../../lib/session';
 import { getGlobalSettings } from '../../lib/settings';
 import { checkGlobalRateLimits } from '../../lib/rateLimits';
 import { sendMessage, getAzureSendStatus } from '../../lib/emailProvider';
-import { processDueEmails, BOOKKEEPING_RETRIES } from '../../lib/sendEngine';
+import { processDueEmails, BOOKKEEPING_RETRIES, MAX_SEND_ATTEMPTS } from '../../lib/sendEngine';
 import { SEND_CLAIM_TTL_MS, claimEnrollmentForSend, releaseEnrollmentClaim, sendableEnrollmentWhere } from '../../lib/sendEligibility';
 import { reconcileStaleSendingDispatches, STALE_SENDING_MS, NOT_FOUND_RETRY_MAX_AGE_MS, RECONCILE_BATCH } from '../../lib/sendReconciler';
 import { POST as postRun } from '../../app/api/campaigns/[id]/run/route';
@@ -1101,7 +1101,7 @@ describe('processDueEmails pauses the campaign on a systemic failure and never p
     const actual = await vi.importActual<typeof import('../../lib/emailProvider')>('../../lib/emailProvider');
     mockedSend.mockImplementation(actual.sendMessage);
     addLead('lead-2');
-    enrollmentOf('lead-1').retryCount = 2; // one more soft failure would fail the lead
+    enrollmentOf('lead-1').retryCount = MAX_SEND_ATTEMPTS - 1; // one more soft failure would fail the lead
     const before = Date.now();
 
     await processDueEmails();
@@ -1111,7 +1111,7 @@ describe('processDueEmails pauses the campaign on a systemic failure and never p
     expect(campaign).toMatchObject({ status: 'Paused', pauseReason: 'config' });
     expect(campaign.pausedUntil.getTime() - before).toBeGreaterThanOrEqual(HOUR_MS);
     expect(enrollmentOf('lead-1')).toMatchObject({
-      status: 'Active', currentSequenceStep: 1, retryCount: 2, quotaFailures: 0, lastError: null,
+      status: 'Active', currentSequenceStep: 1, retryCount: MAX_SEND_ATTEMPTS - 1, quotaFailures: 0, lastError: null,
       nextActionDate: campaign.pausedUntil, claimToken: null, claimedAt: null,
     });
     expect(enrollmentOf('lead-2')).toMatchObject({ status: 'Active', retryCount: 0, nextActionDate: PAST });
@@ -1126,5 +1126,104 @@ describe('processDueEmails pauses the campaign on a systemic failure and never p
     await processDueEmails();
 
     expect(enrollmentOf('lead-1')).toMatchObject({ currentSequenceStep: 2, quotaFailures: 0 });
+  });
+});
+
+describe('a sent step resets the retry budget, which is per step (M1)', () => {
+  const timeout = () => new Error('Connection timed out');
+
+  it('gives step 2 its full retry budget after step 1 needed every retry but the last', async () => {
+    for (let attempt = 1; attempt < MAX_SEND_ATTEMPTS; attempt++) {
+      mockedSend.mockRejectedValueOnce(timeout());
+      await processDueEmails();
+      enrollmentOf('lead-1').nextActionDate = PAST; // the backoff has passed
+    }
+    expect(enrollmentOf('lead-1')).toMatchObject({ currentSequenceStep: 1, retryCount: MAX_SEND_ATTEMPTS - 1, lastError: 'Connection timed out' });
+
+    await processDueEmails();
+
+    expect(enrollmentOf('lead-1')).toMatchObject({ currentSequenceStep: 2, retryCount: 0, lastError: null });
+
+    // A transient failure on step 2 backs off instead of failing the lead.
+    enrollmentOf('lead-1').nextActionDate = PAST;
+    mockedSend.mockRejectedValueOnce(timeout());
+    await processDueEmails();
+
+    expect(enrollmentOf('lead-1')).toMatchObject({ status: 'Active', currentSequenceStep: 2, retryCount: 1 });
+    expect(enrollmentOf('lead-1').nextActionDate!.getTime()).toBeGreaterThan(Date.now());
+    expect(fake.lead.update).not.toHaveBeenCalled();
+    expect(leads.get('lead-1')!.validationStatus).toBe('Valid');
+  });
+
+  it('does not treat a lead waiting out its wait days after a retried step as in backoff: Send Step queues it, Run Now does not', async () => {
+    mockedSend.mockRejectedValueOnce(timeout());
+    await processDueEmails();
+    enrollmentOf('lead-1').nextActionDate = PAST;
+    await processDueEmails();
+    const followUpAt = enrollmentOf('lead-1').nextActionDate!;
+    expect(enrollmentOf('lead-1')).toMatchObject({ currentSequenceStep: 2, retryCount: 0 });
+    expect(followUpAt.getTime()).toBeGreaterThan(Date.now());
+
+    expect(await (await run()).json()).toEqual({ queued: 0 });
+    expect(enrollmentOf('lead-1').nextActionDate).toEqual(followUpAt);
+
+    expect(await (await run('?stepOrder=2')).json()).toEqual({ queued: 1 });
+    expect(enrollmentOf('lead-1').nextActionDate!.getTime()).toBeLessThanOrEqual(Date.now());
+  });
+
+  it('resets the retry budget when the reconciler records a retried send ACS accepted', async () => {
+    const sentAt = new Date(Date.now() - STALE_SENDING_MS - 60_000);
+    Object.assign(enrollmentOf('lead-1'), { retryCount: 2, lastError: 'Connection timed out', claimToken: 'crashed', claimedAt: sentAt });
+    addDispatch({ status: 'Sending', operationId: 'op-1', sentAt });
+    mockedStatus.mockResolvedValue({ status: 'Succeeded' });
+
+    await reconcileStaleSendingDispatches();
+
+    expect(dispatches[0].status).toBe('Sent');
+    expect(enrollmentOf('lead-1')).toMatchObject({ currentSequenceStep: 2, retryCount: 0, lastError: null, claimToken: null });
+  });
+});
+
+describe('the next step is dated from the send, even when the cycle crosses midnight at a month end (M3)', () => {
+  // Local times: setDate counts local calendar days.
+  const CYCLE_START = new Date(2027, 0, 31, 23, 59, 50);
+  const SENT_AT = new Date(2027, 1, 1, 0, 0, 10);
+  const WAIT_DAYS_LATER = new Date(2027, 1, 4, 0, 0, 10);
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(CYCLE_START);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('schedules the follow-up its wait days after a send that went out after midnight', async () => {
+    mockedSend.mockImplementation(async () => {
+      vi.setSystemTime(SENT_AT);
+      return { providerMessageId: 'provider-msg-1' };
+    });
+
+    await processDueEmails();
+
+    expect(enrollmentOf('lead-1')).toMatchObject({ currentSequenceStep: 2, nextActionDate: WAIT_DAYS_LATER });
+  });
+
+  it('dates the follow-up the same way when a pass advances past a step already sent, resetting its retries', async () => {
+    addDispatch({ status: 'Sent', stepOrder: 1, sentAt: CYCLE_START });
+    enrollmentOf('lead-1').retryCount = 1;
+    const findDispatch = fake.emailDispatch.findFirst.getMockImplementation()!;
+    fake.emailDispatch.findFirst.mockImplementationOnce(async (args: any) => {
+      vi.setSystemTime(SENT_AT);
+      return findDispatch(args);
+    });
+
+    await processDueEmails();
+
+    expect(mockedSend).not.toHaveBeenCalled();
+    expect(enrollmentOf('lead-1')).toMatchObject({
+      currentSequenceStep: 2, nextActionDate: WAIT_DAYS_LATER, retryCount: 0, lastError: null, claimToken: null,
+    });
   });
 });

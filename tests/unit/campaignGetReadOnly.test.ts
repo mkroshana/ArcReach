@@ -13,6 +13,7 @@ const fake = vi.hoisted(() => {
     emailDispatch: model(),
     inboundResponse: model(),
     lead: model(),
+    leadGroup: model(),
     senderAccount: model(),
     $transaction: vi.fn(),
   };
@@ -94,6 +95,7 @@ beforeEach(() => {
   fake.senderAccount.findMany.mockImplementation(async ({ where }: any) =>
     where.id.in.map((id: string) => ({ id })),
   );
+  fake.leadGroup.findUnique.mockImplementation(async ({ where }: any) => (where.id === 'g1' ? { id: 'g1' } : null));
   fake.$transaction.mockImplementation(async (fn: (tx: typeof fake) => unknown) => fn(fake));
 });
 
@@ -114,7 +116,7 @@ describe('GET /api/campaigns/[id] is read-only (M24)', () => {
 
   it('reports the stored enrollment count unchanged', async () => {
     fake.campaignEnrollment.count.mockImplementation(async ({ where }: any) =>
-      Object.keys(where).length === 1 ? 7 : 0,
+      where.status?.not === 'Removed' ? 7 : 0,
     );
     const res = await getCampaign(makeReq('GET', '/api/campaigns/cmp-1'), params);
     expect((await res.json()).telemetry.enrollments).toBe(7);

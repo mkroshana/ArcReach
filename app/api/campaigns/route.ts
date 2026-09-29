@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db, prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { checkCampaignSenders } from '@/lib/senderOwnership';
+import { checkAudienceCohort, cohortLeadWhere } from '@/lib/campaignCohort';
 import { type FieldRule, fieldRules, isPlainObject, pickUpdateFields } from '@/lib/updateAllowList';
 
 /** Campaign statuses the app sets and the UI offers. */
@@ -53,12 +54,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: senderError.error }, { status: senderError.status });
     }
 
+    const selectedCohort = audienceCohort || 'Valid';
+    const cohortError = await checkAudienceCohort(selectedCohort);
+    if (cohortError) {
+      return NextResponse.json({ error: cohortError }, { status: 400 });
+    }
+
     const newCampaign = await db.createCampaign({
       name,
       status: status || 'Draft',
       senderAccountId,
       userId: targetUserId,
-      audienceCohort: audienceCohort || 'Valid',
+      audienceCohort: selectedCohort,
       senders: senderAccountIds && Array.isArray(senderAccountIds) ? {
         create: senderAccountIds.map((id: string) => ({
           senderAccountId: id
@@ -67,32 +74,10 @@ export async function POST(req: NextRequest) {
     });
 
     // Auto-enroll eligible leads matching chosen cohort
-    const selectedCohort = audienceCohort || 'Valid';
-    let eligibleLeads: any[] = [];
-    if (selectedCohort === 'Unverified') {
-      eligibleLeads = await prisma.lead.findMany({
-        where: { validationStatus: 'Unverified', isArchived: false }
-      });
-    } else if (selectedCohort === 'Valid') {
-      eligibleLeads = await prisma.lead.findMany({
-        where: { validationStatus: 'Valid', isArchived: false }
-      });
-    } else if (selectedCohort === 'HighIntent') {
-      eligibleLeads = [];
-    } else {
-      // Assume selectedCohort is a groupId
-      const groupId = selectedCohort.startsWith('group_') ? selectedCohort.replace('group_', '') : selectedCohort;
-      eligibleLeads = await prisma.lead.findMany({
-        where: {
-          isArchived: false,
-          groups: {
-            some: {
-              groupId: groupId
-            }
-          }
-        }
-      });
-    }
+    const eligibleLeads = await prisma.lead.findMany({
+      where: cohortLeadWhere(selectedCohort),
+      select: { id: true }
+    });
 
     if (eligibleLeads.length > 0) {
       await prisma.campaignEnrollment.createMany({

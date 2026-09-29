@@ -6,7 +6,7 @@ const tx = vi.hoisted(() => ({
   campaignSenderAccount: { deleteMany: vi.fn(), createMany: vi.fn() },
   campaignStep: { deleteMany: vi.fn(), createMany: vi.fn() },
   lead: { findMany: vi.fn() },
-  campaignEnrollment: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
+  campaignEnrollment: { count: vi.fn(), findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
 }));
 
 vi.mock('../../lib/db', () => ({
@@ -148,6 +148,7 @@ describe('PUT /api/campaigns/[id] sender ownership (H24)', () => {
     mockedPrisma.campaign.findUnique.mockResolvedValue(CAMPAIGN);
     mockedPrisma.$transaction.mockImplementation(async (fn: any) => fn(tx));
     tx.lead.findMany.mockResolvedValue([]);
+    tx.campaignEnrollment.count.mockResolvedValue(0);
     tx.campaignEnrollment.findMany.mockResolvedValue([]);
   });
 

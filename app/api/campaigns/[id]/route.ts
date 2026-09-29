@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { checkCampaignSenders } from '@/lib/senderOwnership';
 import { MAILBOX_SECRET_OMIT } from '@/lib/mailboxSecrets';
+import { checkAudienceCohort, REMOVED_ENROLLMENT_STATUS, syncCohortEnrollments } from '@/lib/campaignCohort';
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -34,8 +35,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
     // Calculate real campaign telemetry metrics. GET is read-only: leads are
     // enrolled when the campaign is created (POST) or saved (PUT), never on view.
+    // Removed enrollments belong to leads that have left the audience.
     const enrollmentsCount = await prisma.campaignEnrollment.count({
-      where: { campaignId: id }
+      where: { campaignId: id, status: { not: REMOVED_ENROLLMENT_STATUS } }
     });
 
     // Total send *attempts* (includes retries and failed sends).
@@ -323,6 +325,16 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       return NextResponse.json({ error: senderError.error }, { status: senderError.status });
     }
 
+    // The page sends the stored audience on every save, so only a different value
+    // is validated and re-synced; a status change or step edit leaves enrollments alone.
+    const cohortChanged = audienceCohort !== undefined && audienceCohort !== campaign.audienceCohort;
+    if (cohortChanged) {
+      const cohortError = await checkAudienceCohort(audienceCohort);
+      if (cohortError) {
+        return NextResponse.json({ error: cohortError }, { status: 400 });
+      }
+    }
+
     const updates: any = {};
     if (name !== undefined) updates.name = name;
     if (status !== undefined) updates.status = status;
@@ -377,67 +389,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         }
       }
 
-      // 3. Sync/enroll matching leads
-      const selectedCohort = audienceCohort || campaign.audienceCohort || 'Valid';
-      
-      let eligibleLeads: any[] = [];
-      if (selectedCohort === 'Unverified') {
-        eligibleLeads = await tx.lead.findMany({
-          where: { validationStatus: 'Unverified', isArchived: false }
-        });
-      } else if (selectedCohort === 'Valid') {
-        eligibleLeads = await tx.lead.findMany({
-          where: { validationStatus: 'Valid', isArchived: false }
-        });
-      } else if (selectedCohort === 'HighIntent') {
-        eligibleLeads = [];
-      } else {
-        // Assume selectedCohort is a groupId
-        const groupId = selectedCohort.startsWith('group_') ? selectedCohort.replace('group_', '') : selectedCohort;
-        eligibleLeads = await tx.lead.findMany({
-          where: {
-            isArchived: false,
-            groups: {
-              some: {
-                groupId: groupId
-              }
-            }
-          }
-        });
-      }
-
-      // Get existing enrollments for this campaign
-      const existingEnrollments = await tx.campaignEnrollment.findMany({
-        where: { campaignId: id }
-      });
-
-      // Delete enrollments that are no longer eligible (e.g. if the cohort changed)
-      const eligibleLeadIds = new Set(eligibleLeads.map(lead => lead.id));
-      const enrollmentsToDelete = existingEnrollments.filter(env => !eligibleLeadIds.has(env.leadId));
-
-      if (enrollmentsToDelete.length > 0) {
-        await tx.campaignEnrollment.deleteMany({
-          where: {
-            id: { in: enrollmentsToDelete.map(env => env.id) }
-          }
-        });
-      }
-
-      // Add new enrollments only for eligible leads that aren't already enrolled
-      const enrolledLeadIds = new Set(existingEnrollments.map(env => env.leadId));
-      const newLeadsToEnroll = eligibleLeads.filter(lead => !enrolledLeadIds.has(lead.id));
-
-      if (newLeadsToEnroll.length > 0) {
-        await tx.campaignEnrollment.createMany({
-          data: newLeadsToEnroll.map(lead => ({
-            leadId: lead.id,
-            campaignId: id,
-            status: 'Active',
-            currentSequenceStep: 1,
-            nextActionDate: new Date()
-          })),
-          skipDuplicates: true
-        });
+      // 3. Sync enrollments when the audience changed, or enroll the cohort when
+      // the campaign has none yet (e.g. published while its group was empty)
+      const firstEnrollment = !cohortChanged && (await tx.campaignEnrollment.count({ where: { campaignId: id } })) === 0;
+      if (cohortChanged || firstEnrollment) {
+        await syncCohortEnrollments(tx, id, cohortChanged ? audienceCohort : campaign.audienceCohort || 'Valid');
       }
     });
 

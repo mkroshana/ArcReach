@@ -4,7 +4,7 @@
 import { useState, useEffect } from 'react';
 import {
   Plus, CheckCircle2, AlertCircle, Mail, Flame, ArrowLeft, Sparkles, Sliders,
-  ChevronRight, Gauge, User, Activity, Save, Send, Loader2, Trash2, Eye, EyeOff,
+  ChevronRight, Gauge, User, Activity, Save, Send, Loader2, Trash2, Eye, EyeOff, ShieldAlert,
 } from 'lucide-react';
 import { TableSkeleton } from '@/components/Skeleton';
 import { useToast } from '@/components/Toast';
@@ -13,11 +13,33 @@ import {
   Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
   Dialog, DialogTitle, DialogContent, DialogActions, Table, TableHead, TableBody, TableRow, TableCell,
   InputAdornment, Select, MenuItem, FormControl, InputLabel, Switch, Avatar, LinearProgress,
-  Tooltip as MuiTooltip,
+  Tooltip as MuiTooltip, FormControlLabel,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 
 const isSmtpDisabled = (provider: string) => provider === 'AZURE' || provider === 'DISABLED';
+
+/** Per-mailbox opt-in that turns off IMAP certificate verification, labelled with what it risks. */
+function AllowSelfSignedSwitch({ checked, onChange }: { checked: boolean; onChange: (checked: boolean) => void }) {
+  return (
+    <FormControlLabel
+      labelPlacement="start"
+      sx={{ m: 0, gap: 1.5, justifyContent: 'space-between', alignItems: 'center' }}
+      control={<Switch checked={checked} onChange={(e) => onChange(e.target.checked)} color="warning" />}
+      disableTypography
+      label={
+        <Box component="span" sx={{ display: 'block' }}>
+          <Typography component="span" variant="body2" sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 0.75 }}>
+            <ShieldAlert size={14} color="#D97706" /> Allow Self-Signed Certificate
+          </Typography>
+          <Typography component="span" variant="caption" sx={{ color: 'warning.main', display: 'block' }}>
+            Turns off certificate checks for this IMAP server, so anyone on the network path could pose as it and capture the mailbox password. Turn on only for a server you run that uses a self-signed certificate.
+          </Typography>
+        </Box>
+      }
+    />
+  );
+}
 
 export default function AccountsPage() {
   const [accounts, setAccounts] = useState<any[]>([]);
@@ -53,6 +75,7 @@ export default function AccountsPage() {
   const [imapPort, setImapPort] = useState('');
   const [imapUser, setImapUser] = useState('');
   const [imapPass, setImapPass] = useState('');
+  const [imapAllowSelfSigned, setImapAllowSelfSigned] = useState(false);
   const [editSmtpHost, setEditSmtpHost] = useState('');
   const [editSmtpPort, setEditSmtpPort] = useState('');
   const [editSmtpUser, setEditSmtpUser] = useState('');
@@ -61,6 +84,7 @@ export default function AccountsPage() {
   const [editImapPort, setEditImapPort] = useState('');
   const [editImapUser, setEditImapUser] = useState('');
   const [editImapPass, setEditImapPass] = useState('');
+  const [editImapAllowSelfSigned, setEditImapAllowSelfSigned] = useState(false);
   const [savingCredentials, setSavingCredentials] = useState(false);
   const [showAddSmtpPass, setShowAddSmtpPass] = useState(false);
   const [showAddImapPass, setShowAddImapPass] = useState(false);
@@ -81,6 +105,7 @@ export default function AccountsPage() {
       setEditImapPort(selectedWarmupAccount.imapPort ? String(selectedWarmupAccount.imapPort) : '');
       setEditImapUser(selectedWarmupAccount.imapUser || '');
       setEditImapPass(selectedWarmupAccount.imapPass || '');
+      setEditImapAllowSelfSigned(!!selectedWarmupAccount.imapAllowSelfSigned);
       setEditReplyTo(selectedWarmupAccount.replyTo || '');
     }
   }, [selectedWarmupAccount]);
@@ -89,7 +114,7 @@ export default function AccountsPage() {
     setIsAddOpen(true);
     setProvider('Google Workspace');
     setSmtpHost('smtp.gmail.com'); setSmtpPort('587');
-    setImapHost('imap.gmail.com'); setImapPort('993');
+    setImapHost('imap.gmail.com'); setImapPort('993'); setImapAllowSelfSigned(false);
     setMinuteLimit(globalRateLimitMinute); setHourlyLimit(globalRateLimitHour); setDailyLimit(500);
   };
 
@@ -171,6 +196,7 @@ export default function AccountsPage() {
           minuteLimit: Number(minuteLimit), hourlyLimit: Number(hourlyLimit), dailyLimit: Number(dailyLimit),
           smtpHost: smtpHost || null, smtpPort: smtpPort ? Number(smtpPort) : null, smtpUser: smtpUser || null, smtpPass: smtpPass || null,
           imapHost: imapHost || null, imapPort: imapPort ? Number(imapPort) : null, imapUser: imapUser || null, imapPass: imapPass || null,
+          imapAllowSelfSigned,
         }),
       });
       if (!res.ok) { const data = await res.json().catch(() => ({})); throw new Error(data.error || 'Failed to connect email account'); }
@@ -197,6 +223,7 @@ export default function AccountsPage() {
           id: selectedWarmupAccount.id, replyTo: editReplyTo || null,
           smtpHost: editSmtpHost || null, smtpPort: editSmtpPort ? Number(editSmtpPort) : null, smtpUser: editSmtpUser || null, smtpPass: editSmtpPass || null,
           imapHost: editImapHost || null, imapPort: editImapPort ? Number(editImapPort) : null, imapUser: editImapUser || null, imapPass: editImapPass || null,
+          imapAllowSelfSigned: editImapAllowSelfSigned,
         }),
       });
       if (!res.ok) throw new Error('Failed to update credentials.');
@@ -460,6 +487,7 @@ export default function AccountsPage() {
                               <TextField fullWidth size="small" label="Username" value={editImapUser} onChange={(e) => setEditImapUser(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
                               <PwField label="Password" value={editImapPass} onChange={setEditImapPass} show={showEditImapPass} setShow={setShowEditImapPass} />
                             </Stack>
+                            <AllowSelfSignedSwitch checked={editImapAllowSelfSigned} onChange={setEditImapAllowSelfSigned} />
                           </Stack>
                         </CardContent>
                       </Card>
@@ -612,6 +640,7 @@ export default function AccountsPage() {
                       <TextField fullWidth size="small" label="Username" value={imapUser} onChange={(e) => setImapUser(e.target.value)} placeholder="user@domain.com" slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
                       <PwField label="Password" value={imapPass} onChange={setImapPass} show={showAddImapPass} setShow={setShowAddImapPass} placeholder="Password or App Key" />
                     </Stack>
+                    <AllowSelfSignedSwitch checked={imapAllowSelfSigned} onChange={setImapAllowSelfSigned} />
                   </Stack>
                 </CardContent>
               </Card>

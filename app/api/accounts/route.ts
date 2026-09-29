@@ -30,6 +30,7 @@ const ACCOUNT_UPDATE_FIELDS: Record<string, FieldRule> = {
   imapPort: fieldRules.port,
   imapUser: fieldRules.nullableString,
   imapPass: fieldRules.nullableString,
+  imapAllowSelfSigned: fieldRules.boolean,
   userId: fieldRules.nonEmptyString,
 };
 
@@ -141,7 +142,8 @@ export async function POST(req: NextRequest) {
       imapHost,
       imapPort,
       imapUser,
-      imapPass
+      imapPass,
+      imapAllowSelfSigned
     } = data;
 
     if (!emailAddress || !provider) {
@@ -183,6 +185,8 @@ export async function POST(req: NextRequest) {
       imapPort: imapPort ? Number(imapPort) : null,
       imapUser: imapUser || null,
       imapPass: encryptedOrNull(imapPass),
+      // Certificate verification stays on unless explicitly turned off.
+      imapAllowSelfSigned: imapAllowSelfSigned === true,
     });
 
     return NextResponse.json(redactAccount(newAccount));

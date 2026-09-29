@@ -102,6 +102,8 @@ model SenderAccount {
   imapPort        Int?
   imapUser        String?
   imapPass        String?
+  // Opt-in per mailbox: skip TLS certificate verification for an IMAP host with a self-signed certificate.
+  imapAllowSelfSigned Boolean   @default(false)
 }
 
 // ------------------------------------------------------

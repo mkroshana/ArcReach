@@ -1,3 +1,4 @@
+import net from 'net';
 import tls from 'tls';
 import { prisma } from './db';
 import { decodeMimeHeader } from './mime';
@@ -25,6 +26,20 @@ export function describeImapCommand(tag: string, cmd: string): string {
   return `${tag} ${verb}`;
 }
 
+/**
+ * TLS options for the IMAP connection. LOGIN sends the mailbox password, so the
+ * server certificate is verified for the host (also sent as SNI unless it is an
+ * IP address) unless the mailbox opted in to a self-signed certificate.
+ */
+export function imapTlsOptions(host: string, port: number, allowSelfSigned: boolean): tls.ConnectionOptions {
+  return {
+    host,
+    port,
+    servername: net.isIP(host) ? undefined : host,
+    rejectUnauthorized: !allowSelfSigned,
+  };
+}
+
 export async function syncMailboxReplies(mailboxId: string) {
   if (activeSyncs.has(mailboxId)) {
     console.log(`[IMAP Sync] Sync for mailbox ${mailboxId} is already in progress. Skipping.`);
@@ -44,18 +59,16 @@ export async function syncMailboxReplies(mailboxId: string) {
     }
     
     console.log(`[IMAP Sync] Syncing replies for ${mailbox.emailAddress} using ${mailbox.imapHost}:${mailbox.imapPort}`);
+    if (mailbox.imapAllowSelfSigned) {
+      console.warn(`[IMAP Sync] Certificate verification is off for ${mailbox.emailAddress} (Allow Self-Signed Certificate).`);
+    }
     
     let socket: tls.TLSSocket | null = null;
     try {
       const messages = await new Promise<ImapMessage[]>((resolve, reject) => {
-        socket = tls.connect(
-          mailbox.imapPort!,
-          mailbox.imapHost!,
-          { rejectUnauthorized: false },
-          () => {
-            console.log('[IMAP Sync] Connected via TLS.');
-          }
-        );
+        socket = tls.connect(imapTlsOptions(mailbox.imapHost!, mailbox.imapPort!, mailbox.imapAllowSelfSigned), () => {
+          console.log('[IMAP Sync] Connected via TLS.');
+        });
         
         socket!.setTimeout(15000); // 15s timeout
         

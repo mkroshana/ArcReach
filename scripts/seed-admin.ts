@@ -23,7 +23,7 @@ async function main() {
       where: { email },
       data: {
         name,
-        passwordHash: hashPassword(password),
+        passwordHash: await hashPassword(password),
         role: 'ADMIN',
         disabledAt: null,
         // A reset password ends every session signed before it, as in the app's own password changes
@@ -36,7 +36,7 @@ async function main() {
       data: {
         email,
         name,
-        passwordHash: hashPassword(password),
+        passwordHash: await hashPassword(password),
         role: 'ADMIN'
       }
     });

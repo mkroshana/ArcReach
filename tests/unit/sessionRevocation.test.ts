@@ -71,8 +71,8 @@ function loginRequest(email: string, password: string): NextRequest {
   });
 }
 
-beforeAll(() => {
-  passwordHash = hashPassword(PASSWORD);
+beforeAll(async () => {
+  passwordHash = await hashPassword(PASSWORD);
 });
 
 beforeEach(() => {

@@ -44,8 +44,8 @@ function makeReq(path: string, method: string, body: unknown): NextRequest {
   });
 }
 
-beforeAll(() => {
-  storedHash = hashPassword(CURRENT_PASSWORD);
+beforeAll(async () => {
+  storedHash = await hashPassword(CURRENT_PASSWORD);
 });
 
 beforeEach(() => {
@@ -97,7 +97,7 @@ describe('PUT /api/settings password change (L14)', () => {
     expect(mockedPrisma.user.update).toHaveBeenCalledTimes(1);
     const { where, data } = mockedPrisma.user.update.mock.calls[0][0];
     expect(where).toEqual({ id: USER.id });
-    expect(verifyPassword('abcdefgh', data.passwordHash)).toBe(true);
+    expect(await verifyPassword('abcdefgh', data.passwordHash)).toBe(true);
   });
 
   it('still requires the current password to match', async () => {

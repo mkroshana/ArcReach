@@ -22,7 +22,7 @@ export async function ensureDefaultUsers() {
         id: 'admin-id-999',
         email: 'admin@arcreach.com',
         name: 'ArcReach Admin',
-        passwordHash: hashPassword(process.env.ADMIN_PASSWORD || 'securepassword123'),
+        passwordHash: await hashPassword(process.env.ADMIN_PASSWORD || 'securepassword123'),
         role: 'ADMIN'
       }
     });
@@ -38,7 +38,7 @@ export async function ensureDefaultUsers() {
         id: 'user-id-111',
         email: 'mkroshana@gmail.com',
         name: 'Standard Marketer',
-        passwordHash: hashPassword(process.env.DEMO_USER_PASSWORD || 'securepassword123'),
+        passwordHash: await hashPassword(process.env.DEMO_USER_PASSWORD || 'securepassword123'),
         role: 'USER'
       }
     });
@@ -193,7 +193,7 @@ export const db = {
         name: data.name,
         email: data.email,
         role: data.role,
-        passwordHash: hashPassword(data.password)
+        passwordHash: await hashPassword(data.password)
       },
       // Never return the password hash to the client.
       select: { id: true, email: true, name: true, role: true, createdAt: true }
@@ -215,7 +215,7 @@ export const db = {
     return prisma.user.update({
       where: { id },
       // Bumping tokenVersion ends every session signed in with the old password.
-      data: { passwordHash: hashPassword(password), tokenVersion: { increment: 1 } },
+      data: { passwordHash: await hashPassword(password), tokenVersion: { increment: 1 } },
       select: { id: true, email: true, name: true, role: true, createdAt: true, tokenVersion: true }
     });
   },

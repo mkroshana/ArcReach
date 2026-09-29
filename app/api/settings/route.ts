@@ -124,14 +124,14 @@ export async function PUT(req: NextRequest) {
         return NextResponse.json({ error: 'User not found.' }, { status: 404 });
       }
 
-      if (!verifyPassword(currentPassword, userObj.passwordHash)) {
+      if (!(await verifyPassword(currentPassword, userObj.passwordHash))) {
         return NextResponse.json({ error: 'Current password does not match.' }, { status: 400 });
       }
 
       // Bumping tokenVersion ends every other session; this one is re-issued so the user stays signed in here.
       const { tokenVersion } = await prisma.user.update({
         where: { id: session.id },
-        data: { passwordHash: hashPassword(newPassword), tokenVersion: { increment: 1 } },
+        data: { passwordHash: await hashPassword(newPassword), tokenVersion: { increment: 1 } },
         select: { tokenVersion: true }
       });
       await setSession({ ...session, tokenVersion });

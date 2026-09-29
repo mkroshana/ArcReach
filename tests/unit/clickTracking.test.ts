@@ -4,7 +4,7 @@ import { NextRequest } from 'next/server';
 vi.mock('../../lib/db', () => ({
   prisma: {
     emailDispatch: { findUnique: vi.fn() },
-    emailEvent: { findFirst: vi.fn(), create: vi.fn() },
+    emailEvent: { findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn(), updateMany: vi.fn(), deleteMany: vi.fn() },
   },
 }));
 
@@ -16,26 +16,34 @@ import { applyEmailTracking } from '../../lib/emailTracking';
 const mocked = prisma as any;
 
 const DISPATCH_ID = 'd-1';
+const CHROME = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+const IPHONE_MAIL = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148';
 const TEMPLATE =
   '<p>Book at <a href="https://calendly.com/acme/demo">Calendly</a>, ' +
   'read <a href="https://acme.test/offer?utm_source=email&amp;utm_campaign=q4">the offer</a>, ' +
   'see <a href="/pricing">pricing</a> or <a href="javascript:alert(1)">this</a>.</p>';
 
-/** The dispatch as the send engine stores it: the final tracked body. */
-function storeDispatch(body: string | null = applyEmailTracking(TEMPLATE, DISPATCH_ID, true, true, true, 'tok')) {
+/** The dispatch as the send engine stores it: the final tracked body, accepted by ACS an hour ago. */
+function storeDispatch(
+  body: string | null = applyEmailTracking(TEMPLATE, DISPATCH_ID, true, true, true, 'tok'),
+  fields: Record<string, unknown> = {}
+) {
   mocked.emailDispatch.findUnique.mockResolvedValue({
     id: DISPATCH_ID,
     messageId: 'm-1',
+    status: 'Sent',
     sentAt: new Date(Date.now() - 3600_000),
+    acceptedAt: new Date(Date.now() - 3590_000),
     body,
+    ...fields,
   });
 }
 
-function request(url: string | null, method = 'GET', dispatchId = DISPATCH_ID): NextRequest {
+function request(url: string | null, method = 'GET', dispatchId = DISPATCH_ID, userAgent: string | null = CHROME): NextRequest {
   const query = url === null ? '' : `?url=${encodeURIComponent(url)}`;
   return new NextRequest(`http://localhost/api/track/click/${dispatchId}${query}`, {
     method,
-    headers: { 'user-agent': 'Mozilla/5.0' },
+    headers: userAgent === null ? {} : { 'user-agent': userAgent },
   });
 }
 
@@ -61,7 +69,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   delete process.env.APP_URL;
   mocked.emailEvent.findFirst.mockResolvedValue(null);
-  mocked.emailEvent.create.mockResolvedValue({});
+  mocked.emailEvent.create.mockImplementation(async ({ data }: any) => ({ id: 'e-new', ...data, timestamp: new Date() }));
   storeDispatch();
 });
 
@@ -204,11 +212,199 @@ describe('HEAD requests are never recorded (L6)', () => {
   });
 
   it('still records an open on GET', async () => {
-    const req = new NextRequest(`http://localhost/api/track/open/${DISPATCH_ID}`, { headers: { 'user-agent': 'Mozilla/5.0' } });
+    const req = new NextRequest(`http://localhost/api/track/open/${DISPATCH_ID}`, { headers: { 'user-agent': IPHONE_MAIL } });
 
     const res = await openGet(req, ctx());
 
     expect(res.headers.get('content-type')).toBe('image/png');
     expect(mocked.emailEvent.create).toHaveBeenCalledWith({ data: { messageId: 'm-1', eventType: 'open' } });
+  });
+});
+
+describe('automated opens and clicks are kept as machine events, never counted (M34, M35, M36)', () => {
+  type EventRow = { id: string; messageId: string; eventType: string; clickedUrl: string | null; botReason?: string; timestamp: Date };
+  let events: EventRow[];
+  let clock: number;
+
+  /** The subset of Prisma's where the tracking routes use. */
+  function matches(row: EventRow, where: Record<string, any>): boolean {
+    return Object.entries(where).every(([key, cond]) => {
+      const value = (row as any)[key];
+      if (cond && typeof cond === 'object') {
+        if ('in' in cond) return cond.in.includes(value);
+        if ('not' in cond) return value !== cond.not;
+        if ('gte' in cond) return value.getTime() >= cond.gte.getTime();
+        throw new Error(`Unmodelled condition: ${JSON.stringify(cond)}`);
+      }
+      return value === cond;
+    });
+  }
+
+  const LINK_A = 'https://calendly.com/acme/demo';
+  const LINK_B = 'https://acme.test/offer?utm_source=email&utm_campaign=q4';
+  const SLACKBOT = 'Slackbot-LinkExpanding 1.0 (+https://api.slack.com/robots)';
+
+  const openRequest = (userAgent: string | null) =>
+    new NextRequest(`http://localhost/api/track/open/${DISPATCH_ID}`, {
+      headers: userAgent === null ? {} : { 'user-agent': userAgent },
+    });
+
+  beforeEach(() => {
+    events = [];
+    clock = Date.now();
+    mocked.emailEvent.findFirst.mockImplementation(async ({ where }: any) => events.find((e) => matches(e, where)) ?? null);
+    mocked.emailEvent.create.mockImplementation(async ({ data }: any) => {
+      const row: EventRow = { id: `e-${events.length + 1}`, clickedUrl: null, ...data, timestamp: new Date(clock) };
+      events.push(row);
+      return { ...row };
+    });
+    mocked.emailEvent.findMany.mockImplementation(async ({ where }: any) => events.filter((e) => matches(e, where)));
+    mocked.emailEvent.updateMany.mockImplementation(async ({ where, data }: any) => {
+      const hit = events.filter((e) => matches(e, where));
+      hit.forEach((e) => Object.assign(e, data));
+      return { count: hit.length };
+    });
+    mocked.emailEvent.deleteMany.mockImplementation(async ({ where }: any) => {
+      const before = events.length;
+      events = events.filter((e) => !matches(e, where));
+      return { count: before - events.length };
+    });
+  });
+
+  it('records a Slackbot unfurl hours after the send as a machine click, and still redirects', async () => {
+    const res = await clickGet(request(LINK_A, 'GET', DISPATCH_ID, SLACKBOT), ctx());
+
+    expect(res.headers.get('location')).toBe(LINK_A);
+    expect(events).toMatchObject([{ eventType: 'machine_click', botReason: 'bot-ua', clickedUrl: LINK_A }]);
+  });
+
+  it.each([
+    ['no user agent', null],
+    ['curl', 'curl/8.4.0'],
+    ['python-requests', 'python-requests/2.31.0'],
+    ['Googlebot', 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)'],
+  ])('records a click from %s as a machine click', async (_label, userAgent) => {
+    await clickGet(request(LINK_A, 'GET', DISPATCH_ID, userAgent), ctx());
+
+    expect(events).toHaveLength(1);
+    expect(events[0].eventType).toBe('machine_click');
+  });
+
+  it('records a browser click 2s after ACS accepted the send as a machine click, although the row was created a minute earlier', async () => {
+    storeDispatch(undefined, { sentAt: new Date(Date.now() - 60_000), acceptedAt: new Date(Date.now() - 2_000) });
+
+    await clickGet(request(LINK_A), ctx());
+
+    expect(events).toMatchObject([{ eventType: 'machine_click', botReason: 'prefetch-window' }]);
+  });
+
+  it('records a browser click on a dispatch still Sending as a machine click', async () => {
+    storeDispatch(TEMPLATE, { status: 'Sending', sentAt: new Date(Date.now() - 60_000), acceptedAt: null });
+
+    await clickGet(request(LINK_A), ctx());
+
+    expect(events).toMatchObject([{ eventType: 'machine_click', botReason: 'prefetch-window' }]);
+  });
+
+  it('counts a browser click after the window as a click, and a later machine click of the same link adds its own row', async () => {
+    await clickGet(request(LINK_A), ctx());
+    await clickGet(request(LINK_A, 'GET', DISPATCH_ID, SLACKBOT), ctx());
+
+    expect(events.map((e) => e.eventType)).toEqual(['click', 'machine_click']);
+    expect(events[0]).not.toHaveProperty('botReason');
+  });
+
+  it('turns person clicks on two different links within 2s into machine clicks', async () => {
+    await clickGet(request(LINK_A), ctx());
+    clock += 1_500;
+    await clickGet(request(LINK_B), ctx());
+
+    expect(events).toMatchObject([
+      { clickedUrl: LINK_A, eventType: 'machine_click', botReason: 'link-burst' },
+      { clickedUrl: LINK_B, eventType: 'machine_click', botReason: 'link-burst' },
+    ]);
+  });
+
+  it('flags a person click that lands within 2s of a scanner clicking another link', async () => {
+    await clickGet(request(LINK_A, 'GET', DISPATCH_ID, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Barracuda Sentinel/1.0'), ctx());
+    clock += 1_000;
+    await clickGet(request(LINK_B), ctx());
+
+    expect(events).toMatchObject([
+      { clickedUrl: LINK_A, eventType: 'machine_click', botReason: 'scanner-ua' },
+      { clickedUrl: LINK_B, eventType: 'machine_click', botReason: 'link-burst' },
+    ]);
+  });
+
+  it('keeps at most one click and one machine click row per link however often two links are clicked in turn (H23)', async () => {
+    for (let i = 0; i < 50; i++) {
+      clock += 500;
+      await clickGet(request(i % 2 === 0 ? LINK_A : LINK_B), ctx());
+    }
+
+    expect(mocked.emailEvent.create.mock.calls.length).toBeGreaterThan(20);
+    const rows = events.map((e) => `${e.clickedUrl} ${e.eventType}`);
+    expect(new Set(rows).size).toBe(rows.length);
+    for (const link of [LINK_A, LINK_B]) {
+      expect(events.filter((e) => e.clickedUrl === link).length).toBeLessThanOrEqual(2);
+    }
+    expect(events.filter((e) => e.eventType === 'machine_click').map((e) => e.clickedUrl).sort()).toEqual([LINK_A, LINK_B].sort());
+  });
+
+  it('removes, rather than converts, a burst click on a link a scanner already clicked', async () => {
+    await clickGet(request(LINK_A, 'GET', DISPATCH_ID, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Barracuda Sentinel/1.0'), ctx());
+    clock += 10_000;
+    await clickGet(request(LINK_A), ctx());
+    clock += 1_000;
+    await clickGet(request(LINK_B), ctx());
+
+    expect(events).toMatchObject([
+      { clickedUrl: LINK_A, eventType: 'machine_click', botReason: 'scanner-ua' },
+      { clickedUrl: LINK_B, eventType: 'machine_click', botReason: 'link-burst' },
+    ]);
+    expect(events).toHaveLength(2);
+  });
+
+  it('keeps person clicks on two links 5s apart, and a burst of one link, as clicks', async () => {
+    await clickGet(request(LINK_A), ctx());
+    clock += 300;
+    await clickGet(request(LINK_A), ctx());
+    clock += 5_000;
+    await clickGet(request(LINK_B), ctx());
+
+    expect(events.map((e) => [e.clickedUrl, e.eventType])).toEqual([
+      [LINK_A, 'click'],
+      [LINK_B, 'click'],
+    ]);
+    expect(mocked.emailEvent.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('records an Apple Mail Privacy Protection pixel fetch once, as a machine open, and still counts a later real open', async () => {
+    await openGet(openRequest('Mozilla/5.0'), ctx());
+    await openGet(openRequest('Mozilla/5.0'), ctx());
+    await openGet(openRequest(IPHONE_MAIL), ctx());
+
+    expect(events).toMatchObject([
+      { eventType: 'machine_open', botReason: 'apple-mpp' },
+      { eventType: 'open' },
+    ]);
+    expect(events).toHaveLength(2);
+  });
+
+  it.each([
+    ['no user agent', null, 'missing-ua'],
+    ['Go', 'Go-http-client/1.1', 'bot-ua'],
+  ])('records an open from %s as a machine open', async (_label, userAgent, reason) => {
+    await openGet(openRequest(userAgent), ctx());
+
+    expect(events).toMatchObject([{ eventType: 'machine_open', botReason: reason }]);
+  });
+
+  it('records a mail client open 5s after ACS accepted the send as a machine open', async () => {
+    storeDispatch(undefined, { sentAt: new Date(Date.now() - 60_000), acceptedAt: new Date(Date.now() - 5_000) });
+
+    await openGet(openRequest(IPHONE_MAIL), ctx());
+
+    expect(events).toMatchObject([{ eventType: 'machine_open', botReason: 'prefetch-window' }]);
   });
 });

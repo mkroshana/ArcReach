@@ -64,6 +64,7 @@ type EnrollmentRow = {
 type DispatchRow = {
   id: string; leadId: string; campaignId: string | null; senderAccountId: string | null; messageId: string;
   stepOrder: number | null; status: string; sentAt: Date; subject?: string; body?: string; operationId?: string | null;
+  acceptedAt?: Date | null;
 };
 
 const SENDER = {
@@ -426,6 +427,22 @@ describe('processDueEmails claims each send and records it as Sending first (C5,
 
     expect(fake.$transaction).toHaveBeenCalledTimes(1);
     expect(txWrites).toEqual(['emailDispatch', 'campaignEnrollment']);
+  });
+
+  it('stamps acceptedAt when ACS accepted the send, not when the Sending row was created, so the bot filter window starts there (M34)', async () => {
+    const duringSend: Array<Date | null | undefined> = [];
+    let providerReturnedAt = 0;
+    mockedSend.mockImplementation(async () => {
+      duringSend.push(dispatches[0].acceptedAt);
+      providerReturnedAt = Date.now();
+      return { providerMessageId: 'provider-msg-1' };
+    });
+
+    await processDueEmails();
+
+    expect(duringSend).toEqual([undefined]);
+    expect(dispatches[0].acceptedAt).toBeInstanceOf(Date);
+    expect(dispatches[0].acceptedAt!.getTime()).toBeGreaterThanOrEqual(providerReturnedAt);
   });
 
   it.each<[string, () => void]>([
@@ -864,7 +881,7 @@ describe('sends interrupted by a crash are reconciled with ACS (H6)', () => {
 
       expect(mockedStatus).toHaveBeenCalledWith(OP, expect.objectContaining({ activeProvider: 'AZURE' }));
       expect(dispatches).toHaveLength(1);
-      expect(dispatches[0]).toMatchObject({ status: 'Sent', messageId: OP });
+      expect(dispatches[0]).toMatchObject({ status: 'Sent', messageId: OP, acceptedAt: expect.any(Date) });
       const nextActionDate = new Date(dispatch.sentAt);
       nextActionDate.setDate(nextActionDate.getDate() + 3);
       expect(enrollmentOf('lead-1')).toMatchObject({ currentSequenceStep: 2, nextActionDate, claimToken: null, claimedAt: null });

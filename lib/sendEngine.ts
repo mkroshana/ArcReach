@@ -567,7 +567,9 @@ export async function recordAcceptedSend(send: {
   enrollmentWhere?: Prisma.CampaignEnrollmentWhereInput;
   sender: { id: string; warmupEnabled: boolean } | null;
 }): Promise<boolean> {
-  const dispatchData: Prisma.EmailDispatchUpdateManyMutationInput = { status: 'Sent' };
+  // acceptedAt starts the bot filter's prefetch window (lib/botFilter); the
+  // row's sentAt was set before the send, often long before delivery.
+  const dispatchData: Prisma.EmailDispatchUpdateManyMutationInput = { status: 'Sent', acceptedAt: new Date() };
   if (send.finalBody !== undefined) {
     dispatchData.body = send.finalBody;
   }

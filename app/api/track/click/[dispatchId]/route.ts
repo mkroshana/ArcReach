@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { shouldDropEvent } from '@/lib/botFilter';
+import { engagementBotReason, LINK_BURST_SECONDS, MACHINE_EVENT_TYPE } from '@/lib/botFilter';
 import { clickTarget, sentClickTargets } from '@/lib/emailTracking';
 
 // The page is self-contained: inline styles only, no scripts, external
@@ -88,11 +88,18 @@ async function trackClick(
   }
 
   const { dispatchId } = await params;
-  let dispatch: { id: string; messageId: string; sentAt: Date; body: string | null } | null;
+  let dispatch: {
+    id: string;
+    messageId: string;
+    status: string;
+    sentAt: Date;
+    acceptedAt: Date | null;
+    body: string | null;
+  } | null;
   try {
     dispatch = await prisma.emailDispatch.findUnique({
       where: { id: dispatchId },
-      select: { id: true, messageId: true, sentAt: true, body: true },
+      select: { id: true, messageId: true, status: true, sentAt: true, acceptedAt: true, body: true },
     });
   } catch (err) {
     console.error('[Track Click] Error:', err);
@@ -111,36 +118,84 @@ async function trackClick(
   }
 
   if (record) {
-    // Apply bot filter to clicks
+    // An automated click (a scanner, crawler, link unfurler, a prefetch) is
+    // kept as a machine click, which metrics never count. It still redirects.
     const userAgent = req.headers.get('user-agent');
-    const botFilter = shouldDropEvent(dispatch.sentAt, userAgent, 'click');
+    const botReason = engagementBotReason(dispatch, userAgent, 'click');
+    if (botReason) {
+      console.log(`[Track Click] Bot filter: ${botReason} for dispatch ${dispatch.id} (UA: ${userAgent}); recorded as a machine click.`);
+    }
+    const eventType = botReason ? MACHINE_EVENT_TYPE.click : 'click';
 
-    if (botFilter.drop) {
-      console.log(`[Track Click] Bot filter: ${botFilter.reason || 'dropped'} for dispatch ${dispatch.id} (UA: ${userAgent})`);
-    } else {
-      // One click row per (dispatch, link): repeat clicks of a link collapse,
-      // and only the email's own links get here, so a dispatch never has more
-      // click rows than links.
-      try {
-        const existingClick = await prisma.emailEvent.findFirst({
-          where: { messageId: dispatch.messageId, eventType: 'click', clickedUrl: target },
+    // One click row and one machine click row per (dispatch, link): repeat
+    // clicks of a link collapse, flagLinkBurst never adds a second machine
+    // click, and only the email's own links get here, so a dispatch never has
+    // more of either than links.
+    try {
+      const existingClick = await prisma.emailEvent.findFirst({
+        where: { messageId: dispatch.messageId, eventType, clickedUrl: target },
+      });
+      if (!existingClick) {
+        const click = await prisma.emailEvent.create({
+          data: {
+            messageId: dispatch.messageId,
+            eventType,
+            clickedUrl: target,
+            ...(botReason ? { botReason } : {}),
+          },
         });
-        if (!existingClick) {
-          await prisma.emailEvent.create({
-            data: {
-              messageId: dispatch.messageId,
-              eventType: 'click',
-              clickedUrl: target,
-            },
-          });
+        if (!botReason) {
+          await flagLinkBurst(click);
         }
-      } catch (err) {
-        console.error('[Track Click] Failed to record click event:', err);
       }
+    } catch (err) {
+      console.error('[Track Click] Failed to record click event:', err);
     }
   }
 
   return NextResponse.redirect(destination);
+}
+
+/**
+ * A scanner following every link of an email clicks several of them within
+ * LINK_BURST_SECONDS; a person rarely does. Runs after a person's click is
+ * recorded, so of two clicks recorded at once the later check always sees the
+ * earlier one. When a different link of the email was clicked (by a person or
+ * a machine) within LINK_BURST_SECONDS of this click, every person click of
+ * the email from LINK_BURST_SECONDS before this one on becomes a machine click.
+ * A link keeps one machine click row: a person click of a link that already
+ * has one is deleted instead, so repeated bursts never add rows.
+ */
+async function flagLinkBurst(click: { messageId: string; clickedUrl: string | null; timestamp: Date }): Promise<void> {
+  const since = new Date(click.timestamp.getTime() - LINK_BURST_SECONDS * 1000);
+  const otherLink = await prisma.emailEvent.findFirst({
+    where: {
+      messageId: click.messageId,
+      eventType: { in: ['click', MACHINE_EVENT_TYPE.click] },
+      clickedUrl: { not: click.clickedUrl },
+      timestamp: { gte: since },
+    },
+    select: { id: true },
+  });
+  if (!otherLink) return;
+
+  const machineClicks = await prisma.emailEvent.findMany({
+    where: { messageId: click.messageId, eventType: MACHINE_EVENT_TYPE.click },
+    select: { clickedUrl: true },
+  });
+  const machineClickedLinks = machineClicks.flatMap((e) => (e.clickedUrl === null ? [] : [e.clickedUrl]));
+  const burstClicks = { messageId: click.messageId, eventType: 'click', timestamp: { gte: since } };
+
+  const { count: removed } = machineClickedLinks.length
+    ? await prisma.emailEvent.deleteMany({ where: { ...burstClicks, clickedUrl: { in: machineClickedLinks } } })
+    : { count: 0 };
+  const { count: flagged } = await prisma.emailEvent.updateMany({
+    where: burstClicks,
+    data: { eventType: MACHINE_EVENT_TYPE.click, botReason: 'link-burst' },
+  });
+  console.log(
+    `[Track Click] Bot filter: link-burst for message ${click.messageId}; ${flagged} click(s) recorded as machine clicks, ${removed} already recorded as machine clicks removed.`
+  );
 }
 
 export async function GET(req: NextRequest, context: { params: Promise<{ dispatchId: string }> }) {

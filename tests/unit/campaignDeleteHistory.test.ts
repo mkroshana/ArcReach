@@ -24,14 +24,14 @@ const TARGET = 'https://example.com/offer';
 
 function makeClick(dispatchId: string): NextRequest {
   return new NextRequest(`http://localhost/api/track/click/${dispatchId}?url=${encodeURIComponent(TARGET)}`, {
-    headers: { 'user-agent': 'Mozilla/5.0' },
+    headers: { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
   });
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
   mockedPrisma.emailEvent.findFirst.mockResolvedValue(null);
-  mockedPrisma.emailEvent.create.mockResolvedValue({});
+  mockedPrisma.emailEvent.create.mockImplementation(async ({ data }: any) => ({ id: 'e-new', ...data, timestamp: new Date() }));
 });
 
 describe('deleting a campaign keeps what it sent and received', () => {
@@ -49,7 +49,9 @@ describe('deleting a campaign keeps what it sent and received', () => {
       id: 'd-1',
       messageId: 'm-1',
       campaignId: null,
+      status: 'Sent',
       sentAt: new Date(Date.now() - 3600_000),
+      acceptedAt: new Date(Date.now() - 3590_000),
       body: `<p>See <a href="${TARGET}">our offer</a></p>`,
     });
 

@@ -328,6 +328,11 @@ model EmailDispatch {
   operationId String?       @unique
   // Sequence step this dispatch belongs to (null for manual / non-campaign sends).
   stepOrder   Int?
+  // When the dispatch became "Sent" (ACS accepted the send), set by
+  // recordAcceptedSend. lib/botFilter's prefetch window starts here, since
+  // sentAt is set before the send. Null while Sending, for Failed sends and for
+  // rows recorded after the send or before this column, whose sentAt stands in.
+  acceptedAt  DateTime?
   // Set by the Azure delivery webhook when the message is confirmed delivered.
   deliveredAt DateTime?
   // Status of the last ACS delivery report for this message (Delivered,
@@ -352,8 +357,14 @@ model EmailEvent {
   id         String        @id @default(uuid())
   messageId  String
   dispatch   EmailDispatch @relation(fields: [messageId], references: [messageId], onDelete: Cascade)
+  // 'open' and 'click' are a person's; engagement metrics count only these.
+  // 'machine_open' and 'machine_click' are hits lib/botFilter judged automated
+  // (a scanner, crawler, link unfurler, HTTP library, Apple Mail Privacy
+  // Protection or a prefetch), kept with the reason in botReason. Also
+  // 'bounce' and 'send_failed'.
   eventType  String
   clickedUrl String?
+  botReason  String?
   timestamp  DateTime      @default(now())
 }
 

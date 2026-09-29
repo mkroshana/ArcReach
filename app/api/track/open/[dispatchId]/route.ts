@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { shouldDropEvent } from '@/lib/botFilter';
+import { engagementBotReason, MACHINE_EVENT_TYPE } from '@/lib/botFilter';
 
 // 1×1 transparent PNG pixel (68 bytes)
 const TRACKING_PIXEL = Buffer.from(
@@ -35,26 +35,29 @@ export async function GET(
     });
 
     if (dispatch) {
+      // An automated open (a scanner, Apple Mail Privacy Protection, a
+      // prefetch) is kept as a machine open, which metrics never count.
       const userAgent = req.headers.get('user-agent');
-      const botFilter = shouldDropEvent(dispatch.sentAt, userAgent, 'open');
+      const botReason = engagementBotReason(dispatch, userAgent, 'open');
+      if (botReason) {
+        console.log(`[Track Open] Bot filter: ${botReason} for dispatch ${dispatchId} (UA: ${userAgent}); recorded as a machine open.`);
+      }
+      const eventType = botReason ? MACHINE_EVENT_TYPE.open : 'open';
 
-      if (botFilter.drop) {
-        console.log(`[Track Open] Bot filter: ${botFilter.reason || 'dropped'} for dispatch ${dispatchId} (UA: ${userAgent})`);
-      } else {
-        // Dedupe: one 'open' event per dispatch (repeated pixel loads shouldn't pile up rows).
-        const existingOpen = await prisma.emailEvent.findFirst({
-          where: { messageId: dispatch.messageId, eventType: 'open' },
+      // Dedupe: one 'open' and one machine open per dispatch (repeated pixel loads shouldn't pile up rows).
+      const existingOpen = await prisma.emailEvent.findFirst({
+        where: { messageId: dispatch.messageId, eventType },
+      });
+      if (!existingOpen) {
+        await prisma.emailEvent.create({
+          data: {
+            messageId: dispatch.messageId,
+            eventType,
+            ...(botReason ? { botReason } : {}),
+          },
+        }).catch((err) => {
+          console.error('[Track Open] Failed to record open event:', err);
         });
-        if (!existingOpen) {
-          await prisma.emailEvent.create({
-            data: {
-              messageId: dispatch.messageId,
-              eventType: 'open',
-            },
-          }).catch((err) => {
-            console.error('[Track Open] Failed to record open event:', err);
-          });
-        }
       }
     } else {
       console.log(`[Track Open] Dispatch not found: ${dispatchId}`);

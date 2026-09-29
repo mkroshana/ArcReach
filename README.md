@@ -125,9 +125,11 @@ npx tsx scripts/audit-dispatches.ts --backfill --fix
 To keep email open and link click metrics accurate and prevent security scanners (e.g. Proofpoint, Barracuda, Mimecast, Microsoft Safelinks) from inflating statistics:
 
 - **Single Source of Truth**: All engagement tracking events (opens and clicks) are generated exclusively from self-hosted tracking endpoints. Webhook telemetry notifications from Azure Communication Services are no-oped to prevent double-counting.
-- **User-Agent Filtering**: Incoming tracking hits matching known scanner User-Agent signatures are automatically dropped.
-- **Heuristic Prefetch Window**: Clicks occurring within 5 seconds and opens occurring within 10 seconds of a message dispatch are flagged as bot pre-fetches and are not logged.
-- **Gmail & Apple Proxy Exemption**: Apple Mail Privacy Protection (MPP) and Gmail Image Proxy hits are *intentionally not filtered* because they prefetch legitimate human reads; filtering them would discard real human open events.
+- **Machine Events Are Kept, Not Counted**: Tracking hits judged automated (`lib/botFilter.ts`) are recorded as `machine_open` / `machine_click` events with a `botReason`; open and click metrics count only `open` and `click` events.
+- **User-Agent Filtering**: Hits with no User-Agent, or one matching a known email-security scanner, a crawler, a link unfurler (Slack, Teams, WhatsApp, Facebook, LinkedIn...), a headless browser or an HTTP library (curl, python-requests, Go, Java...), are machine events.
+- **Heuristic Prefetch Window**: Clicks within 5 seconds and opens within 10 seconds of ACS accepting the send (the dispatch's `acceptedAt`, when it became Sent), or before the send was accepted, are machine events.
+- **Link Bursts**: Clicks on two different links of one email within 2 seconds are a scanner following every link, so those clicks become machine clicks.
+- **Apple Mail Privacy Protection**: MPP's proxy fetches every pixel when the email arrives, opened or not, under the bare `Mozilla/5.0` user agent, so those fetches are machine opens. Gmail Image Proxy and YahooMailProxy fetch the pixel only when a person opens the email, so they count.
 - **Removal of Implicit Opens**: The click tracking endpoint does not auto-generate an open event upon registering a click.
 - **HEAD Requests**: Link checkers' HEAD requests to the tracking endpoints are answered but never recorded as opens or clicks.
 - **Sent Links Only**: The click endpoint records a click and redirects only when its `url` is exactly one of the links that email sent; anything else, or a click whose dispatch is gone, gets a neutral Link Unavailable page.

@@ -137,7 +137,7 @@ describe('processDueEmails refuses to send unless Azure is configured (H1)', () 
     expect(mockedPrisma.emailDispatch.create).toHaveBeenCalledTimes(1);
     expect(mockedPrisma.campaignEnrollment.updateMany).toHaveBeenCalledWith({
       where: { id: 'enr-1' },
-      data: { status: 'Completed', nextActionDate: null, claimToken: null, claimedAt: null },
+      data: { status: 'Completed', nextActionDate: null, quotaFailures: 0, claimToken: null, claimedAt: null },
     });
   });
 });

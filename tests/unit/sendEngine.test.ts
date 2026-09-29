@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { validateSendingFrequency, checkSendingWindow, personalizeEmail, getEffectiveDailyCap, resolveCampaignSenders, pickSender, classifyFailure } from '../../lib/sendEngine';
+import { sendMessage, EmailConfigError, EmailSendError } from '../../lib/emailProvider';
 
 describe('validateSendingFrequency', () => {
   it('should allow sending when all limits are within boundaries', () => {
@@ -265,13 +266,71 @@ describe('validateSendingFrequency', () => {
     it('should classify quota errors based on keywords', () => {
       expect(classifyFailure(new Error('Quota limit exceeded'))).toBe('quota');
       expect(classifyFailure(new Error('Daily sending rate reached'))).toBe('quota');
-      expect(classifyFailure({ message: '421 Space limit exceeded' })).toBe('quota');
+      expect(classifyFailure(new Error('Email send quota exceeded for this resource.'))).toBe('quota');
+      expect(classifyFailure(new Error('550 5.4.5 Daily user sending quota exceeded'))).toBe('quota');
+      expect(classifyFailure(new Error('Rate limit exceeded, retry later'))).toBe('quota');
+      expect(classifyFailure(new Error('Request was throttled'))).toBe('quota');
+      expect(classifyFailure(new Error('Hourly limit reached'))).toBe('quota');
     });
 
-    it('should classify Azure clock-skew rejections as quota (systemic pause, not per-lead retries)', () => {
+    it('should classify an ACS 429 or quota error code as quota whatever the message says (M2)', () => {
+      expect(classifyFailure(new EmailSendError('Slow down.', { statusCode: 429, code: 'TooManyRequests' }))).toBe('quota');
+      expect(classifyFailure(new EmailSendError('Please try again later.', { statusCode: 429 }))).toBe('quota');
+      expect(classifyFailure(new EmailSendError('Request refused.', { code: 'QuotaExceeded' }))).toBe('quota');
+    });
+
+    it('should match quota words whole, not inside other words or other limits (M2)', () => {
+      expect(classifyFailure(new Error('Could not generate a separate, accurate preview'))).toBe('soft');
+      expect(classifyFailure(new Error('Message size limit exceeded'))).toBe('soft');
+      expect(classifyFailure(new Error('Recipient list exceeded the unlimited plan'))).toBe('soft');
+      expect(classifyFailure({ message: '421 Space limit exceeded' })).toBe('soft');
+      expect(classifyFailure(new Error(
+        'Timed out fetching a new connection from the connection pool. (Current connection pool timeout: 10, connection limit: 5)'
+      ))).toBe('soft');
+    });
+
+    it("should classify a recipient's full or over-quota mailbox as soft, not the campaign's quota (M2)", () => {
+      expect(classifyFailure(new Error('Mailbox quota exceeded'))).toBe('soft');
+      expect(classifyFailure(new Error('452 4.2.2 The email account that you tried to reach is over quota'))).toBe('soft');
+      expect(classifyFailure(new Error("The recipient's inbox is full"))).toBe('soft');
+      expect(classifyFailure({ message: '552 5.2.2 Storage exceeded', responseCode: 552 })).toBe('soft');
+    });
+
+    it('should classify Azure clock-skew rejections as systemic (campaign pause, not per-lead retries)', () => {
       expect(classifyFailure(new Error(
         'The given request could not be resolved.\nThe time difference between the originating client and the server is greater than the allowed margin of 5 minutes.'
-      ))).toBe('quota');
+      ))).toBe('systemic');
+    });
+
+    it('should classify config errors, a refused access key and an unlinked sender domain as systemic (H9)', () => {
+      expect(classifyFailure(new EmailConfigError('Sender domain "gmail.com" is not in the verified Azure sender domains list.'))).toBe('systemic');
+      expect(classifyFailure(new EmailSendError('Denied by the resource provider.', { statusCode: 401, code: 'Denied' }))).toBe('systemic');
+      expect(classifyFailure(new EmailSendError('Forbidden.', { statusCode: 403 }))).toBe('systemic');
+      expect(classifyFailure(new EmailSendError('The specified sender domain has not been linked.', { statusCode: 404, code: 'DomainNotLinked' }))).toBe('systemic');
+    });
+
+    it('should classify a connection string that cannot be decrypted as systemic (H9)', async () => {
+      const err = await sendMessage(
+        { to: 'lead@prospect.test', subject: 's', body: 'b', isHtml: false, sender: { emailAddress: 'one@acme.test' } },
+        { activeProvider: 'AZURE', azureConnString: 'enc:v1:saved-under-another-key', azureSenderDomains: ['acme.test'] }
+      ).catch((e) => e);
+
+      expect(err).toBeInstanceOf(EmailConfigError);
+      expect(classifyFailure(err)).toBe('systemic');
+    });
+
+    it('should classify a connection string the Azure SDK cannot parse as systemic, without echoing it (H9)', async () => {
+      for (const azureConnString of ['accesskey-only-a2V5', 'endpoint=notaurl;accesskey=a2V5', 'endpoint=https://acs.test/path;accesskey=a2V5']) {
+        const err = await sendMessage(
+          { to: 'lead@prospect.test', subject: 's', body: 'b', isHtml: false, sender: { emailAddress: 'one@acme.test' } },
+          { activeProvider: 'AZURE', azureConnString, azureSenderDomains: ['acme.test'] }
+        ).catch((e) => e);
+
+        expect(err).toBeInstanceOf(EmailConfigError);
+        expect(err.message).toBe('The saved Azure Communication Services connection string is not valid; an admin must save it again in Settings.');
+        expect(err.message).not.toContain('a2V5');
+        expect(classifyFailure(err)).toBe('systemic');
+      }
     });
 
     it('should classify response codes 500-559 (except 552) as hard failures', () => {

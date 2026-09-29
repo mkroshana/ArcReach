@@ -126,8 +126,8 @@ model Campaign {
   // send engine sets it, when it pauses an Active campaign; any status a user
   // sets clears it.
   pausedUntil     DateTime?
-  // Why the campaign is Paused: 'quota' or 'systemic' when the send engine
-  // paused it (with pausedUntil), 'user' when a user did. Null otherwise.
+  // Why the campaign is Paused: 'quota', 'systemic' or 'config' when the send
+  // engine paused it (with pausedUntil), 'user' when a user did. Null otherwise.
   pauseReason     String?
 
   // Advanced scheduling and options (From original schema & UI elements)
@@ -235,6 +235,12 @@ model CampaignEnrollment {
   currentSequenceStep Int        @default(1)        // Step order tracking
   nextActionDate      DateTime?                     // Trigger timestamp for worker scheduler
   retryCount          Int        @default(0)
+  // Quota refusals matched only by their wording, in a row on this enrollment.
+  // After 5 the send engine handles the next one as a soft failure of this
+  // lead instead of pausing the campaign again. A sent step or a soft or hard
+  // failure resets it; ACS's own 429 or quota code and a systemic failure
+  // (settings, credentials, clock) leave it alone.
+  quotaFailures       Int        @default(0)
   lastError           String?
   lastBounceType      String?
 

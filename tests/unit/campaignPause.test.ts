@@ -67,7 +67,7 @@ const pageSave = (body: Record<string, unknown>) =>
 const listSave = (body: Record<string, unknown>) => putCampaignList(makeReq('/api/campaigns', { id: 'cmp-1', ...body }));
 
 const sendError = (message: string) =>
-  handleSendFailure({ id: 'enr-1', retryCount: 0 }, { id: 'lead-1', email: 'lead@prospect.test' }, null, new Error(message), 'Launch', 'cmp-1');
+  handleSendFailure({ id: 'enr-1', retryCount: 0, quotaFailures: 0 }, { id: 'lead-1', email: 'lead@prospect.test' }, null, new Error(message), 'Launch', 'cmp-1');
 
 const QUOTA_ERROR = 'Email send quota exceeded for this resource.';
 const CLOCK_SKEW_ERROR = 'The time difference between the originating client and the server is greater than the allowed margin of 5 minutes.';
@@ -210,6 +210,8 @@ describe('autoResumeNote', () => {
       .toMatch(/^Auto-resumes at 14.05 \(sending quota or rate limit reached\)$/);
     expect(autoResumeNote({ status: 'Paused', pausedUntil: at.toISOString(), pauseReason: 'systemic' }))
       .toMatch(/^Auto-resumes at 14.05 \(server clock out of sync with Azure\)$/);
+    expect(autoResumeNote({ status: 'Paused', pausedUntil: at, pauseReason: 'config' }))
+      .toMatch(/^Auto-resumes at 14.05 \(Azure settings or sender domain not accepted\)$/);
     // Pauses from before pauseReason existed carry no reason.
     expect(autoResumeNote({ status: 'Paused', pausedUntil: at, pauseReason: null })).toMatch(/^Auto-resumes at 14.05$/);
   });

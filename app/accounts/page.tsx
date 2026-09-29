@@ -168,7 +168,7 @@ export default function AccountsPage() {
           imapHost: imapHost || null, imapPort: imapPort ? Number(imapPort) : null, imapUser: imapUser || null, imapPass: imapPass || null,
         }),
       });
-      if (!res.ok) throw new Error(await res.text() || 'Failed to connect email account');
+      if (!res.ok) { const data = await res.json().catch(() => ({})); throw new Error(data.error || 'Failed to connect email account'); }
       await loadData();
       setIsAddOpen(false);
       setEmailAddress(''); setSenderName(''); setReplyTo(''); setProvider('Google Workspace');

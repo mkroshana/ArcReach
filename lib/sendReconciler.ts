@@ -25,9 +25,9 @@ function advanceAfterStep(steps: Step[], stepOrder: number, sentAt: Date) {
   if (nextStep) {
     const nextActionDate = new Date(sentAt);
     nextActionDate.setDate(nextActionDate.getDate() + nextStep.waitDays);
-    return { currentSequenceStep: stepOrder + 1, nextActionDate, ...RELEASED_CLAIM };
+    return { currentSequenceStep: stepOrder + 1, nextActionDate, quotaFailures: 0, ...RELEASED_CLAIM };
   }
-  return { status: 'Completed', nextActionDate: null, ...RELEASED_CLAIM };
+  return { status: 'Completed', nextActionDate: null, quotaFailures: 0, ...RELEASED_CLAIM };
 }
 
 /**
@@ -100,7 +100,7 @@ export async function reconcileStaleSendingDispatches(now: Date = new Date()): P
         const enrollment = dispatch.campaignId
           ? await prisma.campaignEnrollment.findFirst({
               where: { campaignId: dispatch.campaignId, leadId: dispatch.leadId },
-              select: { id: true, retryCount: true, status: true, currentSequenceStep: true },
+              select: { id: true, retryCount: true, quotaFailures: true, status: true, currentSequenceStep: true },
             })
           : null;
         // The enrollment is still waiting on this dispatch's step.

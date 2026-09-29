@@ -3,6 +3,8 @@ import { Prisma } from '@prisma/client';
 import { db, prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { MASKED_SECRET, encryptSecret } from '@/lib/secrets';
+import { getGlobalSettings } from '@/lib/settings';
+import { getVerifiedDomains, unverifiedSenderMessage } from '@/lib/azureDomains';
 import { type FieldRule, fieldRules, isPlainObject, pickUpdateFields } from '@/lib/updateAllowList';
 
 /** Scalar columns the mailbox PUT may write: the throttle, warmup and credential
@@ -203,6 +205,15 @@ export async function POST(req: NextRequest) {
 
     if (!emailAddress || !provider) {
       return NextResponse.json({ error: 'Email address and Provider are required.' }, { status: 400 });
+    }
+
+    // Azure sends only from a verified domain, so refuse a mailbox it could
+    // never send from instead of failing every send later. PUT cannot change
+    // the address, so this is the only place it is set.
+    const settings = await getGlobalSettings();
+    const unverified = unverifiedSenderMessage(emailAddress, settings);
+    if (unverified) {
+      return NextResponse.json({ error: unverified, verifiedDomains: getVerifiedDomains(settings) }, { status: 400 });
     }
 
     // Role boundary checks: standard users can ONLY create accounts assigned to themselves

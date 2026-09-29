@@ -39,7 +39,9 @@ export function resolveAzureFromAddress(
   settings: DomainSettings | null | undefined
 ): string {
   const email = (senderEmail || '').trim();
-  const domain = email.split('@')[1]?.toLowerCase();
+  // Exactly one '@' with something either side; ACS refuses anything else.
+  const parts = email.split('@');
+  const domain = parts.length === 2 && parts[0] ? parts[1].toLowerCase() : '';
   const verified = getVerifiedDomains(settings);
 
   if (!domain) {
@@ -51,4 +53,23 @@ export function resolveAzureFromAddress(
     );
   }
   return email;
+}
+
+/**
+ * Why Azure would refuse to send from `senderEmail`, naming the verified
+ * domains, or null when resolveAzureFromAddress accepts it. Mailbox creation
+ * checks this so no mailbox is saved on a domain it cannot send from.
+ */
+export function unverifiedSenderMessage(
+  senderEmail: unknown,
+  settings: DomainSettings | null | undefined
+): string | null {
+  try {
+    resolveAzureFromAddress(typeof senderEmail === 'string' ? senderEmail : '', settings);
+    return null;
+  } catch (err: any) {
+    const verified = getVerifiedDomains(settings);
+    const list = verified.length > 0 ? verified.join(', ') : 'none yet (an admin must add one in Settings)';
+    return `${err.message} Verified domains: ${list}.`;
+  }
 }

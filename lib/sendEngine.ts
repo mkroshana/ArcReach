@@ -133,21 +133,66 @@ function isClockSkewError(message: string): boolean {
 }
 
 /**
- * Classifies an email sending error into quota limits, hard bounce, or soft transient failure.
+ * Quota refusals matched only by their wording that one enrollment may get in
+ * a row. The next one is handled as a soft failure of that lead instead of
+ * pausing the campaign again. Each refusal pauses the campaign for an hour, by
+ * which time ACS's hourly quota has reset, so a real quota rarely refuses the
+ * same enrollment this often. ACS's own 429 or quota code never counts: it is
+ * about the resource, never the lead.
  */
-export function classifyFailure(err: any): 'quota' | 'hard' | 'soft' {
-  const errStr = (err.message || String(err)).toLowerCase();
+export const MAX_CONSECUTIVE_QUOTA_FAILURES = 5;
 
-  // 0. Systemic provider outages — nothing is wrong with the lead, and every
-  // send this cycle will fail identically, so treat like quota: pause the
-  // campaign and auto-resume later instead of burning per-lead retries (which
-  // would eventually mark innocent leads Failed/Risky).
-  if (isClockSkewError(errStr)) {
-    return 'quota';
+/** ACS error codes that refuse every send until the configuration is fixed (the sender's domain is not linked to the resource). */
+const SYSTEMIC_ERROR_CODES = ['DomainNotLinked'];
+/** ACS error codes for its sending quota or rate limit. */
+const QUOTA_ERROR_CODES = ['TooManyRequests', 'QuotaExceeded'];
+/** Sending-quota and rate-limit wording, matched as whole words. */
+const SENDING_QUOTA_PATTERN =
+  /\btoo many requests\b|\brate[- ]?limit(s|ed|ing)?\b|\bthrottl(e|ed|ing)\b|\bsend(ing)? (quota|limits?|rate)\b|\b(daily|hourly) (sending )?(quota|limits?)\b/;
+/** A recipient's mailbox being full or over its storage quota: about the lead, not the campaign's sending quota. */
+const RECIPIENT_MAILBOX_FULL_PATTERN = /\b(mailbox|inbox|recipient)\b[^.;]*\b(quota|full)\b|\bover quota\b|\b[45]\.2\.2\b/;
+
+/** ACS itself refused the send for its quota or rate limit (a 429 or a quota error code). */
+function isProviderQuotaRefusal(err: any): boolean {
+  return Number(err?.statusCode) === 429 || (typeof err?.code === 'string' && QUOTA_ERROR_CODES.includes(err.code));
+}
+
+/**
+ * Classifies an email sending error:
+ *  - 'systemic': no send can go out until the Azure settings, the sender's
+ *    domain or the host clock are fixed. Nothing is wrong with the lead.
+ *  - 'quota': ACS's sending quota or rate limit.
+ *  - 'hard': the recipient address is permanently undeliverable.
+ *  - 'soft': anything else, retried with backoff.
+ */
+export function classifyFailure(err: any): 'systemic' | 'quota' | 'hard' | 'soft' {
+  const errStr = (err.message || String(err)).toLowerCase();
+  const statusCode = Number(err?.statusCode);
+  const code = typeof err?.code === 'string' ? err.code : '';
+
+  // 0. Systemic: every send fails the same way until someone fixes the setup,
+  // so the campaign pauses and auto-resumes later instead of burning per-lead
+  // retries (which would eventually mark innocent leads Failed/Risky). ACS
+  // answers 401/403 for a regenerated access key or a clock-skewed signature.
+  if (
+    err?.name === 'EmailConfigError' ||
+    statusCode === 401 ||
+    statusCode === 403 ||
+    SYSTEMIC_ERROR_CODES.includes(code) ||
+    isClockSkewError(errStr)
+  ) {
+    return 'systemic';
   }
 
-  // 1. Quota check
-  if (errStr.includes('quota') || errStr.includes('limit') || errStr.includes('rate') || errStr.includes('exceeded')) {
+  // 1. Quota check: ACS's 429 first, then its quota wording. A full recipient
+  // mailbox is the lead's problem, not the campaign's quota.
+  if (isProviderQuotaRefusal(err) || SENDING_QUOTA_PATTERN.test(errStr)) {
+    return 'quota';
+  }
+  if (RECIPIENT_MAILBOX_FULL_PATTERN.test(errStr)) {
+    return 'soft';
+  }
+  if (/\bquota\b/.test(errStr)) {
     return 'quota';
   }
 
@@ -201,21 +246,31 @@ export function classifyFailure(err: any): 'quota' | 'hard' | 'soft' {
 }
 
 /**
- * Shared error handler for email dispatches. Resolves failure category (quota, soft, hard)
- * and updates enrollment retry/backoff parameters, lead deliverability indicators,
- * and tracks dispatch statuses.
+ * Shared error handler for email dispatches. Resolves failure category (systemic, quota,
+ * soft, hard) and updates enrollment retry/backoff parameters, lead deliverability
+ * indicators, and tracks dispatch statuses. A systemic or quota failure pauses the
+ * campaign and leaves the enrollment's retries and the lead's status alone.
  */
 export async function handleSendFailure(
-  enrollment: { id: string; retryCount: number },
+  enrollment: { id: string; retryCount: number; quotaFailures: number },
   lead: { id: string; email: string },
   dispatch: any,
   err: any,
   campaignName: string,
   campaignId: string
 ): Promise<{ action: 'break' | 'continue' }> {
-  const classification = classifyFailure(err);
+  let classification = classifyFailure(err);
   const errMsg = err.message || String(err);
-  console.log(`[SendFailureHandler] Lead: ${lead.email} | Type: ${classification} | Error: ${errMsg}`);
+  // Quota refusals matched only by their wording that keep landing on this one
+  // enrollment are about the lead, not the campaign's quota: past
+  // MAX_CONSECUTIVE_QUOTA_FAILURES in a row they are retried and failed like
+  // soft failures. ACS's own 429 or quota code always pauses the campaign.
+  const wordedQuota = classification === 'quota' && !isProviderQuotaRefusal(err);
+  const escalated = wordedQuota && enrollment.quotaFailures >= MAX_CONSECUTIVE_QUOTA_FAILURES;
+  if (escalated) {
+    classification = 'soft';
+  }
+  console.log(`[SendFailureHandler] Lead: ${lead.email} | Type: ${classification}${escalated ? ` (after ${enrollment.quotaFailures} quota failures in a row)` : ''} | Error: ${errMsg}`);
 
   // Always mark the pre-created Sending dispatch as Failed so it isn't counted in metrics
   if (dispatch) {
@@ -229,16 +284,19 @@ export async function handleSendFailure(
     }
   }
 
-  if (classification === 'quota') {
+  if (classification === 'quota' || classification === 'systemic') {
     try {
       const resumeTime = new Date();
       resumeTime.setHours(resumeTime.getHours() + 1);
-      const pauseReason: PauseReason = isClockSkewError(errMsg) ? 'systemic' : 'quota';
+      const pauseReason: PauseReason =
+        classification === 'quota' ? 'quota' : isClockSkewError(errMsg) ? 'systemic' : 'config';
 
       // Atomically pause the campaign with its scheduled resume time and
       // postpone the enrollment so it retries after the reset. Only an Active
       // campaign is paused: a status a user set since the send began stands,
-      // and the timer never resumes it.
+      // and the timer never resumes it. The enrollment's retries are left
+      // alone; a quota refusal matched by its wording only counts toward its
+      // quota streak.
       const [paused] = await prisma.$transaction([
         prisma.campaign.updateMany({
           where: { id: campaignId, status: 'Active' },
@@ -246,7 +304,11 @@ export async function handleSendFailure(
         }),
         prisma.campaignEnrollment.update({
           where: { id: enrollment.id },
-          data: { nextActionDate: resumeTime, ...RELEASED_CLAIM },
+          data: {
+            nextActionDate: resumeTime,
+            ...(wordedQuota ? { quotaFailures: { increment: 1 } } : {}),
+            ...RELEASED_CLAIM,
+          },
         }),
       ]);
       const cause = pauseReason === 'quota' ? 'Quota limit hit' : 'Systemic send failure';
@@ -256,7 +318,7 @@ export async function handleSendFailure(
         console.log(`[SendFailureHandler] ${cause}. Campaign "${campaignName}" (${campaignId}) is no longer Active, so it was not paused.`);
       }
     } catch (pauseErr: any) {
-      console.error('[SendFailureHandler] Failed to pause campaign on quota limit:', pauseErr.message);
+      console.error(`[SendFailureHandler] Failed to pause campaign on ${classification} failure:`, pauseErr.message);
     }
     return { action: 'break' };
   }
@@ -275,6 +337,8 @@ export async function handleSendFailure(
         data: {
           nextActionDate,
           retryCount: { increment: 1 },
+          // An escalated quota refusal continues the streak; any other soft failure ends it.
+          quotaFailures: escalated ? { increment: 1 } : 0,
           lastError: errMsg,
           lastBounceType: 'soft',
           ...RELEASED_CLAIM
@@ -288,6 +352,7 @@ export async function handleSendFailure(
         data: {
           status: 'Failed',
           nextActionDate: null,
+          quotaFailures: 0,
           lastError: errMsg,
           lastBounceType: 'soft',
           ...RELEASED_CLAIM
@@ -321,6 +386,7 @@ export async function handleSendFailure(
     data: {
       status: 'Failed',
       nextActionDate: null,
+      quotaFailures: 0,
       lastError: errMsg,
       lastBounceType: 'hard',
       ...RELEASED_CLAIM
@@ -778,6 +844,7 @@ export async function processDueEmails() {
       const nextStepOrder = currentStepOrder + 1;
       const nextStep = campaign.steps.find(s => s.stepOrder === nextStepOrder);
 
+      // A sent step ends any quota streak.
       let enrollmentAdvance;
       if (nextStep) {
         const nextDate = new Date();
@@ -786,6 +853,7 @@ export async function processDueEmails() {
         enrollmentAdvance = {
           currentSequenceStep: nextStepOrder,
           nextActionDate: nextDate,
+          quotaFailures: 0,
           ...RELEASED_CLAIM,
         };
       } else {
@@ -793,6 +861,7 @@ export async function processDueEmails() {
         enrollmentAdvance = {
           status: 'Completed',
           nextActionDate: null,
+          quotaFailures: 0,
           ...RELEASED_CLAIM,
         };
       }

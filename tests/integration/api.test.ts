@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { SignJWT } from 'jose';
+import { getVerifiedDomains } from '../../lib/azureDomains';
 
 const BASE_URL = 'http://localhost:3000';
 
@@ -40,6 +41,20 @@ const testFetch = async (url: string, options: any = {}) => {
       Cookie: `user_session=${token}`,
     },
   });
+};
+
+/**
+ * A domain the running server accepts mailboxes on. POST /api/accounts refuses
+ * any sender address whose domain is not a verified Azure sender domain, so
+ * the mailbox tests need one saved in Settings.
+ */
+const verifiedSenderDomain = async (): Promise<string> => {
+  const res = await testFetch(`${BASE_URL}/api/settings`);
+  const [domain] = getVerifiedDomains((await res.json()).settings);
+  if (!domain) {
+    throw new Error('Save at least one verified Azure sender domain in Settings before running the integration tests: POST /api/accounts refuses every sender address until then.');
+  }
+  return domain;
 };
 
 describe('ArcReach Live API Integration Tests', () => {
@@ -241,7 +256,7 @@ describe('ArcReach Live API Integration Tests', () => {
 
     it('should successfully create, update, and delete a sender account', async () => {
       const payload = {
-        emailAddress: `test-sender-${Date.now()}@arcreach-test.io`,
+        emailAddress: `test-sender-${Date.now()}@${await verifiedSenderDomain()}`,
         name: 'Test Outbound Sender',
         provider: 'Google Workspace',
         minuteLimit: 5,
@@ -472,7 +487,7 @@ describe('ArcReach Live API Integration Tests', () => {
     // Create a temporary sender account since campaigns require a linked account
     beforeAll(async () => {
       const senderPayload = {
-        emailAddress: `campaign-sender-${Date.now()}@arcreach-test.io`,
+        emailAddress: `campaign-sender-${Date.now()}@${await verifiedSenderDomain()}`,
         name: 'Campaign Sender',
         provider: 'Custom SMTP',
         minuteLimit: 5,

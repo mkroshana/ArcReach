@@ -33,5 +33,9 @@ describe('resolveAzureFromAddress', () => {
 
   it('throws on a malformed sender address', () => {
     expect(() => resolveAzureFromAddress('not-an-email', settings)).toThrow(/valid address/i);
+    // A verified domain after the last '@' is not enough.
+    expect(() => resolveAzureFromAddress('john@thejobshelpers.com@evil.com', settings)).toThrow(/valid address/i);
+    expect(() => resolveAzureFromAddress('john@evil.com@thejobshelpers.com', settings)).toThrow(/valid address/i);
+    expect(() => resolveAzureFromAddress('@thejobshelpers.com', settings)).toThrow(/valid address/i);
   });
 });

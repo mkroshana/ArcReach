@@ -4,7 +4,9 @@
  * run route, manual send, send-test, and unibox-reply routes.
  *
  * Throws:
- *   EmailConfigError — missing/invalid configuration (callers map to 4xx).
+ *   EmailConfigError — missing/invalid configuration, including an Azure
+ *                      connection string that cannot be decrypted or parsed
+ *                      (callers map to 4xx).
  *   EmailSendError   — the provider refused the message, never answered the
  *                      send, or reported it Failed (Azure status "Failed",
  *                      SMTP transport error, etc.). An Azure send ACS accepted
@@ -145,7 +147,17 @@ async function sendViaAzure(
   input: { to: string; subject: string; body: string; isHtml: boolean; sender: SenderInput; trackOpens: boolean; operationId?: string },
   settings: ProviderSettings
 ): Promise<SendResult> {
-  const connString = decryptSecret(settings.azureConnString);
+  let connString: string | null | undefined;
+  try {
+    connString = decryptSecret(settings.azureConnString);
+  } catch (err: any) {
+    // A connection string that cannot be decrypted fails every send the same
+    // way until it is saved again, so it is a config issue.
+    throw new EmailConfigError(
+      `The saved Azure Communication Services connection string could not be decrypted (${err?.message || err}). ` +
+        'SECRETS_KEY may have changed since it was saved; an admin must save it again in Settings.'
+    );
+  }
   if (!connString || getVerifiedDomains(settings).length === 0) {
     throw new EmailConfigError(
       'Azure Communication Services connection string or verified sender domains are not configured.'
@@ -160,7 +172,17 @@ async function sendViaAzure(
     throw new EmailConfigError(err.message || 'Invalid Azure sender address.');
   }
 
-  const emailClient = getAzureClient(connString);
+  let emailClient: EmailClient;
+  try {
+    emailClient = getAzureClient(connString);
+  } catch {
+    // The SDK refuses a connection string it cannot parse (only the key, an
+    // endpoint with a path, ...), so every send fails until it is saved again.
+    // Its error echoes the string, access key included, so it is not kept.
+    throw new EmailConfigError(
+      'The saved Azure Communication Services connection string is not valid; an admin must save it again in Settings.'
+    );
+  }
 
   const message: any = {
     senderAddress: fromAddress,

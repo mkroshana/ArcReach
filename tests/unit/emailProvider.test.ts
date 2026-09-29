@@ -112,6 +112,23 @@ describe('sendMessage', () => {
     ).rejects.toBeInstanceOf(EmailConfigError);
   });
 
+  it('AZURE with a connection string that cannot be decrypted throws EmailConfigError and sends nothing (H9)', async () => {
+    // A well-formed envelope whose GCM tag does not verify, as after SECRETS_KEY changes.
+    const envelope = encryptSecret('endpoint=x;accesskey=y');
+    const blobStart = envelope.lastIndexOf(':') + 1;
+    const blob = Buffer.from(envelope.slice(blobStart), 'base64');
+    blob[0] ^= 0xff;
+    for (const azureConnString of [envelope.slice(0, blobStart) + blob.toString('base64'), 'enc:v1:not-an-envelope']) {
+      const err = await sendMessage(
+        { to: 'lead@x.com', subject: 's', body: 'b', isHtml: false, sender },
+        { activeProvider: 'AZURE', azureConnString, azureSenderDomains: ['thejobshelpers.com'] }
+      ).catch((e) => e);
+      expect(err).toBeInstanceOf(EmailConfigError);
+      expect(err.message).toMatch(/^The saved Azure Communication Services connection string could not be decrypted \(.+\)\. SECRETS_KEY may have changed/);
+    }
+    expect(beginSend).not.toHaveBeenCalled();
+  });
+
   it('AZURE Failed status surfaces as EmailSendError', async () => {
     beginSend.mockResolvedValue({
       pollUntilDone: async () => ({ status: 'Failed', error: { message: 'boom' } }),

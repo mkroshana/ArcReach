@@ -55,7 +55,7 @@ const mockedStatus = vi.mocked(getAzureSendStatus);
 type LeadRow = { id: string; email: string; name: string; status: string; validationStatus: string; isArchived: boolean };
 type EnrollmentRow = {
   id: string; leadId: string; campaignId: string; status: string; currentSequenceStep: number;
-  nextActionDate: Date | null; retryCount: number; lastError: string | null; lastBounceType: string | null;
+  nextActionDate: Date | null; retryCount: number; quotaFailures: number; lastError: string | null; lastBounceType: string | null;
   claimToken: string | null; claimedAt: Date | null;
 };
 type DispatchRow = {
@@ -82,7 +82,7 @@ function addLead(id: string) {
   leads.set(id, { id, email: `${id}@prospect.test`, name: 'Lead', status: 'Neutral', validationStatus: 'Valid', isArchived: false });
   enrollments.push({
     id: `enr-${id}`, leadId: id, campaignId: 'cmp-1', status: 'Active', currentSequenceStep: 1,
-    nextActionDate: PAST, retryCount: 0, lastError: null, lastBounceType: null, claimToken: null, claimedAt: null,
+    nextActionDate: PAST, retryCount: 0, quotaFailures: 0, lastError: null, lastBounceType: null, claimToken: null, claimedAt: null,
   });
 }
 
@@ -1081,5 +1081,50 @@ describe('processDueEmails moves enrollments outside the sending window to its n
     expect(fake.campaign.findMany).not.toHaveBeenCalled();
     expect(fake.campaignEnrollment.updateMany).not.toHaveBeenCalled();
     expect(enrollmentOf('lead-1').nextActionDate).toEqual(PAST);
+  });
+});
+
+describe('processDueEmails pauses the campaign on a systemic failure and never penalises the lead (H9, M2)', () => {
+  const HOUR_MS = 60 * 60 * 1000;
+
+  beforeEach(() => {
+    // Pauses only the Active campaign it names, as the engine's conditional write does.
+    fake.campaign.updateMany.mockImplementation(async ({ where, data }: any) => {
+      const hit = where.id === campaign.id && where.status === campaign.status;
+      if (hit) Object.assign(campaign, data);
+      return { count: hit ? 1 : 0 };
+    });
+  });
+
+  it('pauses on a connection string that cannot be decrypted, leaving the retries and the lead alone', async () => {
+    // The real provider, under the saved settings' 'enc:v1:conn', which no SECRETS_KEY decrypts.
+    const actual = await vi.importActual<typeof import('../../lib/emailProvider')>('../../lib/emailProvider');
+    mockedSend.mockImplementation(actual.sendMessage);
+    addLead('lead-2');
+    enrollmentOf('lead-1').retryCount = 2; // one more soft failure would fail the lead
+    const before = Date.now();
+
+    await processDueEmails();
+
+    // The cycle stops at the first failure: every send would fail the same way.
+    expect(mockedSend).toHaveBeenCalledTimes(1);
+    expect(campaign).toMatchObject({ status: 'Paused', pauseReason: 'config' });
+    expect(campaign.pausedUntil.getTime() - before).toBeGreaterThanOrEqual(HOUR_MS);
+    expect(enrollmentOf('lead-1')).toMatchObject({
+      status: 'Active', currentSequenceStep: 1, retryCount: 2, quotaFailures: 0, lastError: null,
+      nextActionDate: campaign.pausedUntil, claimToken: null, claimedAt: null,
+    });
+    expect(enrollmentOf('lead-2')).toMatchObject({ status: 'Active', retryCount: 0, nextActionDate: PAST });
+    expect(dispatches.map((d) => d.status)).toEqual(['Failed']);
+    expect(fake.lead.update).not.toHaveBeenCalled();
+    expect(leads.get('lead-1')).toMatchObject({ status: 'Neutral', validationStatus: 'Valid' });
+  });
+
+  it('ends a quota streak when the step is sent', async () => {
+    enrollmentOf('lead-1').quotaFailures = 3;
+
+    await processDueEmails();
+
+    expect(enrollmentOf('lead-1')).toMatchObject({ currentSequenceStep: 2, quotaFailures: 0 });
   });
 });

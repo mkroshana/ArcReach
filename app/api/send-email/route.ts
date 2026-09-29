@@ -4,11 +4,12 @@ import { applyEmailTracking } from '@/lib/emailTracking';
 import { checkGlobalRateLimits } from '@/lib/rateLimits';
 import { getSession } from '@/lib/session';
 import { sendMessage, EmailConfigError, EmailSendError } from '@/lib/emailProvider';
+import { findDirectSender } from '@/lib/senderOwnership';
 
 export async function POST(req: NextRequest) {
   try {
     // Authorize the caller (consistent with all sibling routes; middleware also gates this).
-    await getSession();
+    const session = await getSession();
 
     const body = await req.json();
     const { campaignId, senderAccountId, leadData, subject, bodyText } = body;
@@ -28,21 +29,31 @@ export async function POST(req: NextRequest) {
 
     // 2. Fetch sender account if available
     let targetSenderAccountId = senderAccountId;
-    if (!targetSenderAccountId && campaignId) {
+    if (campaignId) {
       const campaign = await prisma.campaign.findUnique({
         where: { id: campaignId },
-        select: { senderAccountId: true }
+        select: { userId: true, senderAccountId: true }
       });
-      if (campaign) {
+      // Non-admins may only send inside their own campaigns; unknown IDs fail the same way
+      if (session.role === 'ADMIN' && !campaign) {
+        return NextResponse.json({ success: false, error: 'Campaign not found.' }, { status: 404 });
+      }
+      if (!campaign || (session.role !== 'ADMIN' && campaign.userId !== session.id)) {
+        return NextResponse.json({ success: false, error: 'Campaign does not belong to you.' }, { status: 403 });
+      }
+      if (!targetSenderAccountId) {
         targetSenderAccountId = campaign.senderAccountId;
       }
     }
 
+    // Non-admins may only send from their own mailboxes
     let activeSenderAccount = null;
     if (targetSenderAccountId) {
-      activeSenderAccount = await prisma.senderAccount.findUnique({
-        where: { id: targetSenderAccountId }
-      });
+      const found = await findDirectSender(session, targetSenderAccountId);
+      if ('error' in found) {
+        return NextResponse.json({ success: false, error: found.error }, { status: found.status });
+      }
+      activeSenderAccount = found.account;
     }
 
     // 3. Determine active provider and SMTP settings to use

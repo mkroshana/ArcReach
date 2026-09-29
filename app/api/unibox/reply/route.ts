@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { checkGlobalRateLimits } from '@/lib/rateLimits';
 import { sendMessage } from '@/lib/emailProvider';
+import { findDirectSender } from '@/lib/senderOwnership';
 
 export async function POST(req: NextRequest) {
   try {
@@ -10,7 +11,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { leadId, subject, body: replyBody, senderAccountId } = body;
 
-    if (!leadId || !replyBody) {
+    if (!leadId || typeof leadId !== 'string' || !replyBody) {
       return NextResponse.json({ error: 'leadId and body copy are required.' }, { status: 400 });
     }
 
@@ -33,12 +34,34 @@ export async function POST(req: NextRequest) {
     // Fetch global settings
     const settings = await prisma.globalSettings.findFirst();
 
-    // Fetch the sender account if provided
-    let senderAccount = null;
-    if (senderAccountId) {
-      senderAccount = await prisma.senderAccount.findUnique({
-        where: { id: senderAccountId }
+    // Non-admins may only reply to leads that wrote to one of their own mailboxes
+    if (session.role !== 'ADMIN') {
+      const ownInbound = await prisma.inboundResponse.findFirst({
+        where: { leadId, senderAccount: { userId: session.id } },
+        select: { id: true }
       });
+      if (!ownInbound) {
+        return NextResponse.json({ error: 'This lead has not replied to any of your mailboxes.' }, { status: 403 });
+      }
+    }
+
+    // Fetch the sender account if provided; non-admins may only use their own
+    let senderAccount = null;
+    let campaignId: string | null = null;
+    if (senderAccountId) {
+      const found = await findDirectSender(session, senderAccountId);
+      if ('error' in found) {
+        return NextResponse.json({ error: found.error }, { status: found.status });
+      }
+      senderAccount = found.account;
+
+      // Attribute the reply to the campaign of the lead's latest reply on this mailbox
+      const inbound = await prisma.inboundResponse.findFirst({
+        where: { leadId, senderAccountId: senderAccount.id },
+        orderBy: { receivedAt: 'desc' },
+        select: { campaignId: true }
+      });
+      campaignId = inbound?.campaignId ?? null;
     }
 
     const senderName = senderAccount?.name || session.name || 'ArcReach';
@@ -70,10 +93,12 @@ export async function POST(req: NextRequest) {
 
     const messageId = providerMessageId || fallbackMessageId;
 
-    // Create a dispatch record to trace this sent reply
+    // Create a dispatch record to trace this sent reply (the mailbox's caps count it)
     const dispatch = await prisma.emailDispatch.create({
       data: {
         leadId,
+        campaignId,
+        senderAccountId: senderAccount?.id ?? null,
         messageId,
         sentAt: new Date(),
         subject: subject || 'Re: Outreach',

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { sendMessage, EmailConfigError, EmailSendError } from '@/lib/emailProvider';
+import { findDirectSender } from '@/lib/senderOwnership';
 
 /**
  * POST /api/send-email/test
@@ -19,14 +20,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'Sender account ID is required.' }, { status: 400 });
     }
 
-    // Fetch the sender account
-    const senderAccount = await prisma.senderAccount.findUnique({
-      where: { id: senderAccountId },
-    });
-
-    if (!senderAccount) {
-      return NextResponse.json({ success: false, error: 'Sender account not found.' }, { status: 404 });
+    // Fetch the sender account; non-admins may only test their own mailboxes
+    const found = await findDirectSender(session, senderAccountId);
+    if ('error' in found) {
+      return NextResponse.json({ success: false, error: found.error }, { status: found.status });
     }
+    const senderAccount = found.account;
 
     // Fetch global settings
     const settings = await prisma.globalSettings.findFirst();

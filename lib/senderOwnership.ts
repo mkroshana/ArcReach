@@ -1,4 +1,6 @@
+import type { SenderAccount } from '@prisma/client';
 import { prisma } from '@/lib/db';
+import type { UserSession } from '@/lib/session';
 
 /**
  * Sender mailboxes a campaign writes must belong to the campaign's owner.
@@ -7,7 +9,7 @@ import { prisma } from '@/lib/db';
  */
 
 export interface SenderCheckError {
-  status: 400 | 403;
+  status: 400 | 403 | 404;
   error: string;
 }
 
@@ -49,4 +51,25 @@ export async function checkCampaignSenders(
     return { status: 403, error: `Sender mailbox does not belong to the campaign owner: ${foreign.join(', ')}.` };
   }
   return null;
+}
+
+/**
+ * Load the mailbox a direct send (Unibox reply, manual send, mailbox test)
+ * names. Non-admins may only send from their own mailboxes, and unknown IDs
+ * fail the same way as other users' IDs; admins may use any mailbox.
+ */
+export async function findDirectSender(
+  session: Pick<UserSession, 'id' | 'role'>,
+  senderAccountId: unknown,
+): Promise<{ account: SenderAccount } | SenderCheckError> {
+  if (typeof senderAccountId !== 'string' || senderAccountId === '') {
+    return { status: 400, error: 'senderAccountId must be a mailbox ID.' };
+  }
+  const account = await prisma.senderAccount.findUnique({ where: { id: senderAccountId } });
+  if (session.role === 'ADMIN') {
+    if (!account) return { status: 404, error: 'Sender mailbox not found.' };
+  } else if (!account || account.userId !== session.id) {
+    return { status: 403, error: 'Sender mailbox does not belong to you.' };
+  }
+  return { account };
 }

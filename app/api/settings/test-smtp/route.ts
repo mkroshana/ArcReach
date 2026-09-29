@@ -51,11 +51,11 @@ export async function POST(req: NextRequest) {
 
     try {
       await transport.verify();
-      logs.push(`✓ Connection testing successfully completed! Ready for deliverability.`);
+      logs.push(`[SMTP OK] Connection testing successfully completed! Ready for deliverability.`);
       return NextResponse.json({ success: true, logs });
     } catch (err: any) {
       logs.push(`[SMTP ERROR] Authentication or connection handshake failed: ${err.message}`);
-      logs.push(`✗ Connection testing failed. Please check host server hostname.`);
+      logs.push(`[SMTP FAILED] Connection testing failed. Please check host server hostname.`);
       return NextResponse.json({ success: false, logs, error: err.message });
     }
   } catch (error: any) {

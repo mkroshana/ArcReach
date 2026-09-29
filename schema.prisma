@@ -260,8 +260,9 @@ model CampaignEnrollment {
 // ------------------------------------------------------
 model EmailDispatch {
   id          String        @id @default(uuid())
-  leadId      String
-  lead        Lead          @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  // Null only for mailbox test sends, which go to the testing user, not a lead.
+  leadId      String?
+  lead        Lead?         @relation(fields: [leadId], references: [id], onDelete: Cascade)
   senderAccountId String?
   senderAccount   SenderAccount? @relation(fields: [senderAccountId], references: [id], onDelete: SetNull)
   campaignId  String?
@@ -280,7 +281,7 @@ model EmailDispatch {
   status      String        @default("Sending")
   // ACS Operation-Id the send was made under, stored before the provider call
   // so an accepted send whose bookkeeping failed can still be traced in ACS.
-  // Null for rows recorded after the send (Unibox replies) or before this column.
+  // Null for rows recorded after the send (Unibox replies, mailbox tests) or before this column.
   operationId String?       @unique
   // Sequence step this dispatch belongs to (null for manual / non-campaign sends).
   stepOrder   Int?

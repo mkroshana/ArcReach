@@ -10,6 +10,7 @@ vi.mock('../../lib/db', () => ({
   },
 }));
 
+import { prisma } from '../../lib/db';
 import { POST } from '../../app/api/webhook/route';
 
 function makeReq(body: any, headers: Record<string, string> = {}): NextRequest {
@@ -69,5 +70,49 @@ describe('webhook POST auth', () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.validationResponse).toBe('abc-123');
+  });
+});
+
+describe('webhook delivery report for a mailbox test send (L3)', () => {
+  const ORIG_SECRET = process.env.WEBHOOK_SECRET;
+  const mockedPrisma = prisma as any;
+
+  const failedReport = (messageId: string) => POST(makeReq(
+    [{ eventType: 'Microsoft.Communication.EmailDeliveryReportReceived', data: { messageId, status: 'Failed' } }],
+    { 'x-arcreach-webhook-secret': 'test-secret-value' },
+  ));
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    process.env.WEBHOOK_SECRET = 'test-secret-value';
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (ORIG_SECRET === undefined) delete process.env.WEBHOOK_SECRET;
+    else process.env.WEBHOOK_SECRET = ORIG_SECRET;
+  });
+
+  it('records the bounce without touching any lead when the dispatch has none', async () => {
+    mockedPrisma.emailDispatch.findUnique.mockResolvedValue({ id: 'd-test', messageId: 'op-test', leadId: null });
+
+    const res = await failedReport('op-test');
+    expect(res.status).toBe(200);
+    expect(mockedPrisma.lead.update).not.toHaveBeenCalled();
+    expect(mockedPrisma.campaignEnrollment.updateMany).not.toHaveBeenCalled();
+    expect(mockedPrisma.emailEvent.create).toHaveBeenCalledWith({ data: { messageId: 'op-test', eventType: 'bounce' } });
+  });
+
+  it('still marks the lead and its enrollments Bounced for a dispatch to a lead', async () => {
+    mockedPrisma.emailDispatch.findUnique.mockResolvedValue({ id: 'd-1', messageId: 'op-1', leadId: 'lead-1' });
+
+    expect((await failedReport('op-1')).status).toBe(200);
+    expect(mockedPrisma.lead.update).toHaveBeenCalledWith({
+      where: { id: 'lead-1' }, data: { status: 'Bounced', validationStatus: 'Invalid' },
+    });
+    expect(mockedPrisma.campaignEnrollment.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { leadId: 'lead-1', status: 'Active' } }),
+    );
+    expect(mockedPrisma.emailEvent.create).toHaveBeenCalledTimes(1);
   });
 });

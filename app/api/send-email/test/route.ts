@@ -1,14 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { prisma } from '@/lib/db';
 import { getGlobalSettings } from '@/lib/settings';
 import { getSession } from '@/lib/session';
+import { checkGlobalRateLimits } from '@/lib/rateLimits';
 import { sendMessage, sendingDisabledReason, EmailConfigError, EmailSendError } from '@/lib/emailProvider';
 import { findDirectSender } from '@/lib/senderOwnership';
+import { senderCapReachedReason } from '@/lib/sendEngine';
 
 /**
  * POST /api/send-email/test
  * 
  * Sends a test email from a specific sender account to the current user's email address.
- * Used to validate that SMTP credentials are correctly configured for an individual account.
+ * Used to validate that Azure Communication Services can send from an individual account.
+ * The test counts toward the global rate limits and the mailbox's caps like any other send.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -35,12 +39,22 @@ export async function POST(req: NextRequest) {
     }
     const provider = settings?.activeProvider;
 
+    // Check global outbound rate limits and the mailbox's daily and warmup caps
+    const rateCheck = await checkGlobalRateLimits();
+    if (!rateCheck.allowed) {
+      return NextResponse.json({ success: false, error: rateCheck.reason }, { status: 429 });
+    }
+    const capReached = await senderCapReachedReason(senderAccount, new Date());
+    if (capReached) {
+      return NextResponse.json({ success: false, error: capReached }, { status: 429 });
+    }
+
     // Build the test email content. ACS takes the From name from the sender
     // username configured in Azure, so the mailbox name is only an internal label.
     const recipientEmail = session.email;
     const now = new Date().toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short' });
 
-    const subject = `✅ ArcReach Test — ${senderAccount.emailAddress} is connected`;
+    const subject = `ArcReach Test: ${senderAccount.emailAddress} is connected`;
     const bodyText = [
       `Hi ${session.name},`,
       '',
@@ -48,12 +62,12 @@ export async function POST(req: NextRequest) {
       '',
       `Sender: ${senderAccount.emailAddress}`,
       `Internal Label: ${senderAccount.name || '(not set)'}`,
-      `Provider: ${senderAccount.provider}`,
+      'Provider: Azure Communication Services',
       `Sent At: ${now}`,
       '',
       'The From name on this email comes from the sender username configured in Azure Communication Services. The internal label is shown only in ArcReach.',
       '',
-      'If you received this email, the SMTP connection for this sender account is working as expected.',
+      'If you received this email, Azure Communication Services can send from this sender account as expected.',
       '',
       '— ArcReach Deliverability Engine',
     ].join('\n');
@@ -73,6 +87,26 @@ export async function POST(req: NextRequest) {
       const fallbackId = `mock-test-${Date.now()}-${Math.random().toString(36).substring(7)}`;
       const messageId = providerMessageId || fallbackId;
       const label = provider === 'AZURE' ? ' via Azure Communication Services' : '';
+
+      // Record the test (it has no lead or campaign) so the global rate limits
+      // and the mailbox's caps count it
+      await prisma.emailDispatch.create({
+        data: {
+          senderAccountId: senderAccount.id,
+          messageId,
+          sentAt: new Date(),
+          subject,
+          body: bodyText,
+          // Recorded only after the provider accepted it.
+          status: 'Sent',
+        },
+      });
+      if (senderAccount.warmupEnabled) {
+        await prisma.senderAccount.updateMany({
+          where: { id: senderAccount.id },
+          data: { warmupSent: { increment: 1 } },
+        });
+      }
 
       return NextResponse.json({
         success: true,

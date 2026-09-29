@@ -87,24 +87,27 @@ export async function POST(req: NextRequest) {
                 data: { deliveredAt: new Date() },
               });
             } else if (status === 'Failed') {
-              // Update Lead: mark as Bounced + Invalid deliverability
-              await prisma.lead.update({
-                where: { id: dispatch.leadId },
-                data: {
-                  status: 'Bounced',
-                  validationStatus: 'Invalid',
-                }
-              });
-              // Update active enrollments to Bounced
-              await prisma.campaignEnrollment.updateMany({
-                where: { leadId: dispatch.leadId, status: 'Active' },
-                data: {
-                  status: 'Bounced',
-                  nextActionDate: null,
-                  lastError: 'Azure webhook delivery report: Failed',
-                  lastBounceType: 'hard'
-                }
-              });
+              // A mailbox test send went to the testing user, so there is no lead to mark
+              if (dispatch.leadId) {
+                // Update Lead: mark as Bounced + Invalid deliverability
+                await prisma.lead.update({
+                  where: { id: dispatch.leadId },
+                  data: {
+                    status: 'Bounced',
+                    validationStatus: 'Invalid',
+                  }
+                });
+                // Update active enrollments to Bounced
+                await prisma.campaignEnrollment.updateMany({
+                  where: { leadId: dispatch.leadId, status: 'Active' },
+                  data: {
+                    status: 'Bounced',
+                    nextActionDate: null,
+                    lastError: 'Azure webhook delivery report: Failed',
+                    lastBounceType: 'hard'
+                  }
+                });
+              }
               // Create an audit trail EmailEvent for the bounce
               await prisma.emailEvent.create({
                 data: {

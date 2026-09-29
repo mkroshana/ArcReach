@@ -5,6 +5,7 @@ import { getSession } from '@/lib/session';
 import { checkGlobalRateLimits } from '@/lib/rateLimits';
 import { sendMessage, sendingDisabledReason } from '@/lib/emailProvider';
 import { findDirectSender } from '@/lib/senderOwnership';
+import { senderCapReachedReason } from '@/lib/sendEngine';
 
 export async function POST(req: NextRequest) {
   try {
@@ -60,6 +61,12 @@ export async function POST(req: NextRequest) {
       }
       senderAccount = found.account;
 
+      // A reply counts toward the mailbox's daily and warmup caps like any engine send
+      const capReached = await senderCapReachedReason(senderAccount, new Date());
+      if (capReached) {
+        return NextResponse.json({ error: capReached }, { status: 429 });
+      }
+
       // Attribute the reply to the campaign of the lead's latest reply on this mailbox
       const inbound = await prisma.inboundResponse.findFirst({
         where: { leadId, senderAccountId: senderAccount.id },
@@ -112,6 +119,14 @@ export async function POST(req: NextRequest) {
         status: 'Sent'
       }
     });
+
+    // A warming mailbox's reply counts toward its ramp, as engine sends do
+    if (senderAccount?.warmupEnabled) {
+      await prisma.senderAccount.updateMany({
+        where: { id: senderAccount.id },
+        data: { warmupSent: { increment: 1 } }
+      });
+    }
 
     console.log(`[Outbound Reply Dispatch] SenderAccount: ${senderAccountId || 'Default'}, Lead: ${leadId}, Subject: ${subject}`);
 

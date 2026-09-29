@@ -101,6 +101,23 @@ export function senderCapDispatchWhere(senderAccountId: string, now: Date): Pris
 }
 
 /**
+ * Why a mailbox may not make one more send outside the engine (a Unibox reply
+ * or a mailbox test), or null when it may. Its sends are counted against its
+ * daily or warmup cap exactly as the engine counts them.
+ */
+export async function senderCapReachedReason(
+  sender: Parameters<typeof getEffectiveDailyCap>[0] & { id: string; emailAddress: string },
+  now: Date
+): Promise<string | null> {
+  const cap = getEffectiveDailyCap(sender, now);
+  const sent = await prisma.emailDispatch.count({ where: senderCapDispatchWhere(sender.id, now) });
+  if (sent < cap) return null;
+  // The effective cap is below the daily limit only while the warmup ramp holds it back.
+  const capName = cap < sender.dailyLimit ? 'warmup' : 'daily';
+  return `${sender.emailAddress} has reached its ${capName} cap of ${cap} emails in the last 24 hours. Nothing was sent; it can send again as those sends pass 24 hours old.`;
+}
+
+/**
  * When a mailbox at its cap can send again: once its cap-th newest counted
  * send leaves the 24-hour window, fewer than cap sends remain in it. `now`
  * when fewer than cap sends count (it is under its cap already), and null for

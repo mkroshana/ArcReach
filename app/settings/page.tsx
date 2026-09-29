@@ -478,7 +478,7 @@ export default function SettingsPage() {
                                   {smtpLoading && <Typography sx={{ fontSize: 9, fontWeight: 700, color: '#60a5fa' }}>CONNECTING…</Typography>}
                                 </Stack>
                                 {smtpLogs.map((logStr, idx) => (
-                                  <Box key={idx} sx={{ color: logStr.startsWith('✓') ? '#34d399' : '#cbd5e1', fontWeight: logStr.startsWith('✓') ? 700 : 400 }}>{logStr}</Box>
+                                  <Box key={idx} sx={{ color: logStr.startsWith('[SMTP OK]') ? '#34d399' : '#cbd5e1', fontWeight: logStr.startsWith('[SMTP OK]') ? 700 : 400 }}>{logStr}</Box>
                                 ))}
                               </Box>
                             )}

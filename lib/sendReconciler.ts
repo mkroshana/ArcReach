@@ -84,7 +84,8 @@ export async function reconcileStaleSendingDispatches(now: Date = new Date()): P
       }
 
       try {
-        const enrollment = dispatch.campaignId
+        // Campaign sends always have a lead; only mailbox test sends have none.
+        const enrollment = dispatch.campaignId && dispatch.leadId
           ? await prisma.campaignEnrollment.findFirst({
               where: { campaignId: dispatch.campaignId, leadId: dispatch.leadId },
               select: { id: true, retryCount: true, quotaFailures: true, status: true, currentSequenceStep: true },
@@ -117,7 +118,7 @@ export async function reconcileStaleSendingDispatches(now: Date = new Date()): P
             acs.error?.message || `Azure Communication Services reported send status: ${acs.status}.`,
             { code: acs.error?.code }
           );
-          if (waiting && dispatch.campaign) {
+          if (waiting && dispatch.campaign && dispatch.lead) {
             await handleSendFailure(waiting, dispatch.lead, dispatch, err, dispatch.campaign.name, dispatch.campaign.id);
           } else {
             await prisma.emailDispatch.updateMany({ where: { id: dispatch.id, status: 'Sending' }, data: { status: 'Failed' } });

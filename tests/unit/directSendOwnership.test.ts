@@ -33,10 +33,13 @@ const mockedSend = vi.mocked(sendMessage);
 const USER = { id: 'user-1', name: 'User', email: 'user@example.com', role: 'USER' as const };
 const ADMIN = { id: 'admin-1', name: 'Admin', email: 'admin@example.com', role: 'ADMIN' as const };
 
+/** Caps that leave room to send, so only ownership decides these tests. */
+const UNDER_CAP = { warmupEnabled: false, warmupStartedAt: null, dailyLimit: 100, warmupLimit: 10, warmupRamp: 5 };
+
 /** The SenderAccount table the ownership lookups run against. */
 const MAILBOXES = [
-  { id: 'mb-user1', userId: 'user-1', emailAddress: 'one@acme.test', name: 'User One', provider: 'AZURE' },
-  { id: 'mb-user2', userId: 'user-2', emailAddress: 'two@acme.test', name: 'User Two', provider: 'AZURE' },
+  { id: 'mb-user1', userId: 'user-1', emailAddress: 'one@acme.test', name: 'User One', provider: 'AZURE', ...UNDER_CAP },
+  { id: 'mb-user2', userId: 'user-2', emailAddress: 'two@acme.test', name: 'User Two', provider: 'AZURE', ...UNDER_CAP },
 ];
 
 /** Inbound replies: lead-1 wrote to both users' mailboxes, lead-2 only to user-2's. */
@@ -75,6 +78,7 @@ beforeEach(() => {
     return rows[0] ?? null;
   });
   mockedPrisma.emailDispatch.create.mockImplementation(async ({ data }: any) => ({ id: 'dispatch-1', ...data }));
+  mockedPrisma.emailDispatch.count.mockResolvedValue(0);
 });
 
 describe('POST /api/unibox/reply mailbox ownership (H25)', () => {

@@ -42,15 +42,18 @@ vi.mock('tls', () => {
   return { default: { connect }, connect };
 });
 
-vi.mock('../../lib/db', () => ({
-  prisma: {
+vi.mock('../../lib/db', () => {
+  const prisma: any = {
     senderAccount: { findUnique: vi.fn(), updateMany: vi.fn() },
     lead: { findMany: vi.fn(), findFirst: vi.fn() },
     inboundResponse: { findFirst: vi.fn(), createMany: vi.fn() },
-    campaignEnrollment: { findMany: vi.fn(), update: vi.fn() },
+    campaignEnrollment: { findMany: vi.fn(), updateMany: vi.fn() },
     emailDispatch: { findFirst: vi.fn() },
-  },
-}));
+  };
+  // A reply and its sequence pause are written in one transaction
+  prisma.$transaction = vi.fn(async (fn: any) => fn(prisma));
+  return { prisma };
+});
 
 import { prisma } from '../../lib/db';
 import { encryptSecret } from '../../lib/secrets';
@@ -105,6 +108,6 @@ describe('IMAP reply matching', () => {
       data: expect.objectContaining({ leadId: 'lead-1', campaignId: 'cmp-1', senderAccountId: 'mbx_1', body: expect.stringContaining('please stop') }),
       skipDuplicates: true,
     });
-    expect(mocked.campaignEnrollment.update).toHaveBeenCalledWith({ where: { id: 'enr-1' }, data: { status: 'Paused' } });
+    expect(mocked.campaignEnrollment.updateMany).toHaveBeenCalledWith({ where: { id: { in: ['enr-1'] }, status: 'Active' }, data: { status: 'Paused' } });
   });
 });

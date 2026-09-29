@@ -400,6 +400,11 @@ model InboundResponse {
   body            String         @db.Text
   receivedAt      DateTime       @default(now())
   unread          Boolean        @default(true)
+  // Set when the message is automated, not written by the lead: 'bounce' (a delivery
+  // status report), 'out-of-office' or 'auto-reply' (lib/imapService autoReplyKind).
+  // It is kept for Unibox but never stops a sequence or counts as a reply. Null for a
+  // human reply and for replies recorded before automated mail was detected.
+  autoReply       String?
 
   @@unique([senderAccountId, messageId])
 }

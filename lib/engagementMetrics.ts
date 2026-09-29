@@ -177,9 +177,14 @@ export function countHardBounces(client: MetricsClient, scope: MetricsScope, per
   return client.emailDispatch.count({ where: { AND: [scopeWhere(scope), SEQUENCE_SEND, hardBounceWhere(period)] } });
 }
 
-/** A scope's replies, those received in `receivedAt` when given. */
+/**
+ * A scope's replies, those received in `receivedAt` when given. Bounces,
+ * out-of-office notices and other auto-replies are not replies.
+ */
 export function countReplies(client: MetricsClient, scope: MetricsScope, receivedAt?: Period): Promise<number> {
-  return client.inboundResponse.count({ where: { AND: [replyWhere(scope), receivedAt ? { receivedAt } : {}] } });
+  return client.inboundResponse.count({
+    where: { AND: [replyWhere(scope), { autoReply: null }, receivedAt ? { receivedAt } : {}] },
+  });
 }
 
 export type HealthSummary = { bounced: number; failed: number; unsubscribed: number; bounceRate: number };

@@ -60,15 +60,18 @@ vi.mock('tls', () => {
   return { default: { connect }, connect };
 });
 
-vi.mock('../../lib/db', () => ({
-  prisma: {
+vi.mock('../../lib/db', () => {
+  const prisma: any = {
     senderAccount: { findUnique: vi.fn(), updateMany: vi.fn() },
     lead: { findMany: vi.fn(), findFirst: vi.fn() },
     inboundResponse: { findFirst: vi.fn(), createMany: vi.fn() },
-    campaignEnrollment: { findMany: vi.fn(), update: vi.fn() },
+    campaignEnrollment: { findMany: vi.fn(), updateMany: vi.fn() },
     emailDispatch: { findFirst: vi.fn() },
-  },
-}));
+  };
+  // A reply and its sequence pause are written in one transaction
+  prisma.$transaction = vi.fn(async (fn: any) => fn(prisma));
+  return { prisma };
+});
 
 import { prisma } from '../../lib/db';
 import { encryptSecret } from '../../lib/secrets';
@@ -193,17 +196,17 @@ describe('IMAP replies deduplicated by Message-ID per mailbox (M51, M52)', () =>
       ['lead-amy', 'mbx_1', '<amy-1@acme.test>'],
       ['lead-ben', 'mbx_1', '<ben-2@acme.test>'],
     ]);
-    expect(mocked.campaignEnrollment.update).toHaveBeenCalledTimes(1);
+    expect(mocked.campaignEnrollment.updateMany).toHaveBeenCalledTimes(1);
 
     // Changing the IMAP login resets the checkpoint, so the next sync reads the same mail again
     mailboxRow.imapUidValidity = null;
     mailboxRow.imapLastUid = null;
-    mocked.campaignEnrollment.update.mockClear();
+    mocked.campaignEnrollment.updateMany.mockClear();
 
     expect(await syncMailboxReplies('mbx_1')).toEqual({ success: true, syncedCount: 0 });
     expect(replies).toHaveLength(2);
     expect(mocked.inboundResponse.createMany).toHaveBeenLastCalledWith(expect.objectContaining({ skipDuplicates: true }));
-    expect(mocked.campaignEnrollment.update).not.toHaveBeenCalled();
+    expect(mocked.campaignEnrollment.updateMany).not.toHaveBeenCalled();
   });
 
   it('skips a reply another process recorded while this sync was reading it', async () => {
@@ -218,7 +221,7 @@ describe('IMAP replies deduplicated by Message-ID per mailbox (M51, M52)', () =>
 
     expect(result).toEqual({ success: true, syncedCount: 1 });
     expect(replies.map((r) => r.messageId)).toEqual(['<amy-1@acme.test>', '<ben-2@acme.test>']);
-    expect(mocked.campaignEnrollment.update).not.toHaveBeenCalled();
+    expect(mocked.campaignEnrollment.updateMany).not.toHaveBeenCalled();
     expect(mailboxRow).toMatchObject({ imapUidValidity: VALIDITY, imapLastUid: 2 });
   });
 

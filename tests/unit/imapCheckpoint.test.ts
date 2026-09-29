@@ -89,15 +89,18 @@ vi.mock('tls', () => {
   return { default: { connect }, connect };
 });
 
-vi.mock('../../lib/db', () => ({
-  prisma: {
+vi.mock('../../lib/db', () => {
+  const prisma: any = {
     senderAccount: { findUnique: vi.fn(), updateMany: vi.fn() },
     lead: { findMany: vi.fn(), findFirst: vi.fn() },
     inboundResponse: { findFirst: vi.fn(), createMany: vi.fn() },
-    campaignEnrollment: { findMany: vi.fn(), update: vi.fn() },
+    campaignEnrollment: { findMany: vi.fn(), updateMany: vi.fn() },
     emailDispatch: { findFirst: vi.fn() },
-  },
-}));
+  };
+  // A reply and its sequence pause are written in one transaction
+  prisma.$transaction = vi.fn(async (fn: any) => fn(prisma));
+  return { prisma };
+});
 
 import { prisma } from '../../lib/db';
 import { encryptSecret } from '../../lib/secrets';

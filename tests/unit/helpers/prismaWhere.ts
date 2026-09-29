@@ -27,9 +27,13 @@ function matchesValue(value: any, cond: any): boolean {
     if (cond instanceof Date) return value instanceof Date && value.getTime() === cond.getTime();
     return (value ?? null) === cond;
   }
+  // mode: 'insensitive' compares strings lower-cased on both sides, as Postgres does
+  const fold = (v: any): any =>
+    cond.mode !== 'insensitive' ? v : typeof v === 'string' ? v.toLowerCase() : Array.isArray(v) ? v.map(fold) : v;
   return Object.entries(cond).every(([op, operand]) => {
-    if (op === 'not') return operand === null ? value != null : value != null && value !== operand;
-    return compare(value, op, operand);
+    if (op === 'mode') return true;
+    if (op === 'not') return operand === null ? value != null : value != null && fold(value) !== fold(operand);
+    return compare(fold(value), op, fold(operand));
   });
 }
 

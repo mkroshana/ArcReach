@@ -127,7 +127,9 @@ export async function GET(req: NextRequest) {
         senderAccountId: r.senderAccountId,
         senderAccount: r.senderAccount,
         campaign: r.campaign,
-        unread: r.unread
+        unread: r.unread,
+        // Set on a bounce, out-of-office notice or other auto-reply, which stopped no sequence
+        autoReply: r.autoReply
       }));
       
       // Map dispatches to standard message format

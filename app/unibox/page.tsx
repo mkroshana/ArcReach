@@ -33,6 +33,13 @@ const readableStatus: Record<string, string> = {
   Unsubscribed: 'Unsubscribed',
 };
 
+/** Chip labels of the automated messages IMAP sync flags (InboundResponse.autoReply). */
+const autoReplyLabels: Record<string, string> = {
+  bounce: 'Bounce',
+  'out-of-office': 'Out of Office',
+  'auto-reply': 'Auto-Reply',
+};
+
 /**
  * The thread lead's suppression, from the suppression list whatever its CRM
  * status says, or null: the chip label and a line on why it is never emailed.
@@ -461,6 +468,11 @@ export default function UniboxPage() {
                       }}
                     >
                       <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+                        {!outbound && msg.autoReply && (
+                          <MuiTooltip title="Automated message. It did not pause the sequence and does not count as a reply.">
+                            <Chip size="small" label={autoReplyLabels[msg.autoReply] || 'Auto-Reply'} variant="outlined" sx={{ height: 16, fontSize: 8, fontWeight: 700, textTransform: 'uppercase', mb: 1 }} />
+                          </MuiTooltip>
+                        )}
                         <Typography variant="caption" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, display: 'block', color: 'text.primary' }}>
                           {outbound ? msg.body : sanitizeEmailBody(msg.body)}
                         </Typography>

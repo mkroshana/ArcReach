@@ -14,7 +14,12 @@ interface ImapMessage {
   inReplyTo?: string;
   references?: string;
   body: string;
+  /** Why the message is automated, or null when a person wrote it. */
+  autoReply?: AutoReplyKind | null;
 }
+
+/** An automated message: a delivery status report, an out-of-office notice or another auto-reply. */
+export type AutoReplyKind = 'bounce' | 'out-of-office' | 'auto-reply';
 
 // Mailboxes syncing in this process. Kept on globalThis because the worker
 // (instrumentation) and the Unibox route are separate bundles, each with its own
@@ -166,6 +171,72 @@ async function saveImapCheckpoint(mailboxId: string, uidValidity: number, lastUi
     },
     data: { imapUidValidity: uidValidity, imapLastUid: lastUid },
   });
+}
+
+/** Most message ids of a reply's In-Reply-To and References looked up for its campaign. */
+const REFERENCED_IDS_MAX = 20;
+
+/**
+ * The message ids a reply answers, in the forms they are stored in: each <...> token
+ * of In-Reply-To, then of References newest (last) first, as a recorded reply's key
+ * and, for a dispatch, without its angle brackets.
+ */
+export function referencedMessageIds(inReplyTo = '', references = ''): string[] {
+  const tokens = [
+    ...(inReplyTo.match(/<[^<>\s]+>/g) ?? []),
+    ...(references.match(/<[^<>\s]+>/g) ?? []).reverse(),
+  ].slice(0, REFERENCED_IDS_MAX);
+  const ids = new Set<string>();
+  for (const token of tokens) {
+    const key = replyDedupeKey(token, 0, 0);
+    ids.add(key);
+    if (key === token) ids.add(token.slice(1, -1));
+  }
+  return [...ids];
+}
+
+/**
+ * The campaign a reply answers. A reply whose In-Reply-To or References names a
+ * dispatch to the lead takes that dispatch's campaign, else that of the lead's earlier
+ * reply on this mailbox it names (the same thread). Otherwise it is the campaign of
+ * the latest dispatch to the lead sent before the reply from this mailbox, or from one
+ * whose Reply-To is this mailbox; a failed send never reached the lead. Null when none.
+ */
+async function replyCampaignId(
+  mailbox: { id: string; emailAddress: string },
+  leadId: string,
+  msg: Pick<ImapMessage, 'date' | 'inReplyTo' | 'references'>
+): Promise<string | null> {
+  const ids = referencedMessageIds(msg.inReplyTo, msg.references);
+  if (ids.length > 0) {
+    const answered = await prisma.emailDispatch.findFirst({
+      where: { leadId, campaignId: { not: null }, OR: [{ messageId: { in: ids } }, { operationId: { in: ids } }] },
+      orderBy: { sentAt: 'desc' },
+      select: { campaignId: true },
+    });
+    if (answered?.campaignId) return answered.campaignId;
+    const thread = await prisma.inboundResponse.findFirst({
+      where: { senderAccountId: mailbox.id, leadId, messageId: { in: ids }, campaignId: { not: null } },
+      orderBy: { receivedAt: 'desc' },
+      select: { campaignId: true },
+    });
+    if (thread?.campaignId) return thread.campaignId;
+  }
+  const latest = await prisma.emailDispatch.findFirst({
+    where: {
+      leadId,
+      campaignId: { not: null },
+      status: { not: 'Failed' },
+      sentAt: { lte: msg.date },
+      OR: [
+        { senderAccountId: mailbox.id },
+        { senderAccount: { replyTo: { equals: mailbox.emailAddress, mode: 'insensitive' } } },
+      ],
+    },
+    orderBy: { sentAt: 'desc' },
+    select: { campaignId: true },
+  });
+  return latest?.campaignId ?? null;
 }
 
 export async function syncMailboxReplies(mailboxId: string) {
@@ -384,9 +455,11 @@ export async function syncMailboxReplies(mailboxId: string) {
             // Add header FETCH command dynamically. BODY.PEEK leaves the \Seen flag alone.
             // The content headers say how to decode the body fetched below, and
             // INTERNALDATE dates a reply whose Date header is missing or unreadable.
+            // Auto-Submitted, X-Autoreply, X-Autorespond, Precedence and a
+            // multipart/report Content-Type mark automated mail.
             commandsQueue.splice(currentCommandIdx + 1, 0, {
               tag: tagFetchHeaders,
-              cmd: `UID FETCH ${uids.join(',')} (UID INTERNALDATE BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES CONTENT-TYPE CONTENT-TRANSFER-ENCODING)])`,
+              cmd: `UID FETCH ${uids.join(',')} (UID INTERNALDATE BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES AUTO-SUBMITTED X-AUTOREPLY X-AUTORESPOND PRECEDENCE CONTENT-TYPE CONTENT-TRANSFER-ENCODING)])`,
               handler: async (headerResp) => {
                 if (!headerResp.includes(`${tagFetchHeaders} OK`)) {
                   throw new Error('IMAP Fetch headers failed: ' + headerResp);
@@ -422,7 +495,8 @@ export async function syncMailboxReplies(mailboxId: string) {
                           inReplyTo: msg.inReplyTo,
                           references: msg.references,
                           // A message without Content-Type is text/plain (RFC 2045)
-                          body: cleanMimeBody(bodyParsedText, msg.contentType || 'text/plain', msg.transferEncoding)
+                          body: cleanMimeBody(bodyParsedText, msg.contentType || 'text/plain', msg.transferEncoding),
+                          autoReply: msg.autoReply
                         });
                       }
                     };
@@ -466,49 +540,49 @@ export async function syncMailboxReplies(mailboxId: string) {
         
         if (existing) continue;
 
-        const activeEnrollments = await prisma.campaignEnrollment.findMany({
-          where: {
-            leadId: lead.id,
-            status: 'Active'
-          },
-          include: {
-            campaign: true
-          }
-        });
+        const campaignId = await replyCampaignId(mailbox, lead.id, msg);
 
-        // Resolve campaignId based on last sent campaign email or active enrollment
-        const lastDispatch = await prisma.emailDispatch.findFirst({
-          where: { leadId: lead.id, campaignId: { not: null } },
-          orderBy: { sentAt: 'desc' }
-        });
-        const campaignId = lastDispatch?.campaignId || activeEnrollments[0]?.campaignId || null;
-        
-        // The Message-ID is unique per mailbox, so a message another sync already
-        // recorded (one in another process, or an earlier read of this batch) is skipped.
-        const { count } = await prisma.inboundResponse.createMany({
-          data: {
-            leadId: lead.id,
-            campaignId,
-            senderAccountId: mailbox.id,
-            messageId: msg.messageId,
-            subject: msg.subject || 'No Subject',
-            body: msg.body || '',
-            receivedAt: msg.date,
-            unread: true
-          },
-          skipDuplicates: true
+        // The reply and the pause of the lead's stopOnReply sequences commit together:
+        // a failed write records neither, and the batch is read again on the next sync.
+        // Automated mail is recorded but stops nothing.
+        const { count, paused } = await prisma.$transaction(async (tx) => {
+          // The Message-ID is unique per mailbox, so a message another sync already
+          // recorded (one in another process, or an earlier read of this batch) is skipped.
+          const { count } = await tx.inboundResponse.createMany({
+            data: {
+              leadId: lead.id,
+              campaignId,
+              senderAccountId: mailbox.id,
+              messageId: msg.messageId,
+              subject: msg.subject || 'No Subject',
+              body: msg.body || '',
+              receivedAt: msg.date,
+              unread: true,
+              autoReply: msg.autoReply
+            },
+            skipDuplicates: true
+          });
+          if (count === 0 || msg.autoReply) return { count, paused: [] };
+          const enrollments = await tx.campaignEnrollment.findMany({
+            where: { leadId: lead.id, status: 'Active', campaign: { stopOnReply: true } },
+            select: { id: true, campaign: { select: { name: true } } }
+          });
+          if (enrollments.length > 0) {
+            await tx.campaignEnrollment.updateMany({
+              where: { id: { in: enrollments.map(e => e.id) }, status: 'Active' },
+              data: { status: 'Paused' }
+            });
+          }
+          return { count, paused: enrollments };
         });
         if (count === 0) continue;
         newRepliesCount++;
-        
-        for (const enrollment of activeEnrollments) {
-          if (enrollment.campaign.stopOnReply) {
-            await prisma.campaignEnrollment.update({
-              where: { id: enrollment.id },
-              data: { status: 'Paused' }
-            });
-            console.log(`[IMAP Sync] Paused enrollment for lead ${lead.email} in campaign ${enrollment.campaign.name} due to stopOnReply.`);
-          }
+
+        if (msg.autoReply) {
+          console.log(`[IMAP Sync] Recorded ${msg.autoReply} message from lead ${lead.email}; its sequences keep running.`);
+        }
+        for (const enrollment of paused) {
+          console.log(`[IMAP Sync] Paused enrollment for lead ${lead.email} in campaign ${enrollment.campaign.name} due to stopOnReply.`);
         }
       }
       
@@ -544,6 +618,7 @@ interface HeaderInfo {
   references: string;
   contentType: string;
   transferEncoding: string;
+  autoReply: AutoReplyKind | null;
 }
 
 /** One untagged FETCH response: its UID and its data items by upper-case name. */
@@ -703,6 +778,42 @@ export function parseMailboxAddress(value: string): string {
   return bare.trim();
 }
 
+// Subjects that servers and mail clients give bounces, out-of-office notices and other
+// auto-replies, matched only at the start so a person's "Re:" to a campaign subject
+// holding these words never is.
+const BOUNCE_SUBJECT = /^(?:undeliverable|undelivered mail|delivery status notification|delivery (?:status )?failure|mail delivery (?:failed|failure|subsystem)|returned mail|failure notice|non-?delivery)/i;
+const OUT_OF_OFFICE_SUBJECT = /^(?:out of (?:the )?office|ooo\b|away from (?:the )?office|abwesenheitsnotiz|absence du bureau|fuera de la oficina)/i;
+const AUTO_REPLY_SUBJECT = /^(?:automatic reply|auto[- ]?reply|auto[- ]?response|automatische antwort|réponse automatique|respuesta automática|risposta automatica|resposta automática)/i;
+
+/**
+ * Why a message is automated, from its header fields (by lower-case name) and decoded
+ * subject, or null when a person wrote it. A multipart/report is a delivery status
+ * report (a bounce) or another automatic report such as a read receipt. Auto-Submitted
+ * other than "no" (RFC 3834), X-Autoreply, X-Autorespond and Precedence bulk, junk or
+ * auto_reply mark auto-replies, and the subjects above catch mail sent without them.
+ */
+export function autoReplyKind(fields: Map<string, string>, subject: string): AutoReplyKind | null {
+  const { type, params } = parseContentType(fields.get('content-type') ?? '');
+  const title = subject.trim();
+  if ((type === 'multipart/report' && params['report-type']?.toLowerCase() === 'delivery-status') || BOUNCE_SUBJECT.test(title)) {
+    return 'bounce';
+  }
+  if (OUT_OF_OFFICE_SUBJECT.test(title)) return 'out-of-office';
+  // The field's first word, so "auto-replied; owner=..." counts and "no" or an empty value doesn't
+  const set = (name: string) => !/^(?:|no|false|0)$/i.test(fields.get(name)?.trim().match(/^[^\s;(]*/)?.[0] ?? '');
+  if (
+    type === 'multipart/report' ||
+    set('auto-submitted') ||
+    set('x-autoreply') ||
+    set('x-autorespond') ||
+    /^(?:bulk|junk|auto_reply)$/i.test(fields.get('precedence')?.trim() ?? '') ||
+    AUTO_REPLY_SUBJECT.test(title)
+  ) {
+    return 'auto-reply';
+  }
+  return null;
+}
+
 /** A header value as text, raw 8-bit bytes read as UTF-8 (else windows-1252). RFC 2047 words stay encoded. */
 function headerText(value: string | undefined): string {
   return decodeCharset(octets(value ?? ''));
@@ -721,17 +832,19 @@ export function parseHeaderResponse(fetchResp: string): HeaderInfo[] {
     // The address is read before any RFC 2047 decoding, which could put '<' or ',' in the display name
     const fromEmail = parseMailboxAddress(headerText(fields.get('from')));
     if (!fromEmail.includes('@')) continue;
+    const subject = decodeMimeHeader(headerText(fields.get('subject')));
 
     result.push({
       uid: fetched.uid,
       from: fromEmail.toLowerCase(),
-      subject: decodeMimeHeader(headerText(fields.get('subject'))),
+      subject,
       date: replyReceivedAt(fields.get('date') ?? '', fetched.items.get('INTERNALDATE')),
       messageId: fields.get('message-id') ?? '',
       inReplyTo: fields.get('in-reply-to') ?? '',
       references: (fields.get('references') ?? '').replace(/\s+/g, ' '),
       contentType: fields.get('content-type') ?? '',
-      transferEncoding: fields.get('content-transfer-encoding') ?? ''
+      transferEncoding: fields.get('content-transfer-encoding') ?? '',
+      autoReply: autoReplyKind(fields, subject)
     });
   }
 

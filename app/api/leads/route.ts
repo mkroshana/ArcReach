@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { LeadStatus, LeadValidationStatus } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
+import { CAMPAIGN_LABEL_SELECT, dispatchScope, replyScope } from '@/lib/leadHistoryScope';
 import { type FieldRule, fieldRules, isPlainObject, pickUpdateFields } from '@/lib/updateAllowList';
 
 /** Scalar columns the lead PUT may write, in single and bulk updates. Email and
@@ -28,19 +29,22 @@ export async function GET(req: NextRequest) {
     const id = searchParams.get('id');
     
     if (id) {
+      // The lead row is shared; its dispatches and replies are limited to the caller's own.
       const lead = await prisma.lead.findUnique({
         where: { id },
         include: {
           dispatches: {
+            where: dispatchScope(session),
             include: {
-              campaign: true,
+              campaign: { select: CAMPAIGN_LABEL_SELECT },
               events: true
             },
             orderBy: { sentAt: 'desc' }
           },
           replies: {
+            where: replyScope(session),
             include: {
-              campaign: true
+              campaign: { select: CAMPAIGN_LABEL_SELECT }
             },
             orderBy: { receivedAt: 'desc' }
           },

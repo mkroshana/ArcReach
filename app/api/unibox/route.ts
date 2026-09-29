@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { syncMailboxReplies, getActiveImapAccounts } from '@/lib/imapService';
 import { MAILBOX_SECRET_OMIT } from '@/lib/mailboxSecrets';
+import { CAMPAIGN_LABEL_SELECT, dispatchScope, enrollmentScope, replyScope } from '@/lib/leadHistoryScope';
 
 function normalizeSubject(subject: string): string {
   if (!subject) return '';
@@ -41,28 +42,22 @@ export async function GET(req: NextRequest) {
       }
     }
     
-    let inboundWhere = {};
-    if (session.role !== 'ADMIN') {
-      inboundWhere = {
-        senderAccount: {
-          userId: session.id
-        }
-      };
-    }
-
+    // Non-admins see replies received on their own mailboxes, and only their own
+    // enrollments and dispatches for those leads.
     const replies = await prisma.inboundResponse.findMany({
-      where: inboundWhere,
+      where: replyScope(session),
       include: {
         lead: {
           include: {
             enrollments: {
+              where: enrollmentScope(session),
               include: {
-                campaign: true
+                campaign: { select: CAMPAIGN_LABEL_SELECT }
               }
             }
           }
         },
-        campaign: true,
+        campaign: { select: CAMPAIGN_LABEL_SELECT },
         senderAccount: { omit: MAILBOX_SECRET_OMIT }
       },
       orderBy: { receivedAt: 'desc' }
@@ -70,10 +65,11 @@ export async function GET(req: NextRequest) {
 
     const leadIds = Array.from(new Set(replies.map(r => r.leadId)));
     
-    // Fetch all dispatches for these leads
+    // Fetch the caller's dispatches for these leads
     const dispatches = await prisma.emailDispatch.findMany({
       where: {
-        leadId: { in: leadIds }
+        leadId: { in: leadIds },
+        ...dispatchScope(session)
       },
       orderBy: { sentAt: 'asc' }
     });

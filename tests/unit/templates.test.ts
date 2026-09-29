@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { personalizeEmail, personalizePreview } from '../../lib/personalize';
 
-// The template and campaign editors preview a template with personalizePreview.
+// The template and campaign editors preview a subject with personalizePreview.
 describe('Template Resolver Logic', () => {
   it('should replace firstName and company variables correctly', () => {
     const input = 'Hi {{firstName}}, how is everything at {{company}}?';

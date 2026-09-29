@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { personalizeEmail, personalizePreview } from '../../lib/personalize';
+import { personalizeEmail, personalizePreview, isHtmlTemplate, renderEmailBody, previewEmailBody, PREVIEW_LEAD } from '../../lib/personalize';
 import { applyEmailTracking } from '../../lib/emailTracking';
 
 const lead = { id: 'lead-1', name: 'John Doe', company: 'Acme Corp', jobTitle: 'CTO', email: 'john@acme.com' };
@@ -75,14 +75,12 @@ describe('personalizeEmail (H22, L11)', () => {
 });
 
 describe('personalizePreview', () => {
-  it('previews for the sample contact with the first spintax option and a placeholder unsubscribe link', () => {
-    const template = '<a href="{{unsubscribe_url}}">x</a> [[unsubscribe_url]] {A|B} {{firstName}} {{name}} {{city}} <style>.b{c:d}</style>';
-    expect(personalizePreview(template))
-      .toBe('<a href="#unsubscribe">x</a> #unsubscribe A Emily Emily Carter {{city}} <style>.b{c:d}</style>');
+  it('previews a subject as sent to the sample contact, with the first spintax option', () => {
+    expect(personalizePreview('{A|B} {{firstName}} {{name}} {{city}} <{{company}}>')).toBe('A Emily Emily Carter {{city}} <Stark Industries>');
   });
 });
 
-describe('template -> personalizeEmail -> applyEmailTracking (H22)', () => {
+describe('template -> renderEmailBody -> applyEmailTracking (H22)', () => {
   const template = [
     '<html><head><style>.btn{color:#fff;background:#0a66c2} p{margin:0}</style></head><body>',
     '<p>{Hi|Hello} {{firstName}}, how is {{city}}?</p>',
@@ -92,7 +90,9 @@ describe('template -> personalizeEmail -> applyEmailTracking (H22)', () => {
   ].join('');
 
   it('keeps the styling, the custom unsubscribe link and unknown fields through tracking', () => {
-    const sent = applyEmailTracking(personalizeEmail(template, lead, firstOption), 'dispatch-1', true, true, true, lead.id);
+    const rendered = renderEmailBody(template, lead, firstOption);
+    expect(rendered.isHtml).toBe(true);
+    const sent = applyEmailTracking(rendered.body, 'dispatch-1', rendered.isHtml, true, true, lead.id);
 
     expect(sent).toContain('<style>.btn{color:#fff;background:#0a66c2} p{margin:0}</style>');
     expect(sent).toContain('<p>Hi John, how is {{city}}?</p>');
@@ -107,11 +107,122 @@ describe('template -> personalizeEmail -> applyEmailTracking (H22)', () => {
     expect(sent).toContain('/api/track/open/dispatch-1');
   });
 
-  it('sends lead values verbatim through tracking', () => {
+  it('sends lead values escaped, never as $-replacement patterns or spintax, through tracking', () => {
     const tricky = { id: 'lead-2', name: "Ann $' Lee", company: '{Wayne|Stark} Industries' };
-    const sent = applyEmailTracking(personalizeEmail('<p>{{name}} at {{company}}</p>', tricky), 'dispatch-2', true, false, false, tricky.id);
+    const rendered = renderEmailBody('<p>{{name}} at {{company}}</p>', tricky);
+    const sent = applyEmailTracking(rendered.body, 'dispatch-2', rendered.isHtml, false, false, tricky.id);
 
-    expect(sent).toContain("<p>Ann $' Lee at {Wayne|Stark} Industries</p>");
+    expect(sent).toContain('<p>Ann $&#39; Lee at {Wayne|Stark} Industries</p>');
     expect(sent).toContain('If you no longer wish to receive these emails');
+  });
+});
+
+describe('isHtmlTemplate (M5)', () => {
+  it.each([
+    '<p>Hi {{firstName}}</p>',
+    'We cut costs by <b>30%</b>.',
+    'Line one<br>Line two',
+    'Line one<BR />Line two',
+    'Thanks<hr>',
+    '<img src="https://acme.test/logo.png" alt="">',
+    '<!DOCTYPE html><html><body>Hi</body></html>',
+    '<TABLE><TR><TD>Hi</TD></TR></TABLE>',
+  ])('treats %j as HTML', (template) => {
+    expect(isHtmlTemplate(template)).toBe(true);
+  });
+
+  it.each([
+    'Best,\nJane <jane@acme.com>',
+    'Hi <First Name>, see <https://acme.test/demo>',
+    'Contact <b.smith@acme.test> or <p.jones@acme.test>',
+    'If a < b and c > d, {Hi|Hello} {{firstName}}',
+    '',
+  ])('treats %j as plain text', (template) => {
+    expect(isHtmlTemplate(template)).toBe(false);
+  });
+});
+
+describe('renderEmailBody (M5)', () => {
+  const wrap = (body: string) => `<html><head><meta charset="utf-8"></head><body>${body}</body></html>`;
+
+  it('decides HTML from the template, so a plain-text step stays plain text whatever the lead values hold', () => {
+    const template = 'Hi {{firstName}} at {{company}},\n\nThanks,\nJane <jane@acme.com>';
+    const angled = { name: '<b>Bob</b> Stone', company: 'Smith <Holdings> & Co' };
+
+    expect(renderEmailBody(template, angled)).toEqual({
+      isHtml: false,
+      body: 'Hi <b>Bob</b> at Smith <Holdings> & Co,\n\nThanks,\nJane <jane@acme.com>',
+    });
+  });
+
+  it('HTML-escapes lead values in an HTML template and wraps a fragment in a document', () => {
+    const template = '<p>Hi {{firstName}} at {{company}}</p><p title="{{name}}">{{jobTitle}}</p>';
+    const angled = { name: 'Ann "Nan" O\'Brien', company: 'Smith <Holdings> & Co', jobTitle: '<script>alert(1)</script>' };
+
+    expect(renderEmailBody(template, angled)).toEqual({
+      isHtml: true,
+      body: wrap('<p>Hi Ann at Smith &lt;Holdings&gt; &amp; Co</p><p title="Ann &quot;Nan&quot; O&#39;Brien">&lt;script&gt;alert(1)&lt;/script&gt;</p>'),
+    });
+  });
+
+  it('URL-encodes lead values inside href attributes, quoted or not', () => {
+    const template = [
+      '<a href="https://acme.test/demo?who={{firstName}}&co={{company}}">Book</a>',
+      "<a href='mailto:{{email}}'>{{email}}</a>",
+      '<a class="x" href=https://acme.test/?c={{company}}>Site</a>',
+    ].join('');
+    const quoted = { name: "D'Arcy Stone", company: 'Smith & Sons "Ltd"', email: "d'arcy+x@acme.test" };
+
+    expect(renderEmailBody(template, quoted).body).toBe(wrap([
+      '<a href="https://acme.test/demo?who=D%27Arcy&co=Smith%20%26%20Sons%20%22Ltd%22">Book</a>',
+      "<a href='mailto:d%27arcy%2Bx@acme.test'>d&#39;arcy+x@acme.test</a>",
+      '<a class="x" href=https://acme.test/?c=Smith%20%26%20Sons%20%22Ltd%22>Site</a>',
+    ].join('')));
+  });
+
+  it('keeps {{unsubscribe_url}} and unknown placeholders in hrefs exactly as written', () => {
+    const template = '<a href="{{unsubscribe_url}}">Unsubscribe</a><a href="https://acme.test/{{city}}?n={{firstName}}">x</a>';
+    expect(renderEmailBody(template, lead).body)
+      .toBe(wrap('<a href="{{unsubscribe_url}}">Unsubscribe</a><a href="https://acme.test/{{city}}?n=John">x</a>'));
+  });
+
+  it('leaves a body with its own <html> or <body> unwrapped', () => {
+    const template = '<!DOCTYPE html><html><body><p>{{company}}</p></body></html>';
+    expect(renderEmailBody(template, { company: 'A&B' }).body).toBe('<!DOCTYPE html><html><body><p>A&amp;B</p></body></html>');
+  });
+
+  it('keeps a click-tracked link whole when a lead value has a quote or an ampersand', () => {
+    const quoted = { id: 'lead-3', name: "D'Arcy Stone", company: 'Smith & Sons' };
+    const rendered = renderEmailBody('<a href="https://acme.test/demo?who={{firstName}}&co={{company}}">Book</a>', quoted);
+    const sent = applyEmailTracking(rendered.body, 'dispatch-3', rendered.isHtml, false, true, quoted.id);
+
+    expect(sent).toContain(`/api/track/click/dispatch-3?url=${encodeURIComponent('https://acme.test/demo?who=D%27Arcy&co=Smith%20%26%20Sons')}"`);
+  });
+});
+
+describe('previewEmailBody (M6)', () => {
+  it('detects HTML and fills placeholders as a send does, and shows the unsubscribe footer without tracking', () => {
+    const template = 'Hi { $json.name },\n\nWe cut costs by <b>30%</b> at {{company}}.';
+    const preview = previewEmailBody(template);
+    const sent = renderEmailBody(template, PREVIEW_LEAD, firstOption);
+
+    expect(preview.isHtml).toBe(true);
+    expect(preview.isHtml).toBe(sent.isHtml);
+    expect(preview.body).toContain(sent.body.replace('</body></html>', ''));
+    expect(preview.body).toContain('Hi Emily,\n\nWe cut costs by <b>30%</b> at Stark Industries.');
+    expect(preview.body).toContain('If you no longer wish to receive these emails, <a href="#unsubscribe"');
+    expect(preview.body).not.toContain('/api/track/');
+    expect(preview.body).not.toContain('/api/unsubscribe');
+  });
+
+  it('points a custom unsubscribe link at #unsubscribe and adds no second footer', () => {
+    const preview = previewEmailBody('<p>{Hi|Hello} {{firstName}}</p><a href="{{unsubscribe_url}}">Opt out</a> [[unsubscribe_url]]');
+
+    expect(preview.body).toBe('<html><head><meta charset="utf-8"></head><body><p>Hi Emily</p><a href="#unsubscribe">Opt out</a> #unsubscribe</body></html>');
+  });
+
+  it('previews a plain-text step as the text a send gives it', () => {
+    const template = 'Hi {{firstName}},\n\nThanks,\nJane <jane@acme.com>';
+    expect(previewEmailBody(template)).toEqual({ isHtml: false, body: 'Hi Emily,\n\nThanks,\nJane <jane@acme.com>' });
   });
 });

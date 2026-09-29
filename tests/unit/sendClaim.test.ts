@@ -1337,7 +1337,7 @@ describe('per-mailbox caps count real sends over a rolling 24 hours (M10, M11)',
 });
 
 describe('processDueEmails personalises each step with the shared personalizeEmail (H22, L11)', () => {
-  it('keeps the styling, the unsubscribe link and unknown fields, and inserts lead values verbatim', async () => {
+  it('keeps the styling, the unsubscribe link and unknown fields, and never reads lead values as spintax or $-patterns', async () => {
     campaign.trackClicks = true;
     campaign.steps[0] = {
       stepOrder: 1, waitDays: 0, subject: 'Hello {{firstName}}',
@@ -1351,8 +1351,43 @@ describe('processDueEmails personalises each step with the shared personalizeEma
     const sent = mockedSend.mock.calls[0][0];
     expect(sent.subject).toBe("Hello Cash$'n'Carry");
     expect(sent.body).toContain('<style>.btn{color:#fff}</style>');
-    expect(sent.body).toContain("<p>Hi Cash$'n'Carry Kid of {Wayne|Stark} Industries in {{city}}</p>");
+    expect(sent.body).toContain('<p>Hi Cash$&#39;n&#39;Carry Kid of {Wayne|Stark} Industries in {{city}}</p>');
     expect(sent.body).toMatch(/<a href='[^']*\/api\/unsubscribe\?id=lead-1'>Unsubscribe<\/a>/);
     expect(sent.body).not.toContain('If you no longer wish to receive these emails');
+  });
+});
+
+describe('processDueEmails decides HTML from the step template and escapes lead values (M5)', () => {
+  it('sends a plain-text step as text, with angle brackets in the signature and the lead values kept as written', async () => {
+    campaign.steps[0] = { stepOrder: 1, waitDays: 0, subject: 'Hi', body: 'Hi {{company}},\n\nThanks,\nJane <jane@acme.com>' };
+    Object.assign(leads.get('lead-1')!, { company: 'Smith <Holdings>' });
+
+    await processDueEmails();
+
+    expect(mockedSend).toHaveBeenCalledTimes(1);
+    expect(mockedSend.mock.calls[0][0]).toMatchObject({
+      isHtml: false,
+      body: 'Hi Smith <Holdings>,\n\nThanks,\nJane <jane@acme.com>',
+    });
+  });
+
+  it('HTML-escapes lead values in an HTML step and URL-encodes them in a click-tracked link', async () => {
+    campaign.trackClicks = true;
+    campaign.steps[0] = {
+      stepOrder: 1, waitDays: 0, subject: 'Hi {{company}}',
+      body: '<p>Hi {{firstName}} of {{company}}</p><a href="https://acme.test/demo?who={{firstName}}&co={{company}}">Book</a>',
+    };
+    Object.assign(leads.get('lead-1')!, { name: "D'Arcy Stone", company: 'Smith <Holdings> & Co' });
+
+    await processDueEmails();
+
+    expect(mockedSend).toHaveBeenCalledTimes(1);
+    const sent = mockedSend.mock.calls[0][0];
+    expect(sent.isHtml).toBe(true);
+    expect(sent.subject).toBe('Hi Smith <Holdings> & Co');
+    expect(sent.body).toContain('<p>Hi D&#39;Arcy of Smith &lt;Holdings&gt; &amp; Co</p>');
+    expect(sent.body).toContain(
+      `/api/track/click/dispatch-1?url=${encodeURIComponent('https://acme.test/demo?who=D%27Arcy&co=Smith%20%3CHoldings%3E%20%26%20Co')}"`,
+    );
   });
 });

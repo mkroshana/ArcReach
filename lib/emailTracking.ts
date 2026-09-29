@@ -55,12 +55,17 @@ export function rewriteLinksForTracking(htmlBody: string, dispatchId: string): s
   );
 }
 
+/** A lead's unsubscribe link: GET /api/unsubscribe?id=<leadId>. */
+export function unsubscribeUrl(leadId?: string): string {
+  return leadId ? `${APP_URL}/api/unsubscribe?id=${leadId}` : `${APP_URL}/api/unsubscribe`;
+}
+
 /**
  * Injects an unsubscribe footer link into the HTML email body.
  * The link points to GET /api/unsubscribe?id=<leadId>.
  */
 export function injectUnsubscribeLink(htmlBody: string, leadId: string): string {
-  const unsubUrl = `${APP_URL}/api/unsubscribe?id=${leadId}`;
+  const unsubUrl = unsubscribeUrl(leadId);
   const footer = `<div style="margin-top:32px;padding-top:16px;border-top:1px solid #e5e5e5;text-align:center;font-size:11px;color:#999;font-family:Arial,sans-serif;">If you no longer wish to receive these emails, <a href="${unsubUrl}" style="color:#999;text-decoration:underline;">click here to unsubscribe</a>.</div>`;
 
   // Insert before </body> if present, otherwise append at the end
@@ -94,10 +99,8 @@ export function applyEmailTracking(
   const hasCustomUnsub = /\[\[\s*unsubscribe_url\s*\]\]/i.test(body) || /\{\{\s*unsubscribe_url\s*\}\}/i.test(body);
 
   // Replace custom unsubscribe placeholders [[unsubscribe_url]] or {{unsubscribe_url}}
-  const unsubUrl = leadId 
-    ? `${APP_URL}/api/unsubscribe?id=${leadId}` 
-    : `${APP_URL}/api/unsubscribe`;
-  
+  const unsubUrl = unsubscribeUrl(leadId);
+
   result = result.replace(/\[\[\s*unsubscribe_url\s*\]\]/gi, unsubUrl);
   result = result.replace(/\{\{\s*unsubscribe_url\s*\}\}/gi, unsubUrl);
 

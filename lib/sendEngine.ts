@@ -4,7 +4,7 @@ import { prisma } from './db';
 import { getGlobalSettings } from './settings';
 import { checkGlobalRateLimits } from './rateLimits';
 import { applyEmailTracking } from './emailTracking';
-import { personalizeEmail } from './personalize';
+import { personalizeEmail, renderEmailBody } from './personalize';
 import { sendMessage, sendingDisabledReason } from './emailProvider';
 import { sendableEnrollmentWhere, claimEnrollmentForSend, releaseEnrollmentClaim, RELEASED_CLAIM } from './sendEligibility';
 import { type SendSchedule, SCHEDULE_DAYS, isValidTimezone, minutesOfDay, parseSendSchedule } from './sendSchedule';
@@ -804,16 +804,12 @@ export async function processDueEmails() {
           continue;
       }
 
-      // 6. Personalize the email (Spintax, Variables)
+      // 6. Personalize the email (Spintax, Variables). Whether the body is HTML
+      // is decided from the step's template, and an HTML body gets the lead's
+      // values escaped.
       const subject = personalizeEmail(stepContent.subject, lead);
-      const bodyText = personalizeEmail(stepContent.body, lead);
-      const isHtml = /<[a-z][\s\S]*>/i.test(bodyText);
+      const { isHtml, body: baseBody } = renderEmailBody(stepContent.body, lead);
       let syntheticMessageId = `${campaign.id}-${lead.id}-${currentStepOrder}-${Date.now()}`;
-
-      let baseBody = bodyText;
-      if (isHtml && !bodyText.toLowerCase().includes('<html') && !bodyText.toLowerCase().includes('<body')) {
-        baseBody = `<html><head><meta charset="utf-8"></head><body>${bodyText}</body></html>`;
-      }
 
       // Claim the enrollment for this step. The claim re-checks, right before
       // the send, that the enrollment and campaign are still Active and the

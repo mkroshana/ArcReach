@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react';
 import { FileText, Search, Plus, Eye, Sparkles, Copy, Check, Trash2, ArrowRight, X } from 'lucide-react';
 import VariableToolbar from '@/components/VariableToolbar';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-import { personalizePreview } from '@/lib/personalize';
+import { personalizePreview, previewEmailBody } from '@/lib/personalize';
 import {
   Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
   ToggleButtonGroup, ToggleButton, Snackbar, Alert, InputAdornment, CircularProgress,
@@ -61,12 +61,6 @@ export default function TemplatesPage() {
   };
 
   useEffect(() => { fetchTemplates(); }, []);
-
-  const isHtml = (text: string) => {
-    if (!text) return false;
-    const clean = text.trim().toLowerCase();
-    return clean.startsWith('<!doctype html') || clean.startsWith('<html') || clean.startsWith('<body') || clean.includes('<div') || clean.includes('<table');
-  };
 
   const handleCopy = (id: any, text: string) => {
     navigator.clipboard.writeText(text);
@@ -191,6 +185,8 @@ export default function TemplatesPage() {
     setTemplates([newT, ...templates]);
     selectTemplate(newT);
   };
+
+  const bodyPreview = previewResolved && editingTemplate ? previewEmailBody(editingTemplate.steps?.[activeStepIndex]?.body || '') : null;
 
   return (
     <Box sx={{ maxWidth: 1280, mx: 'auto', pb: 4, display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -350,11 +346,11 @@ export default function TemplatesPage() {
                           <Typography variant="body2" sx={{ fontWeight: 600, mt: 0.5 }}>{personalizePreview(editingTemplate.steps?.[activeStepIndex]?.subject || '')}</Typography>
                         </Box>
                         <Typography variant="overline" sx={{ color: 'text.secondary', fontFamily: 'monospace', display: 'block', mb: 1 }}>Message Preview:</Typography>
-                        {isHtml(personalizePreview(editingTemplate.steps?.[activeStepIndex]?.body || '')) ? (
-                          <Box component="iframe" srcDoc={personalizePreview(editingTemplate.steps?.[activeStepIndex]?.body || '')} title="Email Preview" sandbox="allow-same-origin" sx={{ width: '100%', height: 500, border: 1, borderColor: 'divider', borderRadius: '12px', bgcolor: '#fff' }} />
+                        {bodyPreview?.isHtml ? (
+                          <Box component="iframe" srcDoc={bodyPreview.body} title="Email Preview" sandbox="" sx={{ width: '100%', height: 500, border: 1, borderColor: 'divider', borderRadius: '12px', bgcolor: '#fff' }} />
                         ) : (
                           <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, color: 'text.primary' }}>
-                            {personalizePreview(editingTemplate.steps?.[activeStepIndex]?.body || '')}
+                            {bodyPreview?.body}
                           </Typography>
                         )}
                       </CardContent>

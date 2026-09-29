@@ -18,7 +18,7 @@ import VariableToolbar from '@/components/VariableToolbar';
 import { activationBlocker, findIncompleteSteps, queuedLeadsMessage } from '@/lib/campaignSteps';
 import { autoResumeNote } from '@/lib/campaignPause';
 import { sendScheduleError, timezoneError } from '@/lib/sendSchedule';
-import { personalizePreview } from '@/lib/personalize';
+import { personalizePreview, previewEmailBody } from '@/lib/personalize';
 import {
   Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
   Select, MenuItem, FormControl, InputLabel, Switch, Skeleton, ToggleButtonGroup, ToggleButton,
@@ -39,12 +39,6 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
   const [templates, setTemplates] = useState<any[]>([]);
   const [previewSteps, setPreviewSteps] = useState<Record<string, boolean>>({});
   const toggleStepPreview = (id: string | number) => setPreviewSteps(prev => ({ ...prev, [id]: !prev[id] }));
-
-  const isHtml = (text: string) => {
-    if (!text) return false;
-    const c = text.trim().toLowerCase();
-    return c.startsWith('<!doctype html') || c.startsWith('<html') || c.startsWith('<body') || c.includes('<div') || c.includes('<table');
-  };
 
   const [campaignName, setCampaignName] = useState('');
   const [status, setStatus] = useState('Draft');
@@ -444,6 +438,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
 
               {steps.map((step, index) => {
                 const showPreview = previewSteps[step.id || index] !== false;
+                const bodyPreview = showPreview ? previewEmailBody(step.body || '') : null;
                 const stepIssue = incompleteSteps.find(s => s.stepNumber === index + 1);
                 return (
                   <Card key={step.id || index} sx={stepIssue ? { borderColor: 'error.main' } : undefined}>
@@ -501,10 +496,10 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                                 <Typography variant="body2" sx={{ fontWeight: 600, mt: 0.5 }}>{personalizePreview(step.subject || '')}</Typography>
                               </Box>
                               <Typography variant="overline" sx={{ color: 'text.secondary', fontFamily: 'monospace', display: 'block', mb: 1 }}>Message:</Typography>
-                              {isHtml(personalizePreview(step.body || '')) ? (
-                                <Box component="iframe" srcDoc={personalizePreview(step.body || '')} title="Email Preview" sandbox="allow-same-origin" sx={{ width: '100%', height: 500, border: 1, borderColor: 'divider', borderRadius: '12px', bgcolor: '#fff' }} />
+                              {bodyPreview?.isHtml ? (
+                                <Box component="iframe" srcDoc={bodyPreview.body} title="Email Preview" sandbox="" sx={{ width: '100%', height: 500, border: 1, borderColor: 'divider', borderRadius: '12px', bgcolor: '#fff' }} />
                               ) : (
-                                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{personalizePreview(step.body || '')}</Typography>
+                                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{bodyPreview?.body}</Typography>
                               )}
                             </CardContent>
                           </Card>

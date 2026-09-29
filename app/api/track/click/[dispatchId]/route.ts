@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { engagementBotReason, LINK_BURST_SECONDS, MACHINE_EVENT_TYPE } from '@/lib/botFilter';
 import { clickTarget, sentClickTargets } from '@/lib/emailTracking';
+import { hasValidSession } from '@/lib/session';
 
 // The page is self-contained: inline styles only, no scripts, external
 // resources, forms or framing.
@@ -75,7 +76,8 @@ function redirectUrl(target: string): string | null {
  * the target is exactly one of the links this dispatch's email sent (see
  * sentClickTargets): anything else, or a dispatch that is gone, gets the
  * neutral page, records nothing and redirects nowhere. `record` is false for
- * HEAD, which answers the same without recording.
+ * HEAD and for a signed-in user of the app, which answer the same without
+ * recording.
  */
 async function trackClick(
   req: NextRequest,
@@ -199,7 +201,9 @@ async function flagLinkBurst(click: { messageId: string; clickedUrl: string | nu
 }
 
 export async function GET(req: NextRequest, context: { params: Promise<{ dispatchId: string }> }) {
-  return trackClick(req, context, true);
+  // A signed-in user of the app following the link (the operator checking a
+  // copy of the email) is not the recipient clicking it: redirect, record nothing.
+  return trackClick(req, context, !(await hasValidSession(req)));
 }
 
 /**

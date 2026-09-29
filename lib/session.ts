@@ -1,5 +1,6 @@
 import * as jose from 'jose';
 import { cookies } from 'next/headers';
+import type { NextRequest } from 'next/server';
 import { sessionSecretKey } from './sessionSecret';
 
 export interface UserSession {
@@ -32,6 +33,23 @@ export async function getSession(): Promise<UserSession> {
     };
   } catch {
     throw new Error('Unauthorized');
+  }
+}
+
+/**
+ * Whether a request carries a valid session cookie, i.e. comes from a
+ * signed-in user of the app. Reads the request's own cookies, for public
+ * routes such as the tracking endpoints, where no session is required.
+ */
+export async function hasValidSession(req: NextRequest): Promise<boolean> {
+  const sessionCookie = req.cookies.get('user_session');
+  if (!sessionCookie || !sessionCookie.value) return false;
+
+  try {
+    await jose.jwtVerify(sessionCookie.value, secretKey);
+    return true;
+  } catch {
+    return false;
   }
 }
 

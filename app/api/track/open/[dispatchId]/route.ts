@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { engagementBotReason, MACHINE_EVENT_TYPE } from '@/lib/botFilter';
+import { hasValidSession } from '@/lib/session';
 
 // 1×1 transparent PNG pixel (68 bytes)
 const TRACKING_PIXEL = Buffer.from(
@@ -28,6 +29,13 @@ export async function GET(
 ) {
   try {
     const { dispatchId } = await params;
+
+    // A signed-in user of the app loading the pixel (the operator viewing a
+    // copy of the email) is not the recipient opening it: record nothing.
+    if (await hasValidSession(req)) {
+      console.log(`[Track Open] App session for dispatch ${dispatchId}; not recorded.`);
+      return pixelResponse();
+    }
 
     // Look up the dispatch record
     const dispatch = await prisma.emailDispatch.findUnique({

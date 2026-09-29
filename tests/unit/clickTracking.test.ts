@@ -12,6 +12,8 @@ import { prisma } from '../../lib/db';
 import { GET as clickGet, HEAD as clickHead } from '../../app/api/track/click/[dispatchId]/route';
 import { GET as openGet, HEAD as openHead } from '../../app/api/track/open/[dispatchId]/route';
 import { applyEmailTracking } from '../../lib/emailTracking';
+import { signSession } from '../../lib/session';
+import * as jose from 'jose';
 
 const mocked = prisma as any;
 
@@ -406,5 +408,56 @@ describe('automated opens and clicks are kept as machine events, never counted (
     await openGet(openRequest(IPHONE_MAIL), ctx());
 
     expect(events).toMatchObject([{ eventType: 'machine_open', botReason: 'prefetch-window' }]);
+  });
+});
+
+describe("a signed-in app user's hits are never recorded (M37)", () => {
+  const USER = { id: 'u-1', name: 'Operator', email: 'op@acme.test', role: 'USER' as const };
+
+  const withCookie = (req: NextRequest, cookie: string) =>
+    new NextRequest(req.url, { method: req.method, headers: { 'user-agent': CHROME, cookie: `user_session=${cookie}` } });
+  const openRequest = (cookie: string) => withCookie(new NextRequest(`http://localhost/api/track/open/${DISPATCH_ID}`), cookie);
+
+  /** A session token shaped like the app's, signed with a key the app does not use. */
+  const forgedSession = () =>
+    new jose.SignJWT({ ...USER }).setProtectedHeader({ alg: 'HS256' }).setExpirationTime('7d').sign(new TextEncoder().encode('not-the-session-secret-at-all-32-chars'));
+
+  it('serves the pixel but records no open when the operator views a copy of the email', async () => {
+    const res = await openGet(openRequest(await signSession(USER)), ctx());
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('image/png');
+    expect(mocked.emailDispatch.findUnique).not.toHaveBeenCalled();
+    expect(mocked.emailEvent.create).not.toHaveBeenCalled();
+  });
+
+  it('redirects the operator to a sent link but records no click', async () => {
+    const res = await clickGet(withCookie(request('https://calendly.com/acme/demo'), await signSession(USER)), ctx());
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toBe('https://calendly.com/acme/demo');
+    expect(mocked.emailEvent.findFirst).not.toHaveBeenCalled();
+    expect(mocked.emailEvent.create).not.toHaveBeenCalled();
+  });
+
+  it('still refuses a link the email never sent for the operator', async () => {
+    expectNeutralPage(await clickGet(withCookie(request('https://evil.test/'), await signSession(USER)), ctx()));
+  });
+
+  it.each([
+    ['a forged session cookie', forgedSession],
+    ['a malformed session cookie', async () => 'not-a-jwt'],
+    ['an empty session cookie', async () => ''],
+  ])('records the open and click of a recipient with %s', async (_label, cookie) => {
+    const value = await cookie();
+
+    await openGet(openRequest(value), ctx());
+    const res = await clickGet(withCookie(request('https://calendly.com/acme/demo'), value), ctx());
+
+    expect(res.headers.get('location')).toBe('https://calendly.com/acme/demo');
+    expect(mocked.emailEvent.create).toHaveBeenCalledWith({ data: { messageId: 'm-1', eventType: 'open' } });
+    expect(mocked.emailEvent.create).toHaveBeenCalledWith({
+      data: { messageId: 'm-1', eventType: 'click', clickedUrl: 'https://calendly.com/acme/demo' },
+    });
   });
 });

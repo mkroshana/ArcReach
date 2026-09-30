@@ -6,6 +6,7 @@ import { verifyPassword, hashPassword } from '@/lib/auth';
 import { MASKED_SECRET, encryptSecret } from '@/lib/secrets';
 import { passwordPolicyError } from '@/lib/passwordPolicy';
 import { ensureGlobalSettings, saveGlobalSettings } from '@/lib/settings';
+import { globalRateLimitError } from '@/lib/rateLimitPolicy';
 
 /** Fields that are never returned in plaintext and must be skipped on PUT when
  * the client echoes back the mask. */
@@ -156,6 +157,12 @@ export async function PUT(req: NextRequest) {
       }
       settingsData.activeProvider = activeProvider;
     }
+    // null is an explicit No Limit; an empty, zero or fractional limit would silently turn limiting off.
+    const rateLimitProblem = (rateLimitMinute !== undefined && globalRateLimitError(rateLimitMinute, 'minute'))
+      || (rateLimitHour !== undefined && globalRateLimitError(rateLimitHour, 'hour'));
+    if (rateLimitProblem) {
+      return NextResponse.json({ error: rateLimitProblem }, { status: 400 });
+    }
     /** Encrypt unless the value is null/empty (which clears the field). */
     const encrypted = (v: string | null | undefined) => (v ? encryptSecret(v) : v ?? null);
 
@@ -173,12 +180,8 @@ export async function PUT(req: NextRequest) {
     if (imapPort !== undefined) settingsData.imapPort = Number(imapPort) || null;
     if (imapUser !== undefined) settingsData.imapUser = imapUser;
     if (liveImapPass !== undefined) settingsData.imapPass = encrypted(liveImapPass);
-    if (rateLimitMinute !== undefined) {
-      settingsData.rateLimitMinute = rateLimitMinute === null ? null : Number(rateLimitMinute);
-    }
-    if (rateLimitHour !== undefined) {
-      settingsData.rateLimitHour = rateLimitHour === null ? null : Number(rateLimitHour);
-    }
+    if (rateLimitMinute !== undefined) settingsData.rateLimitMinute = rateLimitMinute;
+    if (rateLimitHour !== undefined) settingsData.rateLimitHour = rateLimitHour;
 
     const updatedSettings = await saveGlobalSettings(settingsData, {
       activeProvider: activeProvider || 'DISABLED',
@@ -193,8 +196,8 @@ export async function PUT(req: NextRequest) {
       imapPort: Number(imapPort) || null,
       imapUser: imapUser || null,
       imapPass: encrypted(liveImapPass),
-      rateLimitMinute: rateLimitMinute === undefined ? 60 : (rateLimitMinute === null ? null : Number(rateLimitMinute)),
-      rateLimitHour: rateLimitHour === undefined ? 1000 : (rateLimitHour === null ? null : Number(rateLimitHour))
+      rateLimitMinute: rateLimitMinute === undefined ? 60 : rateLimitMinute,
+      rateLimitHour: rateLimitHour === undefined ? 1000 : rateLimitHour
     });
 
     return NextResponse.json({

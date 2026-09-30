@@ -6,13 +6,36 @@ import {
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { MIN_PASSWORD_LENGTH, passwordPolicyError } from '@/lib/passwordPolicy';
+import { type RateLimitInput, type RateLimitPeriod, rateLimitInputFrom, rateLimitInputValue } from '@/lib/rateLimitPolicy';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import {
   Box, Card, CardContent, Stack, Typography, Button, IconButton, TextField, Select, MenuItem,
   FormControl, InputLabel, Snackbar, Alert, AlertTitle, InputAdornment, CircularProgress, Avatar,
-  Tabs, Tab, Autocomplete,
+  Tabs, Tab, Autocomplete, Checkbox, FormControlLabel,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
+
+/** One global rate limit: a whole number of emails, or an explicit No Limit, which saves null and leaves the period uncapped. */
+function RateLimitField({ per, input, error, onChange }: {
+  per: RateLimitPeriod; input: RateLimitInput; error: string; onChange: (input: RateLimitInput) => void;
+}) {
+  const unit = per === 'minute' ? 'Minute' : 'Hour';
+  return (
+    <Box sx={{ flex: 1 }}>
+      <TextField
+        fullWidth size="small" type="number" label={`Max Emails / ${unit}`}
+        value={input.noLimit ? '' : input.text} onChange={(e) => onChange({ ...input, text: e.target.value })}
+        disabled={input.noLimit} required={!input.noLimit} placeholder={input.noLimit ? 'No limit' : undefined}
+        error={!!error} helperText={error || (input.noLimit ? `Emails are not capped per ${per}.` : ' ')}
+        slotProps={{ htmlInput: { min: 1, step: 1 }, input: { sx: { fontFamily: 'monospace' } } }}
+      />
+      <FormControlLabel
+        control={<Checkbox size="small" checked={input.noLimit} onChange={(e) => onChange({ ...input, noLimit: e.target.checked })} />}
+        label={<Typography variant="body2">No Limit</Typography>}
+      />
+    </Box>
+  );
+}
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<'profile' | 'integrations'>('profile');
@@ -44,8 +67,10 @@ export default function SettingsPage() {
   const [azureSenderDomains, setAzureSenderDomains] = useState<string[]>([]);
   const [showAzureConnString, setShowAzureConnString] = useState(false);
 
-  const [rateLimitMinute, setRateLimitMinute] = useState('');
-  const [rateLimitHour, setRateLimitHour] = useState('');
+  // Set from the stored values on load; null (No Limit) is shown as No Limit, never as a default number.
+  const [rateLimitMinute, setRateLimitMinute] = useState<RateLimitInput>({ noLimit: false, text: '' });
+  const [rateLimitHour, setRateLimitHour] = useState<RateLimitInput>({ noLimit: false, text: '' });
+  const [rateLimitErrors, setRateLimitErrors] = useState({ minute: '', hour: '' });
   const [rateLimitLoading, setRateLimitLoading] = useState(false);
 
   const loadSettings = async () => {
@@ -72,8 +97,9 @@ export default function SettingsPage() {
           const domains = Array.isArray(data.settings.azureSenderDomains) ? data.settings.azureSenderDomains
             : (data.settings.azureSenderDomain ? [data.settings.azureSenderDomain] : []);
           setAzureSenderDomains(domains.map((d: string) => String(d).trim().toLowerCase()).filter(Boolean));
-          setRateLimitMinute(data.settings.rateLimitMinute != null ? String(data.settings.rateLimitMinute) : '60');
-          setRateLimitHour(data.settings.rateLimitHour != null ? String(data.settings.rateLimitHour) : '1000');
+          setRateLimitMinute(rateLimitInputFrom(data.settings.rateLimitMinute));
+          setRateLimitHour(rateLimitInputFrom(data.settings.rateLimitHour));
+          setRateLimitErrors({ minute: '', hour: '' });
         }
       } else {
         setLoadError(data.error || 'The server did not return your settings.');
@@ -97,16 +123,29 @@ export default function SettingsPage() {
   };
 
   const handleSaveRateLimits = async (e: React.FormEvent) => {
-    e.preventDefault(); setRateLimitLoading(true);
+    e.preventDefault();
+    // An empty field is an error, not No Limit: only the No Limit choice saves null.
+    const minute = rateLimitInputValue(rateLimitMinute, 'minute');
+    const hour = rateLimitInputValue(rateLimitHour, 'hour');
+    setRateLimitErrors({ minute: minute.error || '', hour: hour.error || '' });
+    if (minute.error || hour.error) return;
+    setRateLimitLoading(true);
     try {
       const res = await fetch('/api/settings', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          rateLimitMinute: rateLimitMinute ? Number(rateLimitMinute) : null,
-          rateLimitHour: rateLimitHour ? Number(rateLimitHour) : null,
-        }),
+        body: JSON.stringify({ rateLimitMinute: minute.value, rateLimitHour: hour.value }),
       });
-      triggerToast(res.ok ? 'Service-level rate limits saved successfully.' : 'Failed to save rate limits.');
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        // Show what was stored, so the form matches what the send engine reads.
+        if (data.settings) {
+          setRateLimitMinute(rateLimitInputFrom(data.settings.rateLimitMinute));
+          setRateLimitHour(rateLimitInputFrom(data.settings.rateLimitHour));
+        }
+        triggerToast('Service-level rate limits saved successfully.');
+      } else {
+        triggerToast(data.error || 'Failed to save rate limits.');
+      }
     } catch (err) { console.error(err); triggerToast('Error saving rate limits.'); }
     finally { setRateLimitLoading(false); }
   };
@@ -360,11 +399,13 @@ export default function SettingsPage() {
               <Card>
                 <CardContent sx={{ p: 3 }}>
                   <Typography variant="overline" sx={{ fontWeight: 700 }}>Global Sending Rate Limits</Typography>
-                  <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 2 }}>Caps total outbound volume across all campaigns and sender mailboxes.</Typography>
+                  <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 2 }}>Caps total outbound volume across all campaigns and sender mailboxes. Choose No Limit to leave a period uncapped.</Typography>
                   <form onSubmit={handleSaveRateLimits}>
                     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-                      <TextField fullWidth size="small" type="number" label="Max Emails / Minute" value={rateLimitMinute} onChange={(e) => setRateLimitMinute(e.target.value)} placeholder="60" slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-                      <TextField fullWidth size="small" type="number" label="Max Emails / Hour" value={rateLimitHour} onChange={(e) => setRateLimitHour(e.target.value)} placeholder="1000" slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
+                      <RateLimitField per="minute" input={rateLimitMinute} error={rateLimitErrors.minute}
+                        onChange={(v) => { setRateLimitMinute(v); setRateLimitErrors((errs) => ({ ...errs, minute: '' })); }} />
+                      <RateLimitField per="hour" input={rateLimitHour} error={rateLimitErrors.hour}
+                        onChange={(v) => { setRateLimitHour(v); setRateLimitErrors((errs) => ({ ...errs, hour: '' })); }} />
                     </Stack>
                     <Stack direction="row" sx={{ justifyContent: 'flex-end', mt: 2.5, pt: 2, borderTop: 1, borderColor: 'divider' }}>
                       <Button type="submit" variant="contained" disabled={rateLimitLoading} startIcon={<Save size={14} />}>

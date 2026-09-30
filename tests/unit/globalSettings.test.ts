@@ -12,6 +12,7 @@ vi.mock('../../lib/db', () => ({
       update: vi.fn(),
       upsert: vi.fn(),
     },
+    emailDispatch: { count: vi.fn() },
   },
 }));
 
@@ -24,6 +25,8 @@ import { prisma } from '../../lib/db';
 import { getSession } from '../../lib/session';
 import { GLOBAL_SETTINGS_ID, getGlobalSettings, ensureGlobalSettings, saveGlobalSettings } from '../../lib/settings';
 import { GET as getSettings, PUT as putSettings } from '../../app/api/settings/route';
+import { checkGlobalRateLimits } from '../../lib/rateLimits';
+import { MAX_GLOBAL_RATE_LIMIT, globalRateLimitError, rateLimitInputFrom, rateLimitInputValue } from '../../lib/rateLimitPolicy';
 
 const mockedPrisma = prisma as any;
 const mockedSession = vi.mocked(getSession);
@@ -233,5 +236,63 @@ describe('first GET /api/settings seeds no fake SMTP settings (M17)', () => {
       expect(rows[0][field] ?? null).toBeNull();
     }
     expect((await res.json()).settings).toMatchObject({ activeProvider: 'DISABLED' });
+  });
+});
+
+describe('global rate limits show and save only real values (M65)', () => {
+  it('accepts null (No Limit) and whole numbers from 1, and rejects empty, zero, negative, fractional, string and oversized values', () => {
+    for (const ok of [null, 1, 60, MAX_GLOBAL_RATE_LIMIT]) expect(globalRateLimitError(ok, 'minute')).toBeNull();
+    for (const bad of ['', '60', 0, -5, 1.5, Number.NaN, MAX_GLOBAL_RATE_LIMIT + 1, undefined, false]) {
+      expect(globalRateLimitError(bad, 'hour')).toMatch(/^Max emails per hour must be a whole number/);
+    }
+  });
+
+  it('shows a stored limit as that number and a stored null or 0 as No Limit, never as a default', () => {
+    expect(rateLimitInputFrom(45)).toEqual({ noLimit: false, text: '45' });
+    expect(rateLimitInputFrom(null)).toEqual({ noLimit: true, text: '' });
+    expect(rateLimitInputFrom(0)).toEqual({ noLimit: true, text: '' });
+  });
+
+  it('reads the form as null only for an explicit No Limit and refuses an empty or invalid field', () => {
+    expect(rateLimitInputValue({ noLimit: true, text: '60' }, 'minute')).toEqual({ value: null, error: null });
+    expect(rateLimitInputValue({ noLimit: false, text: ' 120 ' }, 'minute')).toEqual({ value: 120, error: null });
+    expect(rateLimitInputValue({ noLimit: false, text: '' }, 'minute'))
+      .toEqual({ value: null, error: 'Enter the max emails per minute, or choose No Limit.' });
+    for (const text of ['0', '-3', '2.5']) {
+      expect(rateLimitInputValue({ noLimit: false, text }, 'hour').error).toMatch(/^Max emails per hour must be a whole number/);
+    }
+  });
+
+  it('returns a stored null as null from GET instead of the 60/1000 defaults', async () => {
+    insert({ id: GLOBAL_SETTINGS_ID, activeProvider: 'AZURE', rateLimitMinute: null, rateLimitHour: 250 });
+
+    const res = await getSettings();
+
+    expect((await res.json()).settings).toMatchObject({ rateLimitMinute: null, rateLimitHour: 250 });
+  });
+
+  it('refuses an empty, zero or fractional limit with a 400 and leaves the stored limits enforced', async () => {
+    insert({ id: GLOBAL_SETTINGS_ID, activeProvider: 'AZURE', rateLimitMinute: 60, rateLimitHour: 1000 });
+
+    for (const body of [{ rateLimitMinute: '' }, { rateLimitMinute: 0 }, { rateLimitHour: 2.5 }, { rateLimitMinute: 30, rateLimitHour: -1 }]) {
+      const res = await putSettings(makeReq('PUT', body));
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toMatch(/must be a whole number/);
+    }
+
+    expect(mockedPrisma.globalSettings.upsert).not.toHaveBeenCalled();
+    expect(rows[0]).toMatchObject({ rateLimitMinute: 60, rateLimitHour: 1000 });
+    mockedPrisma.emailDispatch.count.mockResolvedValue(60);
+    expect(await checkGlobalRateLimits()).toMatchObject({ allowed: false, reason: expect.stringContaining('Max 60 emails per minute') });
+  });
+
+  it('saves an explicit No Limit as null and a positive limit as that number', async () => {
+    insert({ id: GLOBAL_SETTINGS_ID, activeProvider: 'AZURE', rateLimitMinute: 60, rateLimitHour: 1000 });
+
+    const res = await putSettings(makeReq('PUT', { rateLimitMinute: null, rateLimitHour: 500 }));
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).settings).toMatchObject({ rateLimitMinute: null, rateLimitHour: 500 });
+    expect(rows[0]).toMatchObject({ rateLimitMinute: null, rateLimitHour: 500 });
   });
 });

@@ -92,7 +92,7 @@ async function campaignTelemetry(id = 'cmp-1') {
   return (await res.json()).telemetry;
 }
 
-async function dashboard(range = 7) {
+async function dashboard(range: number | string = 7) {
   const res = await getDashboardStats(new NextRequest(`http://localhost/api/dashboard-stats?range=${range}`));
   expect(res.status).toBe(200);
   return res.json();
@@ -294,6 +294,19 @@ describe('"last N days" covers exactly N days (M29)', () => {
     expect(stats.totalSent).toBe(7);
     expect(stats.deltas.sent).toBe(0);
     expect(trends).toHaveLength(7);
+  });
+
+  it('counts the 7, 30 or 90 days the page offers, and 7 for any other range (M39)', async () => {
+    for (let day = 0; day < 100; day++) addDispatch({ id: `d${day}`, sentAt: at(day) });
+
+    for (const [range, days] of [[7, 7], [30, 30], [90, 90], [365, 7], [100000000, 7], [0, 7], [-30, 7], ['abc', 7], ['', 7]] as const) {
+      fake.$queryRaw.mockClear();
+      const { stats, trends } = await dashboard(range);
+      expect(stats.totalSent).toBe(days);
+      expect(trends).toHaveLength(days);
+      // One day-start parameter per bucket, so the query stays as small as the range.
+      expect(fake.$queryRaw.mock.calls[0][0].values.filter((v: unknown) => v instanceof Date)).toHaveLength(days + 2);
+    }
   });
 
   it('asks the database for one bucket per day of the same window and fills the days it returns nothing for', async () => {

@@ -37,9 +37,11 @@ export async function GET(
       return pixelResponse();
     }
 
-    // Look up the dispatch record
+    // Look up the dispatch record: only what the bot filter and the event
+    // need, never the stored body, since this is the most frequent public hit.
     const dispatch = await prisma.emailDispatch.findUnique({
       where: { id: dispatchId },
+      select: { messageId: true, status: true, sentAt: true, acceptedAt: true },
     });
 
     if (dispatch) {

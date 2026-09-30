@@ -12,8 +12,11 @@ import {
   sendSummary,
 } from '@/lib/engagementMetrics';
 
-/** Longest period the dashboard counts, in days (the page offers 7, 30 and 90). */
-const MAX_RANGE_DAYS = 365;
+/**
+ * The periods the dashboard counts, in days, as the page offers them. Any
+ * other range gets the first, so a request can never ask for an unbounded one.
+ */
+const RANGE_DAYS = [7, 30, 90];
 
 export async function GET(req: NextRequest) {
   try {
@@ -24,8 +27,8 @@ export async function GET(req: NextRequest) {
     const scope = metricsScopeFor(session);
 
     const { searchParams } = new URL(req.url);
-    const rangeParam = searchParams.get('range') || '7';
-    const rangeDays = Math.min(Math.max(parseInt(rangeParam) || 7, 1), MAX_RANGE_DAYS);
+    const requestedDays = parseInt(searchParams.get('range') ?? '', 10);
+    const rangeDays = RANGE_DAYS.includes(requestedDays) ? requestedDays : RANGE_DAYS[0];
 
     // Today and the rangeDays - 1 days before it, compared with the rangeDays
     // days before that. The trend has one bucket per day of the same period.

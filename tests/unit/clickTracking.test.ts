@@ -461,3 +461,45 @@ describe("a signed-in app user's hits are never recorded (M37)", () => {
     });
   });
 });
+
+describe('the open pixel never loads the stored body (L10)', () => {
+  /** Returns only the fields the query selects, as Prisma does. */
+  function storeSelectedDispatch(fields: Record<string, unknown>) {
+    const row: Record<string, unknown> = {
+      id: DISPATCH_ID,
+      messageId: 'm-1',
+      status: 'Sent',
+      sentAt: new Date(Date.now() - 3600_000),
+      acceptedAt: new Date(Date.now() - 3590_000),
+      body: applyEmailTracking(TEMPLATE, DISPATCH_ID, true, true, true, 'tok'),
+      ...fields,
+    };
+    mocked.emailDispatch.findUnique.mockImplementation(async ({ select }: any) =>
+      select ? Object.fromEntries(Object.keys(select).filter((k) => select[k]).map((k) => [k, row[k]])) : row
+    );
+  }
+
+  const openRequest = () =>
+    new NextRequest(`http://localhost/api/track/open/${DISPATCH_ID}`, { headers: { 'user-agent': IPHONE_MAIL } });
+
+  it('selects only the fields the open needs, and still records it', async () => {
+    storeSelectedDispatch({});
+
+    const res = await openGet(openRequest(), ctx());
+
+    expect(res.headers.get('content-type')).toBe('image/png');
+    const { select } = mocked.emailDispatch.findUnique.mock.calls[0][0];
+    expect(select).toEqual({ messageId: true, status: true, sentAt: true, acceptedAt: true });
+    expect(mocked.emailEvent.create).toHaveBeenCalledWith({ data: { messageId: 'm-1', eventType: 'open' } });
+  });
+
+  it('still judges the prefetch window from the selected send times', async () => {
+    storeSelectedDispatch({ sentAt: new Date(Date.now() - 60_000), acceptedAt: new Date(Date.now() - 5_000) });
+
+    await openGet(openRequest(), ctx());
+
+    expect(mocked.emailEvent.create).toHaveBeenCalledWith({
+      data: { messageId: 'm-1', eventType: 'machine_open', botReason: 'prefetch-window' },
+    });
+  });
+});

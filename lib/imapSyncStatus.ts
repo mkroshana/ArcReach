@@ -5,8 +5,9 @@
 
 /**
  * 'off': no complete IMAP details, or the mailbox is not Active, so it is never synced.
- * 'failing': the latest sync failed. 'ok': a sync succeeded since the details were
- * saved. 'waiting': the details are saved but no sync has finished yet.
+ * 'failing': the latest sync failed, or skipped a message it could not record (until
+ * the next sync). 'ok': a sync succeeded since the details were saved. 'waiting': the
+ * details are saved but no sync has finished yet.
  */
 export type ImapSyncState = 'off' | 'waiting' | 'ok' | 'failing';
 

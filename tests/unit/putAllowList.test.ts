@@ -266,7 +266,7 @@ describe('PUT /api/accounts', () => {
     for (const change of [{ imapHost: 'imap.new.test' }, { imapUser: 'other@old.test' }, { imapHost: null }]) {
       expect((await putAccount(makeReq('/api/accounts', { id: 'acc-1', ...change }))).status).toBe(200);
       expect(mockedDb.updateAccount).toHaveBeenLastCalledWith('acc-1', {
-        ...change, imapUidValidity: null, imapLastUid: null, imapLastSyncAt: null, imapLastSyncError: null,
+        ...change, imapUidValidity: null, imapLastUid: null, imapFailedUid: null, imapFailedUidAttempts: 0, imapLastSyncAt: null, imapLastSyncError: null,
       });
     }
 

@@ -261,6 +261,8 @@ export async function PUT(req: NextRequest) {
       if (imapMoved) {
         updates.imapUidValidity = null;
         updates.imapLastUid = null;
+        updates.imapFailedUid = null;
+        updates.imapFailedUidAttempts = 0;
       }
       // The reply-sync status describes the connection details it was read with, so
       // any change to them shows the mailbox as pending until the next sync. A new

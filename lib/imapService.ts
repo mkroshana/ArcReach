@@ -16,9 +16,14 @@ interface ImapMessage {
   inReplyTo?: string;
   references?: string;
   body: string;
+  /** Set when the message's text could not be read (the server refused it, or it could not be decoded), so `body` is empty. */
+  bodyUnavailable?: boolean;
   /** Why the message is automated, or null when a person wrote it. */
   autoReply?: AutoReplyKind | null;
 }
+
+/** A lead's message read from the INBOX, by its UID there. */
+type FetchedReply = ImapMessage & { uid: number };
 
 /** An automated message: a delivery status report, an out-of-office notice or another auto-reply. */
 export type AutoReplyKind = 'bounce' | 'out-of-office' | 'auto-reply';
@@ -35,6 +40,9 @@ export const IMAP_SYNC_BATCH_SIZE = 200;
 /** A mailbox without a checkpoint (first sync, or the server reset UIDVALIDITY) starts with mail received in this many days. */
 export const IMAP_FIRST_SYNC_LOOKBACK_DAYS = 7;
 
+/** Syncs in a row a message may fail to be recorded in before the checkpoint moves past it. */
+export const IMAP_MESSAGE_MAX_ATTEMPTS = 5;
+
 const IMAP_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /** RFC 3501 SEARCH date (d-Mon-yyyy) of the UTC day of `d`. */
@@ -45,14 +53,22 @@ export function imapSearchDate(d: Date): string {
 /**
  * The UID SEARCH listing INBOX messages the sync has not read. The saved UID is
  * only meaningful while the INBOX keeps the UIDVALIDITY it was saved under, so a
- * missing or stale checkpoint falls back to mail from the lookback window.
+ * missing or stale checkpoint falls back to mail from the lookback window. So does
+ * one at or past the INBOX's UIDNEXT (when the server sends it): every UID the INBOX
+ * has given out is below UIDNEXT, so resuming there would pass over new mail until
+ * its UIDs caught up with the saved one.
  */
 export function replySearchPlan(
   checkpoint: { imapUidValidity: number | null; imapLastUid: number | null },
   uidValidity: number,
-  now: Date
+  now: Date,
+  uidNext: number | null = null
 ): { cmd: string; afterUid: number; resumed: boolean } {
-  if (checkpoint.imapUidValidity === uidValidity && checkpoint.imapLastUid !== null) {
+  if (
+    checkpoint.imapUidValidity === uidValidity &&
+    checkpoint.imapLastUid !== null &&
+    (uidNext === null || checkpoint.imapLastUid < uidNext)
+  ) {
     const afterUid = checkpoint.imapLastUid;
     return { cmd: `UID SEARCH UID ${afterUid + 1}:*`, afterUid, resumed: true };
   }
@@ -69,6 +85,15 @@ export function parseSearchUids(resp: string): number[] {
     }
   }
   return uids;
+}
+
+/**
+ * `text` as Postgres can store it: without NUL (U+0000), which a text column refuses,
+ * and with each unpaired UTF-16 surrogate, which has no UTF-8 form, as U+FFFD. Decoded
+ * headers and bodies can hold either, and one would fail its reply's write at every sync.
+ */
+export function storableText(text: string): string {
+  return text.replace(/\0|[\uD800-\uDBFF][\uDC00-\uDFFF]|[\uD800-\uDFFF]/g, (c) => (c === '\0' ? '' : c.length === 2 ? c : '\uFFFD'));
 }
 
 /** `d` when Postgres can store it as a reply's receivedAt (years 1970-9999), else null; an Invalid Date is null. */
@@ -209,36 +234,97 @@ export function imapSyncFailureMessage(err: unknown, host: string, port: number)
 
 /**
  * Save how the latest reply sync of a mailbox ended: a success stamps imapLastSyncAt
- * and clears the error, a failure saves its message. A failed save is only logged,
- * so it never changes the sync's own result.
+ * and clears the error, a failure saves its message. A success can still carry a
+ * note, such as a message it skipped. A failed save is only logged, so it never
+ * changes the sync's own result.
  */
-async function recordImapSyncResult(mailboxId: string, error: string | null) {
+async function recordImapSyncResult(mailboxId: string, error: string | null, succeeded = error === null) {
   try {
     await prisma.senderAccount.update({
       where: { id: mailboxId },
-      data: error === null ? { imapLastSyncAt: new Date(), imapLastSyncError: null } : { imapLastSyncError: error },
+      data: succeeded ? { imapLastSyncAt: new Date(), imapLastSyncError: error } : { imapLastSyncError: error },
     });
   } catch (err) {
     console.error(`[IMAP Sync] Could not save the sync result of mailbox ${mailboxId}:`, err);
   }
 }
 
+/** A sync note cut to the length saved on the mailbox. */
+function syncNote(message: string): string {
+  return message.length > SYNC_ERROR_MAX_CHARS ? `${message.substring(0, SYNC_ERROR_MAX_CHARS - 1)}…` : message;
+}
+
 /**
- * Save the reply-sync checkpoint. The worker and a Unibox load can sync the same
- * mailbox at once, so a save never moves the UID back under the same UIDVALIDITY.
+ * Where a sync leaves the checkpoint of a batch read up to `lastUid` in which the
+ * messages `failed` (ascending UIDs) could not be recorded. The first failed message
+ * holds the checkpoint just before it, so the next sync reads it again, with its
+ * attempts counted on from `previous` (the failed message the saved checkpoint waits
+ * on). One that has now failed IMAP_MESSAGE_MAX_ATTEMPTS syncs in a row is skipped
+ * instead, and the checkpoint moves on to the next failed one, or to `lastUid`. A
+ * failure in `uncounted` (a temporary database error) holds the checkpoint without
+ * counting an attempt, so it never gets its message skipped.
  */
-async function saveImapCheckpoint(mailboxId: string, uidValidity: number, lastUid: number) {
+export function checkpointAfterFailures(
+  lastUid: number,
+  failed: number[],
+  previous: { uid: number | null; attempts: number },
+  uncounted: ReadonlySet<number> = new Set()
+): { lastUid: number; failedUid: number | null; attempts: number; skipped: number[] } {
+  const skipped: number[] = [];
+  for (const uid of failed) {
+    const attempts = (uid === previous.uid ? previous.attempts : 0) + (uncounted.has(uid) ? 0 : 1);
+    if (attempts < IMAP_MESSAGE_MAX_ATTEMPTS) return { lastUid: uid - 1, failedUid: uid, attempts, skipped };
+    skipped.push(uid);
+  }
+  return { lastUid, failedUid: null, attempts: 0, skipped };
+}
+
+/**
+ * Prisma error codes that say nothing about the message being written: the database
+ * was unreachable or timed out, the connection pool or a transaction start timed out,
+ * or the write lost to a concurrent one.
+ */
+const TRANSIENT_DB_ERROR_CODES = new Set(['P1001', 'P1002', 'P1008', 'P1017', 'P2024', 'P2028', 'P2034']);
+
+/** Whether `err` is a Prisma error that a later attempt at the same write may not meet. */
+export function isTransientDbError(err: unknown): boolean {
+  const e = err as { code?: unknown; errorCode?: unknown } | null;
+  return [e?.code, e?.errorCode].some(code => typeof code === 'string' && TRANSIENT_DB_ERROR_CODES.has(code));
+}
+
+/**
+ * Save the reply-sync checkpoint and the failed message it waits on. The worker and
+ * a Unibox load can sync the same mailbox at once, so a save never moves the UID back
+ * under the same UIDVALIDITY unless the checkpoint is still the one this sync read
+ * (`read`): holding it on a failed message, or replacing one past the INBOX's UIDNEXT.
+ * Nothing is saved once the IMAP host or login differs from the ones read: a PUT
+ * /api/accounts that changed them reset the checkpoint, which belongs to the other
+ * mailbox now.
+ */
+async function saveImapCheckpoint(
+  read: { id: string; imapHost: string | null; imapUser: string | null; imapUidValidity: number | null; imapLastUid: number | null },
+  checkpoint: { uidValidity: number; lastUid: number; failedUid: number | null; attempts: number }
+) {
+  const { uidValidity, lastUid } = checkpoint;
   await prisma.senderAccount.updateMany({
     where: {
-      id: mailboxId,
+      id: read.id,
+      imapHost: read.imapHost,
+      imapUser: read.imapUser,
       OR: [
         { imapUidValidity: null },
         { imapUidValidity: { not: uidValidity } },
         { imapLastUid: null },
         { imapLastUid: { lt: lastUid } },
+        { imapUidValidity: read.imapUidValidity, imapLastUid: read.imapLastUid },
       ],
     },
-    data: { imapUidValidity: uidValidity, imapLastUid: lastUid },
+    data: {
+      imapUidValidity: uidValidity,
+      imapLastUid: lastUid,
+      imapFailedUid: checkpoint.failedUid,
+      imapFailedUidAttempts: checkpoint.attempts,
+    },
   });
 }
 
@@ -332,15 +418,20 @@ export async function syncMailboxReplies(mailboxId: string) {
     }
     
     // Where this sync leaves the checkpoint, known once the IMAP exchange has run.
-    const batch: { uidValidity: number | null; lastUid: number | null; complete: boolean } = {
+    // `resumed`: the search started after the saved checkpoint.
+    const batch: { uidValidity: number | null; lastUid: number | null; resumed: boolean; complete: boolean } = {
       uidValidity: null,
       lastUid: null,
+      resumed: false,
       complete: false,
     };
-    
+    // Header FETCHes of the batch the server refused: its reply to the first, whether it
+    // sent the headers of any batch message, and the messages it would not send alone.
+    const headerFetch = { refused: null as string | null, anyReturned: false, failed: new Map<number, string>() };
+
     let socket: tls.TLSSocket | null = null;
     try {
-      const messages = await new Promise<ImapMessage[]>((resolve, reject) => {
+      const messages = await new Promise<FetchedReply[]>((resolve, reject) => {
         socket = tls.connect(imapTlsOptions(mailbox.imapHost!, mailbox.imapPort!, mailbox.imapAllowSelfSigned), () => {
           console.log('[IMAP Sync] Connected via TLS.');
         });
@@ -354,7 +445,7 @@ export async function syncMailboxReplies(mailboxId: string) {
         const commandsQueue: { tag: string; cmd: string; continuation?: string[]; handler: (resp: string) => void | Promise<void> }[] = [];
         let currentCommandIdx = -1;
         let continuationsSent = 0;
-        const fetchedMessages: ImapMessage[] = [];
+        const fetchedMessages: FetchedReply[] = [];
         
         const makeTag = (prefix: string) => `${prefix}_${Math.random().toString(36).substring(2, 8)}`;
         
@@ -470,11 +561,10 @@ export async function syncMailboxReplies(mailboxId: string) {
         
         // Reply-sync checkpoint state, set once EXAMINE reports the INBOX's UIDVALIDITY
         let afterUid = 0;
-        let resumed = false;
         let uidNext: number | null = null;
         // Nothing to read without a checkpoint: start one at the newest message.
         const checkpointAtNewest = () => {
-          if (!resumed && uidNext !== null) batch.lastUid = uidNext - 1;
+          if (!batch.resumed && uidNext !== null) batch.lastUid = uidNext - 1;
         };
         
         // 2. EXAMINE INBOX: read-only, so the sync never changes flags on the user's mail
@@ -493,9 +583,15 @@ export async function syncMailboxReplies(mailboxId: string) {
             const uidNextMatch = resp.match(/\[UIDNEXT (\d+)\]/i);
             uidNext = uidNextMatch ? Number(uidNextMatch[1]) : null;
             
-            const plan = replySearchPlan(mailbox, batch.uidValidity, new Date());
+            const plan = replySearchPlan(mailbox, batch.uidValidity, new Date(), uidNext);
             afterUid = plan.afterUid;
-            resumed = plan.resumed;
+            batch.resumed = plan.resumed;
+            if (!batch.resumed && mailbox.imapUidValidity === batch.uidValidity && mailbox.imapLastUid !== null) {
+              console.warn(
+                `[IMAP Sync] The checkpoint of ${mailbox.emailAddress} (UID ${mailbox.imapLastUid}) is at or past the INBOX UIDNEXT ${uidNext} ` +
+                `under the same UIDVALIDITY ${batch.uidValidity}; starting over from the last ${IMAP_FIRST_SYNC_LOOKBACK_DAYS} days.`
+              );
+            }
             
             // An empty INBOX has nothing to search, and some servers refuse "UID n:*" there
             const existsMatch = resp.match(/^\* (\d+) EXISTS/im);
@@ -527,152 +623,249 @@ export async function syncMailboxReplies(mailboxId: string) {
               return;
             }
             batch.lastUid = uids[uids.length - 1];
-            const tagFetchHeaders = makeTag('A4_FETCH_HEADERS');
-            
-            // Add header FETCH command dynamically. BODY.PEEK leaves the \Seen flag alone.
-            // The content headers say how to decode the body fetched below, and
-            // INTERNALDATE dates a reply whose Date header is missing or unreadable.
-            // Auto-Submitted, X-Autoreply, X-Autorespond, Precedence and a
-            // multipart/report Content-Type mark automated mail.
-            commandsQueue.splice(currentCommandIdx + 1, 0, {
-              tag: tagFetchHeaders,
-              cmd: `UID FETCH ${uids.join(',')} (UID INTERNALDATE BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES AUTO-SUBMITTED X-AUTOREPLY X-AUTORESPOND PRECEDENCE CONTENT-TYPE CONTENT-TRANSFER-ENCODING)])`,
-              handler: async (headerResp) => {
-                if (!headerResp.includes(`${tagFetchHeaders} OK`)) {
-                  throw new Error('IMAP Fetch headers failed: ' + completionText(headerResp, tagFetchHeaders));
-                }
-                const headerParsed = parseHeaderResponse(headerResp);
-                if (headerParsed.length === 0) return;
-                
-                // Filter headers where the sender email matches an active Lead in our database, ignoring case
-                const senderEmails = headerParsed.map(h => normalizeEmail(h.from));
-                const matchedLeads = await prisma.lead.findMany({
-                  where: leadEmailIn(senderEmails)
-                });
-                const matchedLeadEmails = new Set(matchedLeads.map(l => normalizeEmail(l.email)));
-                
-                // For each matching message, oldest first, queue a command to fetch its body
-                const bodyCommands = headerParsed
-                  .filter(msg => matchedLeadEmails.has(normalizeEmail(msg.from)))
-                  .map(msg => {
-                    const tagFetchBody = makeTag('A5_FETCH_BODY');
-                    return {
-                      tag: tagFetchBody,
-                      cmd: `UID FETCH ${msg.uid} (BODY.PEEK[TEXT])`,
-                      handler: (bodyResp: string) => {
-                        if (!bodyResp.includes(`${tagFetchBody} OK`)) {
-                          throw new Error('IMAP Fetch body failed: ' + completionText(bodyResp, tagFetchBody));
-                        }
-                        const bodyParsedText = parseBodyResponse(bodyResp);
-                        fetchedMessages.push({
-                          from: msg.from,
-                          subject: msg.subject,
-                          date: msg.date,
-                          messageId: replyDedupeKey(msg.messageId, batch.uidValidity!, msg.uid),
-                          inReplyTo: msg.inReplyTo,
-                          references: msg.references,
-                          // A message without Content-Type is text/plain (RFC 2045)
-                          body: cleanMimeBody(bodyParsedText, msg.contentType || 'text/plain', msg.transferEncoding),
-                          autoReply: msg.autoReply
-                        });
-                      }
-                    };
-                  });
-                commandsQueue.splice(currentCommandIdx + 1, 0, ...bodyCommands);
-              }
-            });
+            queueHeaderFetch(uids, true);
           }
         };
+
+        // Queue, after the running command, a body FETCH of each message in `headerParsed`
+        // whose sender matches a lead (ignoring case), oldest first.
+        const queueBodyFetches = async (headerParsed: HeaderInfo[]) => {
+          if (headerParsed.length === 0) return;
+
+          const senderEmails = headerParsed.map(h => normalizeEmail(h.from));
+          const matchedLeads = await prisma.lead.findMany({
+            where: leadEmailIn(senderEmails)
+          });
+          const matchedLeadEmails = new Set(matchedLeads.map(l => normalizeEmail(l.email)));
+
+          const bodyCommands = headerParsed
+            .filter(msg => matchedLeadEmails.has(normalizeEmail(msg.from)))
+            .map(msg => {
+              const tagFetchBody = makeTag('A5_FETCH_BODY');
+              return {
+                tag: tagFetchBody,
+                cmd: `UID FETCH ${msg.uid} (BODY.PEEK[TEXT])`,
+                handler: (bodyResp: string) => {
+                  // A text the server refuses (NO) or that can't be decoded fails only
+                  // this message's body: the reply is still recorded, with an empty
+                  // body flagged, so it pauses its sequences and holds back nothing.
+                  let body = '';
+                  let bodyUnavailable = !bodyResp.includes(`${tagFetchBody} OK`);
+                  if (bodyUnavailable) {
+                    console.warn(`[IMAP Sync] ${mailbox.imapHost} refused the text of message UID ${msg.uid} (${completionText(bodyResp, tagFetchBody)}); recording it with an empty body.`);
+                  } else {
+                    try {
+                      // A message without Content-Type is text/plain (RFC 2045)
+                      body = storableText(cleanMimeBody(parseBodyResponse(bodyResp), msg.contentType || 'text/plain', msg.transferEncoding));
+                    } catch (err) {
+                      console.error(`[IMAP Sync] Could not read the text of message UID ${msg.uid}; recording it with an empty body:`, err);
+                      bodyUnavailable = true;
+                    }
+                  }
+                  fetchedMessages.push({
+                    uid: msg.uid,
+                    from: msg.from,
+                    subject: msg.subject,
+                    date: msg.date,
+                    messageId: replyDedupeKey(msg.messageId, batch.uidValidity!, msg.uid),
+                    inReplyTo: msg.inReplyTo,
+                    references: msg.references,
+                    body,
+                    bodyUnavailable,
+                    autoReply: msg.autoReply
+                  });
+                }
+              };
+            });
+          commandsQueue.splice(currentCommandIdx + 1, 0, ...bodyCommands);
+        };
+
+        // Queue, after the running command, a header FETCH of `uids`, then the body FETCHes
+        // of the leads' messages among them. BODY.PEEK leaves the \Seen flag alone.
+        // The content headers say how to decode the body, and INTERNALDATE dates a reply
+        // whose Date header is missing or unreadable. Auto-Submitted, X-Autoreply,
+        // X-Autorespond, Precedence and a multipart/report Content-Type mark automated mail.
+        //
+        // A server that can't read one message refuses the whole FETCH (NO or BAD): Gmail
+        // after sending the other messages' headers, Dovecot after those before it. So
+        // with `isolate`, the messages a refused FETCH sent no headers for are fetched
+        // again, the first alone and the rest together; a message refused alone, or in
+        // that second FETCH, fails by itself and is counted like one that can't be recorded,
+        // instead of failing the batch at every sync. When the server sent no header of the
+        // batch at all it may refuse the whole session (a bandwidth limit, say), and the
+        // sync fails without counting any message.
+        const queueHeaderFetch = (uids: number[], isolate: boolean) => {
+          const tagFetchHeaders = makeTag('A4_FETCH_HEADERS');
+          commandsQueue.splice(currentCommandIdx + 1, 0, {
+            tag: tagFetchHeaders,
+            cmd: `UID FETCH ${uids.join(',')} (UID INTERNALDATE BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID IN-REPLY-TO REFERENCES AUTO-SUBMITTED X-AUTOREPLY X-AUTORESPOND PRECEDENCE CONTENT-TYPE CONTENT-TRANSFER-ENCODING)])`,
+            handler: async (headerResp) => {
+              const returned = fetchedHeaderUids(headerResp);
+              if (returned.size > 0) headerFetch.anyReturned = true;
+              if (!headerResp.includes(`${tagFetchHeaders} OK`)) {
+                const reply = completionText(headerResp, tagFetchHeaders);
+                console.warn(`[IMAP Sync] ${mailbox.imapHost} refused the headers of ${uids.length} message(s) from UID ${uids[0]} (${reply}); it sent ${returned.size} of them.`);
+                headerFetch.refused ??= reply;
+                const missing = uids.filter(uid => !returned.has(uid));
+                if (isolate && uids.length > 1) {
+                  // Queued in reverse: the first missing message runs first
+                  if (missing.length > 1) queueHeaderFetch(missing.slice(1), false);
+                  if (missing.length > 0) queueHeaderFetch(missing.slice(0, 1), false);
+                } else {
+                  for (const uid of missing) headerFetch.failed.set(uid, `${mailbox.imapHost} refused to send its headers (${reply})`);
+                }
+              }
+              // Queued last, so the bodies of these messages are fetched before any retry
+              await queueBodyFetches(parseHeaderResponse(headerResp));
+            }
+          });
+        };
       });
+
+      // Nothing of the batch came back: the server refused the session, not one message
+      if (headerFetch.refused !== null && !headerFetch.anyReturned) {
+        throw new Error('IMAP Fetch headers failed: ' + headerFetch.refused);
+      }
+      // Retried messages were fetched after the rest of their batch; record them in UID order
+      messages.sort((a, b) => a.uid - b.uid);
       
       console.log(`[IMAP Sync] Fetched ${messages.length} messages from mail server.`);
       
-      // Process messages and match with database Leads
+      // Process messages and match with database Leads. A message that fails to be
+      // recorded fails alone; the ones after it are still recorded. `failed` starts with
+      // the messages whose headers the server refused alone; `transient` holds those
+      // that failed only on a temporary database error.
       let newRepliesCount = 0;
+      const failed = new Map<number, string>(headerFetch.failed);
+      const transient = new Set<number>();
       for (const msg of messages) {
-        if (!msg.from) continue;
-        
-        const lead = await prisma.lead.findFirst({
-          where: leadEmailIn([msg.from])
-        });
-        
-        if (!lead) continue;
-        
-        // Replies recorded before Message-IDs were stored have none, so a message read
-        // again (a mailbox's first sync reads the last 7 days) is matched to them as
-        // before, by lead and a Date within 10 seconds.
-        const timeWindowStart = new Date(msg.date.getTime() - 10000);
-        const timeWindowEnd = new Date(msg.date.getTime() + 10000);
-        
-        const existing = await prisma.inboundResponse.findFirst({
-          where: {
-            leadId: lead.id,
-            messageId: null,
-            receivedAt: {
-              gte: timeWindowStart,
-              lte: timeWindowEnd
-            }
-          }
-        });
-        
-        if (existing) continue;
+        try {
+          if (!msg.from) continue;
 
-        const campaignId = await replyCampaignId(mailbox, lead.id, msg);
+          const lead = await prisma.lead.findFirst({
+            where: leadEmailIn([msg.from])
+          });
 
-        // The reply and the pause of the lead's stopOnReply sequences commit together:
-        // a failed write records neither, and the batch is read again on the next sync.
-        // Automated mail is recorded but stops nothing.
-        const { count, paused } = await prisma.$transaction(async (tx) => {
-          // The Message-ID is unique per mailbox, so a message another sync already
-          // recorded (one in another process, or an earlier read of this batch) is skipped.
-          const { count } = await tx.inboundResponse.createMany({
-            data: {
+          if (!lead) continue;
+
+          // Replies recorded before Message-IDs were stored have none, so a message read
+          // again (a mailbox's first sync reads the last 7 days) is matched to them as
+          // before, by lead and a Date within 10 seconds.
+          const timeWindowStart = new Date(msg.date.getTime() - 10000);
+          const timeWindowEnd = new Date(msg.date.getTime() + 10000);
+
+          const existing = await prisma.inboundResponse.findFirst({
+            where: {
               leadId: lead.id,
-              campaignId,
-              senderAccountId: mailbox.id,
-              messageId: msg.messageId,
-              // What a Unibox reply to it names in References, before its Message-ID
-              references: threadReferences(msg.inReplyTo, msg.references),
-              subject: msg.subject || 'No Subject',
-              body: msg.body || '',
-              receivedAt: msg.date,
-              unread: true,
-              autoReply: msg.autoReply
-            },
-            skipDuplicates: true
+              messageId: null,
+              receivedAt: {
+                gte: timeWindowStart,
+                lte: timeWindowEnd
+              }
+            }
           });
-          if (count === 0 || msg.autoReply) return { count, paused: [] };
-          const enrollments = await tx.campaignEnrollment.findMany({
-            where: { leadId: lead.id, status: 'Active', campaign: { stopOnReply: true } },
-            select: { id: true, campaign: { select: { name: true } } }
-          });
-          if (enrollments.length > 0) {
-            await tx.campaignEnrollment.updateMany({
-              where: { id: { in: enrollments.map(e => e.id) }, status: 'Active' },
-              data: { status: 'Paused' }
-            });
-          }
-          return { count, paused: enrollments };
-        });
-        if (count === 0) continue;
-        newRepliesCount++;
 
-        if (msg.autoReply) {
-          console.log(`[IMAP Sync] Recorded ${msg.autoReply} message from lead ${lead.email}; its sequences keep running.`);
-        }
-        for (const enrollment of paused) {
-          console.log(`[IMAP Sync] Paused enrollment for lead ${lead.email} in campaign ${enrollment.campaign.name} due to stopOnReply.`);
+          if (existing) continue;
+
+          const campaignId = await replyCampaignId(mailbox, lead.id, msg);
+
+          // The reply and the pause of the lead's stopOnReply sequences commit together:
+          // a failed write records neither, and the message is read again on the next sync.
+          // Automated mail is recorded but stops nothing.
+          const { count, paused } = await prisma.$transaction(async (tx) => {
+            // The Message-ID is unique per mailbox, so a message another sync already
+            // recorded (one in another process, or an earlier read of this batch) is skipped.
+            const { count } = await tx.inboundResponse.createMany({
+              data: {
+                leadId: lead.id,
+                campaignId,
+                senderAccountId: mailbox.id,
+                messageId: msg.messageId,
+                // What a Unibox reply to it names in References, before its Message-ID
+                references: threadReferences(msg.inReplyTo, msg.references),
+                subject: msg.subject || 'No Subject',
+                body: msg.body || '',
+                bodyUnavailable: msg.bodyUnavailable === true,
+                receivedAt: msg.date,
+                unread: true,
+                autoReply: msg.autoReply
+              },
+              skipDuplicates: true
+            });
+            if (count === 0 || msg.autoReply) return { count, paused: [] };
+            const enrollments = await tx.campaignEnrollment.findMany({
+              where: { leadId: lead.id, status: 'Active', campaign: { stopOnReply: true } },
+              select: { id: true, campaign: { select: { name: true } } }
+            });
+            if (enrollments.length > 0) {
+              await tx.campaignEnrollment.updateMany({
+                where: { id: { in: enrollments.map(e => e.id) }, status: 'Active' },
+                data: { status: 'Paused' }
+              });
+            }
+            return { count, paused: enrollments };
+          });
+          if (count === 0) continue;
+          newRepliesCount++;
+
+          if (msg.autoReply) {
+            console.log(`[IMAP Sync] Recorded ${msg.autoReply} message from lead ${lead.email}; its sequences keep running.`);
+          }
+          for (const enrollment of paused) {
+            console.log(`[IMAP Sync] Paused enrollment for lead ${lead.email} in campaign ${enrollment.campaign.name} due to stopOnReply.`);
+          }
+        } catch (err) {
+          console.error(`[IMAP Sync] Could not record message UID ${msg.uid} of ${mailbox.emailAddress}:`, err);
+          failed.set(msg.uid, (err instanceof Error ? err.message : String(err)).replace(/\s+/g, ' ').trim());
+          if (isTransientDbError(err)) transient.add(msg.uid);
         }
       }
-      
-      // Move the checkpoint only after every message of the batch was fetched and
-      // recorded, so a dropped connection or a failed write reads the batch again.
+
+      // Move the checkpoint only once the batch was fetched, so a dropped connection
+      // reads the batch again. A message that failed to be recorded holds it just
+      // before that message until it has failed too many syncs in a row and is skipped.
+      // Only a failure counted under the saved checkpoint counts toward that. Attempts
+      // are counted per sync, and a Unibox load can sync too, so a temporary database
+      // error never counts: it could use up the attempts of a real reply in seconds.
+      const held = checkpointAfterFailures(
+        batch.lastUid ?? 0,
+        [...failed.keys()].sort((a, b) => a - b),
+        batch.resumed ? { uid: mailbox.imapFailedUid, attempts: mailbox.imapFailedUidAttempts } : { uid: null, attempts: 0 },
+        transient
+      );
       if (batch.complete && batch.uidValidity !== null && batch.lastUid !== null) {
-        await saveImapCheckpoint(mailbox.id, batch.uidValidity, batch.lastUid);
+        await saveImapCheckpoint(mailbox, {
+          uidValidity: batch.uidValidity,
+          lastUid: held.lastUid,
+          failedUid: held.failedUid,
+          attempts: held.attempts,
+        });
       }
-      
+
+      // What went wrong with single messages, shown on the Accounts page
+      const notes: string[] = [];
+      const reason = (uid: number) => failed.get(uid)!.replace(/\.+$/, '');
+      for (const uid of held.skipped) {
+        console.warn(`[IMAP Sync] Skipped message UID ${uid} of ${mailbox.emailAddress} after ${IMAP_MESSAGE_MAX_ATTEMPTS} failed attempts to record it.`);
+        notes.push(`Skipped INBOX message UID ${uid} after ${IMAP_MESSAGE_MAX_ATTEMPTS} failed attempts to record it: ${reason(uid)}.`);
+      }
+      if (held.failedUid !== null) {
+        notes.push(
+          transient.has(held.failedUid)
+            ? `Could not record INBOX message UID ${held.failedUid} because of a temporary database error, retried without counting toward skipping it: ${reason(held.failedUid)}.`
+            : `Could not record INBOX message UID ${held.failedUid} (attempt ${held.attempts} of ${IMAP_MESSAGE_MAX_ATTEMPTS} ` +
+              `before it is skipped): ${reason(held.failedUid)}.`
+        );
+      }
+      const note = notes.length > 0 ? syncNote(notes.join(' ')) : null;
+
       console.log(`[IMAP Sync] Finished. Synced ${newRepliesCount} new replies.`);
-      await recordImapSyncResult(mailbox.id, null);
+      // A message still waiting to be recorded fails the sync; one skipped is a note on a success
+      if (held.failedUid !== null) {
+        await recordImapSyncResult(mailbox.id, note, false);
+        return { success: false, error: failed.get(held.failedUid)! };
+      }
+      await recordImapSyncResult(mailbox.id, note, true);
       return { success: true, syncedCount: newRepliesCount };
     } catch (err: any) {
       console.error(`[IMAP Sync] Sync error for mailbox ${mailboxId}:`, err);
@@ -911,9 +1104,10 @@ export function parseHeaderResponse(fetchResp: string): HeaderInfo[] {
 
     const fields = parseHeaderFields(block);
     // The address is read before any RFC 2047 decoding, which could put '<' or ',' in the display name
-    const fromEmail = parseMailboxAddress(headerText(fields.get('from')));
+    // Both reach the database (the address in the lead lookup), so neither may hold NUL
+    const fromEmail = storableText(parseMailboxAddress(headerText(fields.get('from'))));
     if (!fromEmail.includes('@')) continue;
-    const subject = decodeMimeHeader(headerText(fields.get('subject')));
+    const subject = storableText(decodeMimeHeader(headerText(fields.get('subject'))));
 
     result.push({
       uid: fetched.uid,
@@ -930,6 +1124,16 @@ export function parseHeaderResponse(fetchResp: string): HeaderInfo[] {
   }
 
   return result;
+}
+
+/** UIDs a header FETCH response sent header data for, whether or not the headers name a sender. */
+function fetchedHeaderUids(fetchResp: string): Set<number> {
+  const uids = new Set<number>();
+  for (const fetched of readFetchResponses(fetchResp)) {
+    if (fetched.uid === null) continue;
+    if ([...fetched.items].some(([name, value]) => name.startsWith('BODY[HEADER') && value !== null)) uids.add(fetched.uid);
+  }
+  return uids;
 }
 
 /** The BODY[TEXT] data of a body FETCH response, exactly as sent (one char per octet), without the rest of the response. */

@@ -622,6 +622,11 @@ export default function UniboxPage() {
                         <Typography variant="caption" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, display: 'block', color: 'text.primary' }}>
                           {outbound ? msg.body : sanitizeEmailBody(msg.body)}
                         </Typography>
+                        {!outbound && msg.bodyUnavailable && (
+                          <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontStyle: 'italic' }}>
+                            The text of this reply could not be read. Open it in the mailbox to see it.
+                          </Typography>
+                        )}
                         <Typography sx={{ fontSize: 9, color: 'text.secondary', fontFamily: 'monospace', textAlign: outbound ? 'right' : 'left', mt: 1 }}>
                           {formatWhen(msg.timestamp, true)}
                         </Typography>

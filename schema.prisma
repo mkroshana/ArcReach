@@ -110,9 +110,16 @@ model SenderAccount {
   // number (BigInt would break every API response that embeds the mailbox).
   imapUidValidity Float?
   imapLastUid     Float?
+  // The message the checkpoint waits on: the first after it that the latest sync could
+  // not record, and how many syncs in a row failed on it. It is read again by each sync
+  // and skipped once it has failed lib/imapService IMAP_MESSAGE_MAX_ATTEMPTS times, so
+  // one bad message never holds back the replies after it. Null and 0 when none.
+  imapFailedUid         Float?
+  imapFailedUidAttempts Int     @default(0)
   // Reply-sync health shown on the Accounts page: when a sync last succeeded, and why
-  // the latest one failed (null once one succeeds). Both reset when the IMAP connection
-  // details change, so they always describe the details saved.
+  // the latest one failed (null once one succeeds, unless that sync skipped a message
+  // it could not record, which it notes here until the next sync). Both reset when the
+  // IMAP connection details change, so they always describe the details saved.
   imapLastSyncAt    DateTime?
   imapLastSyncError String?
 }
@@ -415,6 +422,10 @@ model InboundResponse {
   // It is kept for Unibox but never stops a sequence or counts as a reply. Null for a
   // human reply and for replies recorded before automated mail was detected.
   autoReply       String?
+  // Set when the reply's text could not be read (the mail server refused it, or it could
+  // not be decoded), so it was recorded with an empty body instead of holding back the
+  // replies after it.
+  bodyUnavailable Boolean        @default(false)
 
   @@unique([senderAccountId, messageId])
 }

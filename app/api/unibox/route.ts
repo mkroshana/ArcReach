@@ -180,7 +180,7 @@ async function loadThreadMessages(session: Caller, threadId: string) {
   const replies = (await prisma.inboundResponse.findMany({
     where: { leadId, ...replyScope(session) },
     select: {
-      id: true, subject: true, body: true, receivedAt: true, unread: true, autoReply: true, senderAccountId: true,
+      id: true, subject: true, body: true, bodyUnavailable: true, receivedAt: true, unread: true, autoReply: true, senderAccountId: true,
       senderAccount: { select: MAILBOX_LABEL_SELECT },
       campaign: { select: CAMPAIGN_LABEL_SELECT }
     },
@@ -200,6 +200,8 @@ async function loadThreadMessages(session: Caller, threadId: string) {
     type: 'inbound' as const,
     subject: r.subject,
     body: r.body,
+    // Set when the reply's text could not be read, so its body is empty
+    bodyUnavailable: r.bodyUnavailable,
     timestamp: r.receivedAt,
     senderAccountId: r.senderAccountId,
     senderAccount: r.senderAccount,

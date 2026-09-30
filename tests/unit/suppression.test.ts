@@ -154,15 +154,43 @@ vi.mock('../../lib/imapService', () => ({
   getActiveImapAccounts: vi.fn(),
 }));
 
-// acme.com has an MX record; etimeout.test and eservfail.test fail the lookup
-// with that error code; any other lookup fails as ENOTFOUND does.
-vi.mock('dns', () => {
-  const resolveMx = (domain: string, cb: (err: Error | null, records?: unknown[]) => void) => {
-    const code = ['etimeout.test', 'eservfail.test'].includes(domain) ? domain.split('.')[0].toUpperCase() : 'ENOTFOUND';
-    if (domain === 'acme.com') cb(null, [{ exchange: 'mx.acme.com', priority: 10 }]);
-    else cb(Object.assign(new Error(`queryMx ${code} ${domain}`), { code }));
+/**
+ * DNS answers for the domain MX check, by domain and lookup: records, or the
+ * error code the lookup fails with. acme.com has an MX record; etimeout.test
+ * and eservfail.test fail the MX lookup with that code; a lookup with no
+ * answer fails as NXDOMAIN (ENOTFOUND) does. Tests may add answers, and every
+ * lookup is logged.
+ */
+const dnsAnswers = vi.hoisted(() => {
+  type Answer = unknown[] | string;
+  const defaults = (): Record<string, { mx?: Answer; a?: Answer }> => ({
+    'acme.com': { mx: [{ exchange: 'mx.acme.com', priority: 10 }] },
+    'etimeout.test': { mx: 'ETIMEOUT' },
+    'eservfail.test': { mx: 'ESERVFAIL' },
+  });
+  const state = { answers: defaults(), lookups: [] as string[] };
+  return {
+    state,
+    reset() {
+      state.answers = defaults();
+      state.lookups = [];
+    },
   };
-  return { default: { resolveMx }, resolveMx };
+});
+
+vi.mock('dns', () => {
+  const answer = async (type: 'mx' | 'a', domain: string) => {
+    dnsAnswers.state.lookups.push(`${type} ${domain}`);
+    const found = dnsAnswers.state.answers[domain]?.[type] ?? 'ENOTFOUND';
+    if (typeof found === 'string') throw Object.assign(new Error(`query ${found} ${domain}`), { code: found });
+    return found;
+  };
+  class Resolver {
+    resolveMx(domain: string) { return answer('mx', domain); }
+    resolve4(domain: string) { return answer('a', domain); }
+  }
+  const promises = { Resolver };
+  return { default: { promises }, promises };
 });
 
 import { getSession } from '../../lib/session';
@@ -176,6 +204,7 @@ import { DELETE as deleteGroup } from '../../app/api/leads/groups/route';
 import { PUT as putUnibox } from '../../app/api/unibox/route';
 import { liftsSuppression, suppressEmails, suppressedLeadFields } from '../../lib/suppression';
 import { findEnrollableLeadIds } from '../../lib/sendEligibility';
+import { DOMAIN_CHECK_BATCH_SIZE } from '../../lib/domainCheck';
 
 const ADMIN = { id: 'admin-1', name: 'Admin', email: 'admin@example.com', role: 'ADMIN' as const };
 const USER = { id: 'user-1', name: 'User', email: 'user@example.com', role: 'USER' as const };
@@ -221,6 +250,7 @@ const enrolledIn = (campaignId: string) =>
 
 beforeEach(() => {
   db.reset();
+  dnsAnswers.reset();
   vi.mocked(getSession).mockResolvedValue(ADMIN as any);
   vi.spyOn(console, 'error').mockImplementation(() => {});
   db.tables.campaign.push(
@@ -472,7 +502,7 @@ describe('a lead update cannot lift a suppression (H18, H17)', () => {
 });
 
 describe('verification (H18, M23)', () => {
-  it('puts an address that fails verification on the suppression list', async () => {
+  it('puts an address whose domain does not exist on the suppression list, keeping its enrollments (H36)', async () => {
     addLead('gone', 'someone@no-mx.test');
     enroll('gone', 'cmp-unverified');
 
@@ -481,22 +511,32 @@ describe('verification (H18, M23)', () => {
     expect(res.status).toBe(200);
     expect(leadById('gone')!.validationStatus).toBe('Invalid');
     expect(db.tables.suppressedEmail).toEqual([{ email: 'someone@no-mx.test', reason: 'Invalid', source: 'verification' }]);
+    // Kept as a record; the send engine never sends to an Invalid or suppressed lead
+    expect(db.tables.campaignEnrollment).toEqual([expect.objectContaining({ leadId: 'gone', campaignId: 'cmp-unverified', status: 'Active' })]);
+    expect(await findEnrollable()).toEqual([]);
   });
 
-  it.each(['ETIMEOUT', 'ESERVFAIL'])('marks a lead Invalid on a failed %s lookup without suppressing it, so it can be re-activated', async (code) => {
-    addLead('flaky', `someone@${code.toLowerCase()}.test`);
-    enroll('flaky', 'cmp-unverified', 'Failed');
+  it.each(['ETIMEOUT', 'ESERVFAIL'])(
+    'marks a lead Risky on a failed %s lookup without suppressing it or touching its enrollments, and checks it again later (H36)',
+    async (code) => {
+      addLead('flaky', `someone@${code.toLowerCase()}.test`);
+      enroll('flaky', 'cmp-unverified', 'Completed');
 
-    const res = await postVerify(makeReq('POST', '/api/leads/verify', { ids: ['flaky'] }));
+      const res = await postVerify(makeReq('POST', '/api/leads/verify', { ids: ['flaky'] }));
 
-    expect(res.status).toBe(200);
-    expect(leadById('flaky')!.validationStatus).toBe('Invalid');
-    expect(db.tables.suppressedEmail).toHaveLength(0);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ checked: 1, counts: { valid: 0, risky: 1, invalid: 0 } });
+      expect(leadById('flaky')!.validationStatus).toBe('Risky');
+      expect(db.tables.suppressedEmail).toHaveLength(0);
+      expect(db.tables.campaignEnrollment).toEqual([expect.objectContaining({ leadId: 'flaky', campaignId: 'cmp-unverified', status: 'Completed' })]);
 
-    const reactivated = await postReactivate(makeReq('POST', '/api/leads/reactivate', { ids: ['flaky'] }));
-    expect(await reactivated.json()).toEqual({ reactivated: 1, unsubscribed: 0, suppressed: 0, notSuppressed: 0 });
-    expect(leadById('flaky')).toMatchObject({ status: 'Neutral', validationStatus: 'Unverified' });
-  });
+      // The resolver answers again: the next check finds the domain's MX record
+      dnsAnswers.state.answers[`${code.toLowerCase()}.test`] = { mx: [{ exchange: 'mx.flaky.test', priority: 10 }] };
+      await postVerify(makeReq('POST', '/api/leads/verify', { ids: ['flaky'] }));
+      expect(leadById('flaky')!.validationStatus).toBe('Valid');
+      expect(db.tables.suppressedEmail).toHaveLength(0);
+    },
+  );
 
   it.each([
     ['a failed verification', 'Invalid', {}],
@@ -519,11 +559,86 @@ describe('verification (H18, M23)', () => {
     addLead('listed', 'listed@acme.com'); // re-imported before the suppression was applied to its status
     suppress('listed@acme.com', 'Unsubscribed');
 
-    const res = await postVerify(makeReq('POST', '/api/leads/verify', {}));
+    const res = await postVerify(makeReq('POST', '/api/leads/verify', { ids: ['fine', 'opted-out', 'listed'] }));
 
     expect(res.status).toBe(200);
     expect(db.tables.lead.map((l) => l.validationStatus)).toEqual(['Valid', 'Valid', 'Valid']);
     expect(enrolledIn('cmp-valid')).toEqual(['fine@acme.com']);
+  });
+});
+
+describe('domain MX check (H36)', () => {
+  it('answers real counts per outcome, looking each domain up once and suppressing only the certain failures', async () => {
+    dnsAnswers.state.answers['a-only.test'] = { mx: 'ENODATA', a: ['192.0.2.1'] };
+    dnsAnswers.state.answers['parked.test'] = { mx: 'ENODATA', a: 'ENODATA' };
+    addLead('mx-1', 'one@acme.com');
+    addLead('mx-2', 'two@acme.com');
+    addLead('a-only', 'jane@a-only.test');
+    addLead('parked', 'jane@parked.test');
+    addLead('timeout', 'jane@etimeout.test');
+    addLead('gone', 'jane@no-mx.test');
+    addLead('malformed', 'not-an-email');
+
+    const res = await postVerify(makeReq('POST', '/api/leads/verify', { ids: ['mx-1', 'mx-2', 'a-only', 'parked', 'timeout', 'gone', 'malformed', 'mx-1', 'deleted'] }));
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({ success: true, checked: 7, counts: { valid: 3, risky: 2, invalid: 2 } });
+    expect(Object.fromEntries(body.results.map((r: any) => [r.id, r.validationStatus]))).toEqual({
+      'mx-1': 'Valid', 'mx-2': 'Valid', 'a-only': 'Valid', parked: 'Risky', timeout: 'Risky', gone: 'Invalid', malformed: 'Invalid',
+    });
+    expect(Object.fromEntries(db.tables.lead.map((l) => [l.id, l.validationStatus]))).toEqual(
+      Object.fromEntries(body.results.map((r: any) => [r.id, r.validationStatus])),
+    );
+    expect(dnsAnswers.state.lookups.filter((l) => l === 'mx acme.com')).toHaveLength(1);
+    expect(dnsAnswers.state.lookups).toContain('a a-only.test');
+    expect(db.tables.suppressedEmail.map((s) => s.email).sort()).toEqual(['jane@no-mx.test', 'not-an-email']);
+  });
+
+  it('moves a lead checked Valid out of the Unverified campaigns it was Active in without deleting any enrollment', async () => {
+    db.tables.campaign.push({ id: 'cmp-unverified-2', audienceCohort: 'Unverified', status: 'Active' });
+    addLead('fine', 'fine@acme.com');
+    enroll('fine', 'cmp-unverified');
+    db.tables.campaignEnrollment[0].nextActionDate = new Date('2026-09-01T09:00:00Z');
+    enroll('fine', 'cmp-unverified-2', 'Paused');
+
+    const res = await postVerify(makeReq('POST', '/api/leads/verify', { ids: ['fine'] }));
+
+    expect(res.status).toBe(200);
+    expect(db.tables.campaignEnrollment.map(({ campaignId, status, nextActionDate }) => ({ campaignId, status, due: nextActionDate !== null }))).toEqual([
+      { campaignId: 'cmp-unverified', status: 'Removed', due: false },
+      { campaignId: 'cmp-unverified-2', status: 'Paused', due: false },
+      { campaignId: 'cmp-valid', status: 'Active', due: true },
+    ]);
+  });
+
+  it.each([
+    ['no ids', {}],
+    ['an empty list', { ids: [] }],
+    ['a string', { ids: 'fine' }],
+    ['a non-string id', { ids: ['fine', 5] }],
+    ['more ids than one batch takes', { ids: Array.from({ length: DOMAIN_CHECK_BATCH_SIZE + 1 }, (_, i) => `lead-${i}`) }],
+  ])('refuses %s with a 400, looking nothing up and writing nothing', async (_label, body) => {
+    addLead('fine', 'fine@acme.com');
+    const before = structuredClone(db.tables);
+
+    const res = await postVerify(makeReq('POST', '/api/leads/verify', body));
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: `ids must be an array of 1 to ${DOMAIN_CHECK_BATCH_SIZE} lead ids.` });
+    expect(dnsAnswers.state.lookups).toEqual([]);
+    expect(db.tables).toEqual(before);
+  });
+
+  it(`checks a full batch of ${DOMAIN_CHECK_BATCH_SIZE} leads`, async () => {
+    const ids = Array.from({ length: DOMAIN_CHECK_BATCH_SIZE }, (_, i) => `lead-${i}`);
+    ids.forEach((id) => addLead(id, `${id}@acme.com`));
+
+    const res = await postVerify(makeReq('POST', '/api/leads/verify', { ids }));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ checked: DOMAIN_CHECK_BATCH_SIZE, counts: { valid: DOMAIN_CHECK_BATCH_SIZE, risky: 0, invalid: 0 } });
+    expect(dnsAnswers.state.lookups).toEqual(['mx acme.com']);
   });
 });
 

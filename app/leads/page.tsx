@@ -8,8 +8,7 @@ import {
   AlertCircle, 
   Search, 
   Download, 
-  Sparkles, 
-  Play, 
+  Globe, 
   Trash2, 
   Plus,
   X,
@@ -45,6 +44,7 @@ import { useToast } from '@/components/Toast';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { toCsv, downloadCsv } from '@/lib/csv';
 import { SUPPRESSION_LABELS } from '@/lib/suppression';
+import { DOMAIN_CHECK_BATCH_SIZE, type DomainCheckCounts } from '@/lib/domainCheck';
 import type { SuppressionReason } from '@prisma/client';
 
 /** A lead's suppression-list entry, as /api/leads returns it on each lead. */
@@ -110,7 +110,7 @@ function SuppressionChip({ lead }: { lead: any }) {
 function describeReactivation(result: { reactivated: number; unsubscribed: number; suppressed: number; notSuppressed: number }): string {
   const leadCount = (n: number) => `${n} ${n === 1 ? 'lead' : 'leads'}`;
   const done = result.reactivated > 0
-    ? `${leadCount(result.reactivated)} moved back to Unverified. Run Verify to check ${result.reactivated === 1 ? 'it' : 'them'} again.`
+    ? `${leadCount(result.reactivated)} moved back to Unverified. Run Check Domain MX to check ${result.reactivated === 1 ? 'it' : 'them'} again.`
     : 'No leads were re-activated.';
   const skipped = [
     result.unsubscribed > 0 ? `${result.unsubscribed} unsubscribed` : '',
@@ -118,6 +118,16 @@ function describeReactivation(result: { reactivated: number; unsubscribed: numbe
     result.notSuppressed > 0 ? `${result.notSuppressed} not suppressed` : '',
   ].filter(Boolean);
   return skipped.length > 0 ? `${done} Skipped ${skipped.join(', ')}.` : done;
+}
+
+/** What a domain MX check found, by validation status, for its toast. */
+function describeDomainCheck(counts: DomainCheckCounts): string {
+  const found = [
+    counts.valid > 0 ? `${counts.valid} Valid (the domain has MX records, or an A record in their place; mailboxes are not checked)` : '',
+    counts.risky > 0 ? `${counts.risky} Risky (the DNS lookup failed or found no MX or A record; run the check again to retry them)` : '',
+    counts.invalid > 0 ? `${counts.invalid} Invalid (the domain does not exist or the address is malformed)` : '',
+  ].filter(Boolean);
+  return found.length > 0 ? `${found.join(', ')}.` : 'No leads were checked.';
 }
 
 export default function LeadsPage() {
@@ -141,9 +151,9 @@ export default function LeadsPage() {
   const [filterStatus, setFilterStatus] = useState('All');
   const [currentPage, setCurrentPage] = useState(1);
   
-  // Verification progress states
+  // Domain MX check progress: leads checked so far, by result, out of the leads sent
   const [isVerifying, setIsVerifying] = useState(false);
-  const [verifyProgress, setVerifyProgress] = useState(0);
+  const [verifyProgress, setVerifyProgress] = useState<DomainCheckCounts & { checked: number; total: number } | null>(null);
 
   // New Lead form state
   const [showAddLead, setShowAddLead] = useState(false);
@@ -286,46 +296,49 @@ export default function LeadsPage() {
       : leads.filter(l => l.validationStatus === 'Unverified' || l.validationStatus === 'Risky');
 
     if (targets.length === 0) {
-      showToast(selectedLeadIds.length > 0 ? 'Selected leads are already verified.' : 'All leads are already verified.');
+      showToast(selectedLeadIds.length > 0 ? 'None of the selected leads is Unverified or Risky.' : 'No leads are Unverified or Risky.');
       return;
     }
 
+    // One request per batch, one after another, so each stays well inside the request timeout
+    const ids = targets.map(l => l.id);
+    const progress = { checked: 0, total: ids.length, valid: 0, risky: 0, invalid: 0 };
     setIsVerifying(true);
-    setVerifyProgress(10);
-    
-    const progressInterval = setInterval(() => {
-      setVerifyProgress(prev => {
-        if (prev >= 90) {
-          clearInterval(progressInterval);
-          return 90;
-        }
-        return prev + 10;
-      });
-    }, 200);
+    setVerifyProgress({ ...progress });
+    let failure: string | null = null;
 
     try {
-      const res = await fetch('/api/leads/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: targets.map(l => l.id) })
-      });
-
-      clearInterval(progressInterval);
-      setVerifyProgress(100);
-
-      if (res.ok) {
-        const data = await res.json();
-        showToast(`Email Verification Complete: ${data.verifiedLeads.length} leads validated!`);
-        await fetchLeads(); // Refresh leads
-      } else {
-        showToast('Verification failed. Server returned error.');
+      for (let i = 0; i < ids.length; i += DOMAIN_CHECK_BATCH_SIZE) {
+        const res = await fetch('/api/leads/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids: ids.slice(i, i + DOMAIN_CHECK_BATCH_SIZE) })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          failure = data.error || `the server answered ${res.status}`;
+          break;
+        }
+        progress.checked += data.checked;
+        progress.valid += data.counts.valid;
+        progress.risky += data.counts.risky;
+        progress.invalid += data.counts.invalid;
+        setVerifyProgress({ ...progress });
       }
     } catch (err) {
-      showToast('Error during email MX records verification.');
+      failure = 'the request failed';
       console.error(err);
     } finally {
       setIsVerifying(false);
+      setVerifyProgress(null);
     }
+
+    if (failure) {
+      showToast(`Domain MX check stopped after ${progress.checked} of ${progress.total} leads because ${failure}. ${describeDomainCheck(progress)}`, 'error');
+    } else {
+      showToast(`Domain MX check finished for ${progress.checked} of ${progress.total} leads: ${describeDomainCheck(progress)}`, progress.risky > 0 ? 'warning' : 'success');
+    }
+    if (progress.checked > 0) await fetchLeads();
   };
 
   const handleDeleteLead = (id: string) => {
@@ -1029,7 +1042,7 @@ export default function LeadsPage() {
       <header className="flex justify-between items-start md:items-center flex-col md:flex-row gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white mb-0.5">Leads Directory</h1>
-          <p className="text-slate-500 dark:text-slate-400 text-xs">Import contacts, verify email deliverability, and organize your prospect lists.</p>
+          <p className="text-slate-500 dark:text-slate-400 text-xs">Import contacts, check their email domains for mail servers, and organize your prospect lists.</p>
         </div>
         <div className="flex gap-2.5">
           <button 
@@ -1052,8 +1065,8 @@ export default function LeadsPage() {
             disabled={isVerifying || loading}
             className="bg-blue-600 hover:bg-blue-500 disabled:bg-blue-700 text-white px-4 py-2 rounded-lg font-semibold flex items-center gap-2 transition-colors text-xs shadow-sm"
           >
-            <Play className={`w-3.5 h-3.5 ${isVerifying ? 'animate-spin' : ''}`} />
-            {isVerifying ? `Verifying (${verifyProgress}%)` : 'Verify Deliverability'}
+            <Globe className="w-3.5 h-3.5" />
+            {isVerifying && verifyProgress ? `Checking ${verifyProgress.checked} of ${verifyProgress.total}` : 'Check Domain MX'}
           </button>
           
           {isAdmin && (
@@ -1072,24 +1085,19 @@ export default function LeadsPage() {
         </div>
       </header>
 
-      {/* Verification progress status */}
-      {isVerifying && (
-        <div className="bg-blue-50 dark:bg-blue-950/25 border border-blue-100 dark:border-blue-500/10 p-4 rounded-xl animate-pulse flex flex-col md:flex-row items-center justify-between gap-4">
+      {/* Domain MX check progress: real counts from the batches finished so far */}
+      {isVerifying && verifyProgress && (
+        <div className="bg-blue-50 dark:bg-blue-950/25 border border-blue-100 dark:border-blue-500/10 p-4 rounded-xl flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <Sparkles className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+            <Globe className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
             <div>
-              <p className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-wider">Checking Mailbox MX Status</p>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-medium">Resolving DNS setups, catching invalid syntax sequences...</p>
+              <p className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-wider">Checking Domain MX Records</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-medium">Looks up each email domain&apos;s MX records, or its A record when it has none. Mailboxes are not checked.</p>
             </div>
           </div>
-          <div className="w-full md:w-64 font-sans">
-            <div className="flex justify-between text-[11px] mb-1 font-bold">
-              <span className="text-blue-600 dark:text-blue-400">SMTP Progress</span>
-              <span className="text-slate-500 dark:text-slate-400">{verifyProgress}%</span>
-            </div>
-            <div className="w-full bg-slate-200 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
-              <div className="bg-blue-600 dark:bg-blue-500 h-full rounded-full transition-all duration-300" style={{ width: `${verifyProgress}%` }}></div>
-            </div>
+          <div className="w-full md:w-64 font-sans text-[11px] font-bold space-y-1">
+            <p className="text-blue-600 dark:text-blue-400">Checked {verifyProgress.checked} of {verifyProgress.total} leads</p>
+            <p className="text-slate-500 dark:text-slate-400">{verifyProgress.valid} Valid, {verifyProgress.risky} Risky, {verifyProgress.invalid} Invalid</p>
           </div>
         </div>
       )}
@@ -2390,8 +2398,8 @@ export default function LeadsPage() {
                   disabled={isVerifying}
                   className="bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1 transition-colors cursor-pointer"
                 >
-                  <Play className="w-3 h-3" />
-                  Verify
+                  <Globe className="w-3 h-3" />
+                  Check Domain MX
                 </button>
               )}
               <button

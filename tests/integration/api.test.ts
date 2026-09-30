@@ -333,7 +333,7 @@ describe('ArcReach Live API Integration Tests', () => {
       expect(verifyRes.status).toBe(200);
       const verification = await verifyRes.json();
       expect(verification.success).toBe(true);
-      expect(Array.isArray(verification.verifiedLeads)).toBe(true);
+      expect(Array.isArray(verification.results)).toBe(true);
 
       // Get single lead details
       const getDetailRes = await testFetch(`${BASE_URL}/api/leads?id=${createdLeadId}`);

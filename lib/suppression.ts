@@ -6,9 +6,9 @@ import { leadEmailIn, normalizeEmail } from './leadEmail';
  * emailed again. It is keyed by the normalised address and has no relation to
  * Lead, so deleting a lead leaves its entry in place, and a lead created again
  * for the address comes back suppressed. An unsubscribe, a hard bounce (send
- * engine or delivery webhook) and a failed verification (a malformed address,
- * or a domain that does not exist or has no MX records, never a failed DNS
- * lookup) add an address; the first reason recorded for it stands. No lead
+ * engine or delivery webhook) and a failed domain MX check (a malformed
+ * address or a domain that does not exist, never a failed DNS lookup; see
+ * lib/domainCheck) add an address; the first reason recorded for it stands. No lead
  * edit lifts one: the lead status is CRM sentiment, and the leads page and
  * Unibox show a suppression from the list whatever the status says. Only an
  * admin removes an address, one at a time (DELETE /api/leads/suppression, see

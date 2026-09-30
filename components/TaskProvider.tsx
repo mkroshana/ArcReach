@@ -44,7 +44,7 @@ function labelForRequest(url: string, method: string): string | null {
   if (/\/api\/send-email\/test/.test(url)) return 'Sending test email';
   if (/\/api\/unibox\/reply/.test(url)) return 'Sending reply';
   if (/\/api\/leads\/bulk/.test(url) && m !== 'GET') return 'Processing leads';
-  if (/\/api\/leads\/verify/.test(url)) return 'Verifying leads';
+  if (/\/api\/leads\/verify/.test(url)) return 'Checking lead domains';
   if (/\/api\/leads\/groups/.test(url) && m !== 'GET') return 'Updating lead groups';
   if (/\/api\/templates/.test(url) && m !== 'GET') return 'Saving template';
   return null;

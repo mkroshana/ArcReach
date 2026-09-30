@@ -81,7 +81,9 @@ function campaignRow(include?: any) {
     id: 'cmp-1', name: 'Launch', userId: 'user-1', status: 'Draft', audienceCohort: 'Valid', senderAccountId: 'acc-1',
     updatedAt: UPDATED_AT,
   };
-  if (include) {
+  // PUT's first read loads only the owner, to refuse Publish while they are disabled.
+  if (include?.user) row.user = { disabledAt: null };
+  if (include?.senders) {
     row.steps = [];
     row.senderAccount = includedMailbox(include.senderAccount);
     row.senders = [{

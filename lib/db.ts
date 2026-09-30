@@ -2,6 +2,7 @@ import { PrismaClient, type Prisma } from '@prisma/client';
 import { hashPassword } from '@/lib/auth';
 import { stepMetrics } from '@/lib/engagementMetrics';
 import { devSeedRefusal } from '@/lib/devSeed';
+import type { PauseReason } from '@/lib/campaignPause';
 
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient | undefined };
 
@@ -232,14 +233,30 @@ export const db = {
   /**
    * Disables (sign-in refused, every session ended by bumping tokenVersion) or re-enables user `id`.
    * Re-enabling leaves tokenVersion alone, so sessions from before the disable stay dead.
+   * Disabling also stops the user's campaigns, so run it in a transaction: it first clears the
+   * auto-resume time of each campaign the send engine paused, so no timer can make it Active
+   * again, then pauses every Active campaign, both recorded as 'owner_disabled'. Drafts stay
+   * Draft, and re-enabling resumes nothing: an admin or the owner activates the campaigns again.
+   * `pausedCampaigns` counts the Active campaigns the disable paused.
    */
   async setUserDisabled(id: string, disabled: boolean, client: Prisma.TransactionClient = prisma) {
     await ensureInit();
-    return client.user.update({
+    const user = await client.user.update({
       where: { id },
       data: disabled ? { disabledAt: new Date(), tokenVersion: { increment: 1 } } : { disabledAt: null },
       select: { id: true, email: true, name: true, role: true, createdAt: true, disabledAt: true }
     });
+    if (!disabled) return user;
+    const pauseReason: PauseReason = 'owner_disabled';
+    await client.campaign.updateMany({
+      where: { userId: id, status: 'Paused', pausedUntil: { not: null } },
+      data: { pausedUntil: null, pauseReason }
+    });
+    const { count } = await client.campaign.updateMany({
+      where: { userId: id, status: 'Active' },
+      data: { status: 'Paused', pausedUntil: null, pauseReason }
+    });
+    return { ...user, pausedCampaigns: count };
   },
 
   async deleteUser(id: string, client: Prisma.TransactionClient = prisma) {

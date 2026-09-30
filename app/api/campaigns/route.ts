@@ -5,7 +5,7 @@ import { UnauthorizedError, unauthorizedResponse } from '@/lib/sessionError';
 import { checkCampaignSenders, checkReassignedCampaignSenders } from '@/lib/senderOwnership';
 import { checkAudienceCohort, cohortLeadWhere } from '@/lib/campaignCohort';
 import { activationBlocker } from '@/lib/campaignSteps';
-import { CAMPAIGN_STATUSES, userStatusPause } from '@/lib/campaignPause';
+import { CAMPAIGN_OWNER_DISABLED_ERROR, CAMPAIGN_STATUSES, userStatusPause } from '@/lib/campaignPause';
 import { isValidTimezone } from '@/lib/sendSchedule';
 import { findEnrollableLeadIds } from '@/lib/sendEligibility';
 import { type FieldRule, fieldRules, isPlainObject, pickUpdateFields } from '@/lib/updateAllowList';
@@ -132,6 +132,8 @@ export async function PUT(req: NextRequest) {
       where: session.role === 'ADMIN' ? { id } : { id, userId: session.id },
       select: {
         userId: true,
+        status: true,
+        user: { select: { disabledAt: true } },
         updatedAt: true,
         senderAccountId: true,
         senderAccount: { select: { emailAddress: true } },
@@ -159,14 +161,16 @@ export async function PUT(req: NextRequest) {
       Object.assign(updates, userStatusPause(updates.status));
     }
 
+    let ownerDisabled = !!target.user?.disabledAt;
     if (updates.userId !== undefined) {
       if (session.role !== 'ADMIN') {
         delete updates.userId;
       } else {
-        const owner = await prisma.user.findUnique({ where: { id: updates.userId as string }, select: { id: true } });
+        const owner = await prisma.user.findUnique({ where: { id: updates.userId as string }, select: { id: true, disabledAt: true } });
         if (!owner) {
           return NextResponse.json({ error: 'Assigned user does not exist.' }, { status: 400 });
         }
+        ownerDisabled = !!owner.disabledAt;
         // The campaign keeps its sender mailboxes, which must belong to the new owner too.
         if (updates.userId !== target.userId) {
           const senderError = await checkReassignedCampaignSenders(updates.userId as string, target);
@@ -175,6 +179,14 @@ export async function PUT(req: NextRequest) {
           }
         }
       }
+    }
+
+    // Nothing is sent for a disabled user: while the campaign's owner (after any
+    // reassignment) is disabled, it may not be made Active, nor handed over Active.
+    const makesActive = updates.status === 'Active'
+      || (updates.userId !== undefined && updates.status === undefined && target.status === 'Active');
+    if (ownerDisabled && makesActive) {
+      return NextResponse.json({ error: CAMPAIGN_OWNER_DISABLED_ERROR }, { status: 409 });
     }
 
     const updated = await db.updateCampaign(id, updates);

@@ -150,7 +150,7 @@ describe('PUT /api/campaigns', () => {
     mockedPrisma.senderAccount.findMany.mockResolvedValue([{ id: 'mb-1' }]);
     const ok = await putCampaign(makeReq('/api/campaigns', { id: 'cmp-1', userId: 'user-2' }));
     expect(ok.status).toBe(200);
-    expect(mockedPrisma.user.findUnique).toHaveBeenLastCalledWith({ where: { id: 'user-2' }, select: { id: true } });
+    expect(mockedPrisma.user.findUnique).toHaveBeenLastCalledWith({ where: { id: 'user-2' }, select: { id: true, disabledAt: true } });
     expect(mockedDb.updateCampaign).toHaveBeenCalledWith('cmp-1', { userId: 'user-2' });
   });
 

@@ -4,7 +4,7 @@
 import {
   ArrowLeft, Save, Send, Settings, Users, AlignLeft, Clock, ToggleLeft, Plus, Trash2,
   Mail, CheckCircle2, MousePointerClick, Reply, SendHorizontal,
-  Eye, Play, Loader2, XCircle, AlertTriangle, UserMinus, TimerOff, Lock, RefreshCw,
+  Eye, Play, Loader2, XCircle, AlertTriangle, UserMinus, TimerOff, Lock, RefreshCw, UserX,
 } from 'lucide-react';
 import Link from 'next/link';
 import { use, useState, useEffect } from 'react';
@@ -17,7 +17,7 @@ import { useToast } from '@/components/Toast';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import VariableToolbar from '@/components/VariableToolbar';
 import { activationBlocker, findIncompleteSteps, queuedLeadsMessage, sequenceDurationDays } from '@/lib/campaignSteps';
-import { autoResumeNote } from '@/lib/campaignPause';
+import { autoResumeNote, ownerDisabledNote } from '@/lib/campaignPause';
 import { sameCampaignVersion } from '@/lib/campaignVersion';
 import { sendScheduleError, timezoneError } from '@/lib/sendSchedule';
 import { personalizePreview, previewEmailBody } from '@/lib/personalize';
@@ -346,6 +346,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
 
   const statusColor = status === 'Active' ? 'success' : status === 'Paused' ? 'warning' : 'default';
   const resumeNote = campaign ? autoResumeNote(campaign) : null;
+  const ownerNote = campaign ? ownerDisabledNote(campaign) : null;
   const incompleteSteps = showStepErrors ? findIncompleteSteps(steps) : [];
   // Once the campaign has started sending, saved steps may be edited in place
   // but not removed or replaced by a template; new steps go after them.
@@ -394,6 +395,11 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                   {keepingPaused ? 'Keeping Paused…' : 'Keep Paused'}
                 </Button>
               </Stack>
+            )}
+            {ownerNote && (
+              <Typography variant="caption" sx={{ color: 'warning.main', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 0.5, mt: 1 }}>
+                <UserX size={12} style={{ flexShrink: 0 }} /> {ownerNote}
+              </Typography>
             )}
           </Box>
         </Stack>

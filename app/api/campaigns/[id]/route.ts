@@ -6,7 +6,7 @@ import { checkCampaignSenders } from '@/lib/senderOwnership';
 import { MAILBOX_SECRET_OMIT } from '@/lib/mailboxSecrets';
 import { checkAudienceCohort, syncCohortEnrollments } from '@/lib/campaignCohort';
 import { activationBlocker, changesStepStructure, matchStoredSteps, STEP_STRUCTURE_LOCKED_ERROR } from '@/lib/campaignSteps';
-import { CAMPAIGN_STATUSES, userStatusPause } from '@/lib/campaignPause';
+import { CAMPAIGN_OWNER_DISABLED_ERROR, CAMPAIGN_STATUSES, userStatusPause } from '@/lib/campaignPause';
 import { CAMPAIGN_CHANGED_ERROR, nextCampaignVersion, parseCampaignVersion, sameCampaignVersion } from '@/lib/campaignVersion';
 import { parseSendSchedule, sendScheduleError, timezoneError } from '@/lib/sendSchedule';
 import { fieldRules } from '@/lib/updateAllowList';
@@ -233,7 +233,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const { id } = await params;
 
     const campaign = await prisma.campaign.findUnique({
-      where: { id }
+      where: { id },
+      include: { user: { select: { disabledAt: true } } }
     });
 
     if (!campaign) {
@@ -262,6 +263,12 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
     if (status !== undefined && !STATUS_RULE.valid(status)) {
       return NextResponse.json({ error: `Field "status" must be ${STATUS_RULE.expected}.` }, { status: 400 });
+    }
+
+    // Nothing is sent for a disabled user, so Publish Sequence may not make
+    // their campaign Active.
+    if (status === 'Active' && campaign.user?.disabledAt) {
+      return NextResponse.json({ error: CAMPAIGN_OWNER_DISABLED_ERROR }, { status: 409 });
     }
 
     // A save names the version (updatedAt) it edited and is refused once the

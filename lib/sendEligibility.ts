@@ -21,19 +21,20 @@ export function sendableLeadWhere(): Prisma.LeadWhereInput {
 
 /**
  * The one definition of "this enrollment may be sent now": the enrollment and
- * its campaign are Active, and the lead is not archived, unsubscribed, bounced
- * or invalid. Every query that picks enrollments to send and every per-send
- * claim uses it, so suppression added here applies to all of them. It has
- * relation filters, so conditional writes read with it and then re-check only
- * the enrollment's own columns (see claimEnrollmentForSend). The suppression
- * list has no relation to Lead that a filter could follow, so it is checked on
- * the rows read with it: by the claim right before every send, and through
- * withoutSuppressedLeads where enrollments are queued.
+ * its campaign are Active, the campaign's owner is not disabled, and the lead
+ * is not archived, unsubscribed, bounced or invalid. Every query that picks
+ * enrollments to send and every per-send claim uses it, so suppression added
+ * here applies to all of them. It has relation filters, so conditional writes
+ * read with it and then re-check only the enrollment's own columns (see
+ * claimEnrollmentForSend). The suppression list has no relation to Lead that a
+ * filter could follow, so it is checked on the rows read with it: by the claim
+ * right before every send, and through withoutSuppressedLeads where
+ * enrollments are queued.
  */
 export function sendableEnrollmentWhere(): Prisma.CampaignEnrollmentWhereInput {
   return {
     status: 'Active',
-    campaign: { status: 'Active' },
+    campaign: { status: 'Active', user: { disabledAt: null } },
     lead: sendableLeadWhere(),
   };
 }

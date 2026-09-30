@@ -4,12 +4,12 @@ import { Prisma } from '@prisma/client';
 
 /**
  * The real lib/db and /api/users run against this fake client, so the tests see the exact
- * writes the helpers make: the tokenVersion bumps and the disabledAt flag.
+ * writes the helpers make: the tokenVersion bumps, the disabledAt flag and the campaign pauses.
  */
 const fake = vi.hoisted(() => ({
   user: { findUnique: vi.fn(), findMany: vi.fn(), count: vi.fn(), update: vi.fn() },
   senderAccount: { count: vi.fn() },
-  campaign: { count: vi.fn() },
+  campaign: { count: vi.fn(), updateMany: vi.fn() },
   $transaction: vi.fn(),
 }));
 
@@ -29,6 +29,8 @@ vi.mock('../../lib/session', () => ({
 
 import { getSession, setSession } from '../../lib/session';
 import { GET as getUsers, PUT as putUser } from '../../app/api/users/route';
+import { autoResumeQuotaPausedCampaigns } from '../../lib/sendEngine';
+import { matchesWhere } from './helpers/prismaWhere';
 
 const mockedSession = vi.mocked(getSession);
 const mockedSetSession = vi.mocked(setSession);
@@ -40,6 +42,13 @@ type Row = { id: string; email: string; role: 'ADMIN' | 'USER'; tokenVersion: nu
 
 /** The User table the fake client reads and writes, reset before each test. */
 let users: Row[];
+
+type CampaignRow = { id: string; userId: string; status: string; pausedUntil: Date | null; pauseReason: string | null };
+
+/** The Campaign table, and each write to users or campaigns with whether it ran inside a transaction. */
+let campaigns: CampaignRow[];
+let writes: Array<{ model: string; inTransaction: boolean }>;
+let inTransaction: boolean;
 
 function pick(row: Row, select?: Record<string, boolean>) {
   return select ? Object.fromEntries(Object.keys(select).map((k) => [k, (row as any)[k]])) : { ...row };
@@ -66,8 +75,18 @@ beforeEach(() => {
     { id: 'admin-2', email: 'second@example.com', role: 'ADMIN', tokenVersion: 0, disabledAt: null },
     { id: 'user-1', email: 'user@example.com', role: 'USER', tokenVersion: 2, disabledAt: null },
   ];
+  campaigns = [];
+  writes = [];
+  inTransaction = false;
   mockedSession.mockResolvedValue(ADMIN);
-  fake.$transaction.mockImplementation(async (fn: any) => fn(fake));
+  fake.$transaction.mockImplementation(async (fn: any) => {
+    inTransaction = true;
+    try {
+      return await fn(fake);
+    } finally {
+      inTransaction = false;
+    }
+  });
   fake.user.findUnique.mockImplementation(async ({ where, select }: any) => {
     // lib/db's dev seeding looks the seed users up by email; report them present so it writes nothing.
     if (where.email) return { id: 'seed' };
@@ -78,12 +97,19 @@ beforeEach(() => {
   fake.user.count.mockImplementation(async ({ where }: any) =>
     users.filter((u) => u.role === where.role && (where.disabledAt !== null || u.disabledAt === null)).length);
   fake.user.update.mockImplementation(async ({ where, data, select }: any) => {
+    writes.push({ model: 'user', inTransaction });
     const row = users.find((u) => u.id === where.id);
     if (!row) throw new Prisma.PrismaClientKnownRequestError('Record to update not found.', { code: 'P2025', clientVersion: 'test' });
     for (const [key, value] of Object.entries(data)) {
       (row as any)[key] = value && typeof value === 'object' && 'increment' in value ? (row as any)[key] + (value as any).increment : value;
     }
     return pick(row, select);
+  });
+  fake.campaign.updateMany.mockImplementation(async ({ where, data }: any) => {
+    writes.push({ model: 'campaign', inTransaction });
+    const hit = campaigns.filter((c) => matchesWhere(c, where));
+    hit.forEach((c) => Object.assign(c, data));
+    return { count: hit.length };
   });
   fake.senderAccount.count.mockResolvedValue(0);
   fake.campaign.count.mockResolvedValue(0);
@@ -175,6 +201,73 @@ describe('PUT /api/users disable and enable (H26)', () => {
 
     expect(res.status).toBe(409);
     expect((await res.json()).error).toBe('Another change to admin roles happened at the same time. Please retry.');
+  });
+});
+
+describe('disabling a user pauses their campaigns (owner decision)', () => {
+  const HOUR_MS = 60 * 60 * 1000;
+  const addCampaign = (id: string, userId: string, status: string, pausedUntil: Date | null = null, pauseReason: string | null = null) =>
+    campaigns.push({ id, userId, status, pausedUntil, pauseReason });
+  const campaign = (id: string) => campaigns.find((c) => c.id === id)!;
+
+  beforeEach(() => {
+    addCampaign('active-1', 'user-1', 'Active');
+    addCampaign('active-2', 'user-1', 'Active');
+    addCampaign('draft', 'user-1', 'Draft');
+    addCampaign('user-paused', 'user-1', 'Paused', null, 'user');
+    addCampaign('quota-paused', 'user-1', 'Paused', new Date(Date.now() + HOUR_MS), 'quota');
+    addCampaign('config-paused', 'user-1', 'Paused', new Date(Date.now() + HOUR_MS), 'config');
+    addCampaign('someone-else', 'admin-2', 'Active');
+  });
+
+  it('pauses their Active campaigns and clears every auto-resume in the transaction that disables them, and counts the pauses', async () => {
+    const res = await putUser(makePut({ id: 'user-1', disabled: true }));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ id: 'user-1', disabledAt: expect.any(String), pausedCampaigns: 2 });
+    for (const id of ['active-1', 'active-2', 'quota-paused', 'config-paused']) {
+      expect(campaign(id)).toMatchObject({ status: 'Paused', pausedUntil: null, pauseReason: 'owner_disabled' });
+    }
+    // Drafts stay Draft, a user's own pause stays theirs, and other users' campaigns are untouched.
+    expect(campaign('draft')).toEqual({ id: 'draft', userId: 'user-1', status: 'Draft', pausedUntil: null, pauseReason: null });
+    expect(campaign('user-paused')).toMatchObject({ status: 'Paused', pausedUntil: null, pauseReason: 'user' });
+    expect(campaign('someone-else')).toMatchObject({ status: 'Active', pauseReason: null });
+    // The disable and both campaign writes commit together or not at all.
+    expect(writes.map((w) => w.model)).toEqual(['user', 'campaign', 'campaign']);
+    expect(writes.every((w) => w.inTransaction)).toBe(true);
+  });
+
+  it('leaves no auto-resume that could make one of their campaigns Active again', async () => {
+    await putUser(makePut({ id: 'user-1', disabled: true }));
+
+    expect(await autoResumeQuotaPausedCampaigns(new Date(Date.now() + 2 * HOUR_MS))).toBe(0);
+    expect(campaigns.filter((c) => c.userId === 'user-1' && c.status === 'Active')).toEqual([]);
+  });
+
+  it('pauses a disabled admin\'s campaigns inside the serializable last-admin transaction', async () => {
+    addCampaign('admin-active', 'admin-2', 'Active');
+
+    const res = await putUser(makePut({ id: 'admin-2', disabled: true }));
+
+    expect(res.status).toBe(200);
+    expect(fake.$transaction).toHaveBeenCalledWith(expect.any(Function), TX_OPTIONS);
+    expect((await res.json()).pausedCampaigns).toBe(2);
+    expect(campaign('admin-active')).toMatchObject({ status: 'Paused', pauseReason: 'owner_disabled' });
+    expect(writes.every((w) => w.inTransaction)).toBe(true);
+  });
+
+  it('resumes none of their campaigns when the user is enabled again', async () => {
+    await putUser(makePut({ id: 'user-1', disabled: true }));
+    const paused = structuredClone(campaigns);
+    fake.campaign.updateMany.mockClear();
+
+    const res = await putUser(makePut({ id: 'user-1', disabled: false }));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).not.toHaveProperty('pausedCampaigns');
+    expect(fake.campaign.updateMany).not.toHaveBeenCalled();
+    expect(campaigns).toEqual(paused);
+    expect(await autoResumeQuotaPausedCampaigns(new Date(Date.now() + 2 * HOUR_MS))).toBe(0);
   });
 });
 

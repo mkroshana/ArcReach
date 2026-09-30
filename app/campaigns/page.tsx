@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   Plus, PlayCircle, Search, Layers, RefreshCw, Loader2,
-  Mail, User, ChevronRight, ChevronDown, Gauge, Inbox, Trash2, Play, Pause, Send, Check, Clock, TimerOff,
+  Mail, User, ChevronRight, ChevronDown, Gauge, Inbox, Trash2, Play, Pause, Send, Check, Clock, TimerOff, UserX,
 } from 'lucide-react';
 import {
   Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
@@ -17,7 +17,7 @@ import {
 import { alpha } from '@mui/material/styles';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { queuedLeadsMessage } from '@/lib/campaignSteps';
-import { autoResumeNote } from '@/lib/campaignPause';
+import { autoResumeNote, ownerDisabledNote } from '@/lib/campaignPause';
 import { LoadError, loadErrorMessage, readJsonList, readJsonObject } from '@/lib/apiResponse';
 import { toastDuration } from '@/lib/toastDuration';
 
@@ -293,6 +293,7 @@ export default function CampaignsPage() {
                 {filteredCampaigns.map(campaign => {
                   const isExpanded = expandedCampaignId === campaign.id;
                   const resumeNote = autoResumeNote(campaign);
+                  const ownerNote = ownerDisabledNote(campaign);
                   return (
                     <Fragment key={campaign.id}>
                       <TableRow hover onClick={() => setExpandedCampaignId(isExpanded ? null : campaign.id)} sx={{ cursor: 'pointer', bgcolor: isExpanded ? 'action.hover' : undefined }}>
@@ -328,6 +329,11 @@ export default function CampaignsPage() {
                           {resumeNote && (
                             <Typography variant="caption" sx={{ color: 'text.secondary', display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
                               <Clock size={11} style={{ flexShrink: 0 }} /> {resumeNote}
+                            </Typography>
+                          )}
+                          {ownerNote && (
+                            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
+                              <UserX size={11} style={{ flexShrink: 0 }} /> {ownerNote}
                             </Typography>
                           )}
                         </TableCell>

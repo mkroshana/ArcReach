@@ -39,6 +39,26 @@ export async function autoResumeQuotaPausedCampaigns(now: Date = new Date()): Pr
 }
 
 /**
+ * Pauses every Active campaign whose owner is disabled, as disabling the user
+ * does ('owner_disabled', never resumed on its own). Disabling pauses them in
+ * its own transaction; this catches one a write racing it left Active. Nothing
+ * is sent for them meanwhile either: sendableEnrollmentWhere leaves them out.
+ *
+ * Returns the number of campaigns paused.
+ */
+export async function pauseCampaignsOfDisabledOwners(): Promise<number> {
+  const pauseReason: PauseReason = 'owner_disabled';
+  const { count } = await prisma.campaign.updateMany({
+    where: { status: 'Active', user: { disabledAt: { not: null } } },
+    data: { status: 'Paused', pausedUntil: null, pauseReason },
+  });
+  if (count > 0) {
+    console.warn(`[SendEngine] Paused ${count} Active campaign(s) whose owner is disabled.`);
+  }
+  return count;
+}
+
+/**
  * Calculates the daily limit for a sender based on the warmup volume ramp
  */
 export function getEffectiveDailyCap(
@@ -706,6 +726,11 @@ export async function processDueEmails() {
     await autoResumeQuotaPausedCampaigns();
   } catch (err) {
     console.error('[SendEngine] Failed to auto-resume quota-paused campaigns:', err);
+  }
+  try {
+    await pauseCampaignsOfDisabledOwners();
+  } catch (err) {
+    console.error('[SendEngine] Failed to pause campaigns whose owner is disabled:', err);
   }
 
   try {

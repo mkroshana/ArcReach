@@ -45,6 +45,7 @@ import { getGlobalSettings } from '../../lib/settings';
 import { checkGlobalRateLimits } from '../../lib/rateLimits';
 import { sendMessage, getAzureSendStatus } from '../../lib/emailProvider';
 import { processDueEmails, BOOKKEEPING_RETRIES, MAX_SEND_ATTEMPTS, SENDER_CAP_WINDOW_MS } from '../../lib/sendEngine';
+import { matchesWhere } from './helpers/prismaWhere';
 import { SEND_CLAIM_TTL_MS, claimEnrollmentForSend, releaseEnrollmentClaim, sendableEnrollmentWhere } from '../../lib/sendEligibility';
 import { reconcileStaleSendingDispatches, STALE_SENDING_MS, NOT_FOUND_RETRY_MAX_AGE_MS, RECONCILE_BATCH } from '../../lib/sendReconciler';
 import { POST as postRun } from '../../app/api/campaigns/[id]/run/route';
@@ -121,11 +122,16 @@ function matchesFields(row: any, where: Record<string, any>): boolean {
   return Object.entries(where).every(([key, cond]) => matchesValue(row[key], cond));
 }
 
+/** Evaluates a campaign filter, following `user` to the campaign's owner. */
+function matchesCampaign(where: Record<string, any>): boolean {
+  return Object.entries(where).every(([key, cond]) => (key === 'user' ? matchesFields(campaign.user, cond) : matchesValue(campaign[key], cond)));
+}
+
 function matchesEnrollment(e: EnrollmentRow, where: Record<string, any>): boolean {
   return Object.entries(where).every(([key, cond]) => {
     if (key === 'AND') return cond.every((w: any) => matchesEnrollment(e, w));
     if (key === 'OR') return cond.some((w: any) => matchesEnrollment(e, w));
-    if (key === 'campaign') return e.campaignId === campaign.id && matchesFields(campaign, cond);
+    if (key === 'campaign') return e.campaignId === campaign.id && matchesCampaign(cond);
     if (key === 'lead') return matchesLead(e.leadId, cond);
     return matchesValue((e as any)[key], cond);
   });
@@ -179,7 +185,7 @@ beforeEach(() => {
   vi.spyOn(console, 'warn').mockImplementation(() => {});
 
   campaign = {
-    id: 'cmp-1', userId: 'admin-1', name: 'Launch', status: 'Active', timezone: 'UTC', sendSchedule: null,
+    id: 'cmp-1', userId: 'admin-1', user: { disabledAt: null }, name: 'Launch', status: 'Active', timezone: 'UTC', sendSchedule: null,
     trackOpens: false, trackClicks: false, senderAccountId: 'mb-1', senderAccount: SENDER, senders: [],
     steps: [
       { stepOrder: 1, subject: 'Hello', body: 'Hi there', waitDays: 0 },
@@ -1483,7 +1489,7 @@ describe('processDueEmails sends only from mailboxes the campaign owner owns (H2
       });
     }
     // One pause for the campaign, not one per lead.
-    expect(fake.campaign.updateMany.mock.calls.filter(([args]: any) => args.data.status === 'Paused')).toHaveLength(1);
+    expect(fake.campaign.updateMany.mock.calls.filter(([args]: any) => args.where.id === campaign.id && args.data.status === 'Paused')).toHaveLength(1);
     expect(warnings()).toContainEqual(expect.stringContaining('skips sender mailbox(es) other@acme.test (mb-other)'));
     expect(warnings()).toContainEqual(
       '[SendEngine] Campaign "Launch" (cmp-1) has no sender mailbox owned by its owner (user admin-1), so nothing can be sent from it. Choose mailboxes the owner owns as its senders. Paused the campaign for 1 hour.',
@@ -1580,5 +1586,59 @@ describe('processDueEmails decides HTML from the step template and escapes lead 
     expect(sent.body).toContain(
       `/api/track/click/dispatch-1?url=${encodeURIComponent('https://acme.test/demo?who=D%27Arcy&co=Smith%20%3CHoldings%3E%20%26%20Co')}"`,
     );
+  });
+});
+
+describe('the send engine sends nothing for a campaign whose owner is disabled (owner decision)', () => {
+  beforeEach(() => {
+    // The owner was disabled while the campaign stayed Active, as a write racing the disable could leave it.
+    campaign.user = { disabledAt: new Date('2026-09-30T08:00:00Z') };
+    addLead('lead-2');
+    // Campaign writes follow their where, the owner through the `user` relation.
+    fake.campaign.updateMany.mockImplementation(async ({ where, data }: any) => {
+      const hit = matchesWhere(campaign, where, { user: (c) => c.user });
+      if (hit) Object.assign(campaign, data);
+      return { count: hit ? 1 : 0 };
+    });
+  });
+
+  it('pauses the campaign as owner_disabled at the start of the cycle, sending nothing and leaving its leads alone', async () => {
+    await processDueEmails();
+
+    expect(mockedSend).not.toHaveBeenCalled();
+    expect(fake.emailDispatch.create).not.toHaveBeenCalled();
+    expect(campaign).toMatchObject({ status: 'Paused', pausedUntil: null, pauseReason: 'owner_disabled' });
+    for (const leadId of ['lead-1', 'lead-2']) {
+      expect(enrollmentOf(leadId)).toMatchObject({ status: 'Active', currentSequenceStep: 1, nextActionDate: PAST, claimToken: null });
+    }
+    expect(vi.mocked(console.warn).mock.calls.map(([line]) => String(line)))
+      .toContainEqual('[SendEngine] Paused 1 Active campaign(s) whose owner is disabled.');
+  });
+
+  it('still sends nothing when that pause fails: the due query leaves the campaign out', async () => {
+    fake.campaign.updateMany.mockImplementation(async ({ where }: any) => {
+      if (where.user) throw new Error('connection reset');
+      return { count: 0 };
+    });
+
+    await processDueEmails();
+
+    expect(mockedSend).not.toHaveBeenCalled();
+    expect(fake.emailDispatch.create).not.toHaveBeenCalled();
+    expect(campaign.status).toBe('Active');
+  });
+
+  it('refuses the send claim, releasing it, while the campaign is still Active', async () => {
+    expect(await claimEnrollmentForSend('enr-lead-1', 1, new Date())).toBeNull();
+    expect(enrollmentOf('lead-1')).toMatchObject({ status: 'Active', claimToken: null, claimedAt: null });
+  });
+
+  it('sends again once the owner is enabled and the campaign activated', async () => {
+    campaign.user = { disabledAt: null };
+
+    await processDueEmails();
+
+    expect(mockedSend).toHaveBeenCalledTimes(2);
+    expect(campaign).toMatchObject({ status: 'Active' });
   });
 });

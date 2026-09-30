@@ -8,6 +8,7 @@ const fake = vi.hoisted(() => ({
   campaignEnrollment: { count: vi.fn(), findMany: vi.fn(), update: vi.fn() },
   emailDispatch: { count: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
   senderAccount: { findMany: vi.fn() },
+  user: { findUnique: vi.fn() },
   lead: { findMany: vi.fn() },
   suppressedEmail: { findMany: vi.fn() },
   $transaction: vi.fn(),
@@ -41,6 +42,7 @@ import { getGlobalSettings } from '../../lib/settings';
 import { checkGlobalRateLimits } from '../../lib/rateLimits';
 import { sendMessage } from '../../lib/emailProvider';
 import { activationBlocker, findIncompleteSteps } from '../../lib/campaignSteps';
+import { CAMPAIGN_OWNER_DISABLED_ERROR, ownerDisabledNote } from '../../lib/campaignPause';
 import { matchesWhere } from './helpers/prismaWhere';
 import { PUT as putCampaign } from '../../app/api/campaigns/[id]/route';
 import { POST as postCampaign, PUT as putCampaignList } from '../../app/api/campaigns/route';
@@ -268,6 +270,95 @@ describe('POST /api/campaigns/[id]/run refuses a campaign with no steps (H2)', (
     });
     expect(fake.campaignEnrollment.update).not.toHaveBeenCalled();
     expect(fake.emailDispatch.create).not.toHaveBeenCalled();
+    expect(mockedSend).not.toHaveBeenCalled();
+  });
+});
+
+describe("a disabled owner's campaigns can not be made Active or have leads queued (owner decision)", () => {
+  const DISABLED_AT = new Date('2026-09-30T08:00:00.000Z');
+  const ADMIN = { id: 'admin-1', name: 'Admin', email: 'admin@example.com', role: 'ADMIN' as const };
+  const toggle = (body: Record<string, unknown>) => putCampaignList(makeReq('PUT', '/api/campaigns', { id: 'cmp-1', ...body }));
+  /** The collection PUT's read of the campaign, with its owner. */
+  const listRow = (status: string, disabledAt: Date | null) => ({
+    userId: 'user-1', status, user: { disabledAt }, updatedAt: campaign.updatedAt,
+    senderAccountId: 'mb-1', senderAccount: { emailAddress: SENDER.emailAddress }, senders: [], steps: COMPLETE_STEPS,
+  });
+
+  beforeEach(() => {
+    // Only an admin can still act on the campaign: the disabled owner has no session.
+    mockedSession.mockResolvedValue(ADMIN);
+    campaign = { ...campaign, status: 'Paused', pauseReason: 'owner_disabled', user: { disabledAt: DISABLED_AT } };
+  });
+
+  it('labels the campaign as paused because its owner is disabled', () => {
+    expect(ownerDisabledNote({ status: 'Paused', pauseReason: 'owner_disabled' })).toBe('Paused: owner disabled');
+    expect(ownerDisabledNote({ status: 'Paused', pauseReason: 'user' })).toBeNull();
+    expect(ownerDisabledNote({ status: 'Active', pauseReason: null })).toBeNull();
+  });
+
+  it('refuses Publish Sequence with 409 and saves nothing', async () => {
+    const res = await save({ status: 'Active', steps: COMPLETE_STEPS });
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: CAMPAIGN_OWNER_DISABLED_ERROR });
+    expectNothingSaved();
+    expect(campaign.status).toBe('Paused');
+  });
+
+  it('still saves the form while the campaign stays Paused', async () => {
+    const res = await save({ name: 'Renamed', steps: COMPLETE_STEPS });
+
+    expect(res.status).toBe(200);
+    expect(campaign).toMatchObject({ name: 'Renamed', status: 'Paused', pauseReason: 'owner_disabled' });
+  });
+
+  it('refuses Active from the list toggle and status menu, and still allows Paused and Draft', async () => {
+    fake.campaign.findFirst.mockResolvedValue(listRow('Paused', DISABLED_AT));
+
+    const res = await toggle({ status: 'Active' });
+
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe('The campaign owner is disabled.');
+    expect(mockedDb.updateCampaign).not.toHaveBeenCalled();
+
+    expect((await toggle({ status: 'Draft' })).status).toBe(200);
+    expect(mockedDb.updateCampaign).toHaveBeenLastCalledWith('cmp-1', { status: 'Draft', pausedUntil: null, pauseReason: null });
+  });
+
+  it('activates the campaign once the owner is enabled again', async () => {
+    fake.campaign.findFirst.mockResolvedValue(listRow('Paused', null));
+
+    expect((await toggle({ status: 'Active' })).status).toBe(200);
+    expect(mockedDb.updateCampaign).toHaveBeenLastCalledWith('cmp-1', { status: 'Active', pausedUntil: null, pauseReason: null });
+  });
+
+  it('refuses to hand an Active campaign, or activate one, to a disabled user, but reassigns a Paused one', async () => {
+    fake.user.findUnique.mockResolvedValue({ id: 'user-2', disabledAt: DISABLED_AT });
+    fake.senderAccount.findMany.mockResolvedValue([{ id: 'mb-1' }]); // user-2 owns the campaign's mailbox
+
+    fake.campaign.findFirst.mockResolvedValue(listRow('Active', null));
+    const handover = await toggle({ userId: 'user-2' });
+    expect(handover.status).toBe(409);
+    expect((await handover.json()).error).toBe(CAMPAIGN_OWNER_DISABLED_ERROR);
+
+    fake.campaign.findFirst.mockResolvedValue(listRow('Paused', null));
+    expect((await toggle({ userId: 'user-2', status: 'Active' })).status).toBe(409);
+    expect(mockedDb.updateCampaign).not.toHaveBeenCalled();
+
+    expect((await toggle({ userId: 'user-2' })).status).toBe(200);
+    expect(mockedDb.updateCampaign).toHaveBeenLastCalledWith('cmp-1', { userId: 'user-2' });
+  });
+
+  it.each([['Run Now', ''], ['Send Step', '?stepOrder=1']])('refuses %s with 409 and queues nothing', async (_label, query) => {
+    // Even if the campaign were Active, as a write racing the disable could leave it.
+    campaign = { ...campaign, status: 'Active', steps: COMPLETE_STEPS };
+
+    const res = await postRun(makeReq('POST', `/api/campaigns/cmp-1/run${query}`), params);
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ success: false, error: CAMPAIGN_OWNER_DISABLED_ERROR });
+    expect(fake.campaignEnrollment.findMany).not.toHaveBeenCalled();
+    expect(fake.campaignEnrollment.update).not.toHaveBeenCalled();
     expect(mockedSend).not.toHaveBeenCalled();
   });
 });

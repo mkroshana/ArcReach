@@ -215,11 +215,18 @@ export default function UsersAdminPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: user.id, disabled }),
       });
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const errObj = await res.json().catch(() => ({}));
-        throw new Error(errObj.error || `Failed to ${disabled ? 'disable' : 'enable'} user.`);
+        throw new Error(data.error || `Failed to ${disabled ? 'disable' : 'enable'} user.`);
       }
-      showToast(disabled ? `${user.email} is disabled and was signed out` : `${user.email} is enabled and can sign in again`);
+      if (disabled) {
+        const paused = Number(data.pausedCampaigns) || 0;
+        const campaigns = paused === 0 ? 'They had no Active campaigns.'
+          : `${paused} Active ${paused === 1 ? 'campaign was' : 'campaigns were'} paused.`;
+        showToast(`${user.email} is disabled and was signed out. ${campaigns}`);
+      } else {
+        showToast(`${user.email} is enabled and can sign in again. Their paused campaigns stay paused until activated.`);
+      }
       await fetchUsers();
     } catch (err: any) {
       showToast(err.message || `Failed to ${disabled ? 'disable' : 'enable'} user`, 'error');
@@ -230,7 +237,7 @@ export default function UsersAdminPage() {
     if (currentSession && user.id === currentSession.id) { showToast('You cannot disable your own account.', 'error'); return; }
     setConfirmState({
       title: 'Disable User?',
-      message: `${user.email} will be signed out everywhere at once and can not sign in until an admin enables the account again. Their mailboxes and campaigns are kept as they are, and their Active campaigns keep sending.`,
+      message: `${user.email} will be signed out everywhere at once and can not sign in until an admin enables the account again. Their Active campaigns will be paused, and campaigns paused by the send engine will no longer resume on their own. Enabling the account again does not resume them; an admin or the owner must activate them. Their mailboxes and Draft campaigns are kept as they are.`,
       confirmLabel: 'Disable User',
       onConfirm: async () => {
         setConfirmState(null);

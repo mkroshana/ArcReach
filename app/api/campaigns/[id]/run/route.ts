@@ -6,6 +6,7 @@ import { getSession } from '@/lib/session';
 import { UnauthorizedError, unauthorizedResponse } from '@/lib/sessionError';
 import { sendingDisabledReason } from '@/lib/emailProvider';
 import { sendableEnrollmentWhere, withoutSuppressedLeads } from '@/lib/sendEligibility';
+import { CAMPAIGN_OWNER_DISABLED_ERROR } from '@/lib/campaignPause';
 
 /** Most enrollments one queueing write names by id. */
 const QUEUE_WRITE_CHUNK = 1000;
@@ -27,7 +28,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       include: {
         steps: {
           orderBy: { stepOrder: 'asc' }
-        }
+        },
+        user: { select: { disabledAt: true } }
       }
     });
 
@@ -37,6 +39,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     if (session.role !== 'ADMIN' && campaign.userId !== session.id) {
       return NextResponse.json({ success: false, error: 'Unauthorized access.' }, { status: 403 });
+    }
+
+    // Nothing is sent for a disabled user, so their campaigns' leads are not queued.
+    if (campaign.user?.disabledAt) {
+      return NextResponse.json({ success: false, error: CAMPAIGN_OWNER_DISABLED_ERROR }, { status: 409 });
     }
 
     if (campaign.status !== 'Active') {

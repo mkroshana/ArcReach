@@ -10,17 +10,19 @@ class AdminConflictError extends Error {}
 /**
  * Runs `write` (a demotion, disable or deletion of user `id`) only if another active (not disabled)
  * ADMIN would remain, so the workspace always keeps someone who can manage users. A target that is
- * not an active admin can not lower that count, so its write runs directly. For an active admin
- * target the count and the write share one serializable transaction, so two admins demoting each
- * other at once can not both pass it.
+ * not an active admin can not lower that count, so its write runs directly, or in a transaction of
+ * its own with `inTransaction` (a write of several statements). For an active admin target the
+ * count and the write share one serializable transaction, so two admins demoting each other at
+ * once can not both pass it.
  */
 async function keepAnotherAdmin<T>(
   id: string,
   message: string,
   write: (client: Prisma.TransactionClient) => Promise<T>,
+  { inTransaction = false }: { inTransaction?: boolean } = {},
 ): Promise<T> {
   const current = await prisma.user.findUnique({ where: { id }, select: { role: true, disabledAt: true } });
-  if (current?.role !== 'ADMIN' || current.disabledAt) return write(prisma);
+  if (current?.role !== 'ADMIN' || current.disabledAt) return inTransaction ? prisma.$transaction(write) : write(prisma);
 
   try {
     return await prisma.$transaction(async (tx) => {
@@ -140,8 +142,10 @@ export async function PUT(req: NextRequest) {
       updated = user;
     }
     if (disabled !== undefined) {
+      // Disabling pauses the user's campaigns in the same transaction; the response counts them
+      // (pausedCampaigns). Enabling resumes none of them.
       updated = disabled
-        ? await keepAnotherAdmin(id, 'Cannot disable the last active admin. Promote another user to admin first.', (tx) => db.setUserDisabled(id, true, tx))
+        ? await keepAnotherAdmin(id, 'Cannot disable the last active admin. Promote another user to admin first.', (tx) => db.setUserDisabled(id, true, tx), { inTransaction: true })
         : await db.setUserDisabled(id, false);
     }
     if (!updated) {

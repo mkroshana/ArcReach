@@ -13,7 +13,7 @@ vi.mock('../../lib/db', () => ({ prisma: fake }));
 
 import { loadDueEnrollments, DUE_BATCH_SIZE, DUE_BATCH_PER_CAMPAIGN } from '../../lib/sendEngine';
 
-type CampaignRow = { id: string; status: string; steps: Array<{ stepOrder: number }> };
+type CampaignRow = { id: string; status: string; steps: Array<{ stepOrder: number }>; user: { disabledAt: Date | null } };
 type LeadRow = { id: string; email: string; status: string; validationStatus: string; isArchived: boolean };
 type EnrollmentRow = { id: string; leadId: string; campaignId: string; status: string; nextActionDate: Date | null };
 
@@ -25,7 +25,7 @@ let leads: Map<string, LeadRow>;
 let enrollments: EnrollmentRow[];
 
 function addCampaign(id: string, overrides: Partial<CampaignRow> = {}) {
-  campaigns.set(id, { id, status: 'Active', steps: [{ stepOrder: 1 }], ...overrides });
+  campaigns.set(id, { id, status: 'Active', steps: [{ stepOrder: 1 }], user: { disabledAt: null }, ...overrides });
 }
 
 /** Enrolls `count` new leads in a campaign, due `due(i)` minutes ago (negative: not yet due). */
@@ -52,10 +52,15 @@ function matchesFields(row: any, where: Record<string, any>): boolean {
   return Object.entries(where).every(([key, cond]) => matchesValue(row[key], cond));
 }
 
+/** Evaluates a campaign filter, following `user` to the campaign's owner. */
+function matchesCampaign(c: CampaignRow, where: Record<string, any>): boolean {
+  return Object.entries(where).every(([key, cond]) => (key === 'user' ? matchesFields(c.user, cond) : matchesValue((c as any)[key], cond)));
+}
+
 function matchesEnrollment(e: EnrollmentRow, where: Record<string, any>): boolean {
   return Object.entries(where).every(([key, cond]) => {
     if (key === 'AND') return cond.every((w: any) => matchesEnrollment(e, w));
-    if (key === 'campaign') return matchesFields(campaigns.get(e.campaignId), cond);
+    if (key === 'campaign') return matchesCampaign(campaigns.get(e.campaignId)!, cond);
     if (key === 'lead') return matchesFields(leads.get(e.leadId), cond);
     return matchesValue((e as any)[key], cond);
   });
@@ -152,12 +157,14 @@ describe('loadDueEnrollments shares each send cycle between campaigns (H10)', ()
     }
   });
 
-  it('leaves out campaigns with no steps or not Active, rows not yet due and leads that must not be sent', async () => {
+  it('leaves out campaigns with no steps, not Active or with a disabled owner, rows not yet due and leads that must not be sent', async () => {
     addCampaign('cmp-stepless', { steps: [] });
     addCampaign('cmp-paused', { status: 'Paused' });
+    addCampaign('cmp-owner-disabled', { user: { disabledAt: minutesAgo(10) } });
     addCampaign('cmp-live');
     enroll('cmp-stepless', 200, (i) => 5000 - i);
     enroll('cmp-paused', 200, (i) => 5000 - i);
+    enroll('cmp-owner-disabled', 200, (i) => 5000 - i);
     enroll('cmp-live', 3, (i) => 30 - i);
     enroll('cmp-live', 2, () => -30); // due in half an hour
     enroll('cmp-live', 1, () => null);

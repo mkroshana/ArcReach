@@ -6,10 +6,12 @@
  * out until the Azure settings or the sender's domain are fixed ('config':
  * missing settings, a connection string that cannot be decrypted, a refused
  * access key or an unverified domain). It sets pausedUntil and resumes the
- * campaign then. A user pause ('user') never resumes on its own. Pure so the
- * campaign pages can use it.
+ * campaign then. A user pause ('user') never resumes on its own. Disabling a
+ * user pauses their Active campaigns and cancels any auto-resume of their
+ * campaigns ('owner_disabled'); enabling them again resumes nothing. Pure so
+ * the campaign pages can use it.
  */
-export type PauseReason = 'quota' | 'systemic' | 'config' | 'user';
+export type PauseReason = 'quota' | 'systemic' | 'config' | 'user' | 'owner_disabled';
 
 /** Campaign statuses the app sets and the UI offers. */
 export const CAMPAIGN_STATUSES = ['Draft', 'Active', 'Paused'];
@@ -44,4 +46,16 @@ export function autoResumeNote(campaign: {
   const time = resumesAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
   const reason = campaign.pauseReason ? AUTO_PAUSE_REASONS[campaign.pauseReason] : undefined;
   return reason ? `Auto-resumes at ${time} (${reason})` : `Auto-resumes at ${time}`;
+}
+
+/** Why a campaign whose owner is disabled may not be made Active or have its leads queued. */
+export const CAMPAIGN_OWNER_DISABLED_ERROR = 'The campaign owner is disabled.';
+
+/**
+ * "Paused: owner disabled" for a campaign paused because its owner was
+ * disabled, which stays paused until an admin or its owner activates it, or
+ * null otherwise.
+ */
+export function ownerDisabledNote(campaign: { status?: string; pauseReason?: string | null }): string | null {
+  return campaign.status === 'Paused' && campaign.pauseReason === 'owner_disabled' ? 'Paused: owner disabled' : null;
 }

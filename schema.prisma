@@ -130,10 +130,11 @@ model Campaign {
   // When set, the send engine auto-resumes this campaign to Active once
   // `pausedUntil <= now`. Null = paused indefinitely (manual pause). Only the
   // send engine sets it, when it pauses an Active campaign; any status a user
-  // sets clears it.
+  // sets, or disabling the owner, clears it.
   pausedUntil     DateTime?
   // Why the campaign is Paused: 'quota', 'systemic' or 'config' when the send
-  // engine paused it (with pausedUntil), 'user' when a user did. Null otherwise.
+  // engine paused it (with pausedUntil), 'user' when a user did,
+  // 'owner_disabled' when its owner was disabled. Null otherwise.
   pauseReason     String?
 
   // Advanced scheduling and options (From original schema & UI elements)

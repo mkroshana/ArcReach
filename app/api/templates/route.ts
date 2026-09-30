@@ -3,45 +3,15 @@ import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { UnauthorizedError, unauthorizedResponse } from '@/lib/sessionError';
 
-const seedTemplates = [
-  {
-    name: 'SaaS Cold Pitch',
-    subject: '{Quick question|Simple query} regarding {{company}} outreach',
-    body: 'Hi {{firstName}},\n\nI was looking at {{company}} and noticed you guys might be looking to scale your cold pipeline.\n\nWe help companies generate highly qualified meetings completely automated.\n\n{Let me know if you have 5 mins next week?|Would you be open to a quick chat?}\n\nBest,\nJohn',
-    category: 'Cold Outreach'
-  },
-  {
-    name: 'Friendly Bump (No response)',
-    subject: 'Following up / {{firstName}} x ArcReach',
-    body: 'Hey {{firstName}},\n\nI know you are super busy, so I wanted to give this a quick bump.\n\nDid you have a chance to look over my last email?\n\n{Best|Cheers},\nJohn',
-    category: 'Follow Up'
-  },
-  {
-    name: 'Value Offering / Case Study',
-    subject: 'how we helped Stark Ind scale 3x',
-    body: 'Hi {{firstName}},\n\nI thought you might find this interesting. We recently wrote a case study detailing how we helped marketing teams double their response rates in under 30 days.\n\nNo pitch - {here is the link|you can read it here}: [Link]\n\nHope this is helpful!\nJohn',
-    category: 'Value Prep'
-  }
-];
-
 export async function GET() {
   try {
     const session = await getSession();
     
-    let templates = await prisma.template.findMany({
+    // Never seeds: an empty library stays empty. Demo templates ('[Link]',
+    // signed 'John') re-seeded after every delete and could reach prospects.
+    const templates = await prisma.template.findMany({
       orderBy: { createdAt: 'desc' }
     });
-
-    // Auto seed templates if database table is blank
-    if (templates.length === 0) {
-      await prisma.template.createMany({
-        data: seedTemplates
-      });
-      
-      templates = await prisma.template.findMany({
-        orderBy: { createdAt: 'desc' }
-      });
-    }
 
     return NextResponse.json(templates);
   } catch (error: any) {

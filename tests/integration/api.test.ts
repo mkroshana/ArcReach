@@ -204,12 +204,11 @@ describe('ArcReach Live API Integration Tests', () => {
   describe('Templates CRUD Lifecycle API', () => {
     let createdTemplateId: string;
 
-    it('should retrieve templates list with seeded items', async () => {
+    it('should retrieve the templates list', async () => {
       const res = await testFetch(`${BASE_URL}/api/templates`);
       expect(res.status).toBe(200);
       const templates = await res.json();
       expect(Array.isArray(templates)).toBe(true);
-      expect(templates.length).toBeGreaterThan(0);
     });
 
     it('should successfully create, update, and delete a template', async () => {

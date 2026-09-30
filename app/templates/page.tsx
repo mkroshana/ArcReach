@@ -82,7 +82,7 @@ export default function TemplatesPage() {
       id: `step-${Date.now()}`,
       waitDays: 3,
       subject: 'Follow-up query',
-      body: 'Hi {{firstName}},\n\nJust bumping this in case it got buried.\n\nBest,\nJohn',
+      body: 'Hi {{firstName}},\n\nJust bumping this in case it got buried.',
     }];
     setEditingTemplate({ ...editingTemplate, steps: newSteps });
     setActiveStepIndex(newSteps.length - 1);
@@ -238,7 +238,9 @@ export default function TemplatesPage() {
             ) : filteredTemplates.length === 0 ? (
               <Card sx={{ borderStyle: 'dashed', textAlign: 'center', py: 5 }}>
                 <FileText size={24} style={{ margin: '0 auto', opacity: 0.5 }} />
-                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 1 }}>No email templates found</Typography>
+                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 1 }}>
+                  {templates.length === 0 ? 'No templates yet' : 'No templates match this search or category'}
+                </Typography>
               </Card>
             ) : (
               filteredTemplates.map(t => {
@@ -416,6 +418,15 @@ export default function TemplatesPage() {
                   </Stack>
                 )}
               </CardContent>
+            </Card>
+          ) : !loading && templates.length === 0 ? (
+            <Card sx={{ borderStyle: 'dashed', textAlign: 'center', py: 8, px: 3 }}>
+              <FileText size={40} style={{ margin: '0 auto', opacity: 0.4 }} />
+              <Typography variant="overline" sx={{ color: 'text.secondary', display: 'block', mt: 1.5 }}>Your Copy Library Is Empty</Typography>
+              <Typography variant="body2" sx={{ color: 'text.secondary', maxWidth: 420, mx: 'auto', mt: 0.5 }}>
+                Create a template to write a reusable email sequence. Campaigns can then fill their steps from it with Use Template.
+              </Typography>
+              <Button variant="contained" startIcon={<Plus size={16} />} onClick={createNewTemplate} sx={{ mt: 2.5 }}>Create Template</Button>
             </Card>
           ) : (
             <Card sx={{ borderStyle: 'dashed', textAlign: 'center', py: 8 }}>

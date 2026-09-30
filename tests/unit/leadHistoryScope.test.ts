@@ -149,7 +149,7 @@ beforeEach(() => {
           ...LEAD,
           enrollments: ENROLLMENTS
             .filter((e) => matches(e, select.lead.select.enrollments.where))
-            .map((e) => ({ id: e.id, status: e.status })),
+            .map((e) => Object.fromEntries(Object.keys(select.lead.select.enrollments.select).map((k) => [k, (e as any)[k]]))),
         },
       }),
       ...(select.campaign && { campaign: includeCampaign(r.campaignId, select.campaign) }),

@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 'use client';
 
-import { Search, CornerUpLeft, Send, MailOpen, Pause, FileText, ChevronDown, RefreshCw, Download } from 'lucide-react';
+import { Search, CornerUpLeft, Send, MailOpen, Pause, Play, FileText, ChevronDown, RefreshCw, Download } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import { toCsv, downloadCsv } from '@/lib/csv';
 import { decodeMimeHeader } from '@/lib/mime';
@@ -61,6 +61,21 @@ function showsStatusChip(lead: any): boolean {
 
 /** Threads in one page of GET /api/unibox when no limit is asked for. */
 const THREAD_PAGE_SIZE = 50;
+
+/**
+ * When a thread or message happened: the time of day for today, else the date
+ * (with the year when it is not this year), followed by the time when `withTime`.
+ */
+function formatWhen(value: string | Date, withTime = false): string {
+  const date = new Date(value);
+  const now = new Date();
+  const time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (date.toDateString() === now.toDateString()) return time;
+  const day = date.toLocaleDateString([], {
+    month: 'short', day: 'numeric', ...(date.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }),
+  });
+  return withTime ? `${day}, ${time}` : day;
+}
 
 function sanitizeEmailBody(body: string): string {
   if (!body) return '';
@@ -156,18 +171,17 @@ export default function UniboxPage() {
     setTimeout(() => setToastMessage(''), 3000);
   };
 
-  const markAsRead = async (id: string) => {
+  // Takes the thread itself, not its id: the list state is not loaded yet when the first thread is opened
+  const markAsRead = async (thread: any) => {
+    if (!thread?.unread) return;
     try {
-      const target = replies.find(r => r.id === id);
-      if (target && target.unread) {
-        const res = await fetch('/api/unibox', {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ responseId: id, unread: false }),
-        });
-        if (res.ok) {
-          setReplies(prev => prev.map(r => r.id === id ? { ...r, unread: false } : r));
-          setUnreadCount(count => Math.max(0, count - 1));
-        }
+      const res = await fetch('/api/unibox', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leadId: thread.leadId, normalizedSubject: thread.normalizedSubject, unread: false }),
+      });
+      if (res.ok) {
+        setReplies(prev => prev.map(r => r.id === thread.id ? { ...r, unread: false } : r));
+        setUnreadCount(count => Math.max(0, count - 1));
       }
     } catch (err) { console.error(err); }
   };
@@ -208,7 +222,7 @@ export default function UniboxPage() {
         setAppliedQuery(query);
         if (initial && data.threads.length > 0 && !selectedId) {
           setSelectedId(data.threads[0].id);
-          markAsRead(data.threads[0].id);
+          markAsRead(data.threads[0]);
           loadThreadMessages(data.threads[0].id);
         }
         setSentRepliesLocal({});
@@ -271,6 +285,9 @@ export default function UniboxPage() {
   const selectedEmail = replies.find(e => e.id === selectedId);
   const selectedMessages: any[] | undefined = selectedId ? threadMessages[selectedId] : undefined;
   const selectedSuppression = leadSuppression(selectedEmail?.lead);
+  // The thread's enrollments Pause and Resume can change; finished ones (Completed, Bounced, ...) keep their status
+  const selectedSequence: any[] = (selectedEmail?.lead?.enrollments || []).filter((e: any) => e.status === 'Active' || e.status === 'Paused');
+  const sequencePaused = selectedSequence.some((e: any) => e.status === 'Paused');
   // The conversation's latest message from the lead: a reply answers it, from the mailbox it reached
   const answeredReply = [...(selectedMessages || [])].reverse().find((m: any) => m.type === 'inbound');
   const currentReplyText = selectedEmail ? (drafts[selectedEmail.id] || '') : '';
@@ -279,10 +296,10 @@ export default function UniboxPage() {
     setDrafts(prev => ({ ...prev, [selectedEmail.id]: newText }));
   };
 
-  const handleSelectThread = (id: string) => {
-    setSelectedId(id);
-    markAsRead(id);
-    if (!threadMessages[id]) loadThreadMessages(id);
+  const handleSelectThread = (thread: any) => {
+    setSelectedId(thread.id);
+    markAsRead(thread);
+    if (!threadMessages[thread.id]) loadThreadMessages(thread.id);
   };
 
   // Exports every reply in the threads matching the search, loaded from the server a page at a time
@@ -367,22 +384,31 @@ export default function UniboxPage() {
     finally { setStatusMenuAnchor(null); }
   };
 
+  // Pauses the thread's Active enrollments, or resumes its Paused ones; the server refuses Resume for a lead campaigns may not email
   const handleTogglePause = async () => {
-    if (!selectedEmail) return;
-    const isPaused = selectedEmail.lead?.enrollments?.some((e: any) => e.status === 'Paused');
-    const nextStatus = isPaused ? 'Active' : 'Paused';
+    if (!selectedEmail || selectedSequence.length === 0) return;
+    const nextStatus = sequencePaused ? 'Active' : 'Paused';
+    const leadId = selectedEmail.lead.id;
     try {
       const res = await fetch('/api/unibox', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ leadId: selectedEmail.lead.id, enrollmentStatus: nextStatus }),
+        body: JSON.stringify({ leadId, normalizedSubject: selectedEmail.normalizedSubject, enrollmentStatus: nextStatus }),
       });
-      if (res.ok) {
-        setReplies(prev => prev.map(item => item.id === selectedId
-          ? { ...item, lead: { ...item.lead, enrollments: item.lead.enrollments.map((en: any) => ({ ...en, status: nextStatus })) } }
-          : item));
-        showToast(nextStatus === 'Paused' ? 'Outbound campaigns paused for prospect' : 'Active sending resumed for prospect');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error || 'Failed to update the sequence.');
+        return;
       }
-    } catch (e) { console.error(e); }
+      // The statuses the server reports for the enrollments it covers, in every loaded thread of the lead
+      const statusById = new Map<string, string>((data.enrollments || []).map((en: any) => [en.id, en.status]));
+      setReplies(prev => prev.map(item => item.lead?.id === leadId
+        ? { ...item, lead: { ...item.lead, enrollments: (item.lead.enrollments || []).map((en: any) => statusById.has(en.id) ? { ...en, status: statusById.get(en.id) } : en) } }
+        : item));
+      const changed = data.changed || 0;
+      showToast(changed === 0
+        ? (nextStatus === 'Paused' ? 'No active sequence to pause for this prospect.' : 'No paused sequence to resume for this prospect.')
+        : `Sequence ${nextStatus === 'Paused' ? 'paused' : 'resumed'} for this prospect in ${changed} campaign${changed === 1 ? '' : 's'}.`);
+    } catch (e) { console.error(e); showToast('Failed to update the sequence.'); }
   };
 
   const handleDispatchReply = async () => {
@@ -448,11 +474,11 @@ export default function UniboxPage() {
               const leadPaused = item.lead?.enrollments?.some((e: any) => e.status === 'Paused');
               const suppressed = leadSuppression(item.lead);
               const isSelected = selectedId === item.id;
-              const dateStr = new Date(item.receivedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+              const dateStr = formatWhen(item.receivedAt);
               return (
                 <Box
                   key={item.id}
-                  onClick={() => handleSelectThread(item.id)}
+                  onClick={() => handleSelectThread(item)}
                   sx={{
                     cursor: 'pointer', p: 1.5, borderRadius: '12px', border: 1, position: 'relative',
                     borderColor: isSelected ? 'primary.main' : 'transparent',
@@ -519,7 +545,7 @@ export default function UniboxPage() {
                     <Box>
                       <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
                         <Typography variant="body2" sx={{ fontWeight: 700 }}>{selectedEmail.lead?.name || 'Prospect'}</Typography>
-                        {selectedEmail.lead?.enrollments?.some((e: any) => e.status === 'Paused') && (
+                        {sequencePaused && (
                           <Chip size="small" label="PAUSED SEQUENCE" color="error" variant="outlined" sx={{ height: 18, fontSize: 9, fontWeight: 700 }} />
                         )}
                         {selectedSuppression && (
@@ -533,10 +559,12 @@ export default function UniboxPage() {
                   </Stack>
                 </Box>
                 <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                  <MuiTooltip title={selectedEmail.lead?.enrollments?.some((e: any) => e.status === 'Paused') ? 'Resume Sequence' : 'Pause Sequence'}>
-                    <IconButton aria-label={selectedEmail.lead?.enrollments?.some((e: any) => e.status === 'Paused') ? 'Resume sequence' : 'Pause sequence'} size="small" onClick={handleTogglePause} sx={{ border: 1, borderColor: 'divider', color: selectedEmail.lead?.enrollments?.some((e: any) => e.status === 'Paused') ? 'error.main' : 'text.secondary' }}>
-                      <Pause size={14} />
-                    </IconButton>
+                  <MuiTooltip title={selectedSequence.length === 0 ? 'No Active or Paused Sequence' : sequencePaused ? 'Resume Sequence' : 'Pause Sequence'}>
+                    <span>
+                      <IconButton aria-label={sequencePaused ? 'Resume sequence' : 'Pause sequence'} size="small" onClick={handleTogglePause} disabled={selectedSequence.length === 0} sx={{ border: 1, borderColor: 'divider', color: sequencePaused ? 'error.main' : 'text.secondary' }}>
+                        {sequencePaused ? <Play size={14} /> : <Pause size={14} />}
+                      </IconButton>
+                    </span>
                   </MuiTooltip>
                   <Button
                     size="small"
@@ -595,7 +623,7 @@ export default function UniboxPage() {
                           {outbound ? msg.body : sanitizeEmailBody(msg.body)}
                         </Typography>
                         <Typography sx={{ fontSize: 9, color: 'text.secondary', fontFamily: 'monospace', textAlign: outbound ? 'right' : 'left', mt: 1 }}>
-                          {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          {formatWhen(msg.timestamp, true)}
                         </Typography>
                       </CardContent>
                     </Card>

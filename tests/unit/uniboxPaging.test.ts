@@ -248,7 +248,8 @@ describe('GET /api/unibox?thread= (H35)', () => {
 
     expect(id).toBe(`${L1}-pricing`);
     expect(messages.map((m: any) => [m.id, m.type])).toEqual([['d-1', 'outbound'], ['r-1', 'inbound'], ['r-2', 'inbound']]);
-    expect(messages[0].body).toBe(HTML_BODY);
+    // A sent copy comes as its text, never its HTML source (L19)
+    expect(messages[0].body).toBe(Array(200).fill('Campaign copy with tracking').join('\n\n'));
     expect(messages[2]).toMatchObject({ body: LONG_REPLY, unread: true, campaign: { id: 'cmp-1', name: 'Launch' }, senderAccount: { id: 'mb-1', emailAddress: 'one@acme.test' } });
     // Only this lead's history was read
     for (const model of [mockedPrisma.inboundResponse, mockedPrisma.emailDispatch]) {

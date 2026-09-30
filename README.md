@@ -98,9 +98,19 @@ normal operation no manual cleanup is required. The one-off maintenance script
 [scripts/audit-dispatches.ts](file:///d:/Development/ArcReach/scripts/audit-dispatches.ts)
 exists for legacy data created before these guards, or if duplicates ever slip
 through (e.g. a concurrent cron + manual run). It is **read-only by default** and
-reports duplicate `(campaign, lead, step)` rows; pass `--backfill` to set
-`stepOrder` on legacy rows and `--fix` to delete duplicates (keeping the earliest
-send per step — `EmailEvent` rows cascade).
+lists what each flag would change:
+
+- `--backfill` sets `stepOrder` on a legacy row only when its subject matches
+  exactly one step and no other row of the lead has or infers that step. The
+  subject match can mistake a follow-up for step 1, so rows matching several
+  steps or sharing a step with another row are listed and left alone.
+- `--fix` deletes extra `Sent` rows for the same campaign, lead and stored
+  `stepOrder`. For each step it keeps the row with events, else with a delivery
+  report, else with a provider id, else the earliest. It never deletes a row
+  with events, a `Failed`, `Sending` or
+  `Unknown` row (a retried step leaves a `Failed` attempt before its `Sent` row),
+  or a row whose step was only inferred. A deleted row's tracked links show Link
+  Unavailable; its unsubscribe link still works.
 
 ```bash
 # 1. Apply any schema changes. On Windows, stop the running `next dev` server first —
@@ -110,13 +120,14 @@ npx prisma db push --schema schema.prisma
 # 2. Audit historical rows — DRY RUN first (read-only, makes no changes):
 npx tsx scripts/audit-dispatches.ts
 
-# 3. Backfill stepOrder on legacy rows + delete the duplicates it reports:
+# 3. Review the listed rows, then backfill stepOrder and delete the duplicate Sent rows:
 npx tsx scripts/audit-dispatches.ts --backfill --fix
 ```
 
 > **Note:** the backfill updates rows one at a time, so against a remote DB it can
 > take a few minutes for several thousand rows. The delete phase that follows is
-> batched and fast. The script is safe to re-run.
+> batched and fast. Neither flag leaves anything a later `--fix` would delete,
+> so the script is safe to re-run.
 
 ---
 

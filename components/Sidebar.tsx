@@ -5,15 +5,16 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  LayoutDashboard, Send, Users, Inbox, Settings, Mail, FileText, Sun, Moon, ShieldCheck, LogOut,
+  LayoutDashboard, Send, Users, Inbox, Settings, Mail, FileText, Sun, Moon, ShieldCheck, LogOut, Menu,
 } from 'lucide-react';
 import { useTheme } from '@/components/ThemeProvider';
 import {
-  Box, Stack, Typography, Avatar, Chip, Button, List, ListItemButton, ListItemIcon, ListItemText, Tooltip,
+  Box, Stack, Typography, Avatar, Chip, Button, List, ListItemButton, ListItemIcon, ListItemText, Tooltip, Drawer, IconButton,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import { autoResumeNote } from '@/lib/campaignPause';
 import { workerStatusText } from '@/lib/systemStatus';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 const defaultNavItems = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
@@ -66,6 +67,9 @@ export function Sidebar() {
   const [mounted, setMounted] = useState(false);
   const [session, setSessionState] = useState<any>(null);
   const [systemStatus, setSystemStatus] = useState<any>(null);
+  // Below md the sidebar is a drawer opened from the top bar.
+  const isMobile = useIsMobile();
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -118,15 +122,8 @@ export function Sidebar() {
     systemStatus?.setupPausedCampaigns ?? [];
   const setupPausedMore = (systemStatus?.setupPausedCount ?? 0) - setupPaused.length;
 
-  return (
-    <Box
-      component="aside"
-      sx={{
-        width: 256, height: '100vh', position: 'fixed', top: 0, left: 0, zIndex: 50,
-        bgcolor: 'background.paper', borderRight: 1, borderColor: 'divider',
-        display: 'flex', flexDirection: 'column', px: 2, pt: 3, pb: 2,
-      }}
-    >
+  const content = (
+    <>
       {/* Brand */}
       <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', px: 1, mb: 3 }}>
         <Avatar variant="rounded" sx={{ bgcolor: 'primary.main', width: 36, height: 36, borderRadius: '10px', boxShadow: 2 }}>
@@ -234,6 +231,65 @@ export function Sidebar() {
           )}
         </Box>
       </Stack>
-    </Box>
+    </>
+  );
+
+  return (
+    <>
+      {/* Top bar with the menu button, below md only */}
+      <Box
+        component="header"
+        className="flex md:hidden"
+        sx={{ alignItems: 'center', gap: 1, flexShrink: 0, px: 1, py: 1, bgcolor: 'background.paper', borderBottom: 1, borderColor: 'divider' }}
+      >
+        <IconButton
+          onClick={() => setMobileOpen(true)}
+          aria-label="Open Navigation"
+          aria-controls="app-navigation"
+          aria-expanded={mobileOpen}
+          sx={{ color: 'text.primary' }}
+        >
+          <Menu size={20} />
+        </IconButton>
+        <Avatar variant="rounded" sx={{ bgcolor: 'primary.main', width: 30, height: 30, borderRadius: '9px' }}>
+          <Mail size={16} color="#fff" />
+        </Avatar>
+        <Typography sx={{ fontWeight: 700, letterSpacing: '0.06em' }}>ARCREACH</Typography>
+      </Box>
+
+      {isMobile ? (
+        <Drawer
+          open={mobileOpen}
+          onClose={() => setMobileOpen(false)}
+          slotProps={{
+            root: { keepMounted: true },
+            paper: {
+              id: 'app-navigation',
+              'aria-label': 'Navigation',
+              // Following any link closes the drawer, even one to the page already shown.
+              onClick: (e: React.MouseEvent<HTMLDivElement>) => {
+                if ((e.target as Element).closest('a')) setMobileOpen(false);
+              },
+              sx: { width: 256, backgroundImage: 'none', px: 2, pt: 3, pb: 2 },
+            },
+          }}
+        >
+          {content}
+        </Drawer>
+      ) : (
+        // Also hidden below md by CSS, so a phone never shows it before hydration swaps in the drawer.
+        <Box
+          component="aside"
+          className="hidden md:flex"
+          sx={{
+            width: 256, height: '100vh', position: 'fixed', top: 0, left: 0, zIndex: 50,
+            bgcolor: 'background.paper', borderRight: 1, borderColor: 'divider',
+            flexDirection: 'column', px: 2, pt: 3, pb: 2,
+          }}
+        >
+          {content}
+        </Box>
+      )}
+    </>
   );
 }

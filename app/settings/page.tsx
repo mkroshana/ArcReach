@@ -5,7 +5,6 @@ import {
   Save, User, Key, Eye, EyeOff, RefreshCw, Lock, MailX,
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { useTimezones } from '@/hooks/use-timezones';
 import { MIN_PASSWORD_LENGTH, passwordPolicyError } from '@/lib/passwordPolicy';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import {
@@ -23,14 +22,12 @@ export default function SettingsPage() {
   const [loadError, setLoadError] = useState('');
   // Delivery settings are admin-only (GET returns none for other roles), so only admins see that tab.
   const [isAdmin, setIsAdmin] = useState(false);
-  const timezoneOptions = useTimezones();
   const triggerToast = (msg: string) => { setToastMessage(msg); setTimeout(() => setToastMessage(''), 4000); };
 
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [orgName, setOrgName] = useState('');
-  const [timezone, setTimezone] = useState('America/New_York');
   const profileInitials = `${firstName.trim().charAt(0) || 'J'}${lastName.trim().charAt(0) || 'D'}`.toUpperCase();
 
   const [currentPassword, setCurrentPassword] = useState('');
@@ -68,7 +65,6 @@ export default function SettingsPage() {
         setLastName(parts.slice(1).join(' ') || '');
         setEmail(data.user.email || '');
         setOrgName(data.user.organization || '');
-        setTimezone(data.user.timezone || 'America/New_York');
         if (data.settings) {
           // Anything but AZURE (including the retired MOCK value) sends nothing.
           setActiveProvider(data.settings.activeProvider === 'AZURE' ? 'AZURE' : 'DISABLED');
@@ -93,7 +89,7 @@ export default function SettingsPage() {
     try {
       const res = await fetch('/api/settings', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: `${firstName} ${lastName}`.trim(), organization: orgName, timezone }),
+        body: JSON.stringify({ name: `${firstName} ${lastName}`.trim(), organization: orgName }),
       });
       if (res.ok) { triggerToast('Profile information saved successfully.'); window.location.reload(); }
       else triggerToast('Failed to save profile.');
@@ -250,15 +246,7 @@ export default function SettingsPage() {
                         <TextField fullWidth size="small" label="First Name" value={firstName} onChange={(e) => setFirstName(e.target.value)} />
                         <TextField fullWidth size="small" label="Last Name" value={lastName} onChange={(e) => setLastName(e.target.value)} />
                       </Stack>
-                      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-                        <TextField fullWidth size="small" label="Organization" value={orgName} onChange={(e) => setOrgName(e.target.value)} />
-                        <FormControl fullWidth size="small">
-                          <InputLabel>Timezone</InputLabel>
-                          <Select label="Timezone" value={timezone} onChange={(e) => setTimezone(e.target.value)}>
-                            {timezoneOptions.map(option => (<MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>))}
-                          </Select>
-                        </FormControl>
-                      </Stack>
+                      <TextField fullWidth size="small" label="Organization" value={orgName} onChange={(e) => setOrgName(e.target.value)} />
                       <TextField fullWidth size="small" label="Email Address" type="email" value={email} disabled sx={{ '& .MuiInputBase-root.Mui-disabled': { bgcolor: 'action.hover' } }} />
                     </Stack>
 

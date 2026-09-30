@@ -46,7 +46,7 @@ export async function GET() {
       where: { id: session.id },
       select: {
         id: true, email: true, name: true, organization: true,
-        timezone: true, role: true, createdAt: true,
+        role: true, createdAt: true,
       }
     });
 
@@ -81,7 +81,7 @@ export async function PUT(req: NextRequest) {
   try {
     const session = await getSession();
     const body = await req.json();
-    const { name, organization, timezone, activeProvider, azureConnString, azureSenderDomain, azureSenderDomains, smtpHost, smtpPort, smtpUser, smtpPass, imapHost, imapPort, imapUser, imapPass, rateLimitMinute, rateLimitHour, currentPassword, newPassword } = body;
+    const { name, organization, activeProvider, azureConnString, azureSenderDomain, azureSenderDomains, smtpHost, smtpPort, smtpUser, smtpPass, imapHost, imapPort, imapUser, imapPass, rateLimitMinute, rateLimitHour, currentPassword, newPassword } = body;
 
     // Block non-admins from touching any admin-only settings field.
     const touchesAdminField = ADMIN_ONLY_SETTINGS_FIELDS.some((f) => body[f] !== undefined);
@@ -90,11 +90,11 @@ export async function PUT(req: NextRequest) {
     }
 
     // 1. Update user profile details in the DB
-    if (name !== undefined || organization !== undefined || timezone !== undefined) {
+    // User.timezone is not written: nothing reads it, so the profile no longer offers it.
+    if (name !== undefined || organization !== undefined) {
       const dataToUpdate: any = {};
       if (name !== undefined) dataToUpdate.name = name;
       if (organization !== undefined) dataToUpdate.organization = organization;
-      if (timezone !== undefined) dataToUpdate.timezone = timezone;
 
       // getSession reads the name from the database, so the session cookie needs no update.
       await prisma.user.update({

@@ -222,7 +222,7 @@ beforeEach(() => {
 
   fake.campaign.updateMany.mockResolvedValue({ count: 0 });
   fake.campaign.findUnique.mockImplementation(async () => structuredClone(campaign));
-  fake.campaign.findMany.mockImplementation(async () => [structuredClone(campaign)]);
+  fake.campaign.findMany.mockImplementation(async ({ where }: any) => (matchesCampaign(where) ? [structuredClone(campaign)] : []));
   fake.campaign.update.mockImplementation(async ({ data }: any) => Object.assign(campaign, data));
   fake.campaignEnrollment.findMany.mockImplementation(async ({ where }: any) =>
     enrollments
@@ -1106,6 +1106,8 @@ describe('processDueEmails moves enrollments outside the sending window to its n
   const OFFICE_HOURS = { days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'], window: { start: '09:00', end: '17:00' } };
   const SATURDAY_EVENING = new Date('2026-06-13T18:00:00Z');
   const MONDAY_OPENING = new Date('2026-06-15T09:00:00Z');
+  /** Loads of the due enrollments' campaigns by id; every cycle's auto-resume reads the due Paused ones too. */
+  const campaignLoads = () => fake.campaign.findMany.mock.calls.filter(([{ where }]: any[]) => 'id' in where).length;
 
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ['Date'] });
@@ -1127,7 +1129,7 @@ describe('processDueEmails moves enrollments outside the sending window to its n
     // No longer due, so later cycles before the opening leave it alone.
     await processDueEmails();
     expect(fake.campaignEnrollment.updateMany).toHaveBeenCalledTimes(1);
-    expect(fake.campaign.findMany).toHaveBeenCalledTimes(1);
+    expect(campaignLoads()).toBe(1);
 
     vi.setSystemTime(MONDAY_OPENING);
     await processDueEmails();
@@ -1173,16 +1175,16 @@ describe('processDueEmails moves enrollments outside the sending window to its n
 
       // A Draft campaign's leads are not loaded again.
       await processDueEmails();
-      expect(fake.campaign.findMany).toHaveBeenCalledTimes(1);
+      expect(campaignLoads()).toBe(1);
       expect(mockedSend).not.toHaveBeenCalled();
     });
 
     it('leaves a campaign whose schedule was saved after the cycle loaded it Active', async () => {
       campaign.sendSchedule = null;
       const loadCampaigns = fake.campaign.findMany.getMockImplementation()!;
-      fake.campaign.findMany.mockImplementationOnce(async (args: any) => {
+      fake.campaign.findMany.mockImplementation(async (args: any) => {
         const loaded = await loadCampaigns(args);
-        Object.assign(campaign, { sendSchedule: OFFICE_HOURS, updatedAt: new Date('2026-06-13T17:59:00Z') });
+        if ('id' in args.where) Object.assign(campaign, { sendSchedule: OFFICE_HOURS, updatedAt: new Date('2026-06-13T17:59:00Z') });
         return loaded;
       });
 
@@ -1218,7 +1220,7 @@ describe('processDueEmails moves enrollments outside the sending window to its n
 
     await processDueEmails();
 
-    expect(fake.campaign.findMany).not.toHaveBeenCalled();
+    expect(campaignLoads()).toBe(0);
     expect(fake.campaignEnrollment.updateMany).not.toHaveBeenCalled();
     expect(enrollmentOf('lead-1').nextActionDate).toEqual(PAST);
   });

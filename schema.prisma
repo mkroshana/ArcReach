@@ -128,7 +128,8 @@ model Campaign {
   updatedAt       DateTime             @updatedAt
 
   // When set, the send engine auto-resumes this campaign to Active once
-  // `pausedUntil <= now`. Null = paused indefinitely (manual pause). Only the
+  // `pausedUntil <= now` (to Draft when it has no complete sending schedule).
+  // Null = paused indefinitely (manual pause). Only the
   // send engine sets it, when it pauses an Active campaign; any status a user
   // sets, or disabling the owner, clears it.
   pausedUntil     DateTime?

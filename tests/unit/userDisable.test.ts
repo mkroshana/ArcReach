@@ -9,7 +9,7 @@ import { Prisma } from '@prisma/client';
 const fake = vi.hoisted(() => ({
   user: { findUnique: vi.fn(), findMany: vi.fn(), count: vi.fn(), update: vi.fn() },
   senderAccount: { count: vi.fn() },
-  campaign: { count: vi.fn(), updateMany: vi.fn() },
+  campaign: { count: vi.fn(), findMany: vi.fn(), updateMany: vi.fn() },
   $transaction: vi.fn(),
 }));
 
@@ -105,6 +105,7 @@ beforeEach(() => {
     }
     return pick(row, select);
   });
+  fake.campaign.findMany.mockImplementation(async ({ where }: any) => campaigns.filter((c) => matchesWhere(c, where)).map((c) => ({ ...c })));
   fake.campaign.updateMany.mockImplementation(async ({ where, data }: any) => {
     writes.push({ model: 'campaign', inTransaction });
     const hit = campaigns.filter((c) => matchesWhere(c, where));

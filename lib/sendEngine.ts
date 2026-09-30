@@ -12,30 +12,47 @@ import { suppressEmail } from './suppression';
 import { type SendSchedule, SCHEDULE_DAYS, hasSendingSchedule, isValidTimezone, minutesOfDay, parseSendSchedule } from './sendSchedule';
 import type { PauseReason } from './campaignPause';
 
+/** Most due auto-resumes one call ends; any others are ended by the next send cycle's call. */
+export const AUTO_RESUME_BATCH_SIZE = 100;
+
 /**
- * Auto-resumes campaigns whose quota-driven pause has elapsed. Idempotent and
- * safe to run concurrently — `updateMany` is row-level atomic, so each due row
- * flips to Active exactly once even if multiple workers race. Any status a
- * user sets clears pausedUntil, so a user's pause is never resumed here.
+ * Ends the send engine's pauses whose pausedUntil has elapsed, longest due
+ * first and at most AUTO_RESUME_BATCH_SIZE per call. A campaign with a complete
+ * sending schedule (sending days, a start and end time and a valid timezone)
+ * resumes to Active; one without goes to Draft instead, as only a campaign with
+ * one may be Active. Each campaign is written only while it is still Paused,
+ * due and unchanged since this call read it, so a status or schedule a user
+ * saved meanwhile stands (the next call looks at it again) and concurrent
+ * workers end each pause once. Any status a user sets clears pausedUntil, so a
+ * user's pause is never ended here.
  *
- * Returns the number of campaigns resumed.
+ * Returns the number of campaigns resumed to Active.
  */
 export async function autoResumeQuotaPausedCampaigns(now: Date = new Date()): Promise<number> {
-  const { count } = await prisma.campaign.updateMany({
-    where: {
-      status: 'Paused',
-      pausedUntil: { lte: now },
-    },
-    data: {
-      status: 'Active',
-      pausedUntil: null,
-      pauseReason: null,
-    },
+  const due = await prisma.campaign.findMany({
+    where: { status: 'Paused', pausedUntil: { lte: now } },
+    select: { id: true, name: true, timezone: true, sendSchedule: true, updatedAt: true },
+    orderBy: [{ pausedUntil: 'asc' }, { id: 'asc' }],
+    take: AUTO_RESUME_BATCH_SIZE,
   });
-  if (count > 0) {
-    console.log(`[SendEngine] Auto-resumed ${count} campaign(s) after quota reset.`);
+  let resumed = 0;
+  for (const campaign of due) {
+    const scheduled = hasSendingSchedule(campaign.timezone, campaign.sendSchedule);
+    const { count } = await prisma.campaign.updateMany({
+      where: { id: campaign.id, status: 'Paused', pausedUntil: { lte: now }, updatedAt: campaign.updatedAt },
+      data: { status: scheduled ? 'Active' : 'Draft', pausedUntil: null, pauseReason: null },
+    });
+    if (count === 0) continue;
+    if (scheduled) {
+      resumed++;
+    } else {
+      console.warn(`[SendEngine] Campaign "${campaign.name}" (${campaign.id}) has no complete sending schedule, so it never sends. Its auto-resume set it to Draft instead of Active until a schedule is saved and it is published again.`);
+    }
   }
-  return count;
+  if (resumed > 0) {
+    console.log(`[SendEngine] Auto-resumed ${resumed} campaign(s) after quota reset.`);
+  }
+  return resumed;
 }
 
 /**

@@ -230,8 +230,15 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
         }),
       });
       if (res.ok) {
-        if (clearSchedule) showToast(`Saved without a sending window, so this campaign sends nothing and ${status === 'Draft' ? 'stays Draft' : "can't be made Active"} until you set one on the Schedule tab.`, 'warning');
-        else showToast('Outbound sequence configuration successfully saved!');
+        if (clearSchedule) {
+          // The send engine's auto-resume sets a campaign without a window to Draft instead of Active.
+          const outcome = status === 'Draft' ? 'stays Draft until you set one on the Schedule tab'
+            : campaign?.pausedUntil ? 'goes to Draft instead of resuming when its auto-resume time arrives, unless you set one on the Schedule tab before then'
+            : "stays Paused and can't be made Active until you set one on the Schedule tab";
+          showToast(`Saved without a sending window, so this campaign sends nothing and ${outcome}.`, 'warning');
+        } else {
+          showToast('Outbound sequence configuration successfully saved!');
+        }
         await loadCampaign();
       } else {
         const data = await res.json().catch(() => null);

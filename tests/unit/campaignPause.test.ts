@@ -8,7 +8,7 @@ import { NextRequest } from 'next/server';
  * status change, a save and the auto-resume really leave behind.
  */
 const fake = vi.hoisted(() => ({
-  campaign: { findUnique: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn() },
+  campaign: { findUnique: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), updateMany: vi.fn() },
   campaignStep: { findMany: vi.fn(), update: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
   campaignSenderAccount: { deleteMany: vi.fn(), createMany: vi.fn() },
   campaignEnrollment: { count: vi.fn(), update: vi.fn() },
@@ -54,6 +54,10 @@ function matches(value: unknown, cond: unknown): boolean {
   throw new Error(`Unmodelled filter: ${JSON.stringify(cond)}`);
 }
 
+/** Whether the campaign row matches every filter in `where`. */
+const matchesCampaign = (where: Record<string, unknown>) =>
+  Object.entries(where).every(([key, cond]) => matches((campaign as any)[key], cond));
+
 function makeReq(path: string, body: unknown): NextRequest {
   return new NextRequest(`http://localhost${path}`, {
     method: 'PUT',
@@ -96,8 +100,9 @@ beforeEach(() => {
   enrollment = { id: 'enr-1', nextActionDate: null, claimToken: 'worker', claimedAt: new Date() };
 
   fake.campaign.findUnique.mockImplementation(async () => ({ ...campaign }));
+  fake.campaign.findMany.mockImplementation(async ({ where }: any) => (matchesCampaign(where) ? [{ ...campaign }] : []));
   fake.campaign.updateMany.mockImplementation(async ({ where, data }: any) => {
-    const hit = Object.entries(where).every(([key, cond]) => matches((campaign as any)[key], cond));
+    const hit = matchesCampaign(where);
     if (hit) writeCampaign(data);
     return { count: hit ? 1 : 0 };
   });
@@ -195,6 +200,35 @@ describe('a status the user sets cancels the auto-resume (H8)', () => {
       expect((await listSave(body)).status).toBe(400);
     }
     expect(mockedDb.updateCampaign).not.toHaveBeenCalled();
+  });
+});
+
+describe('the auto-resume never makes a campaign without a sending schedule Active (owner decision)', () => {
+  it('sets an engine-paused campaign the page saved without a schedule to Draft when its pause ends', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await sendError(QUOTA_ERROR);
+    const pausedUntil = campaign.pausedUntil;
+
+    expect((await pageSave({ name: 'Launch v2', steps: STEPS, sendSchedule: null })).status).toBe(200);
+    expect(campaign).toMatchObject({ name: 'Launch v2', status: 'Paused', pausedUntil, pauseReason: 'quota' });
+
+    expect(await autoResumeQuotaPausedCampaigns(new Date(pausedUntil!.getTime() - 1))).toBe(0);
+    expect(campaign).toMatchObject({ status: 'Paused', pausedUntil, pauseReason: 'quota' });
+    expect(await autoResumeQuotaPausedCampaigns(new Date(pausedUntil!.getTime() + 1))).toBe(0);
+    expect(campaign).toMatchObject({ status: 'Draft', pausedUntil: null, pauseReason: null });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('set it to Draft instead of Active'));
+  });
+
+  it('resumes it to Active once a schedule is saved again before its pause ends', async () => {
+    const schedule = campaign.sendSchedule;
+    await sendError(QUOTA_ERROR);
+    const pausedUntil = campaign.pausedUntil;
+
+    expect((await pageSave({ steps: STEPS, sendSchedule: null })).status).toBe(200);
+    expect((await pageSave({ steps: STEPS, sendSchedule: schedule })).status).toBe(200);
+
+    expect(await autoResumeQuotaPausedCampaigns(new Date(pausedUntil!.getTime() + 1))).toBe(1);
+    expect(campaign).toMatchObject({ status: 'Active', pausedUntil: null, pauseReason: null, sendSchedule: schedule });
   });
 });
 

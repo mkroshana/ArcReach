@@ -6,7 +6,8 @@
  * out until the Azure settings or the sender's domain are fixed ('config':
  * missing settings, a connection string that cannot be decrypted, a refused
  * access key or an unverified domain). It sets pausedUntil and resumes the
- * campaign then. A user pause ('user') never resumes on its own. Disabling a
+ * campaign then, or sets it to Draft when it has no complete sending schedule.
+ * A user pause ('user') never resumes on its own. Disabling a
  * user pauses their Active campaigns and cancels any auto-resume of their
  * campaigns ('owner_disabled'); enabling them again resumes nothing. Pure so
  * the campaign pages can use it.

@@ -74,6 +74,16 @@ jobs:
       - name: Seed default dev users (admin-id-999, user-id-111)
         run: npm run seed:dev
 
+      - name: Save a verified test sender domain
+        # POST /api/accounts refuses sender addresses on unverified domains, so the
+        # mailbox and campaign integration tests need one in this test database.
+        run: |
+          npx prisma db execute --schema schema.prisma --stdin <<'SQL'
+          INSERT INTO "GlobalSettings" ("id", "activeProvider", "azureSenderDomains", "updatedAt")
+          VALUES ('global', 'DISABLED', '["example.com"]'::jsonb, now())
+          ON CONFLICT ("id") DO UPDATE SET "azureSenderDomains" = '["example.com"]'::jsonb;
+          SQL
+
       - name: Run unit tests
         run: npm run test:ci
 

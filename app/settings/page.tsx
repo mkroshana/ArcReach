@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { MIN_PASSWORD_LENGTH, passwordPolicyError } from '@/lib/passwordPolicy';
+import { profileInitials } from '@/lib/profileInitials';
 import { type RateLimitInput, type RateLimitPeriod, rateLimitInputFrom, rateLimitInputValue } from '@/lib/rateLimitPolicy';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import {
@@ -51,7 +52,7 @@ export default function SettingsPage() {
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [orgName, setOrgName] = useState('');
-  const profileInitials = `${firstName.trim().charAt(0) || 'J'}${lastName.trim().charAt(0) || 'D'}`.toUpperCase();
+  const avatarInitials = profileInitials(firstName, lastName, email);
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -276,7 +277,7 @@ export default function SettingsPage() {
                   <form onSubmit={handleSaveProfile}>
                     <Stack direction="row" spacing={2.5} sx={{ alignItems: 'center', mb: 3 }}>
                       <Avatar variant="rounded" sx={{ width: 56, height: 56, fontSize: 18, fontWeight: 700, bgcolor: (t) => alpha(t.palette.primary.main, 0.14), color: 'primary.main', fontFamily: 'monospace', borderRadius: '14px' }}>
-                        {profileInitials}
+                        {avatarInitials || <User size={24} />}
                       </Avatar>
                     </Stack>
 

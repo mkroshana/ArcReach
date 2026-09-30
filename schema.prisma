@@ -328,6 +328,9 @@ model CampaignEnrollment {
   @@unique([leadId, campaignId]) 
   // Serves the send engine's due query: Active rows by nextActionDate, oldest first.
   @@index([status, nextActionDate])
+  // Serves one campaign's enrollments (campaign page and list counts, Run Now,
+  // audience sync) and the cascade when a campaign is deleted.
+  @@index([campaignId, status])
 }
 
 // ------------------------------------------------------
@@ -384,6 +387,17 @@ model EmailDispatch {
 
   // Speeds up the per-(campaign, lead, step) idempotency guard.
   @@index([campaignId, leadId, stepOrder])
+  // Serves the global per-minute and per-hour rate limit counts (lib/rateLimits).
+  @@index([sentAt])
+  // Serves each mailbox's rolling 24-hour cap count and when it frees up (senderCapDispatchWhere).
+  @@index([senderAccountId, sentAt])
+  // Serves a lead's dispatches by send time (Unibox threads, reply attribution,
+  // unsubscribe) and the cascade when a lead is deleted.
+  @@index([leadId, sentAt])
+  // Serves per-campaign and per-step send metrics (lib/engagementMetrics stepMetrics).
+  @@index([campaignId, stepOrder, status])
+  // Serves the reconciler's scan for stale 'Sending' rows, oldest first (lib/sendReconciler).
+  @@index([status, sentAt])
 }
 
 model EmailEvent {
@@ -400,6 +414,11 @@ model EmailEvent {
   clickedUrl String?
   botReason  String?
   timestamp  DateTime      @default(now())
+
+  // Serves the tracking routes' dedupe, the opened/clicked/unsubscribed metrics
+  // (lookups by messageId and eventType) and the cascade when a dispatch's
+  // messageId changes on send or the dispatch is deleted.
+  @@index([messageId, eventType])
 }
 
 // ------------------------------------------------------
@@ -437,7 +456,11 @@ model InboundResponse {
   // replies after it.
   bodyUnavailable Boolean        @default(false)
 
+  // Also serves lookups by senderAccountId alone, so that needs no index of its own.
   @@unique([senderAccountId, messageId])
+  // Serves a lead's replies by time (Unibox threads, IMAP dedupe of replies with
+  // no Message-ID) and the cascade when a lead is deleted.
+  @@index([leadId, receivedAt])
 }
 
 // ------------------------------------------------------

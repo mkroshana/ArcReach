@@ -81,6 +81,10 @@ jobs:
           exit 1
 
       - name: Run integration tests
+        # The suite refuses to run without this opt-in, and only against a local or
+        # test DATABASE_URL (here the arcreach_test service container).
+        env:
+          ARCREACH_INTEGRATION_TESTS: 'true'
         run: npm run test:integration
 
       - name: Stop dev server

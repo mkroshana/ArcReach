@@ -1,7 +1,32 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+/**
+ * Live API integration tests. They call the Next.js server on BASE_URL and write to
+ * its database: they create and delete leads, mailboxes, a campaign, lead groups,
+ * templates and a user, and change the global settings and the admin's profile.
+ *
+ * So they refuse to run (M75) unless:
+ * - ARCREACH_INTEGRATION_TESTS=true is set for the run,
+ * - DATABASE_URL points at a local database (localhost, 127.0.0.1, ::1 or a socket)
+ *   or a test database (a name like arcreach_test), and
+ * - the server uses that database too: it must report the dev admin (admin-id-999)
+ *   with the createdAt read from DATABASE_URL.
+ *
+ * `npm test` leaves them out. Start `npm run dev` on the same DATABASE_URL, then:
+ *   ARCREACH_INTEGRATION_TESTS=true npm run test:integration
+ *   (PowerShell: $env:ARCREACH_INTEGRATION_TESTS='true'; npm run test:integration)
+ *
+ * Every row they create is deleted in afterAll, their campaign paused first, and the
+ * settings and the admin's name and organization are put back, even when a test fails.
+ */
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { SignJWT } from 'jose';
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient, type GlobalSettings } from '@prisma/client';
 import { getVerifiedDomains } from '../../lib/azureDomains';
+import { integrationTestRefusal } from './guard';
+
+const refusal = integrationTestRefusal(process.env);
+if (refusal) {
+  throw new Error(`Refusing to run the integration tests: ${refusal} See the header of tests/integration/api.test.ts.`);
+}
 
 const BASE_URL = 'http://localhost:3000';
 
@@ -61,25 +86,100 @@ const verifiedSenderDomain = async (): Promise<string> => {
   return domain;
 };
 
+/** DATABASE_URL, which the server was checked to use too; open from beforeAll to afterAll. */
+let prisma: PrismaClient | undefined;
+
+/** Rows the tests create, deleted in afterAll even when a test fails part way. */
+const toCleanUp = {
+  campaignIds: new Set<string>(),
+  accountIds: new Set<string>(),
+  leadEmails: new Set<string>(),
+  groupIds: new Set<string>(),
+  templateIds: new Set<string>(),
+  userIds: new Set<string>(),
+};
+
+/** The settings rows and the admin's profile before the tests, put back after the settings tests. */
+let saved: { settings: GlobalSettings[]; admin: { name: string | null; organization: string | null } } | undefined;
+
+async function restoreSettings() {
+  if (!prisma || !saved) return;
+  const { settings, admin } = saved;
+  await prisma.$transaction([
+    prisma.globalSettings.deleteMany(),
+    prisma.globalSettings.createMany({
+      data: settings.map((row) => ({
+        ...row,
+        azureSenderDomains: row.azureSenderDomains === null ? Prisma.DbNull : (row.azureSenderDomains as Prisma.InputJsonValue),
+      })),
+    }),
+    prisma.user.update({ where: { id: DEFAULT_ADMIN.id }, data: admin }),
+  ]);
+}
+
+/** Deletes what the tests created, running every step even when one fails, then rethrows the first failure. */
+async function cleanUp(db: PrismaClient) {
+  const values = (set: Set<string>) => [...set].filter(Boolean);
+  const failures: unknown[] = [];
+  const step = async (run: () => Promise<unknown>) => {
+    try {
+      await run();
+    } catch (err) {
+      failures.push(err);
+    }
+  };
+  const campaignIds = values(toCleanUp.campaignIds);
+  // Paused first, so a campaign the delete misses cannot send
+  await step(() => db.campaign.updateMany({ where: { id: { in: campaignIds } }, data: { status: 'Paused', pausedUntil: null, pauseReason: 'user' } }));
+  await step(() => db.campaign.deleteMany({ where: { id: { in: campaignIds } } }));
+  await step(() => db.senderAccount.deleteMany({ where: { id: { in: values(toCleanUp.accountIds) } } }));
+  await step(() => db.lead.deleteMany({ where: { email: { in: values(toCleanUp.leadEmails) } } }));
+  // Unsubscribing or checking a test lead can put its address on the suppression list
+  await step(() => db.suppressedEmail.deleteMany({ where: { email: { in: values(toCleanUp.leadEmails) } } }));
+  await step(() => db.leadGroup.deleteMany({ where: { id: { in: values(toCleanUp.groupIds) } } }));
+  await step(() => db.template.deleteMany({ where: { id: { in: values(toCleanUp.templateIds) } } }));
+  await step(() => db.user.deleteMany({ where: { id: { in: values(toCleanUp.userIds) } } }));
+  if (failures.length > 0) throw failures[0];
+}
+
 describe('ArcReach Live API Integration Tests', () => {
   
-  // Ensure Next.js dev server is reachable
+  // Ensure Next.js dev server is reachable and runs on DATABASE_URL
   beforeAll(async () => {
-    const prisma = new PrismaClient();
-    try {
-      const admin = await prisma.user.findUnique({ where: { id: DEFAULT_ADMIN.id }, select: { tokenVersion: true } });
-      if (!admin) {
-        throw new Error(`The integration tests sign in as ${DEFAULT_ADMIN.id}; create that admin in the dev database first.`);
-      }
-      adminTokenVersion = admin.tokenVersion;
-    } finally {
-      await prisma.$disconnect();
+    prisma = new PrismaClient();
+    const admin = await prisma.user.findUnique({
+      where: { id: DEFAULT_ADMIN.id },
+      select: { tokenVersion: true, createdAt: true, name: true, organization: true },
+    });
+    if (!admin) {
+      throw new Error(`The integration tests sign in as ${DEFAULT_ADMIN.id}; create that admin in the dev database first.`);
     }
+    adminTokenVersion = admin.tokenVersion;
 
+    let res: Response;
     try {
-      await testFetch(`${BASE_URL}/api/system-status`);
+      res = await testFetch(`${BASE_URL}/api/users`);
     } catch (e) {
       throw new Error(`The local Next.js server is not running on ${BASE_URL}. Please start it using 'npm run dev' before running integration tests.`);
+    }
+    // Otherwise the tests would write to whatever database the server uses
+    const serverAdmin = res.ok ? (await res.json()).find((u: any) => u.id === DEFAULT_ADMIN.id) : undefined;
+    if (!serverAdmin || new Date(serverAdmin.createdAt).getTime() !== admin.createdAt.getTime()) {
+      throw new Error(`Refusing to run the integration tests: the server on ${BASE_URL} does not use this DATABASE_URL (its ${DEFAULT_ADMIN.id} ${res.ok ? 'is missing or differs' : `was refused with ${res.status}`}). Start it with the same DATABASE_URL.`);
+    }
+
+    saved = {
+      settings: await prisma.globalSettings.findMany(),
+      admin: { name: admin.name, organization: admin.organization },
+    };
+  });
+
+  afterAll(async () => {
+    if (!prisma) return;
+    try {
+      await cleanUp(prisma);
+    } finally {
+      await prisma.$disconnect();
     }
   });
 
@@ -117,6 +217,9 @@ describe('ArcReach Live API Integration Tests', () => {
   });
 
   describe('GET /api/settings & PUT /api/settings', () => {
+    // Right away, so the server does not keep sending with the provider and rate limits set below
+    afterAll(restoreSettings);
+
     it('should retrieve and update global SMTP settings successfully', async () => {
       // 1. Get settings
       const getRes = await testFetch(`${BASE_URL}/api/settings`);
@@ -227,6 +330,7 @@ describe('ArcReach Live API Integration Tests', () => {
       expect(createRes.status).toBe(200);
       const created = await createRes.json();
       createdTemplateId = created.id;
+      toCleanUp.templateIds.add(createdTemplateId);
 
       // Update
       const updatePayload = {
@@ -261,7 +365,7 @@ describe('ArcReach Live API Integration Tests', () => {
         provider: 'Google Workspace',
         dailyLimit: 500,
         warmupEnabled: false,
-        replyTo: 'reply-test@arcreach-test.io'
+        replyTo: 'reply-test@example.com'
       };
 
       // Create
@@ -272,8 +376,9 @@ describe('ArcReach Live API Integration Tests', () => {
       });
       expect(createRes.status).toBe(200);
       const created = await createRes.json();
+      toCleanUp.accountIds.add(created.id);
       expect(created).toHaveProperty('id');
-      expect(created.replyTo).toBe('reply-test@arcreach-test.io');
+      expect(created.replyTo).toBe('reply-test@example.com');
       createdAccountId = created.id;
 
       // Update limits and reputation status
@@ -282,7 +387,7 @@ describe('ArcReach Live API Integration Tests', () => {
         name: 'Updated Test Sender',
         warmupEnabled: true,
         dailyLimit: 400,
-        replyTo: 'reply-updated@arcreach-test.io'
+        replyTo: 'reply-updated@example.com'
       };
       const updateRes = await testFetch(`${BASE_URL}/api/accounts`, {
         method: 'PUT',
@@ -292,7 +397,7 @@ describe('ArcReach Live API Integration Tests', () => {
       expect(updateRes.status).toBe(200);
       const updated = await updateRes.json();
       expect(updated.warmupEnabled).toBe(true);
-      expect(updated.replyTo).toBe('reply-updated@arcreach-test.io');
+      expect(updated.replyTo).toBe('reply-updated@example.com');
 
       // Clean up / Delete
       const deleteRes = await testFetch(`${BASE_URL}/api/accounts?id=${createdAccountId}`, {
@@ -304,9 +409,10 @@ describe('ArcReach Live API Integration Tests', () => {
 
   describe('Leads CRUD & Verification Lifecycle API', () => {
     let createdLeadId: string;
-    const testEmail = `test-lead-${Date.now()}@gmail.com`;
+    const testEmail = `test-lead-${Date.now()}@example.com`;
 
     it('should successfully create, verify, and delete a CRM lead', async () => {
+      toCleanUp.leadEmails.add(testEmail);
       const payload = {
         name: 'CRM Lead Test',
         email: testEmail,
@@ -358,11 +464,12 @@ describe('ArcReach Live API Integration Tests', () => {
       const uniqueSuffix = Date.now();
       const bulkPayload = {
         leads: [
-          { name: 'Bulk Lead 1', email: `bulk-1-${uniqueSuffix}@gmail.com`, company: 'Bulk Corp', jobTitle: 'Manager' },
-          { name: 'Bulk Lead 2', email: `bulk-2-${uniqueSuffix}@gmail.com`, company: 'Bulk LLC', jobTitle: 'VP' }
+          { name: 'Bulk Lead 1', email: `bulk-1-${uniqueSuffix}@example.com`, company: 'Bulk Corp', jobTitle: 'Manager' },
+          { name: 'Bulk Lead 2', email: `bulk-2-${uniqueSuffix}@example.com`, company: 'Bulk LLC', jobTitle: 'VP' }
         ],
         groupIds: []
       };
+      for (const lead of bulkPayload.leads) toCleanUp.leadEmails.add(lead.email);
 
       // 1. Bulk Ingest
       const bulkRes = await testFetch(`${BASE_URL}/api/leads/bulk`, {
@@ -389,9 +496,9 @@ describe('ArcReach Live API Integration Tests', () => {
 
       // 3. Clean up created leads
       // The list comes a page at a time: search for this test's leads
-      const getLeadsRes = await testFetch(`${BASE_URL}/api/leads?q=${encodeURIComponent(`-${uniqueSuffix}@gmail.com`)}`);
+      const getLeadsRes = await testFetch(`${BASE_URL}/api/leads?q=${encodeURIComponent(`-${uniqueSuffix}@example.com`)}`);
       const { leads } = await getLeadsRes.json();
-      const createdLeads = leads.filter((l: any) => l.email.includes(`-${uniqueSuffix}@gmail.com`));
+      const createdLeads = leads.filter((l: any) => l.email.includes(`-${uniqueSuffix}@example.com`));
       expect(createdLeads.length).toBe(2);
 
       for (const lead of createdLeads) {
@@ -404,18 +511,20 @@ describe('ArcReach Live API Integration Tests', () => {
 
     it('should successfully support bulk updates and bulk deletes via array of IDs', async () => {
       const uniqueSuffix = Date.now();
+      toCleanUp.leadEmails.add(`bulk-a-${uniqueSuffix}@example.com`);
+      toCleanUp.leadEmails.add(`bulk-b-${uniqueSuffix}@example.com`);
       
       const lead1Res = await testFetch(`${BASE_URL}/api/leads`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: 'Lead 1', email: `bulk-a-${uniqueSuffix}@gmail.com`, company: 'Inc' })
+        body: JSON.stringify({ name: 'Lead 1', email: `bulk-a-${uniqueSuffix}@example.com`, company: 'Inc' })
       });
       const lead1 = await lead1Res.json();
 
       const lead2Res = await testFetch(`${BASE_URL}/api/leads`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: 'Lead 2', email: `bulk-b-${uniqueSuffix}@gmail.com`, company: 'LLC' })
+        body: JSON.stringify({ name: 'Lead 2', email: `bulk-b-${uniqueSuffix}@example.com`, company: 'LLC' })
       });
       const lead2 = await lead2Res.json();
 
@@ -450,12 +559,13 @@ describe('ArcReach Live API Integration Tests', () => {
 
     it('should show a confirmation on GET /api/unsubscribe and unsubscribe only on POST', async () => {
       const uniqueSuffix = Date.now();
+      toCleanUp.leadEmails.add(`unsub-${uniqueSuffix}@example.com`);
 
       // Create a lead
       const createRes = await testFetch(`${BASE_URL}/api/leads`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: 'Unsub Lead', email: `unsub-${uniqueSuffix}@gmail.com`, company: 'Corp' })
+        body: JSON.stringify({ name: 'Unsub Lead', email: `unsub-${uniqueSuffix}@example.com`, company: 'Corp' })
       });
       const lead = await createRes.json();
       expect(lead.status).toBe('Neutral');
@@ -517,6 +627,7 @@ describe('ArcReach Live API Integration Tests', () => {
       });
       const created = await res.json();
       createdAccountId = created.id;
+      toCleanUp.accountIds.add(createdAccountId);
     });
 
     it('should successfully create, detail, update steps, and delete a campaign', async () => {
@@ -536,6 +647,7 @@ describe('ArcReach Live API Integration Tests', () => {
       expect(createRes.status).toBe(200);
       const createdCmp = await createRes.json();
       createdCampaignId = createdCmp.id;
+      toCleanUp.campaignIds.add(createdCampaignId);
 
       // 2. Get Campaign Details & Verify Telemetry structures
       const getRes = await testFetch(`${BASE_URL}/api/campaigns/${createdCampaignId}`);
@@ -550,11 +662,12 @@ describe('ArcReach Live API Integration Tests', () => {
       expect(detail.telemetry.trend[0]).toHaveProperty('opens');
       expect(detail.telemetry.trend[0]).toHaveProperty('clicks');
 
-      // 3. Update campaign details and steps transactionally (PUT), naming the loaded version
+      // 3. Update campaign details and steps transactionally (PUT), naming the loaded version.
+      // It stays Draft: an Active campaign would enroll and email every Valid lead in the database.
       const updatePayload = {
         updatedAt: detail.updatedAt,
         name: 'Updated Campaign Name',
-        status: 'Active',
+        status: 'Draft',
         timezone: 'America/New_York',
         stopOnReply: true,
         steps: [
@@ -603,9 +716,10 @@ describe('ArcReach Live API Integration Tests', () => {
     let createdGroupId: string;
     let createdLeadId: string;
     const groupName = `Test Group ${Date.now()}`;
-    const testEmail = `overlap-lead-${Date.now()}@arcreach-test.io`;
+    const testEmail = `overlap-lead-${Date.now()}@example.com`;
 
     it('should successfully manage lead groups and associations', async () => {
+      toCleanUp.leadEmails.add(testEmail);
       // 1. Create a Lead Group
       const createGroupRes = await testFetch(`${BASE_URL}/api/leads/groups`, {
         method: 'POST',
@@ -617,6 +731,7 @@ describe('ArcReach Live API Integration Tests', () => {
       });
       expect(createGroupRes.status).toBe(200);
       const group = await createGroupRes.json();
+      toCleanUp.groupIds.add(group.id);
       expect(group).toHaveProperty('id');
       expect(group.name).toBe(groupName);
       createdGroupId = group.id;
@@ -702,6 +817,7 @@ describe('ArcReach Live API Integration Tests', () => {
         body: JSON.stringify({ name: `Group A ${uniqueSuffix}` })
       });
       const groupA = await groupARes.json();
+      toCleanUp.groupIds.add(groupA.id);
 
       const groupBRes = await testFetch(`${BASE_URL}/api/leads/groups`, {
         method: 'POST',
@@ -709,14 +825,16 @@ describe('ArcReach Live API Integration Tests', () => {
         body: JSON.stringify({ name: `Group B ${uniqueSuffix}` })
       });
       const groupB = await groupBRes.json();
+      toCleanUp.groupIds.add(groupB.id);
 
       // Create a lead in Group A
+      toCleanUp.leadEmails.add(`disposal-${uniqueSuffix}@example.com`);
       const leadRes = await testFetch(`${BASE_URL}/api/leads`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: `Disposal Lead ${uniqueSuffix}`,
-          email: `disposal-${uniqueSuffix}@gmail.com`,
+          email: `disposal-${uniqueSuffix}@example.com`,
           groupIds: [groupA.id]
         })
       });
@@ -826,6 +944,7 @@ describe('ArcReach Live API Integration Tests', () => {
       });
       expect(createRes.status).toBe(200);
       const createdUser = await createRes.json();
+      toCleanUp.userIds.add(createdUser.id);
       expect(createdUser.name).toBe('Integration Test User');
       expect(createdUser.role).toBe('USER');
 

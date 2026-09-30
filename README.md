@@ -312,18 +312,33 @@ ArcReach features an automated testing architecture to validate both core logic 
 
 To run the tests:
 
-1. **Ensure the Next.js local server is running** (required for API integration tests):
-   ```bash
-   npm run dev
-   ```
-
-2. **Execute the test suite:**
+1. **Execute the unit test suite** (`tests/unit`; the database is mocked, no server needed):
    ```bash
    npm run test
    ```
 
-3. **Run tests in interactive watch mode:**
+2. **Run tests in interactive watch mode:**
    ```bash
    npm run test:watch
    ```
+
+### Integration Tests
+
+The integration tests (`tests/integration`) call the running server and write to its database: they create and delete leads, mailboxes, a campaign, lead groups, templates and a user, and change the global settings. `npm run test` leaves them out, and they refuse to run unless all of these hold:
+
+- **`ARCREACH_INTEGRATION_TESTS=true`** is set for the run. Set it in the shell for that run only, not in `.env`.
+- **`DATABASE_URL`** points at a local database (`localhost`, `127.0.0.1`, `::1` or a socket) or a test database (a name like `arcreach_test`), never the shared or production one.
+- **The server uses the same database**: it must report the dev admin `admin-id-999` exactly as `DATABASE_URL` holds it.
+
+To run them against a throwaway local database:
+
+1. Point `DATABASE_URL` at it (e.g. `postgresql://postgres:postgres@localhost:5432/arcreach_test`), then run `npx prisma db push` and `npm run seed:dev`.
+2. Save a verified Azure sender domain in **Settings**: the mailbox tests need one.
+3. Start the server on that database with `npm run dev`, and in a second terminal with the same `DATABASE_URL`:
+   ```bash
+   ARCREACH_INTEGRATION_TESTS=true npm run test:integration
+   ```
+   In PowerShell: `$env:ARCREACH_INTEGRATION_TESTS='true'; npm run test:integration`
+
+Every row the tests create is deleted in `afterAll` (their campaign, which stays Draft, is paused first), and the global settings and the admin's name and organization are put back after the settings tests, even when a test fails part way. CI sets the flag for its `arcreach_test` Postgres service container.
 

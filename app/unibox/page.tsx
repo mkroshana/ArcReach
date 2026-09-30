@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 'use client';
 
-import { Search, CornerUpLeft, Send, MailOpen, Pause, Play, FileText, ChevronDown, RefreshCw, Download } from 'lucide-react';
+import { Search, CornerUpLeft, Send, MailOpen, Pause, Play, ChevronDown, RefreshCw, Download } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import { toCsv, downloadCsv } from '@/lib/csv';
 import { decodeMimeHeader } from '@/lib/mime';
@@ -158,7 +158,6 @@ export default function UniboxPage() {
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusMenuAnchor, setStatusMenuAnchor] = useState<HTMLElement | null>(null);
-  const [templateMenuAnchor, setTemplateMenuAnchor] = useState<HTMLElement | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [toastMessage, setToastMessage] = useState('');
   const [sentRepliesLocal, setSentRepliesLocal] = useState<Record<string, Array<{ body: string; sentAt: string }>>>({});
@@ -349,19 +348,6 @@ export default function UniboxPage() {
       showToast(`Successfully exported ${rows.length} replies to CSV.`);
     } catch (e) { console.error(e); showToast('Failed to export replies.'); }
     finally { setExporting(false); }
-  };
-
-  const templatesList = [
-    { name: 'Arrange Quick Call', text: "Hi {{firstName}},\n\nI'd love to chat. Would Tuesday at 2 PM EST work for a brief 10-minute introduction call?\n\nBest,\nJohn" },
-    { name: 'SaaS Demo Setup', text: "Hi {{firstName}},\n\nAwesome to hear. Here is our direct booking calendar link to choose any open slot that works for you: [Calendar Link]\n\nI look forward to our presentation!\n\nBest,\nJohn" },
-    { name: 'Case Study Sharing', text: "Hey {{firstName}},\n\nNo problem! I've attached our Q2 case study deck below. Let me know if those metrics sync up with what you're trying to build.\n\nTake care,\nJohn" },
-  ];
-
-  const handleInsertTemplate = (templateText: string) => {
-    if (!selectedEmail) return;
-    const resolvedName = selectedEmail.lead?.name?.split(' ')[0] || 'there';
-    setReplyText(templateText.replace(/\{\{firstName\}\}/g, resolvedName));
-    setTemplateMenuAnchor(null);
   };
 
   const handleUpdateStatus = async (statusKey: string) => {
@@ -662,26 +648,11 @@ export default function UniboxPage() {
                   multiline minRows={3} fullWidth
                   value={currentReplyText}
                   onChange={(e) => setReplyText(e.target.value)}
-                  placeholder="Type your reply here, or insert matching template..."
+                  placeholder="Type your reply here..."
                   variant="standard"
                   slotProps={{ input: { disableUnderline: true, sx: { px: 2, py: 1.5, fontFamily: 'monospace', fontSize: 12, lineHeight: 1.6 } } }}
                 />
-                <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', px: 1.5, py: 1, borderTop: 1, borderColor: 'divider' }}>
-                  <Button
-                    size="small" variant="outlined" startIcon={<FileText size={12} />}
-                    onClick={(e) => setTemplateMenuAnchor(e.currentTarget)}
-                    sx={{ fontSize: 10 }}
-                  >
-                    Templates
-                  </Button>
-                  <Menu anchorEl={templateMenuAnchor} open={!!templateMenuAnchor} onClose={() => setTemplateMenuAnchor(null)} anchorOrigin={{ vertical: 'top', horizontal: 'left' }} transformOrigin={{ vertical: 'bottom', horizontal: 'left' }} slotProps={{ paper: { sx: { borderRadius: '12px', maxWidth: 280 } } }}>
-                    {templatesList.map(template => (
-                      <MenuItem key={template.name} onClick={() => handleInsertTemplate(template.text)} sx={{ display: 'block', whiteSpace: 'normal' }}>
-                        <Typography variant="body2" sx={{ fontWeight: 700 }}>{template.name}</Typography>
-                        <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace', display: 'block', mt: 0.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{template.text}</Typography>
-                      </MenuItem>
-                    ))}
-                  </Menu>
+                <Stack direction="row" sx={{ justifyContent: 'flex-end', alignItems: 'center', px: 1.5, py: 1, borderTop: 1, borderColor: 'divider' }}>
                   <Button
                     variant="contained" size="small"
                     startIcon={sendingReply ? <CircularProgress size={14} color="inherit" /> : <Send size={14} />}

@@ -5,7 +5,6 @@ import { getSession, type UserSession } from '@/lib/session';
 import { UnauthorizedError, unauthorizedResponse } from '@/lib/sessionError';
 import { syncMailboxReplies, getActiveImapAccounts } from '@/lib/imapService';
 import { leaseHeldElsewhere } from '@/lib/workerLease';
-import { MAILBOX_SECRET_OMIT } from '@/lib/mailboxSecrets';
 import { CAMPAIGN_LABEL_SELECT, dispatchScope, enrollmentScope, replyScope } from '@/lib/leadHistoryScope';
 import { normalizeEmail } from '@/lib/leadEmail';
 import { CRM_STATUSES, suppressionEntries } from '@/lib/suppression';
@@ -372,10 +371,10 @@ export async function GET(req: NextRequest) {
 }
 
 /**
- * PUT /api/unibox applies a Unibox action:
+ * PUT /api/unibox applies a Unibox action to a lead (`leadId`, required):
  * - `{ leadId, normalizedSubject, unread }` marks the thread's replies the
  *   caller can see read or unread (`normalizedSubject` as GET lists it, '' for
- *   a subject that is only a prefix); `{ responseId, unread }` marks one reply.
+ *   a subject that is only a prefix).
  * - `{ leadId, leadStatus }` sets the lead's CRM status.
  * - `{ leadId, normalizedSubject, enrollmentStatus }` pauses ('Paused') or
  *   resumes ('Active') the thread's sequence (sequenceWhere; an admin must name
@@ -388,10 +387,15 @@ export async function PUT(req: NextRequest) {
   try {
     const session = await getSession();
     const data = await req.json();
-    const { responseId, leadId, normalizedSubject, unread, leadStatus, enrollmentStatus } = data;
+    const { leadId, normalizedSubject, unread, leadStatus, enrollmentStatus } = data;
 
-    if (!responseId && !leadId) {
-      return NextResponse.json({ error: 'Either responseId or leadId is required.' }, { status: 400 });
+    if (!leadId) {
+      return NextResponse.json({ error: 'leadId is required.' }, { status: 400 });
+    }
+
+    // Read state is set a thread at a time, never on a single reply named by id
+    if (unread !== undefined && typeof normalizedSubject !== 'string') {
+      return NextResponse.json({ error: 'normalizedSubject is required: name the conversation to mark read or unread.' }, { status: 400 });
     }
 
     // The status is CRM sentiment only: Bounced and Unsubscribed come with a suppression, never from an edit
@@ -400,9 +404,6 @@ export async function PUT(req: NextRequest) {
     }
 
     if (enrollmentStatus !== undefined) {
-      if (!leadId) {
-        return NextResponse.json({ error: 'leadId is required to pause or resume a sequence.' }, { status: 400 });
-      }
       if (!SEQUENCE_STATUSES.includes(enrollmentStatus)) {
         return NextResponse.json({ error: `enrollmentStatus must be one of ${SEQUENCE_STATUSES.join(', ')}.` }, { status: 400 });
       }
@@ -418,24 +419,14 @@ export async function PUT(req: NextRequest) {
       }
     }
 
-    // 1. Update the unread flag of a thread, named by its lead and normalised subject, or of one reply
+    // 1. Update the unread flag of a thread, named by its lead and normalised subject
     if (unread !== undefined) {
-      if (leadId && typeof normalizedSubject === 'string') {
-        const replyIds = (await loadThreadReplies(session, leadId, normalizedSubject)).map(r => r.id);
-        if (replyIds.length > 0) {
-          await prisma.inboundResponse.updateMany({
-            where: { id: { in: replyIds } },
-            data: { unread: !!unread }
-          });
-        }
-      } else if (responseId) {
-        const isResponse = await prisma.inboundResponse.count({ where: { id: responseId } });
-        if (isResponse > 0) {
-          await prisma.inboundResponse.update({
-            where: { id: responseId },
-            data: { unread: !!unread }
-          });
-        }
+      const replyIds = (await loadThreadReplies(session, leadId, normalizedSubject)).map(r => r.id);
+      if (replyIds.length > 0) {
+        await prisma.inboundResponse.updateMany({
+          where: { id: { in: replyIds } },
+          data: { unread: !!unread }
+        });
       }
     }
 
@@ -477,22 +468,6 @@ export async function PUT(req: NextRequest) {
       }
       const enrollments = await prisma.campaignEnrollment.findMany({ where, select: { id: true, status: true } });
       sequence = { changed, enrollments };
-    }
-
-    // Return the updated reply details if responseId is provided
-    if (responseId) {
-      const updatedReply = await prisma.inboundResponse.findUnique({
-        where: { id: responseId },
-        include: {
-          lead: {
-            include: {
-              enrollments: true
-            }
-          },
-          senderAccount: { omit: MAILBOX_SECRET_OMIT }
-        }
-      });
-      return NextResponse.json(updatedReply);
     }
 
     return NextResponse.json({ success: true, ...sequence });

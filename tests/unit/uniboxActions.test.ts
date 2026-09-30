@@ -289,6 +289,32 @@ describe('PUT /api/unibox mark as read (L18)', () => {
   });
 });
 
+describe('PUT /api/unibox single reply by id (M46)', () => {
+  const ALL_UNREAD = { 'r-pricing': true, 'r-demo': true, 'r-bare-1': true, 'r-bare-2': true, 'r-bare-rival': true };
+
+  it("refuses { responseId, unread }, leaving another user's reply unread and returning no lead or enrollments", async () => {
+    // r-demo came in on the other user's mailbox
+    const res = await put({ responseId: 'r-demo', unread: false });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'leadId is required.' });
+    expect(unread()).toEqual(ALL_UNREAD);
+    expect(mockedPrisma.inboundResponse.update).not.toHaveBeenCalled();
+    expect(mockedPrisma.inboundResponse.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('refuses to mark read or unread without naming the thread, even with a reply id', async () => {
+    const res = await put({ leadId: L1, responseId: 'r-demo', unread: false });
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/^normalizedSubject is required/);
+    expect(unread()).toEqual(ALL_UNREAD);
+    expect(mockedPrisma.inboundResponse.update).not.toHaveBeenCalled();
+    expect(mockedPrisma.inboundResponse.updateMany).not.toHaveBeenCalled();
+    expect(mockedPrisma.lead.update).not.toHaveBeenCalled();
+  });
+});
+
 describe('GET /api/unibox threads', () => {
   it("shows a user's thread with the enrollments in their own campaigns (M46)", async () => {
     const { threads } = await (await get('/api/unibox')).json();

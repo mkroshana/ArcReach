@@ -13,7 +13,7 @@ const fake = vi.hoisted(() => {
     campaign: model('findMany', 'findUnique', 'update'),
     campaignEnrollment: model('count', 'groupBy', 'findMany', 'createMany', 'deleteMany'),
     emailDispatch: model('count', 'groupBy', 'findMany'),
-    inboundResponse: model('count', 'findMany', 'findUnique', 'update'),
+    inboundResponse: model('count', 'findMany'),
     lead: model('count', 'groupBy', 'findMany'),
     suppressedEmail: model('findMany'),
     $transaction: vi.fn(),
@@ -45,7 +45,7 @@ import { getSession } from '../../lib/session';
 import { getActiveImapAccounts } from '../../lib/imapService';
 import { GET as getCampaigns } from '../../app/api/campaigns/route';
 import { GET as getCampaign, PUT as putCampaign } from '../../app/api/campaigns/[id]/route';
-import { GET as getUnibox, PUT as putUnibox } from '../../app/api/unibox/route';
+import { GET as getUnibox } from '../../app/api/unibox/route';
 
 const mockedSession = vi.mocked(getSession);
 
@@ -179,12 +179,5 @@ describe('mailbox secrets in API responses', () => {
   it('GET /api/unibox?thread= returns the messages without mailbox passwords', async () => {
     fake.inboundResponse.findMany.mockImplementation(async (args: any) => [replyRow(args.select)]);
     await expectNoMailboxSecrets(await getUnibox(makeReq(`/api/unibox?thread=${LEAD_ID}-hello`, 'GET')));
-  });
-
-  it('PUT /api/unibox returns the updated reply without mailbox passwords', async () => {
-    fake.inboundResponse.count.mockResolvedValue(1);
-    fake.inboundResponse.findUnique.mockImplementation(async (args: any) => replyRow(args.include));
-    await expectNoMailboxSecrets(await putUnibox(makeReq('/api/unibox', 'PUT', { responseId: 'reply-1', unread: false })));
-    expect(fake.inboundResponse.update).toHaveBeenCalledWith({ where: { id: 'reply-1' }, data: { unread: false } });
   });
 });

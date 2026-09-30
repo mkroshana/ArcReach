@@ -71,7 +71,7 @@ export function timezoneError(timezone: unknown): string | null {
  * back to Draft.
  */
 export const SCHEDULE_REQUIRED_ERROR =
-  "Set a sending schedule first: save sending days and a start and end time on the campaign's Schedule tab. A campaign without one stays Draft and sends nothing.";
+  "Set a sending schedule first: save sending days and a start and end time on the campaign's Schedule tab. A campaign without one sends nothing and can't be made Active.";
 
 /**
  * Whether a campaign's timezone and stored schedule (a JSON value, or legacy

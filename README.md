@@ -188,11 +188,13 @@ To keep email open and link click metrics accurate and prevent security scanners
    ```
 
 4. **Seed initial admin user:**
-   To seed a secure initial admin user in the database, configure the optional environment variables `ADMIN_EMAIL` and `ADMIN_PASSWORD` in your `.env` file, and execute:
+   To create the first admin user, optionally set `ADMIN_EMAIL` (default `admin@arcreach.com`) in your `.env` file, and execute:
    ```bash
    npm run seed
    ```
-   If these variables are omitted, the script seeds `admin@arcreach.com` with password `securepassword123` by default.
+   The script asks for the admin's password in the terminal, or reads it from `ADMIN_PASSWORD` when that is set. There is no default password. It creates the admin only while the database has no admin at all; once one exists it changes nothing, and it never updates an existing user's password. Change passwords in the app (**Users Admin > Reset password**, or **Settings** for your own).
+
+   `npm run seed:dev` adds the dev users that CI and the integration tests sign in as (`admin-id-999`, `user-id-111`) with a well-known password, so it refuses to run with `NODE_ENV=production` or unless `DATABASE_URL` points at a local database (`localhost`, `127.0.0.1`, `::1` or a socket) or a test database (a name like `arcreach_test`); `npm run seed:dev -- --force` overrides that. `npm run dev` adds the same users on first use under the same conditions.
 
 5. **Launch development server:**
    ```bash
@@ -237,7 +239,7 @@ export DATABASE_URL="postgresql://arcadmin:<password>@arcreach-db.postgres.datab
 # Push schema
 npx prisma db push
 
-# Seed admin user
+# Create the first admin (asks for its password; does nothing once an admin exists)
 npm run seed
 ```
 

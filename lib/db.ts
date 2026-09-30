@@ -1,6 +1,7 @@
 import { PrismaClient, type Prisma } from '@prisma/client';
 import { hashPassword } from '@/lib/auth';
 import { stepMetrics } from '@/lib/engagementMetrics';
+import { devSeedRefusal } from '@/lib/devSeed';
 
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient | undefined };
 
@@ -46,8 +47,9 @@ export async function ensureDefaultUsers() {
 
 async function ensureInit() {
   if (initialized) return;
-  // Automatic dev seeding is skipped in production
-  if (process.env.NODE_ENV !== 'production') {
+  // Automatic dev seeding runs only outside production and against a local or test database,
+  // so `npm run dev` pointed at a shared database never adds users with the default password.
+  if (!devSeedRefusal(process.env)) {
     try {
       await ensureDefaultUsers();
     } catch (error) {

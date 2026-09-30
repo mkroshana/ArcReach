@@ -11,6 +11,9 @@
 #                        Fails before deploying while the Azure database schema
 #                        differs from schema.prisma (read-only check, needs the
 #                        AZURE_DATABASE_URL secret; skipped with a warning without it).
+#
+# Actions are pinned to commit SHAs (release tag in the comment beside each), so a
+# moved tag cannot change what runs with the Azure credentials.
 
 name: Build and deploy Node.js app to Azure Web App - arcreach-app
 
@@ -19,6 +22,19 @@ on:
     branches:
       - azure
   workflow_dispatch:
+
+# One run at a time per trigger. A push waits for the previous push's run instead of
+# cancelling it mid-deploy, so deploys land in push order; a newer push replaces one
+# still waiting. Runs started by hand only test and wait in their own group, so they
+# never replace a waiting deploy.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+# The GITHUB_TOKEN only reads the repository; build-and-deploy adds id-token: write
+# for the Azure OpenID Connect login.
+permissions:
+  contents: read
 
 jobs:
   test:
@@ -41,10 +57,10 @@ jobs:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/arcreach_test
       NODE_ENV: development
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22.x'
           cache: 'npm'
@@ -68,15 +84,18 @@ jobs:
 
       - name: Wait for dev server to be ready
         # Probes the public /login page: API routes answer a request with no session cookie with 401.
+        # Only a 200 counts: curl does not follow redirects, so a redirect or error page keeps waiting.
         run: |
+          code=000
           for i in $(seq 1 60); do
-            if curl -sf http://localhost:3000/login > /dev/null 2>&1; then
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/login || true)
+            if [ "$code" = "200" ]; then
               echo "Dev server is ready."
               exit 0
             fi
             sleep 2
           done
-          echo "Dev server did not become ready in 120s. Last 100 lines of log:"
+          echo "Dev server did not answer /login with 200 in 120s (last status $code). Last 100 lines of log:"
           tail -n 100 /tmp/devserver.log || true
           exit 1
 
@@ -96,7 +115,7 @@ jobs:
 
       - name: Upload dev server log on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: devserver-log
           path: /tmp/devserver.log
@@ -111,10 +130,10 @@ jobs:
       id-token: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22.x'
           cache: 'npm'
@@ -159,14 +178,14 @@ jobs:
             -x ".next/cache/*"
 
       - name: Login to Azure
-        uses: azure/login@v2
+        uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2.3.1
         with:
           client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_B6DDACB0C93C4FA9BDC449D735526B8D }}
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_F57951493C6D4CE28217DB3BB321233D }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_9ACF123306674D4F93446DDA5DCC81C6 }}
 
       - name: Deploy to Azure Web App
-        uses: azure/webapps-deploy@v3
+        uses: azure/webapps-deploy@02a81bead70021f5284939794bcec79c271ab383 # v3.0.8
         with:
           app-name: 'arcreach-app'
           slot-name: 'Production'

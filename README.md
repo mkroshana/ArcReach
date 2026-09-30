@@ -301,7 +301,7 @@ The workflow signs in to Azure with OpenID Connect, using the three repository s
 
 ### What the Workflow Does
 
-It runs on every push to `azure`, and when started by hand from **Actions** → **Run workflow**. Pushes to other branches and pull requests run nothing.
+It runs on every push to `azure`, and when started by hand from **Actions** → **Run workflow**. Pushes to other branches and pull requests run nothing. A push's run waits for the previous push's run to finish instead of cancelling it, so deploys land in push order; a newer push replaces a run that is still waiting. Its actions are pinned to commit SHAs.
 
 1. **`test`**: on Node 22 with a Postgres 16 service database (`arcreach_test`), it runs `npm ci`, `npx prisma db push`, `npm run seed:dev` and `npm run test:ci`, then starts `npm run dev` and runs `npm run test:integration` against it.
 2. **`build-and-deploy`**: only after `test` passes, and only for a push (a run started by hand tests but never deploys). It runs `npm ci` and `npm run build`, checks the Azure database schema (see Deploying Updates), zips the app with its build and `node_modules` (leaving out `.env*` files), and deploys the zip to the `Production` slot of `arcreach-app`.

@@ -122,7 +122,7 @@ export async function DELETE(req: NextRequest) {
           })),
           skipDuplicates: true
         });
-        // and enroll them in the Active and Draft campaigns targeting the target group
+        // and enroll them in the campaigns targeting the target group, whatever their status
         await enrollGroupJoiners(prisma, leadIds, [targetGroupId]);
       }
     }

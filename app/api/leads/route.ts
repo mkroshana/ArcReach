@@ -258,7 +258,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Enroll it in the Active and Draft campaigns targeting its groups too, unless it may not be emailed
+    // Enroll it in the campaigns targeting its groups too, whatever their status, unless it may not be emailed
     await enrollGroupJoiners(prisma, [created.id], targetGroupIds);
 
     // suppression tells the leads page the address is on the suppression list

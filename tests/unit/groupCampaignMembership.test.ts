@@ -204,14 +204,15 @@ describe('POST /api/leads/bulk into a group (M25)', () => {
     const goneId = T.lead.find((l) => l.email === 'gone@acme.com')!.id;
     for (const id of ['bob', 'carol', 'dave', 'erin', newId, goneId]) expect(groupsOf(id)).toEqual(['g1']);
 
-    // Active and Draft campaigns targeting the group, by its id or the legacy prefix
+    // Every campaign targeting the group, by its id or the legacy prefix, whatever its status
     expect(enrolledIn('cmp-q3')).toEqual(['bob', 'carol', newId].sort());
     expect(enrolledIn('cmp-q3-draft')).toEqual(['bob', 'carol', newId].sort());
+    expect(enrolledIn('cmp-q3-paused')).toEqual(['bob', 'carol', newId].sort());
     expect(enrollmentOf('bob', 'cmp-q3')).toMatchObject({ status: 'Active', currentSequenceStep: 1 });
+    expect(enrollmentOf(newId, 'cmp-q3-paused')).toMatchObject({ status: 'Active', currentSequenceStep: 1 });
     // A reply-paused enrollment is not restarted
     expect(enrollmentOf('carol', 'cmp-q3')).toEqual(enrollment('carol', 'cmp-q3', 'Paused'));
-    // A paused campaign and campaigns for other audiences enroll nobody
-    expect(enrolledIn('cmp-q3-paused')).toEqual([]);
+    // Campaigns for other audiences enroll nobody
     expect(enrolledIn('cmp-webinar')).toEqual([]);
     expect(enrolledIn('cmp-valid')).toEqual([]);
   });
@@ -276,6 +277,9 @@ describe('removing a lead from a group (M25)', () => {
     expect(res.status).toBe(200);
     expect(groupsOf('bob')).toEqual(['g1', 'g2']);
     expect(enrollmentOf('bob', 'cmp-q3')).toMatchObject({ status: 'Paused', currentSequenceStep: 2 });
+    // Nor in the paused campaign, which enrolls joiners too: the enrollment it has is kept, and no other is added
+    expect(enrollmentOf('bob', 'cmp-q3-paused')).toMatchObject({ status: 'Paused', currentSequenceStep: 2 });
+    expect(T.campaignEnrollment).toHaveLength(5);
   });
 
   it('keeps the membership and pauses nothing when the membership does not exist', async () => {
@@ -301,9 +305,23 @@ describe('adding a lead to a group (M25)', () => {
     expect(enrolledIn('cmp-q3-draft')).toEqual([]);
   });
 
+  it('enrolls it from the lead drawer in a paused campaign of the group it joins, ready for when the campaign resumes', async () => {
+    T.lead.push(lead('bob'));
+
+    const res = await putLead(req('PUT', '/api/leads', { id: 'bob', groupIds: ['g1'] }));
+
+    expect(res.status).toBe(200);
+    // Resuming never syncs the audience, so the campaign enrolls it now or never
+    expect(enrollmentOf('bob', 'cmp-q3-paused')).toMatchObject({
+      status: 'Active', currentSequenceStep: 1, nextActionDate: expect.any(Date),
+    });
+    expect(T.campaign.find((c) => c.id === 'cmp-q3-paused')).toMatchObject({ status: 'Paused' });
+  });
+
   it('enrolls no lead that may not be emailed', async () => {
     T.lead.push(lead('erin', { status: 'Unsubscribed' }), lead('ivan', { validationStatus: 'Invalid' }), lead('sam'));
     T.suppressedEmail.push({ email: 'sam@acme.com', reason: 'HardBounce', source: 'delivery-webhook' });
+    T.campaign.push({ id: 'cmp-webinar-paused', status: 'Paused', audienceCohort: 'g2' });
 
     for (const id of ['erin', 'ivan', 'sam']) {
       const res = await putLead(req('PUT', '/api/leads', { id, groupIds: ['g2'] }));
@@ -311,9 +329,10 @@ describe('adding a lead to a group (M25)', () => {
       expect(groupsOf(id)).toEqual(['g2']);
     }
     expect(enrolledIn('cmp-webinar')).toEqual([]);
+    expect(enrolledIn('cmp-webinar-paused')).toEqual([]);
   });
 
-  it('enrolls a lead created by Add Lead in the Active and Draft campaigns of its group', async () => {
+  it('enrolls a lead created by Add Lead in every campaign of its group, a paused one included', async () => {
     const res = await postLead(req('POST', '/api/leads', {
       name: 'Jane', email: 'jane@acme.com', validationStatus: 'Unverified', groupIds: ['g1'],
     }));
@@ -322,7 +341,7 @@ describe('adding a lead to a group (M25)', () => {
     const { id } = await res.json();
     expect(enrollmentOf(id, 'cmp-q3')).toMatchObject({ status: 'Active', currentSequenceStep: 1 });
     expect(enrollmentOf(id, 'cmp-q3-draft')).toMatchObject({ status: 'Active', currentSequenceStep: 1 });
-    expect(enrollmentOf(id, 'cmp-q3-paused')).toBeUndefined();
+    expect(enrollmentOf(id, 'cmp-q3-paused')).toMatchObject({ status: 'Active', currentSequenceStep: 1 });
     expect(enrollmentOf(id, 'cmp-webinar')).toBeUndefined();
   });
 });

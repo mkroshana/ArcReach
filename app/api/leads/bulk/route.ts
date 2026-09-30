@@ -124,7 +124,7 @@ export async function POST(req: NextRequest) {
         const newlyCreatedLeads = importedLeads.filter(l => createdEmails.has(l.email));
 
         // 4. Put every imported lead in the groups, including leads already in the CRM, and enroll
-        // those that may be emailed in the Active and Draft campaigns targeting those groups
+        // those that may be emailed in the campaigns targeting those groups, whatever their status
         if (targetGroupIds.length > 0 && importedLeads.length > 0) {
           const memberships = [];
           for (const lead of importedLeads) {

@@ -39,7 +39,6 @@ import { motion, AnimatePresence } from 'motion/react';
 import { TableSkeleton } from '@/components/Skeleton';
 import { decodeMimeHeader } from '@/lib/mime';
 import { emailBodyToText } from '@/lib/emailText';
-import { normalizeEmail } from '@/lib/leadEmail';
 import { useToast } from '@/components/Toast';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import {
@@ -49,6 +48,7 @@ import {
   readCsvTable,
   matchCsvColumns,
   csvColumnLabels,
+  csvRowLead,
   CsvParseError,
   type CsvEncoding,
   type CsvColumnMapping
@@ -719,17 +719,23 @@ export default function LeadsPage() {
 
   const handleAddCustomLead = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newLead.email || !newLead.name) return;
-    
+    if (!newLead.email) return;
+    // The Name input's required check lets a name of only spaces through
+    if (!newLead.name.trim()) {
+      showToast('Name is required.', 'error');
+      return;
+    }
+
     try {
+      // A blank company or job title is stored empty, so templates use their own fallback for it
       const res = await fetch('/api/leads', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: newLead.name,
+          name: newLead.name.trim(),
           email: newLead.email,
-          company: newLead.company || 'Self Employed',
-          jobTitle: newLead.jobTitle || null,
+          company: newLead.company.trim() || null,
+          jobTitle: newLead.jobTitle.trim() || null,
           status: 'Neutral',
           validationStatus: 'Unverified',
           groupIds: selectedGroupForAdd ? [selectedGroupForAdd] : []
@@ -829,8 +835,6 @@ export default function LeadsPage() {
       return;
     }
 
-    const { email: emailIdx, name: nameIdx, company: companyIdx, jobTitle: jobTitleIdx } = mappings;
-
     setLoading(true);
     setImportProgress('Preparing import payload...');
 
@@ -853,18 +857,11 @@ export default function LeadsPage() {
 
     const groupIds = targetGroupId ? [targetGroupId] : [];
 
-    // Filter valid rows and map them
+    // Filter valid rows and map them; a blank or unmapped Name, Company or Job Title is left empty
     const mappedLeads = [];
     for (const row of csvRows) {
-      // Emails are stored trimmed and lowercased; a missing name falls back to the address as written
-      const rawEmail = (row[emailIdx] || '').trim();
-      const email = normalizeEmail(rawEmail);
-      if (email.includes('@')) {
-        const name = nameIdx !== -1 && row[nameIdx] ? row[nameIdx] : rawEmail.split('@')[0];
-        const company = companyIdx !== -1 && row[companyIdx] ? row[companyIdx] : 'Unknown';
-        const jobTitle = jobTitleIdx !== -1 && row[jobTitleIdx] ? row[jobTitleIdx] : null;
-        mappedLeads.push({ email, name, company, jobTitle });
-      }
+      const lead = csvRowLead(row, mappings);
+      if (lead) mappedLeads.push(lead);
     }
 
     if (mappedLeads.length === 0) {
@@ -1215,7 +1212,7 @@ export default function LeadsPage() {
                   onChange={e => setMappings({ ...mappings, name: toColumnIndex(e.target.value) })}
                   className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-2.5 text-xs text-slate-800 dark:text-white cursor-pointer outline-none focus:ring-2 focus:ring-blue-500/40"
                 >
-                  <option value="">{"[Don't Map - Autogenerate]"}</option>
+                  <option value="">{"[Don't Map - Leave Empty]"}</option>
                   {csvColumnOptions.map((label, i) => (
                     <option key={i} value={i}>{label}</option>
                   ))}
@@ -1237,7 +1234,7 @@ export default function LeadsPage() {
                   onChange={e => setMappings({ ...mappings, company: toColumnIndex(e.target.value) })}
                   className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-2.5 text-xs text-slate-800 dark:text-white cursor-pointer outline-none focus:ring-2 focus:ring-blue-500/40"
                 >
-                  <option value="">{"[Don't Map - Use 'Unknown']"}</option>
+                  <option value="">{"[Don't Map - Leave Empty]"}</option>
                   {csvColumnOptions.map((label, i) => (
                     <option key={i} value={i}>{label}</option>
                   ))}
@@ -1259,7 +1256,7 @@ export default function LeadsPage() {
                   onChange={e => setMappings({ ...mappings, jobTitle: toColumnIndex(e.target.value) })}
                   className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-2.5 text-xs text-slate-800 dark:text-white cursor-pointer outline-none focus:ring-2 focus:ring-blue-500/40"
                 >
-                  <option value="">{"[Don't Map - Use Empty]"}</option>
+                  <option value="">{"[Don't Map - Leave Empty]"}</option>
                   {csvColumnOptions.map((label, i) => (
                     <option key={i} value={i}>{label}</option>
                   ))}

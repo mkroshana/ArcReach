@@ -6,8 +6,10 @@ import {
   decodeCsvBytes,
   csvColumnLabels,
   matchCsvColumns,
+  csvRowLead,
   CsvParseError
 } from '../../lib/csv';
+import { personalizeEmail } from '../../lib/personalize';
 
 describe('toCsv utility', () => {
   it('should serialize basic columns in the specified order', () => {
@@ -322,5 +324,48 @@ describe('matchCsvColumns', () => {
 
   it('does not take a street Address column for Email', () => {
     expect(matchCsvColumns(['Address', 'Name']).email).toBe(-1);
+  });
+});
+
+describe('csvRowLead', () => {
+  const mapping = { email: 0, name: 1, company: 2, jobTitle: 3 };
+
+  it('reads the mapped cells and stores the email trimmed and lowercased', () => {
+    expect(csvRowLead([' Jane@Acme.com ', 'Jane Doe', 'Acme', 'CEO'], mapping)).toEqual({
+      email: 'jane@acme.com',
+      name: 'Jane Doe',
+      company: 'Acme',
+      jobTitle: 'CEO'
+    });
+  });
+
+  it('leaves unmapped fields empty instead of inventing a name or company', () => {
+    expect(csvRowLead(['info@acme.com'], { email: 0, name: -1, company: -1, jobTitle: -1 })).toEqual({
+      email: 'info@acme.com',
+      name: null,
+      company: null,
+      jobTitle: null
+    });
+  });
+
+  it('leaves blank and missing cells empty', () => {
+    expect(csvRowLead(['info@acme.com', '', '   '], mapping)).toEqual({
+      email: 'info@acme.com',
+      name: null,
+      company: null,
+      jobTitle: null
+    });
+  });
+
+  it('skips a row whose Email cell holds no address', () => {
+    expect(csvRowLead(['not an address', 'Jane'], mapping)).toBeNull();
+    expect(csvRowLead(['', 'Jane'], mapping)).toBeNull();
+    expect(csvRowLead(['jane@acme.com'], { email: -1, name: -1, company: -1, jobTitle: -1 })).toBeNull();
+  });
+
+  it('lets templates use their fallbacks for a lead imported with only an email', () => {
+    const lead = csvRowLead(['info@acme.com'], { email: 0, name: -1, company: -1, jobTitle: -1 })!;
+    expect(personalizeEmail('Hi {{firstName}}, I noticed {{company}} is hiring', lead))
+      .toBe('Hi there, I noticed your company is hiring');
   });
 });

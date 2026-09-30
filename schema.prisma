@@ -217,6 +217,10 @@ model Lead {
   validationStatus LeadValidationStatus @default(Unverified) // Matches bulk verification categories
   customVariables  Json?                // Holds extra CSV metadata cols
   isArchived       Boolean              @default(false)   // Is the lead archived?
+  // When the lead was added. Leads that predate this column keep null only when the
+  // column is created with no default before `prisma db push`: a push that adds it
+  // with DEFAULT CURRENT_TIMESTAMP gives every existing lead the push time instead.
+  createdAt        DateTime?            @default(now())
   
   enrollments      CampaignEnrollment[]
   dispatches       EmailDispatch[]

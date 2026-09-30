@@ -1,3 +1,5 @@
+import { normalizeEmail } from './leadEmail';
+
 /**
  * Escapes a cell value according to RFC-4180 CSV specifications.
  * If the value contains double-quotes, commas, newlines (\n), or carriage returns (\r),
@@ -290,4 +292,24 @@ export function matchCsvColumns(headers: string[]): CsvColumnMapping {
     used.add(column);
   }
   return mapping;
+}
+
+/** The lead fields one CSV data row imports. */
+export interface CsvRowLead {
+  email: string;
+  name: string | null;
+  company: string | null;
+  jobTitle: string | null;
+}
+
+/**
+ * The lead in a CSV data row, or null when its Email cell holds no address. The email
+ * is stored trimmed and lowercased. A Name, Company or Job Title that is unmapped or
+ * blank is null, never a stand-in value, so templates use their own fallback for it.
+ */
+export function csvRowLead(row: string[], mapping: CsvColumnMapping): CsvRowLead | null {
+  const email = normalizeEmail(mapping.email === -1 ? '' : row[mapping.email]);
+  if (!email.includes('@')) return null;
+  const cell = (column: number) => (column === -1 ? '' : (row[column] ?? '').trim()) || null;
+  return { email, name: cell(mapping.name), company: cell(mapping.company), jobTitle: cell(mapping.jobTitle) };
 }

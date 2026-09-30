@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { UnauthorizedError, unauthorizedResponse } from '@/lib/sessionError';
 import { deleteLeads } from '@/lib/leadDelete';
+import { enrollGroupJoiners } from '@/lib/campaignCohort';
 
 /** Campaign names the in-use 409 spells out; any beyond this are only counted, so the toast stays readable. */
 const MAX_LISTED_CAMPAIGNS = 5;
@@ -121,6 +122,8 @@ export async function DELETE(req: NextRequest) {
           })),
           skipDuplicates: true
         });
+        // and enroll them in the Active and Draft campaigns targeting the target group
+        await enrollGroupJoiners(prisma, leadIds, [targetGroupId]);
       }
     }
 

@@ -11,6 +11,7 @@ import {
   CRM_STATUSES, liftsSuppression, suppressedLeadFields, suppressionEntries, suppressionReasons, withSuppression,
 } from '@/lib/suppression';
 import { deleteLeads } from '@/lib/leadDelete';
+import { enrollGroupJoiners, pauseGroupLeavers } from '@/lib/campaignCohort';
 
 /** Scalar columns the lead PUT may write, in single and bulk updates. Email and
  *  customVariables are not editable here; group membership goes through groupIds
@@ -238,6 +239,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Enroll it in the Active and Draft campaigns targeting its groups too, unless it may not be emailed
+    await enrollGroupJoiners(prisma, [created.id], groupIds || []);
+
     // suppression tells the leads page the address is on the suppression list
     return NextResponse.json({ ...created, suppression });
   } catch (error: any) {
@@ -318,12 +322,13 @@ export async function PUT(req: NextRequest) {
     }
 
     const dataObj: any = { ...updates };
+    let targetGroupIds: string[] | undefined;
     if (groupIds !== undefined) {
       if (!isIdArray(groupIds)) {
         return NextResponse.json({ error: 'groupIds must be an array of lead group IDs.' }, { status: 400 });
       }
       // A missing group would fail the membership write, and a repeated one its primary key
-      const targetGroupIds = Array.from(new Set(groupIds));
+      targetGroupIds = Array.from(new Set(groupIds));
       if (targetGroupIds.length > 0) {
         const found = await prisma.leadGroup.findMany({ where: { id: { in: targetGroupIds } }, select: { id: true } });
         const foundIds = new Set(found.map((g) => g.id));
@@ -343,14 +348,27 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: suppressedError }, { status: 409 });
     }
 
-    const updated = await prisma.lead.update({
-      where: { id },
-      data: dataObj,
-      include: {
-        groups: {
-          include: { group: true }
+    // Campaigns targeting a group follow its members: the lead is enrolled in those of
+    // the groups it joins and its sequence is paused in those of the groups it leaves
+    const updated = await prisma.$transaction(async (tx) => {
+      const before = targetGroupIds === undefined ? [] : (await tx.leadGroupMembership.findMany({
+        where: { leadId: id },
+        select: { groupId: true }
+      })).map(m => m.groupId);
+      const lead = await tx.lead.update({
+        where: { id },
+        data: dataObj,
+        include: {
+          groups: {
+            include: { group: true }
+          }
         }
+      });
+      if (targetGroupIds !== undefined) {
+        await pauseGroupLeavers(tx, [id], before.filter(gId => !targetGroupIds.includes(gId)));
+        await enrollGroupJoiners(tx, [id], targetGroupIds.filter(gId => !before.includes(gId)));
       }
+      return lead;
     });
 
     if (updates.validationStatus === 'Valid') {

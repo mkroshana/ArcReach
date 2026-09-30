@@ -967,7 +967,7 @@ export default function LeadsPage() {
       }
     }
 
-    const summary = describeLeadImport(totals, firstFailure);
+    const summary = describeLeadImport(totals, firstFailure, groupIds.length > 0);
     if (totals.failed > 0) {
       // Keep the file and mapping so the import can be run again; rows imported this time come back as already in the CRM
       setImportFailure(summary);

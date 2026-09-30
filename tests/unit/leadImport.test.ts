@@ -210,6 +210,15 @@ describe('describeLeadImport', () => {
     expect(describeLeadImport(totals({ existing: 12 }))).toBe('No new leads were imported. Skipped 12 already in the CRM.');
   });
 
+  it('says leads already in the CRM are now in the group instead of skipped when the import put its leads in one (M25)', () => {
+    expect(describeLeadImport(totals({ created: 5, existing: 3, duplicate: 1 }), undefined, true)).toBe(
+      "Imported 5 new leads. 3 leads already in the CRM are now in the group. Skipped 1 repeating an earlier row's address.",
+    );
+    expect(describeLeadImport(totals({ existing: 1 }), undefined, true)).toBe(
+      'No new leads were imported. 1 lead already in the CRM is now in the group.',
+    );
+  });
+
   it('reports rows of failed batches with the error and never as imported', () => {
     expect(describeLeadImport(totals({ created: 4000, failed: 1000 }), 'the server answered 500')).toBe(
       'Imported 4000 new leads. 1000 rows could not be imported (the server answered 500). ' +

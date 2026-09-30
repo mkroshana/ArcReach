@@ -14,8 +14,10 @@ vi.mock('../../lib/db', () => ({
     lead: { update: vi.fn(), updateMany: vi.fn(), findMany: vi.fn() },
     leadGroupMembership: { findMany: vi.fn() },
     leadGroup: { findMany: vi.fn() },
+    campaign: { findMany: vi.fn() },
     campaignEnrollment: { updateMany: vi.fn() },
     suppressedEmail: { findMany: vi.fn() },
+    $transaction: vi.fn(),
   },
 }));
 
@@ -332,7 +334,12 @@ describe('PUT /api/leads', () => {
     mockedSession.mockResolvedValue(USER);
     mockedPrisma.lead.update.mockImplementation(async ({ where, data }: any) => ({ id: where.id, ...data }));
     mockedPrisma.lead.updateMany.mockResolvedValue({ count: 2 });
-    mockedPrisma.leadGroupMembership.findMany.mockResolvedValue([{ leadId: 'lead-1' }, { leadId: 'lead-2' }]);
+    // Group g-1 holds both leads; lead-1's own groups are read before a groupIds update, and it has none.
+    mockedPrisma.leadGroupMembership.findMany.mockImplementation(async ({ where }: any) =>
+      (where.groupId === 'g-1' ? [{ leadId: 'lead-1' }, { leadId: 'lead-2' }] : []));
+    // A single-lead update runs in an interactive transaction on the same client, and no campaign targets a group.
+    mockedPrisma.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => fn(mockedPrisma));
+    mockedPrisma.campaign.findMany.mockResolvedValue([]);
     // Groups g-1 and g-2 exist.
     mockedPrisma.leadGroup.findMany.mockImplementation(async ({ where }: any) =>
       where.id.in.filter((id: string) => ['g-1', 'g-2'].includes(id)).map((id: string) => ({ id })));

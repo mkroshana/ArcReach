@@ -3,10 +3,12 @@ import { NextRequest } from 'next/server';
 
 vi.mock('../../lib/db', () => ({
   prisma: {
-    lead: { deleteMany: vi.fn() },
+    lead: { deleteMany: vi.fn(), findMany: vi.fn() },
     leadGroup: { delete: vi.fn() },
     leadGroupMembership: { findMany: vi.fn(), createMany: vi.fn() },
     campaign: { findMany: vi.fn() },
+    campaignEnrollment: { createMany: vi.fn() },
+    suppressedEmail: { findMany: vi.fn() },
   },
 }));
 
@@ -24,7 +26,7 @@ const mockedSession = vi.mocked(getSession);
 const USER = { id: 'user-1', name: 'User', email: 'user@example.com', role: 'USER' as const };
 const ADMIN = { id: 'admin-1', name: 'Admin', email: 'admin@example.com', role: 'ADMIN' as const };
 
-type CampaignRow = { name: string; userId: string; audienceCohort: string };
+type CampaignRow = { name: string; userId: string; audienceCohort: string; id?: string; status?: string };
 
 /** The Campaign table the dependency query runs against. */
 let campaigns: CampaignRow[];
@@ -49,7 +51,18 @@ beforeEach(() => {
   mockedPrisma.leadGroup.delete.mockResolvedValue({});
   mockedPrisma.leadGroupMembership.findMany.mockResolvedValue([{ leadId: 'lead-1' }, { leadId: 'lead-2' }]);
   mockedPrisma.leadGroupMembership.createMany.mockResolvedValue({ count: 2 });
+  // Both moved leads may be emailed
+  mockedPrisma.lead.findMany.mockResolvedValue([{ id: 'lead-1', email: 'one@example.com' }, { id: 'lead-2', email: 'two@example.com' }]);
+  mockedPrisma.suppressedEmail.findMany.mockResolvedValue([]);
+  mockedPrisma.campaignEnrollment.createMany.mockResolvedValue({ count: 2 });
   mockedPrisma.campaign.findMany.mockImplementation(async ({ where, select, orderBy }: any) => {
+    // The Active and Draft campaigns that enroll the leads moved into the target group
+    if (where.status) {
+      expect(select).toEqual({ id: true, audienceCohort: true });
+      return campaigns
+        .filter((c) => where.audienceCohort.in.includes(c.audienceCohort) && where.status.in.includes(c.status))
+        .map(({ id, audienceCohort }) => ({ id, audienceCohort }));
+    }
     expect(select).toEqual({ name: true, userId: true });
     expect(orderBy).toEqual({ name: 'asc' });
     return campaigns
@@ -128,8 +141,9 @@ describe('DELETE /api/leads/groups in-use guard (H29)', () => {
 
   it('moves the leads and deletes the group once no campaign targets it', async () => {
     campaigns = [
-      { name: 'Other Group', userId: 'user-1', audienceCohort: 'group-2' },
-      { name: 'All Valid', userId: 'user-1', audienceCohort: 'Valid' },
+      { name: 'Other Group', userId: 'user-1', audienceCohort: 'group-2', id: 'cmp-other', status: 'Active' },
+      { name: 'Other Group Paused', userId: 'user-1', audienceCohort: 'group-2', id: 'cmp-paused', status: 'Paused' },
+      { name: 'All Valid', userId: 'user-1', audienceCohort: 'Valid', id: 'cmp-valid', status: 'Active' },
     ];
     const res = await deleteGroup(makeDelete('id=group-1&leadAction=MOVE&targetGroupId=group-2'));
     expect(res.status).toBe(200);
@@ -137,6 +151,16 @@ describe('DELETE /api/leads/groups in-use guard (H29)', () => {
       data: [{ leadId: 'lead-1', groupId: 'group-2' }, { leadId: 'lead-2', groupId: 'group-2' }],
       skipDuplicates: true,
     });
+    // The moved leads join the Active campaign targeting the target group (M25)
+    expect(mockedPrisma.lead.findMany).toHaveBeenCalledTimes(1);
+    expect(mockedPrisma.lead.findMany.mock.calls[0][0].where.AND[0]).toEqual({
+      AND: [{ isArchived: false, groups: { some: { groupId: 'group-2' } } }, { id: { in: ['lead-1', 'lead-2'] } }],
+    });
+    expect(mockedPrisma.campaignEnrollment.createMany).toHaveBeenCalledTimes(1);
+    const [{ data, skipDuplicates }] = mockedPrisma.campaignEnrollment.createMany.mock.calls[0];
+    expect(skipDuplicates).toBe(true);
+    expect(data.map((e: any) => [e.leadId, e.campaignId, e.status, e.currentSequenceStep]))
+      .toEqual([['lead-1', 'cmp-other', 'Active', 1], ['lead-2', 'cmp-other', 'Active', 1]]);
     expect(mockedPrisma.leadGroup.delete).toHaveBeenCalledWith({ where: { id: 'group-1' } });
   });
 

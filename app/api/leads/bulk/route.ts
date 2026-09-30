@@ -7,6 +7,7 @@ import { LEAD_IMPORT_BATCH_SIZE, type LeadImportOutcome, countLeadImport } from 
 import { isPlainObject } from '@/lib/updateAllowList';
 import { findEnrollableLeadIds } from '@/lib/sendEligibility';
 import { suppressedLeadFields, suppressionReasons } from '@/lib/suppression';
+import { enrollGroupJoiners } from '@/lib/campaignCohort';
 
 /** The text fields a row may carry besides its email, each a string, null or absent. */
 const LEAD_TEXT_FIELDS = ['name', 'company', 'jobTitle'];
@@ -18,9 +19,11 @@ function isIdArray(value: unknown): value is string[] {
 /**
  * Imports `leads` and answers with each row's outcome (see LeadImportOutcome),
  * in the order sent, and their counts. A row whose email is not one valid
- * address is refused and the rest are imported. Every write happens in one
- * transaction, so a request that fails imports none of its rows and the page
- * can say so and send them again.
+ * address is refused and the rest are imported. Every imported address, new
+ * or already in the CRM, joins `groupIds` and the campaigns targeting those
+ * groups (enrollGroupJoiners). Every write happens in one transaction, so a
+ * request that fails imports none of its rows and the page can say so and
+ * send them again.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -85,42 +88,46 @@ export async function POST(req: NextRequest) {
         for (const l of incoming) {
           if (existingEmails.has(l.email)) outcomes[l.row] = 'existing';
         }
-        if (leadsToCreate.length === 0) return;
 
-        // Addresses on the suppression list are still created, with their suppressed status, and never enrolled
-        const suppression = await suppressionReasons(tx, leadsToCreate.map(l => l.email));
-        for (const l of leadsToCreate) {
-          outcomes[l.row] = suppression.has(l.email) ? 'suppressed' : 'created';
+        if (leadsToCreate.length > 0) {
+          // Addresses on the suppression list are still created, with their suppressed status, and never enrolled
+          const suppression = await suppressionReasons(tx, leadsToCreate.map(l => l.email));
+          for (const l of leadsToCreate) {
+            outcomes[l.row] = suppression.has(l.email) ? 'suppressed' : 'created';
+          }
+
+          // 2. Perform bulk insertion of new leads
+          await tx.lead.createMany({
+            data: leadsToCreate.map(l => {
+              const reason = suppression.get(l.email);
+              return {
+                email: l.email,
+                name: l.name,
+                company: l.company,
+                jobTitle: l.jobTitle,
+                status: 'Neutral',
+                validationStatus: 'Unverified',
+                ...(reason ? suppressedLeadFields(reason) : {}),
+                isArchived: false
+              };
+            }),
+            skipDuplicates: true
+          });
         }
 
-        // 2. Perform bulk insertion of new leads
-        await tx.lead.createMany({
-          data: leadsToCreate.map(l => {
-            const reason = suppression.get(l.email);
-            return {
-              email: l.email,
-              name: l.name,
-              company: l.company,
-              jobTitle: l.jobTitle,
-              status: 'Neutral',
-              validationStatus: 'Unverified',
-              ...(reason ? suppressedLeadFields(reason) : {}),
-              isArchived: false
-            };
-          }),
-          skipDuplicates: true
-        });
-
-        // 3. Fetch newly created leads to link relationships (group membership & campaign enrollment)
-        const newlyCreatedLeads = await tx.lead.findMany({
-          where: { email: { in: leadsToCreate.map(l => l.email) } },
+        // 3. Fetch every imported lead, new or already in the CRM, to link relationships (group membership & campaign enrollment)
+        const importedLeads = await tx.lead.findMany({
+          where: leadEmailIn(incoming.map(l => l.email)),
           select: { id: true, email: true }
         });
+        const createdEmails = new Set(leadsToCreate.map(l => l.email));
+        const newlyCreatedLeads = importedLeads.filter(l => createdEmails.has(l.email));
 
-        // 4. Create group memberships in bulk if groupIds are provided
-        if (targetGroupIds.length > 0 && newlyCreatedLeads.length > 0) {
+        // 4. Put every imported lead in the groups, including leads already in the CRM, and enroll
+        // those that may be emailed in the Active and Draft campaigns targeting those groups
+        if (targetGroupIds.length > 0 && importedLeads.length > 0) {
           const memberships = [];
-          for (const lead of newlyCreatedLeads) {
+          for (const lead of importedLeads) {
             for (const gId of targetGroupIds) {
               memberships.push({
                 leadId: lead.id,
@@ -132,6 +139,7 @@ export async function POST(req: NextRequest) {
             data: memberships,
             skipDuplicates: true
           });
+          await enrollGroupJoiners(tx, importedLeads.map(l => l.id), targetGroupIds);
         }
 
         // 5. Enroll newly created leads that may be emailed in all active campaigns targeting the Unverified cohort

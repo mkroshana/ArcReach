@@ -231,7 +231,8 @@ describe('POST /api/leads/bulk', () => {
       ['new_user@example.com', 'New'],
     ]);
     const created = fake.tables.lead.slice(1).map((l) => l.id);
-    expect(fake.tables.leadGroupMembership.map((m) => m.leadId)).toEqual(created);
+    // The lead already in the CRM under another capitalisation joins the group too (M25)
+    expect(fake.tables.leadGroupMembership.map((m) => m.leadId)).toEqual(['lead-1', ...created]);
   });
 
   it('reports every row of a batch with no usable address as invalid and creates nothing', async () => {

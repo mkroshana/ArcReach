@@ -15,6 +15,11 @@ function cohortGroupId(cohort: string): string {
   return cohort.startsWith('group_') ? cohort.slice('group_'.length) : cohort;
 }
 
+/** The audienceCohort values that target one of `groupIds`: the group ID or the legacy `group_<id>`. */
+function groupCohorts(groupIds: string[]): string[] {
+  return groupIds.flatMap((groupId) => [groupId, `group_${groupId}`]);
+}
+
 /** Lead filter for the leads `cohort` enrolls. */
 export function cohortLeadWhere(cohort: string): Prisma.LeadWhereInput {
   if (cohort === 'Valid' || cohort === 'Unverified') {
@@ -99,4 +104,64 @@ export async function syncCohortEnrollments(
       skipDuplicates: true,
     });
   }
+}
+
+/**
+ * Enroll `leadIds`, which just joined `groupIds`, in the Active and Draft
+ * campaigns whose audience is one of those groups. Those of them in the
+ * campaign's group that may be enrolled (findEnrollableLeadIds) start Active
+ * at step 1, as syncCohortEnrollments enrolls a new member. A lead already
+ * enrolled keeps its enrollment as it is, so one paused when it left the group,
+ * or on a reply, is never restarted at step 1 or resumed.
+ */
+export async function enrollGroupJoiners(
+  tx: Prisma.TransactionClient,
+  leadIds: string[],
+  groupIds: string[],
+): Promise<void> {
+  if (leadIds.length === 0 || groupIds.length === 0) return;
+  const campaigns = await tx.campaign.findMany({
+    where: { audienceCohort: { in: groupCohorts(groupIds) }, status: { in: ['Active', 'Draft'] } },
+    select: { id: true, audienceCohort: true },
+  });
+  for (const campaign of campaigns) {
+    const enrollableLeadIds = await findEnrollableLeadIds(tx, {
+      AND: [cohortLeadWhere(campaign.audienceCohort), { id: { in: leadIds } }],
+    });
+    if (enrollableLeadIds.length === 0) continue;
+    await tx.campaignEnrollment.createMany({
+      data: enrollableLeadIds.map((leadId) => ({
+        leadId,
+        campaignId: campaign.id,
+        status: 'Active',
+        currentSequenceStep: 1,
+        nextActionDate: new Date(),
+      })),
+      skipDuplicates: true,
+    });
+  }
+}
+
+/**
+ * Pause the Active enrollments of `leadIds`, which just left `groupIds`, in
+ * every campaign whose audience is one of those groups, whatever the
+ * campaign's status, so a lead taken out of a group is sent no further steps.
+ * The enrollment is kept at its step with its history, never deleted, and one
+ * that is already Paused or has ended (Completed, Bounced, Failed, Removed)
+ * keeps its status.
+ */
+export async function pauseGroupLeavers(
+  tx: Prisma.TransactionClient,
+  leadIds: string[],
+  groupIds: string[],
+): Promise<void> {
+  if (leadIds.length === 0 || groupIds.length === 0) return;
+  await tx.campaignEnrollment.updateMany({
+    where: {
+      leadId: { in: leadIds },
+      status: 'Active',
+      campaign: { audienceCohort: { in: groupCohorts(groupIds) } },
+    },
+    data: { status: 'Paused' },
+  });
 }

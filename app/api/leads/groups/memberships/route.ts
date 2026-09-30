@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { UnauthorizedError, unauthorizedResponse } from '@/lib/sessionError';
+import { pauseGroupLeavers } from '@/lib/campaignCohort';
 
 export async function DELETE(req: NextRequest) {
   try {
@@ -14,10 +15,14 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Both groupId and leadId are required.' }, { status: 400 });
     }
 
-    await prisma.leadGroupMembership.delete({
-      where: {
-        leadId_groupId: { leadId, groupId }
-      }
+    // The lead's sequence stops in the campaigns targeting the group, kept Paused at its step
+    await prisma.$transaction(async (tx) => {
+      await tx.leadGroupMembership.delete({
+        where: {
+          leadId_groupId: { leadId, groupId }
+        }
+      });
+      await pauseGroupLeavers(tx, [leadId], [groupId]);
     });
 
     return NextResponse.json({ success: true });

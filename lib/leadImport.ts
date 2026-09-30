@@ -9,7 +9,8 @@
  * - created: a new lead that may be emailed.
  * - suppressed: a new lead whose address is on the suppression list, created
  *   with its suppressed status and never emailed.
- * - existing: a lead with this address was already in the CRM.
+ * - existing: a lead with this address was already in the CRM. It is not
+ *   changed, but joins the groups the import puts its leads in.
  * - duplicate: an earlier row of the same request has this address.
  * - invalid: the email is not one valid address (see parseLeadEmail).
  */
@@ -50,17 +51,22 @@ function rowCount(n: number, singular = 'row'): string {
 
 /**
  * What a CSV import did, for its toast. `failure` is the error of the first
- * batch that failed, if any did. Every row is counted in exactly one place.
+ * batch that failed, if any did. `intoGroup` says the import put its leads in a
+ * group, which leads already in the CRM join too. Every row is counted in
+ * exactly one place.
  */
-export function describeLeadImport(totals: LeadImportTotals, failure?: string): string {
+export function describeLeadImport(totals: LeadImportTotals, failure?: string, intoGroup = false): string {
   const added = totals.created + totals.suppressed;
   let text = added > 0 ? `Imported ${rowCount(added, 'new lead')}` : 'No new leads were imported';
   if (totals.suppressed > 0) {
     text += `, ${totals.suppressed} of them on the suppression list (unsubscribed, bounced or invalid) and never emailed`;
   }
   text += '.';
+  if (intoGroup && totals.existing > 0) {
+    text += ` ${rowCount(totals.existing, 'lead')} already in the CRM ${totals.existing === 1 ? 'is' : 'are'} now in the group.`;
+  }
   const skipped = [
-    totals.existing > 0 ? `${totals.existing} already in the CRM` : '',
+    totals.existing > 0 && !intoGroup ? `${totals.existing} already in the CRM` : '',
     totals.duplicate > 0 ? `${totals.duplicate} repeating an earlier row's address` : '',
     totals.invalid > 0 ? `${totals.invalid} with an email that is not one valid address` : '',
     totals.blank > 0 ? `${totals.blank} with no email` : '',

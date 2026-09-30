@@ -5,13 +5,16 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  LayoutDashboard, Send, Users, Inbox, Settings, Mail, FileText, Sun, Moon, ShieldCheck, LogOut,
+  LayoutDashboard, Send, Users, Inbox, Settings, Mail, FileText, Sun, Moon, ShieldCheck, LogOut, Menu,
 } from 'lucide-react';
 import { useTheme } from '@/components/ThemeProvider';
 import {
-  Box, Stack, Typography, Avatar, Chip, Button, List, ListItemButton, ListItemIcon, ListItemText,
+  Box, Stack, Typography, Avatar, Chip, Button, List, ListItemButton, ListItemIcon, ListItemText, Tooltip, Drawer, IconButton,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
+import { autoResumeNote } from '@/lib/campaignPause';
+import { workerStatusText } from '@/lib/systemStatus';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 const defaultNavItems = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
@@ -22,8 +25,31 @@ const defaultNavItems = [
   { name: 'Templates', href: '/templates', icon: FileText },
 ];
 
-function StatusRow({ label, color, text }: { label: string; color: string; text: string }) {
-  return (
+const STATUS_OK = '#10b981';
+const STATUS_WARN = '#f59e0b';
+const STATUS_BAD = '#f43f5e';
+const STATUS_IDLE = '#94a3b8';
+
+/** Azure settings, from /api/system-status's azureStatus. Nothing calls Azure, so none of these says it is online. */
+const AZURE_STATUS: Record<string, { color: string; text: string }> = {
+  CONFIGURED: { color: STATUS_OK, text: 'Configured' },
+  UNCONFIGURED: { color: STATUS_WARN, text: 'Not Configured' },
+  DISABLED: { color: STATUS_WARN, text: 'Disabled' },
+};
+
+/** The send worker, from /api/system-status's workerStatus (its heartbeat). */
+const WORKER_STATUS: Record<string, { color: string; text: string }> = {
+  RUNNING: { color: STATUS_OK, text: 'Running' },
+  STALLED: { color: STATUS_WARN, text: 'Stalled' },
+  FAILING: { color: STATUS_BAD, text: 'Failing' },
+  NOT_RUNNING: { color: STATUS_BAD, text: 'Not Running' },
+};
+
+/** How often the status panel re-reads /api/system-status while the tab is visible. */
+const STATUS_REFRESH_MS = 60_000;
+
+function StatusRow({ label, color, text, detail }: { label: string; color: string; text: string; detail?: string | null }) {
+  const row = (
     <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
       <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 500 }}>{label}</Typography>
       <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
@@ -32,6 +58,7 @@ function StatusRow({ label, color, text }: { label: string; color: string; text:
       </Stack>
     </Stack>
   );
+  return detail ? <Tooltip title={detail} placement="right">{row}</Tooltip> : row;
 }
 
 export function Sidebar() {
@@ -40,11 +67,27 @@ export function Sidebar() {
   const [mounted, setMounted] = useState(false);
   const [session, setSessionState] = useState<any>(null);
   const [systemStatus, setSystemStatus] = useState<any>(null);
+  // Below md the sidebar is a drawer opened from the top bar.
+  const isMobile = useIsMobile();
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
     setMounted(true);
-    fetch('/api/session').then(res => res.json()).then(data => setSessionState(data)).catch(() => {});
-    fetch('/api/system-status').then(res => res.json()).then(data => setSystemStatus(data)).catch(() => {});
+    fetch('/api/session').then(res => {
+      // A missing, revoked or disabled session answers 401 (and its cookie is cleared): sign in again.
+      if (res.status === 401) { window.location.href = '/login'; return null; }
+      return res.json();
+    }).then(data => setSessionState(data)).catch(() => {});
+    const loadStatus = () => {
+      // A 401 (session ended) is left to the session check; it says nothing about the system.
+      fetch('/api/system-status').then(res => (res.status === 401 ? null : res.json())).then(data => { if (data) setSystemStatus(data); }).catch(() => {});
+    };
+    loadStatus();
+    // The worker status comes from its heartbeat, so it is re-read rather than kept from page load.
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') loadStatus();
+    }, STATUS_REFRESH_MS);
+    return () => clearInterval(interval);
   }, []);
 
   const handleLogout = async () => {
@@ -59,30 +102,29 @@ export function Sidebar() {
   const navItems = [...defaultNavItems];
   if (session?.role === 'ADMIN') navItems.push({ name: 'Users Admin', href: '/admin/users', icon: ShieldCheck });
 
-  // System status colors/labels (preserves prior logic)
+  // System status colors/labels
   const dbOk = systemStatus?.database === 'OPERATIONAL';
-  const dbColor = dbOk ? '#10b981' : systemStatus ? '#f43f5e' : '#94a3b8';
+  const dbColor = dbOk ? STATUS_OK : systemStatus ? STATUS_BAD : STATUS_IDLE;
   const dbText = systemStatus ? (dbOk ? 'Online' : 'Offline') : 'Loading';
 
-  let azureColor = '#94a3b8';
-  let azureText = 'Loading';
-  if (systemStatus) {
-    if (systemStatus.activeProvider === 'AZURE') {
-      if (systemStatus.azureStatus === 'OPERATIONAL') { azureColor = '#10b981'; azureText = 'Online'; }
-      else if (systemStatus.azureStatus === 'UNCONFIGURED') { azureColor = '#f59e0b'; azureText = 'Not Setup'; }
-      else { azureColor = '#f43f5e'; azureText = 'Offline'; }
-    } else { azureColor = '#3b82f6'; azureText = 'Sandbox'; }
-  }
+  const unknown = { color: STATUS_IDLE, text: systemStatus ? 'Unknown' : 'Loading' };
+  const azure = AZURE_STATUS[systemStatus?.azureStatus] ?? unknown;
+  const azureDetail = systemStatus?.azureStatus === 'CONFIGURED'
+    ? 'The connection string decrypts and a verified sender domain is saved. Azure accepts or refuses the access key only when an email is sent.'
+    : systemStatus?.sendingProblem;
+  const worker = WORKER_STATUS[systemStatus?.workerStatus] ?? unknown;
+  const workerDetail = WORKER_STATUS[systemStatus?.workerStatus]
+    ? workerStatusText(systemStatus.workerStatus, systemStatus.workerHeartbeat)
+    : null;
 
-  return (
-    <Box
-      component="aside"
-      sx={{
-        width: 256, height: '100vh', position: 'fixed', top: 0, left: 0, zIndex: 50,
-        bgcolor: 'background.paper', borderRight: 1, borderColor: 'divider',
-        display: 'flex', flexDirection: 'column', px: 2, pt: 3, pb: 2,
-      }}
-    >
+  // Campaigns the send engine paused until their setup is fixed, and whether each
+  // has a complete sending schedule (without one its auto-resume sets it to Draft).
+  const setupPaused: Array<{ id: string; name: string; status: string; pauseReason: string | null; pausedUntil: string | null; hasSendingSchedule: boolean }> =
+    systemStatus?.setupPausedCampaigns ?? [];
+  const setupPausedMore = (systemStatus?.setupPausedCount ?? 0) - setupPaused.length;
+
+  const content = (
+    <>
       {/* Brand */}
       <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', px: 1, mb: 3 }}>
         <Avatar variant="rounded" sx={{ bgcolor: 'primary.main', width: 36, height: 36, borderRadius: '10px', boxShadow: 2 }}>
@@ -162,10 +204,93 @@ export function Sidebar() {
           <Typography sx={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', color: 'text.secondary', textTransform: 'uppercase', mb: 1 }}>System Status</Typography>
           <Stack spacing={1}>
             <StatusRow label="Database" color={dbColor} text={dbText} />
-            <StatusRow label="Azure API" color={azureColor} text={azureText} />
+            <StatusRow label="Azure Settings" color={azure.color} text={azure.text} detail={azureDetail} />
+            <StatusRow label="Send Worker" color={worker.color} text={worker.text} detail={workerDetail} />
           </Stack>
+          {setupPaused.length > 0 && (
+            <Box sx={{ mt: 1.25, pt: 1, borderTop: 1, borderColor: 'divider' }}>
+              <Typography sx={{ fontSize: 10, fontWeight: 700, color: STATUS_WARN, mb: 0.5 }}>
+                Paused by Setup Problems ({systemStatus.setupPausedCount})
+              </Typography>
+              <Stack spacing={0.25}>
+                {setupPaused.map((c) => (
+                  <Tooltip key={c.id} title={autoResumeNote(c) ?? ''} placement="right">
+                    <Typography component={Link as any} href={`/campaigns/${c.id}`} noWrap
+                      sx={{ fontSize: 11, color: 'text.primary', textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}>
+                      {c.name}
+                    </Typography>
+                  </Tooltip>
+                ))}
+                {setupPausedMore > 0 && (
+                  <Typography component={Link as any} href="/campaigns"
+                    sx={{ fontSize: 11, color: 'text.secondary', textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}>
+                    {setupPausedMore} more
+                  </Typography>
+                )}
+              </Stack>
+            </Box>
+          )}
         </Box>
       </Stack>
-    </Box>
+    </>
+  );
+
+  return (
+    <>
+      {/* Top bar with the menu button, below md only */}
+      <Box
+        component="header"
+        className="flex md:hidden"
+        sx={{ alignItems: 'center', gap: 1, flexShrink: 0, px: 1, py: 1, bgcolor: 'background.paper', borderBottom: 1, borderColor: 'divider' }}
+      >
+        <IconButton
+          onClick={() => setMobileOpen(true)}
+          aria-label="Open Navigation"
+          aria-controls="app-navigation"
+          aria-expanded={mobileOpen}
+          sx={{ color: 'text.primary' }}
+        >
+          <Menu size={20} />
+        </IconButton>
+        <Avatar variant="rounded" sx={{ bgcolor: 'primary.main', width: 30, height: 30, borderRadius: '9px' }}>
+          <Mail size={16} color="#fff" />
+        </Avatar>
+        <Typography sx={{ fontWeight: 700, letterSpacing: '0.06em' }}>ARCREACH</Typography>
+      </Box>
+
+      {isMobile ? (
+        <Drawer
+          open={mobileOpen}
+          onClose={() => setMobileOpen(false)}
+          slotProps={{
+            root: { keepMounted: true },
+            paper: {
+              id: 'app-navigation',
+              'aria-label': 'Navigation',
+              // Following any link closes the drawer, even one to the page already shown.
+              onClick: (e: React.MouseEvent<HTMLDivElement>) => {
+                if ((e.target as Element).closest('a')) setMobileOpen(false);
+              },
+              sx: { width: 256, backgroundImage: 'none', px: 2, pt: 3, pb: 2 },
+            },
+          }}
+        >
+          {content}
+        </Drawer>
+      ) : (
+        // Also hidden below md by CSS, so a phone never shows it before hydration swaps in the drawer.
+        <Box
+          component="aside"
+          className="hidden md:flex"
+          sx={{
+            width: 256, height: '100vh', position: 'fixed', top: 0, left: 0, zIndex: 50,
+            bgcolor: 'background.paper', borderRight: 1, borderColor: 'divider',
+            flexDirection: 'column', px: 2, pt: 3, pb: 2,
+          }}
+        >
+          {content}
+        </Box>
+      )}
+    </>
   );
 }

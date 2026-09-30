@@ -21,9 +21,11 @@ export function AppLayoutClient({ children }: { children: React.ReactNode }) {
               {children}
             </div>
           ) : (
-            <div className="flex h-screen w-full">
+            // Below md the Sidebar is a top bar and drawer, so the page stacks under the bar with no sidebar offset.
+            // h-dvh keeps the bottom of the page above a phone browser's toolbar (the same height as h-screen on desktop).
+            <div className="flex h-dvh w-full flex-col md:flex-row">
               <Sidebar />
-              <main className="flex-1 overflow-y-auto p-8 relative z-10 ml-64">
+              <main className="flex-1 min-h-0 overflow-y-auto p-4 md:p-8 relative z-10 md:ml-64">
                 <div className="max-w-7xl mx-auto h-full">
                   {children}
                 </div>

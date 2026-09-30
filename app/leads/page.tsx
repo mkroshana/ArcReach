@@ -8,8 +8,7 @@ import {
   AlertCircle, 
   Search, 
   Download, 
-  Sparkles, 
-  Play, 
+  Globe, 
   Trash2, 
   Plus,
   X,
@@ -31,19 +30,173 @@ import {
   Archive,
   FolderPlus,
   Ban,
-  MailX
+  MailX,
+  Hourglass,
+  MailQuestionMark,
+  Loader2
 } from 'lucide-react';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { TableSkeleton } from '@/components/Skeleton';
 import { decodeMimeHeader } from '@/lib/mime';
+import { emailBodyToText } from '@/lib/emailText';
 import { useToast } from '@/components/Toast';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-import { toCsv, downloadCsv } from '@/lib/csv';
+import { loadErrorMessage, readJsonList, readJsonObject } from '@/lib/apiResponse';
+import {
+  toCsv,
+  downloadCsv,
+  decodeCsvBytes,
+  readCsvTable,
+  matchCsvColumns,
+  csvColumnLabels,
+  planCsvImport,
+  CsvParseError,
+  type CsvEncoding,
+  type CsvColumnMapping,
+  type CsvImportPlan
+} from '@/lib/csv';
+import { parseLeadEmail } from '@/lib/leadEmail';
+import {
+  LEAD_IMPORT_BATCH_SIZE,
+  LEAD_IMPORT_OUTCOMES,
+  emptyLeadImportCounts,
+  describeLeadImport,
+  type LeadImportTotals
+} from '@/lib/leadImport';
+import { OPT_OUT_REASONS, SUPPRESSION_LABELS } from '@/lib/suppression';
+import { DOMAIN_CHECK_BATCH_SIZE, type DomainCheckCounts } from '@/lib/domainCheck';
+import {
+  LEAD_PAGE_MAX,
+  LEAD_PAGE_SIZE,
+  LEAD_STATUS_FILTERS,
+  leadListParams,
+  type LeadListQuery,
+  type LeadStatusFilter
+} from '@/lib/leadView';
+import type { SuppressionReason } from '@prisma/client';
+
+/** A lead's suppression-list entry, as /api/leads returns it on each lead. */
+type SuppressionInfo = { reason: SuppressionReason; source: string; createdAt: string };
+
+/** What recorded a suppression-list entry, in words. */
+const SUPPRESSION_SOURCES: Record<string, string> = {
+  'unsubscribe-link': 'unsubscribe link',
+  'delivery-webhook': 'ACS delivery report',
+  'send-engine': 'send failure',
+  verification: 'verification',
+  backfill: 'lead status before the list existed',
+};
+
+/** When and why an address went on the suppression list. */
+function describeSuppression(entry: SuppressionInfo): string {
+  const cause = SUPPRESSION_LABELS[entry.reason]?.cause ?? entry.reason;
+  const source = SUPPRESSION_SOURCES[entry.source] ?? entry.source;
+  return `On the suppression list since ${new Date(entry.createdAt).toLocaleDateString()} because ${cause} (${source}).`;
+}
+
+/**
+ * The lead's Unsubscribed, Bounced or Invalid chip label, or null. The
+ * suppression list decides it, whatever the lead's CRM status says; a Bounced
+ * or Unsubscribed status with no list entry still shows.
+ */
+function suppressionLabel(lead: any): string | null {
+  if (lead.suppression) return SUPPRESSION_LABELS[lead.suppression.reason as SuppressionReason]?.chip ?? 'Suppressed';
+  return lead.status === 'Bounced' || lead.status === 'Unsubscribed' ? lead.status : null;
+}
+
+function SuppressionChip({ lead }: { lead: any }) {
+  const label = suppressionLabel(lead);
+  const title = lead.suppression ? describeSuppression(lead.suppression) : undefined;
+  if (label === 'Bounced') {
+    return (
+      <span title={title} className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wider bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400 border-red-200 dark:border-red-900/30">
+        <Ban className="w-3.5 h-3.5" />
+        Bounced
+      </span>
+    );
+  }
+  if (label === 'Unsubscribed') {
+    return (
+      <span title={title} className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wider bg-orange-50 dark:bg-orange-950/30 text-orange-700 dark:text-orange-400 border-orange-200 dark:border-orange-900/30">
+        <MailX className="w-3.5 h-3.5" />
+        Unsubscribed
+      </span>
+    );
+  }
+  if (label) {
+    return (
+      <span title={title} className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wider bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-900/30">
+        <AlertCircle className="w-3.5 h-3.5" />
+        {label}
+      </span>
+    );
+  }
+  return <span className="text-[10px] text-slate-400 dark:text-slate-500">Active</span>;
+}
+
+/** What a Re-activate did, for its toast. */
+function describeReactivation(result: { reactivated: number; unsubscribed: number; suppressed: number; notSuppressed: number }): string {
+  const leadCount = (n: number) => `${n} ${n === 1 ? 'lead' : 'leads'}`;
+  const done = result.reactivated > 0
+    ? `${leadCount(result.reactivated)} moved back to Unverified. Run Check Domain MX to check ${result.reactivated === 1 ? 'it' : 'them'} again.`
+    : 'No leads were re-activated.';
+  const skipped = [
+    result.unsubscribed > 0 ? `${result.unsubscribed} unsubscribed` : '',
+    result.suppressed > 0 ? `${result.suppressed} still on the suppression list` : '',
+    result.notSuppressed > 0 ? `${result.notSuppressed} not suppressed` : '',
+  ].filter(Boolean);
+  return skipped.length > 0 ? `${done} Skipped ${skipped.join(', ')}.` : done;
+}
+
+/** What a domain MX check found, by validation status, for its toast. */
+function describeDomainCheck(counts: DomainCheckCounts): string {
+  const found = [
+    counts.valid > 0 ? `${counts.valid} Valid (the domain has MX records, or an A record in their place; mailboxes are not checked)` : '',
+    counts.risky > 0 ? `${counts.risky} Risky (the DNS lookup failed or found no MX or A record; run the check again to retry them)` : '',
+    counts.invalid > 0 ? `${counts.invalid} Invalid (the domain does not exist or the address is malformed)` : '',
+  ].filter(Boolean);
+  return found.length > 0 ? `${found.join(', ')}.` : 'No leads were checked.';
+}
+
+/** How many leads a domain MX check has checked, of how many once that is known. */
+function checkedOf(progress: { checked: number; total: number | null }): string {
+  return progress.total === null ? `${progress.checked}` : `${progress.checked} of ${progress.total}`;
+}
+
+/** Invalid emails the CSV mapping step quotes; any beyond this are only counted. */
+const MAX_QUOTED_EMAILS = 3;
+/** Longest invalid email cell the mapping step quotes in full. */
+const MAX_QUOTED_EMAIL_LENGTH = 60;
+
+/** The rows a CSV import will skip before sending anything, or '' when it skips none. */
+function describeCsvSkips(plan: CsvImportPlan): string {
+  const rows = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  const quoted = plan.invalid.slice(0, MAX_QUOTED_EMAILS).map(value =>
+    `"${value.length > MAX_QUOTED_EMAIL_LENGTH ? `${value.slice(0, MAX_QUOTED_EMAIL_LENGTH - 3)}...` : value}"`);
+  const more = plan.invalid.length - quoted.length;
+  const parts = [
+    plan.invalid.length > 0
+      ? `${rows(plan.invalid.length, 'row has', 'rows have')} an email that is not one valid address (${quoted.join(', ')}${more > 0 ? ` and ${more} more` : ''})`
+      : '',
+    plan.blank > 0 ? `${rows(plan.blank, 'row has', 'rows have')} no email` : '',
+    plan.duplicate > 0 ? `${rows(plan.duplicate, 'row repeats', 'rows repeat')} an earlier row's address` : '',
+  ].filter(Boolean);
+  return parts.length > 0 ? `${parts.join(', ')}.` : '';
+}
 
 export default function LeadsPage() {
+  // The page of leads the open table shows, loaded from the server (GET /api/leads)
   const [leads, setLeads] = useState<any[]>([]);
+  // Leads the open table's list holds on all its pages, and in the whole CRM
+  const [leadTotal, setLeadTotal] = useState(0);
+  const [leadCount, setLeadCount] = useState(0);
+  // The page could not be loaded, so the table says so instead of showing no matches
+  const [listError, setListError] = useState(false);
+  // Bumped to load the open table's page again after a change
+  const [listVersion, setListVersion] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const { toast: showToast } = useToast();
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -57,14 +210,15 @@ export default function LeadsPage() {
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
-  // Search and Filter states
+  // Search and Filter states; the search is sent once typing pauses
   const [search, setSearch] = useState('');
-  const [filterStatus, setFilterStatus] = useState('All');
+  const [appliedSearch, setAppliedSearch] = useState('');
+  const [filterStatus, setFilterStatus] = useState<LeadStatusFilter>('All');
   const [currentPage, setCurrentPage] = useState(1);
-  
-  // Verification progress states
+
+  // Domain MX check progress: leads checked so far, by result, out of the leads to check (null until the server says how many)
   const [isVerifying, setIsVerifying] = useState(false);
-  const [verifyProgress, setVerifyProgress] = useState(0);
+  const [verifyProgress, setVerifyProgress] = useState<DomainCheckCounts & { checked: number; total: number | null } | null>(null);
 
   // New Lead form state
   const [showAddLead, setShowAddLead] = useState(false);
@@ -74,12 +228,15 @@ export default function LeadsPage() {
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [leadDetails, setLeadDetails] = useState<any | null>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
+  const [leadDetailsError, setLeadDetailsError] = useState('');
   const [expandedEmailId, setExpandedEmailId] = useState<string | null>(null);
 
   // Lead Groups and Archiving states
   const [activeTab, setActiveTab] = useState<'leads' | 'groups' | 'overlaps' | 'archived' | 'suppressed'>('leads');
   const [groups, setGroups] = useState<any[]>([]);
   const [loadingGroups, setLoadingGroups] = useState(false);
+  // Why the lead groups could not be loaded; group lists and pickers then say so instead of showing none
+  const [groupsError, setGroupsError] = useState('');
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [newGroup, setNewGroup] = useState({ name: '', description: '' });
   
@@ -93,34 +250,43 @@ export default function LeadsPage() {
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
   const [csvRows, setCsvRows] = useState<string[][]>([]);
   const [csvFileName, setCsvFileName] = useState<string>('');
+  const [csvEncoding, setCsvEncoding] = useState<CsvEncoding>('utf-8');
+  const [csvUnreadableRows, setCsvUnreadableRows] = useState<number>(0);
   const [showMapping, setShowMapping] = useState<boolean>(false);
-  const [mappings, setMappings] = useState({
-    email: '',
-    name: '',
-    company: '',
-    jobTitle: ''
+  // Column index for each field, -1 when unmapped (headers can repeat or be blank)
+  const [mappings, setMappings] = useState<CsvColumnMapping>({
+    email: -1,
+    name: -1,
+    company: -1,
+    jobTitle: -1
   });
   const [importProgress, setImportProgress] = useState<string>('');
+  // What the last import did when part of it failed; the file stays loaded so it can be imported again
+  const [importFailure, setImportFailure] = useState<string | null>(null);
+  // The rows the import will send and skip under the current Email mapping
+  const csvPlan = useMemo(() => planCsvImport(csvRows, mappings), [csvRows, mappings]);
 
-  // Bulk Actions & disposal states
-  const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
+  // Bulk Actions & disposal states. The selected leads' rows as last loaded, kept across the pages of one view
+  const [selectedLeads, setSelectedLeads] = useState<any[]>([]);
   const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState<boolean>(false);
   const [deleteAllConfirmText, setDeleteAllConfirmText] = useState<string>('');
   const [groupToDelete, setGroupToDelete] = useState<any | null>(null);
   const [leadDisposalAction, setLeadDisposalAction] = useState<'KEEP' | 'DELETE' | 'MOVE'>('KEEP');
   const [disposalTargetGroupId, setDisposalTargetGroupId] = useState<string>('');
+  // Lead deletion is admin-only on the server; its controls stay hidden until the session says ADMIN.
+  const [isAdmin, setIsAdmin] = useState(false);
 
   const fetchLeadDetails = async (id: string) => {
     try {
       setLoadingDetails(true);
       setExpandedEmailId(null);
-      const res = await fetch(`/api/leads?id=${id}`);
-      if (res.ok) {
-        const data = await res.json();
-        setLeadDetails(data);
-      }
+      // Cleared first, so a failed load never leaves the previously opened lead's timeline on screen
+      setLeadDetails(null);
+      setLeadDetailsError('');
+      setLeadDetails(await readJsonObject(await fetch(`/api/leads?id=${id}`), 'This lead'));
     } catch (err) {
       console.error('Failed to load lead details:', err);
+      setLeadDetailsError(loadErrorMessage(err, 'This lead'));
     } finally {
       setLoadingDetails(false);
     }
@@ -135,7 +301,8 @@ export default function LeadsPage() {
       date: new Date(d.sentAt),
       subject: d.subject || 'No Subject',
       body: d.body || '',
-      campaign: d.campaign?.name || 'Manual Outreach',
+      // Only sequence sends carry a stepOrder, so a step with no campaign means the campaign was deleted.
+      campaign: d.campaign?.name || (d.stepOrder ? 'Deleted Campaign' : 'Manual Outreach'),
       events: d.events || [],
       status: d.status,
       deliveredAt: d.deliveredAt,
@@ -160,85 +327,94 @@ export default function LeadsPage() {
   const fetchGroups = async () => {
     try {
       setLoadingGroups(true);
-      const res = await fetch('/api/leads/groups');
-      if (res.ok) {
-        const data = await res.json();
-        setGroups(data);
-      }
+      setGroups(await readJsonList(await fetch('/api/leads/groups'), 'Lead groups'));
+      setGroupsError('');
     } catch (err) {
       console.error('Failed to load groups:', err);
+      setGroupsError(loadErrorMessage(err, 'Lead groups'));
     } finally {
       setLoadingGroups(false);
     }
   };
 
-  const fetchLeads = async () => {
-    try {
-      setLoading(true);
-      const res = await fetch('/api/leads');
-      if (res.ok) {
-        const data = await res.json();
-        setLeads(data);
-      }
-    } catch (error) {
-      console.error('Failed to load leads:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Loads the open table's page again, after a change to leads it may show
+  const reloadLeads = () => setListVersion(version => version + 1);
+
+  // Deselects a lead after a change that may move it out of the open tab, search or filter
+  const deselectLead = (id: string) => setSelectedLeads(prev => prev.filter(l => l.id !== id));
 
   useEffect(() => {
-    fetchLeads();
     fetchGroups();
+    fetch('/api/session')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => setIsAdmin(data?.role === 'ADMIN'))
+      .catch(() => {});
   }, []);
 
   const handleBulkVerify = async () => {
     if (isVerifying) return;
     
-    const targets = selectedLeadIds.length > 0
-      ? leads.filter(l => selectedLeadIds.includes(l.id) && (l.validationStatus === 'Unverified' || l.validationStatus === 'Risky'))
-      : leads.filter(l => l.validationStatus === 'Unverified' || l.validationStatus === 'Risky');
+    // The selected leads are sent by id; with none selected the server takes every Unverified or Risky lead
+    const selection = selectedLeads.length > 0;
+    const ids = selectedLeads.filter(l => l.validationStatus === 'Unverified' || l.validationStatus === 'Risky').map(l => l.id);
 
-    if (targets.length === 0) {
-      showToast(selectedLeadIds.length > 0 ? 'Selected leads are already verified.' : 'All leads are already verified.');
+    if (selection && ids.length === 0) {
+      showToast('None of the selected leads is Unverified or Risky.');
       return;
     }
 
+    // One request per batch, one after another, so each stays well inside the request timeout
+    const progress: DomainCheckCounts & { checked: number; total: number | null } =
+      { checked: 0, total: selection ? ids.length : null, valid: 0, risky: 0, invalid: 0 };
     setIsVerifying(true);
-    setVerifyProgress(10);
-    
-    const progressInterval = setInterval(() => {
-      setVerifyProgress(prev => {
-        if (prev >= 90) {
-          clearInterval(progressInterval);
-          return 90;
-        }
-        return prev + 10;
-      });
-    }, 200);
+    setVerifyProgress({ ...progress });
+    let failure: string | null = null;
+    // The next batch of selected ids, or the address the server's next batch of every lead starts after
+    let offset = 0;
+    let after: string | null = null;
 
     try {
-      const res = await fetch('/api/leads/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: targets.map(l => l.id) })
-      });
-
-      clearInterval(progressInterval);
-      setVerifyProgress(100);
-
-      if (res.ok) {
-        const data = await res.json();
-        showToast(`Email Verification Complete: ${data.verifiedLeads.length} leads validated!`);
-        await fetchLeads(); // Refresh leads
-      } else {
-        showToast('Verification failed. Server returned error.');
-      }
+      do {
+        const res: Response = await fetch('/api/leads/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(selection ? { ids: ids.slice(offset, offset + DOMAIN_CHECK_BATCH_SIZE) } : { all: true, after })
+        });
+        const data: any = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          failure = data.error || `the server answered ${res.status}`;
+          break;
+        }
+        progress.checked += data.checked;
+        progress.valid += data.counts.valid;
+        progress.risky += data.counts.risky;
+        progress.invalid += data.counts.invalid;
+        offset += DOMAIN_CHECK_BATCH_SIZE;
+        if (!selection) {
+          after = data.next;
+          progress.total = progress.checked + data.remaining;
+        }
+        setVerifyProgress({ ...progress });
+      } while (selection ? offset < ids.length : after !== null);
     } catch (err) {
-      showToast('Error during email MX records verification.');
+      failure = 'the request failed';
       console.error(err);
     } finally {
       setIsVerifying(false);
+      setVerifyProgress(null);
+    }
+
+    if (failure) {
+      showToast(`Domain MX check stopped after ${checkedOf(progress)} leads because ${failure}. ${describeDomainCheck(progress)}`, 'error');
+    } else if (!selection && progress.checked === 0) {
+      showToast('No leads are Unverified or Risky.');
+    } else {
+      showToast(`Domain MX check finished for ${checkedOf(progress)} leads: ${describeDomainCheck(progress)}`, progress.risky > 0 ? 'warning' : 'success');
+    }
+    if (progress.checked > 0) {
+      // A checked lead may have left the status filter, and the page cannot tell which ones on other pages did
+      if (selection) setSelectedLeads([]);
+      reloadLeads();
     }
   };
 
@@ -256,7 +432,8 @@ export default function LeadsPage() {
             method: 'DELETE'
           });
           if (res.ok) {
-            setLeads(leads.filter(l => l.id !== id));
+            deselectLead(id);
+            reloadLeads();
             showToast('Lead record deleted successfully.');
           } else {
             showToast('Failed to delete lead.');
@@ -319,43 +496,9 @@ export default function LeadsPage() {
       });
 
       if (res.ok) {
-        // Reflect deletion locally
+        // Reflect deletion locally; each leads table loads its leads from the server when opened
         setGroups(groups.filter(g => g.id !== groupToDelete.id));
-
-        if (leadDisposalAction === 'DELETE') {
-          // Find leads associated with this group
-          const leadsToDelete = leads
-            .filter(l => (l.groups || []).some((g: any) => g.groupId === groupToDelete.id))
-            .map(l => l.id);
-          setLeads(leads.filter(l => !leadsToDelete.includes(l.id)));
-        } else if (leadDisposalAction === 'MOVE') {
-          // Update local leads' memberships
-          const updatedLeads = leads.map(l => {
-            const hasMembership = (l.groups || []).some((g: any) => g.groupId === groupToDelete.id);
-            if (hasMembership) {
-              const targetGroup = groups.find(g => g.id === disposalTargetGroupId);
-              const otherMemberships = (l.groups || []).filter((g: any) => g.groupId !== groupToDelete.id);
-              const alreadyHasTarget = otherMemberships.some((g: any) => g.groupId === disposalTargetGroupId);
-              
-              if (!alreadyHasTarget && targetGroup) {
-                otherMemberships.push({
-                  groupId: disposalTargetGroupId,
-                  group: { id: disposalTargetGroupId, name: targetGroup.name }
-                });
-              }
-              return { ...l, groups: otherMemberships };
-            }
-            return l;
-          });
-          setLeads(updatedLeads);
-        } else {
-          // KEEP: just remove association
-          const updatedLeads = leads.map(l => ({
-            ...l,
-            groups: (l.groups || []).filter((g: any) => g.groupId !== groupToDelete.id)
-          }));
-          setLeads(updatedLeads);
-        }
+        reloadLeads();
 
         setGroupToDelete(null);
         setLeadDisposalAction('KEEP');
@@ -363,7 +506,8 @@ export default function LeadsPage() {
         await fetchGroups(); // refresh group counts
         showToast('Lead group deleted successfully.');
       } else {
-        showToast('Failed to delete lead group.');
+        const err = await res.json();
+        showToast(err.error || 'Failed to delete lead group.', 'error');
       }
     } catch (err) {
       console.error(err);
@@ -372,11 +516,13 @@ export default function LeadsPage() {
   };
 
   const handleBulkDeleteLeads = () => {
-    if (selectedLeadIds.length === 0) return;
+    // Only the selected leads this tab, search and filter show (a view change clears the selection), as counted in the bulk bar
+    const ids = selectedLeads.map(l => l.id);
+    if (ids.length === 0) return;
     setConfirmDialog({
       isOpen: true,
       title: 'Delete Selected Leads',
-      message: `Are you sure you want to delete the ${selectedLeadIds.length} selected leads? This action cannot be undone.`,
+      message: `Are you sure you want to delete the ${ids.length} selected leads? This action cannot be undone.`,
       confirmLabel: 'Delete',
       isDestructive: true,
       onConfirm: async () => {
@@ -385,15 +531,16 @@ export default function LeadsPage() {
           const res = await fetch('/api/leads', {
             method: 'DELETE',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ids: selectedLeadIds })
+            body: JSON.stringify({ ids })
           });
 
           if (res.ok) {
-            setLeads(leads.filter(l => !selectedLeadIds.includes(l.id)));
-            setSelectedLeadIds([]);
+            setSelectedLeads([]);
+            reloadLeads();
             showToast('Selected leads deleted successfully.');
           } else {
-            showToast('Failed to delete selected leads.');
+            const err = await res.json().catch(() => ({}));
+            showToast(err.error || 'Failed to delete selected leads.', 'error');
           }
         } catch (err) {
           console.error(err);
@@ -404,40 +551,34 @@ export default function LeadsPage() {
   };
 
   const handleBulkReactivateLeads = () => {
-    if (selectedLeadIds.length === 0) return;
+    const ids = selectedLeads.map(l => l.id);
+    if (ids.length === 0) return;
     setConfirmDialog({
       isOpen: true,
       title: 'Re-activate Leads',
-      message: `Are you sure you want to re-activate the ${selectedLeadIds.length} selected suppressed leads? This will reset their campaign sequences to step 1.`,
+      message: `Re-activate the ${ids.length} selected leads? Bounced and invalid leads go back to Unverified so they can be verified again; ` +
+        'none is set Valid and no campaign sequence is restarted. Unsubscribed leads are skipped, and so are addresses on the suppression list ' +
+        'after a hard bounce or failed verification: only an admin can remove those, one at a time from the lead\'s details.',
       confirmLabel: 'Re-activate',
       isDestructive: false,
       onConfirm: async () => {
         setConfirmDialog(null);
         try {
           setLoading(true);
-          const res = await fetch('/api/leads', {
-            method: 'PUT',
+          const res = await fetch('/api/leads/reactivate', {
+            method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              ids: selectedLeadIds,
-              status: 'Neutral',
-              validationStatus: 'Valid'
-            })
+            body: JSON.stringify({ ids })
           });
 
           if (res.ok) {
-            // Update local leads status
-            const updatedLeads = leads.map(l => {
-              if (selectedLeadIds.includes(l.id)) {
-                return { ...l, status: 'Neutral', validationStatus: 'Valid' };
-              }
-              return l;
-            });
-            setLeads(updatedLeads);
-            setSelectedLeadIds([]);
-            showToast('Selected leads re-activated and sequences reset to step 1.');
+            const result = await res.json();
+            setSelectedLeads([]);
+            reloadLeads();
+            showToast(describeReactivation(result), result.reactivated > 0 ? 'success' : 'warning');
           } else {
-            showToast('Failed to re-activate selected leads.');
+            const err = await res.json().catch(() => ({}));
+            showToast(err.error || 'Failed to re-activate selected leads.', 'error');
           }
         } catch (err) {
           console.error(err);
@@ -449,27 +590,65 @@ export default function LeadsPage() {
     });
   };
 
+  // Admin only, one address at a time, after showing why it was suppressed
+  const handleRemoveSuppression = (lead: any) => {
+    const entry: SuppressionInfo | null = lead.suppression;
+    if (!entry) return;
+    const optOut = entry.reason === 'Unsubscribed' || entry.reason === 'Complaint';
+    setConfirmDialog({
+      isOpen: true,
+      title: 'Remove From Suppression List',
+      message: `Remove ${lead.email} from the suppression list? ${describeSuppression(entry)} ` +
+        (optOut
+          ? 'The lead goes back to Neutral, campaigns targeting it can enroll and email it again, and Unibox replies to it are no longer blocked. Only do this if the recipient has asked to hear from you again.'
+          : 'The lead goes back to Neutral and Unverified so it can be verified again, and campaigns targeting it can enroll and email it again.') +
+        ' Paused and failed campaign sequences stay as they are.',
+      confirmLabel: 'Remove',
+      isDestructive: true,
+      onConfirm: async () => {
+        setConfirmDialog(null);
+        try {
+          const res = await fetch('/api/leads/suppression', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: lead.email })
+          });
+          const data = await res.json().catch(() => ({}));
+          if (res.ok) {
+            if (data.lead) {
+              deselectLead(data.lead.id);
+              reloadLeads();
+              setLeadDetails((prev: any) => prev && prev.id === data.lead.id ? { ...prev, ...data.lead } : prev);
+            }
+            showToast(`${lead.email} removed from the suppression list.`);
+          } else {
+            showToast(data.error || 'Failed to remove the address from the suppression list.', 'error');
+          }
+        } catch (err) {
+          console.error(err);
+          showToast('Error removing the address from the suppression list.', 'error');
+        }
+      }
+    });
+  };
+
   const handleBulkArchiveLeads = async (archiveState: boolean) => {
-    if (selectedLeadIds.length === 0) return;
+    const ids = selectedLeads.map(l => l.id);
+    if (ids.length === 0) return;
     try {
       const res = await fetch('/api/leads', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: selectedLeadIds, isArchived: archiveState })
+        body: JSON.stringify({ ids, isArchived: archiveState })
       });
 
       if (res.ok) {
-        const updatedLeads = leads.map(l => {
-          if (selectedLeadIds.includes(l.id)) {
-            return { ...l, isArchived: archiveState };
-          }
-          return l;
-        });
-        setLeads(updatedLeads);
-        setSelectedLeadIds([]);
+        setSelectedLeads([]);
+        reloadLeads();
         showToast(archiveState ? 'Selected leads archived.' : 'Selected leads unarchived.');
       } else {
-        showToast('Failed to update selected leads.');
+        const err = await res.json().catch(() => ({}));
+        showToast(err.error || 'Failed to update selected leads.', 'error');
       }
     } catch (err) {
       console.error(err);
@@ -487,8 +666,8 @@ export default function LeadsPage() {
         method: 'DELETE'
       });
       if (res.ok) {
-        setLeads([]);
-        setSelectedLeadIds([]);
+        setSelectedLeads([]);
+        reloadLeads();
         setShowDeleteAllConfirm(false);
         setDeleteAllConfirmText('');
         showToast('All CRM leads deleted successfully.');
@@ -519,18 +698,7 @@ export default function LeadsPage() {
           });
 
           if (res.ok) {
-            // Find which lead IDs are members of this group
-            const groupMemberships = leads
-              .filter(l => (l.groups || []).some((g: any) => g.groupId === groupId))
-              .map(l => l.id);
-            
-            const updatedLeads = leads.map(l => {
-              if (groupMemberships.includes(l.id)) {
-                return { ...l, isArchived: archiveState };
-              }
-              return l;
-            });
-            setLeads(updatedLeads);
+            reloadLeads();
             showToast(`All leads in group ${archiveState ? 'archived' : 'unarchived'} successfully.`);
           } else {
             showToast('Failed to archive group leads.');
@@ -549,16 +717,7 @@ export default function LeadsPage() {
         method: 'DELETE'
       });
       if (res.ok) {
-        const updatedLeads = leads.map(l => {
-          if (l.id === leadId) {
-            return {
-              ...l,
-              groups: (l.groups || []).filter((g: any) => g.groupId !== groupId)
-            };
-          }
-          return l;
-        });
-        setLeads(updatedLeads);
+        reloadLeads();
         await fetchGroups();
         showToast('Lead removed from group.');
       } else {
@@ -572,17 +731,28 @@ export default function LeadsPage() {
 
   const handleAddCustomLead = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newLead.email || !newLead.name) return;
-    
+    if (!newLead.email) return;
+    // The Name input's required check lets a name of only spaces through
+    if (!newLead.name.trim()) {
+      showToast('Name is required.', 'error');
+      return;
+    }
+    // The server makes the same check; the browser's email input lets some malformed addresses through
+    if (!parseLeadEmail(newLead.email)) {
+      showToast('Enter one valid email address, like name@example.com.', 'error');
+      return;
+    }
+
     try {
+      // A blank company or job title is stored empty, so templates use their own fallback for it
       const res = await fetch('/api/leads', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: newLead.name,
+          name: newLead.name.trim(),
           email: newLead.email,
-          company: newLead.company || 'Self Employed',
-          jobTitle: newLead.jobTitle || null,
+          company: newLead.company.trim() || null,
+          jobTitle: newLead.jobTitle.trim() || null,
           status: 'Neutral',
           validationStatus: 'Unverified',
           groupIds: selectedGroupForAdd ? [selectedGroupForAdd] : []
@@ -591,15 +761,19 @@ export default function LeadsPage() {
 
       if (res.ok) {
         const created = await res.json();
-        setLeads([created, ...leads]);
+        reloadLeads();
         setNewLead({ name: '', email: '', company: '', jobTitle: '' });
         setSelectedGroupForAdd('');
         setShowAddLead(false);
         await fetchGroups(); // refresh groups for counts
-        showToast('Prospect added to CRM.');
+        if (created.suppression) {
+          showToast('Prospect added to CRM. Its address is on the suppression list, so it will not be emailed.', 'warning');
+        } else {
+          showToast('Prospect added to CRM.');
+        }
       } else {
-        const errText = await res.text();
-        showToast(errText || 'Failed to create lead.');
+        const err = await res.json().catch(() => ({}));
+        showToast(err.error || 'Failed to create lead.', 'error');
       }
     } catch (error) {
       showToast('Error saving lead.');
@@ -607,10 +781,35 @@ export default function LeadsPage() {
     }
   };
 
-  const handleExportCSV = () => {
-    const exportLeads = selectedLeadIds.length > 0
-      ? leads.filter(l => selectedLeadIds.includes(l.id))
-      : filteredLeads;
+  const handleExportCSV = async () => {
+    if (exporting || !listQuery) return;
+    // The selected leads in the table's address order, else every lead this tab, search and filter show,
+    // loaded from the server a page at a time
+    let exportLeads = [...selectedLeads].sort((a, b) => (a.email < b.email ? -1 : a.email > b.email ? 1 : 0));
+    if (exportLeads.length === 0) {
+      setExporting(true);
+      try {
+        const exported = new Map<string, any>();
+        for (let page = 1; ; page++) {
+          const res = await fetch(`/api/leads?${leadListParams({ ...listQuery, page, pageSize: LEAD_PAGE_MAX })}`);
+          if (!res.ok) {
+            showToast('Failed to export leads.', 'error');
+            return;
+          }
+          const data = await res.json();
+          for (const lead of data.leads) exported.set(lead.id, lead);
+          // The server answers its last page for a page past the end
+          if (data.page < page || data.page * LEAD_PAGE_MAX >= data.total) break;
+        }
+        exportLeads = Array.from(exported.values());
+      } catch (err) {
+        console.error(err);
+        showToast('Failed to export leads.', 'error');
+        return;
+      } finally {
+        setExporting(false);
+      }
+    }
 
     if (exportLeads.length === 0) {
       showToast('No leads to export.');
@@ -645,136 +844,102 @@ export default function LeadsPage() {
     showToast(`Successfully exported ${exportLeads.length} leads to CSV.`);
   };
 
-  const parseCSVLine = (line: string): string[] => {
-    const result: string[] = [];
-    let current = '';
-    let inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-      const char = line[i];
-      if (char === '"' || char === "'") {
-        inQuotes = !inQuotes;
-      } else if (char === ',' && !inQuotes) {
-        result.push(current.trim().replace(/^["']|["']$/g, ''));
-        current = '';
-      } else {
-        current += char;
-      }
-    }
-    result.push(current.trim().replace(/^["']|["']$/g, ''));
-    return result;
-  };
-
-  const findBestHeaderMatch = (headers: string[], keywords: string[]): string => {
-    return headers.find(h => {
-      const lower = h.toLowerCase();
-      return keywords.some(k => lower.includes(k));
-    }) || '';
-  };
-
   const processCSVFile = async (file: File) => {
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const text = event.target?.result as string;
-      try {
-        const lines = text.split(/\r?\n/).filter(line => line.trim().length > 0);
-        if (lines.length < 2) {
-          showToast('Invalid CSV format. Header row and data required.');
-          return;
-        }
-
-        const headers = parseCSVLine(lines[0]);
-        const rows = lines.slice(1).map(line => parseCSVLine(line));
-
-        const matchedEmail = findBestHeaderMatch(headers, ['email', 'mail', 'addr']);
-        const matchedName = findBestHeaderMatch(headers, ['name', 'contact', 'person']);
-        const matchedCompany = findBestHeaderMatch(headers, ['company', 'org', 'brand', 'business']);
-        const matchedJobTitle = findBestHeaderMatch(headers, ['title', 'job', 'role', 'position']);
-
-        setCsvHeaders(headers);
-        setCsvRows(rows);
-        setCsvFileName(file.name);
-        setMappings({
-          email: matchedEmail,
-          name: matchedName,
-          company: matchedCompany,
-          jobTitle: matchedJobTitle
-        });
-        setShowMapping(true);
-        showToast('CSV parsed. Please map your columns.');
-      } catch (err) {
-        showToast('Error parsing CSV file.');
-        console.error(err);
+    try {
+      // UTF-8 when the bytes are valid UTF-8, else windows-1252 (Excel's "CSV (Comma delimited)")
+      const { text, encoding } = decodeCsvBytes(new Uint8Array(await file.arrayBuffer()));
+      const { headers, rows } = readCsvTable(text);
+      if (rows.length === 0) {
+        showToast('Invalid CSV format. Header row and data required.');
+        return;
       }
-    };
-    reader.readAsText(file);
+
+      setCsvHeaders(headers);
+      setCsvRows(rows);
+      setCsvFileName(file.name);
+      setCsvEncoding(encoding);
+      setCsvUnreadableRows(rows.filter(row => row.some(cell => cell.includes('\uFFFD'))).length);
+      setMappings(matchCsvColumns(headers));
+      setImportFailure(null);
+      setShowMapping(true);
+      showToast('CSV parsed. Please map your columns.');
+    } catch (err) {
+      showToast(err instanceof CsvParseError ? `Could not read the CSV file: ${err.message}.` : 'Error parsing CSV file.', 'error');
+      console.error(err);
+    }
   };
+
+  const csvColumnOptions = csvColumnLabels(csvHeaders);
+  const toColumnIndex = (value: string) => (value === '' ? -1 : Number(value));
 
   const handleExecuteImport = async () => {
-    if (!mappings.email) {
+    if (mappings.email === -1) {
       showToast('You must select a column for the Email field.');
       return;
     }
 
-    const emailIdx = csvHeaders.indexOf(mappings.email);
-    const nameIdx = mappings.name ? csvHeaders.indexOf(mappings.name) : -1;
-    const companyIdx = mappings.company ? csvHeaders.indexOf(mappings.company) : -1;
-    const jobTitleIdx = mappings.jobTitle ? csvHeaders.indexOf(mappings.jobTitle) : -1;
-
-    if (emailIdx === -1) {
-      showToast('Selected Email column not found.');
+    // Rows with no email, one that is not a valid address or an address an earlier row has are never sent
+    const plan = csvPlan;
+    if (plan.leads.length === 0) {
+      showToast(`Nothing to import: ${describeCsvSkips(plan)}`, 'error');
       return;
     }
 
     setLoading(true);
-    setImportProgress('Preparing import payload...');
+    setImportFailure(null);
 
+    // A group that cannot be created stops the import, so no lead is imported without the group asked for
     let targetGroupId = selectedGroupForImport;
-    if (newGroupNameForImport.trim()) {
+    const newGroupName = newGroupNameForImport.trim();
+    if (newGroupName) {
+      setImportProgress('Creating group...');
+      let groupError: string | null = null;
       try {
         const groupRes = await fetch('/api/leads/groups', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: newGroupNameForImport.trim() })
+          body: JSON.stringify({ name: newGroupName })
         });
         if (groupRes.ok) {
           const newG = await groupRes.json();
           targetGroupId = newG.id;
+          // Picked from the list from now on, so importing again uses this group instead of creating it twice
+          setSelectedGroupForImport(newG.id);
+          setNewGroupNameForImport('');
+          await fetchGroups();
+        } else {
+          const err = await groupRes.json().catch(() => ({}));
+          groupError = err.error || `The server answered ${groupRes.status}.`;
         }
       } catch (err) {
         console.error('Failed to create group during CSV import:', err);
+        groupError = 'The request failed.';
+      }
+      if (groupError) {
+        showToast(`Could not create the group "${newGroupName}": ${groupError} Nothing was imported.`, 'error');
+        setImportProgress('');
+        setLoading(false);
+        return;
       }
     }
 
     const groupIds = targetGroupId ? [targetGroupId] : [];
 
-    // Filter valid rows and map them
-    const mappedLeads = [];
-    for (const row of csvRows) {
-      const email = row[emailIdx];
-      if (email && email.includes('@')) {
-        const name = nameIdx !== -1 && row[nameIdx] ? row[nameIdx] : email.split('@')[0];
-        const company = companyIdx !== -1 && row[companyIdx] ? row[companyIdx] : 'Unknown';
-        const jobTitle = jobTitleIdx !== -1 && row[jobTitleIdx] ? row[jobTitleIdx] : null;
-        mappedLeads.push({ email, name, company, jobTitle });
-      }
-    }
+    // Every row lands in exactly one count: the server's outcome for the rows it took, else skipped here or failed
+    const totals: LeadImportTotals = {
+      ...emptyLeadImportCounts(),
+      invalid: plan.invalid.length,
+      duplicate: plan.duplicate,
+      blank: plan.blank,
+      failed: 0
+    };
+    let firstFailure: string | undefined;
 
-    if (mappedLeads.length === 0) {
-      showToast('No valid leads found (missing email or invalid format).');
-      setLoading(false);
-      setImportProgress('');
-      return;
-    }
+    for (let i = 0; i < plan.leads.length; i += LEAD_IMPORT_BATCH_SIZE) {
+      const batch = plan.leads.slice(i, i + LEAD_IMPORT_BATCH_SIZE);
+      setImportProgress(`Importing leads ${i + 1} to ${i + batch.length} of ${plan.leads.length}...`);
 
-    // Process in batches of 1,000
-    const batchSize = 1000;
-    let totalImported = 0;
-
-    for (let i = 0; i < mappedLeads.length; i += batchSize) {
-      const batch = mappedLeads.slice(i, i + batchSize);
-      const progressText = `Importing leads ${i + 1} to ${Math.min(i + batchSize, mappedLeads.length)} of ${mappedLeads.length}...`;
-      setImportProgress(progressText);
-
+      let failure: string | null = null;
       try {
         const res = await fetch('/api/leads/bulk', {
           method: 'POST',
@@ -784,30 +949,45 @@ export default function LeadsPage() {
 
         if (res.ok) {
           const result = await res.json();
-          totalImported += (result.count || 0);
+          for (const outcome of LEAD_IMPORT_OUTCOMES) totals[outcome] += result.counts?.[outcome] || 0;
         } else {
-          console.error(`Failed to import batch starting at index ${i}`);
+          const err = await res.json().catch(() => ({}));
+          failure = err.error || `the server answered ${res.status}`;
         }
       } catch (err) {
         console.error(`Error importing batch starting at index ${i}:`, err);
+        failure = 'the request failed';
+      }
+      // The server imports a batch in one transaction, so a batch it answered with an error imported none of its rows
+      if (failure) {
+        totals.failed += batch.length;
+        firstFailure ??= failure;
       }
     }
 
-    // Reset import states
-    setSelectedGroupForImport('');
-    setNewGroupNameForImport('');
-    setCsvHeaders([]);
-    setCsvRows([]);
-    setCsvFileName('');
-    setShowMapping(false);
+    const summary = describeLeadImport(totals, firstFailure, groupIds.length > 0);
+    if (totals.failed > 0) {
+      // Keep the file and mapping so the import can be run again; rows imported this time come back as already in the CRM
+      setImportFailure(summary);
+    } else {
+      setSelectedGroupForImport('');
+      setNewGroupNameForImport('');
+      setCsvHeaders([]);
+      setCsvRows([]);
+      setCsvFileName('');
+      setShowMapping(false);
+    }
     setImportProgress('');
-    
+
     await fetchGroups(); // refresh group counts
-    showToast(`Spreadsheet imported! Added ${totalImported} new contacts to CRM.`);
-    fetchLeads();
+    const added = totals.created + totals.suppressed;
+    const skipped = totals.suppressed + totals.invalid + totals.blank + totals.duplicate > 0;
+    showToast(summary, totals.failed > 0 ? 'error' : skipped || added === 0 ? 'warning' : 'success');
+    reloadLeads();
   };
 
   const handleCancelImport = () => {
+    setImportFailure(null);
     setCsvHeaders([]);
     setCsvRows([]);
     setCsvFileName('');
@@ -832,59 +1012,150 @@ export default function LeadsPage() {
     }
   };
 
-  const getOverlappingLeads = () => {
-    return leads.filter(lead => {
-      if (lead.isArchived) return false;
-      const memberGroupIds = (lead.groups || []).map((g: any) => g.groupId);
-      if (selectedGroupsForCrossCheck.length > 0) {
-        const intersection = memberGroupIds.filter((id: string) => selectedGroupsForCrossCheck.includes(id));
-        return intersection.length > 1;
-      } else {
-        return memberGroupIds.length > 1;
-      }
-    });
-  };
+  // The list the open table shows, one page at a time from the server: the Leads, Archived or Suppressed
+  // tab under its search and status filter, an opened group's members by membership alone, whatever those
+  // say, or the Cross-Check tab's leads in more than one group. The groups grid shows none.
+  const listQuery: LeadListQuery | null =
+    activeTab === 'groups'
+      ? selectedGroupIdForView
+        ? { view: 'group', search: '', status: 'All', groupIds: [selectedGroupIdForView], page: currentPage, pageSize: LEAD_PAGE_SIZE }
+        : null
+      : activeTab === 'overlaps'
+        ? { view: 'overlaps', search: '', status: 'All', groupIds: selectedGroupsForCrossCheck, page: currentPage, pageSize: LEAD_PAGE_SIZE }
+        : { view: activeTab, search: appliedSearch, status: filterStatus, groupIds: [], page: currentPage, pageSize: LEAD_PAGE_SIZE };
+  const listUrl = listQuery ? `/api/leads?${leadListParams(listQuery)}` : null;
 
-  const filteredLeads = leads.filter(lead => {
-    if (activeTab === 'archived') {
-      if (!lead.isArchived) return false;
-    } else {
-      if (lead.isArchived) return false;
-    }
+  // Searches on the server once typing pauses
+  useEffect(() => {
+    const timer = setTimeout(() => setAppliedSearch(search.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
 
-    if (activeTab === 'suppressed') {
-      const isSuppressed = lead.status === 'Bounced' || lead.status === 'Unsubscribed' || lead.validationStatus === 'Invalid';
-      if (!isSuppressed) return false;
-    }
-
-    if (activeTab === 'groups' && selectedGroupIdForView) {
-      const isMember = (lead.groups || []).some((g: any) => g.groupId === selectedGroupIdForView);
-      if (!isMember) return false;
-    }
-
-    const nameStr = lead.name || '';
-    const emailStr = lead.email || '';
-    const companyStr = lead.company || '';
-    const matchesSearch = nameStr.toLowerCase().includes(search.toLowerCase()) || 
-                          emailStr.toLowerCase().includes(search.toLowerCase()) ||
-                          companyStr.toLowerCase().includes(search.toLowerCase());
-    const matchesStatus = filterStatus === 'All' 
-      || (filterStatus === 'Bounced' && lead.status === 'Bounced')
-      || (filterStatus === 'Unsubscribed' && lead.status === 'Unsubscribed')
-      || (!['Bounced', 'Unsubscribed'].includes(filterStatus) && lead.validationStatus === filterStatus);
-    return matchesSearch && matchesStatus;
-  });
-
+  // A new list starts on its first page
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, filterStatus, activeTab, selectedGroupIdForView]);
+  }, [appliedSearch, filterStatus, activeTab, selectedGroupIdForView, selectedGroupsForCrossCheck]);
 
-  const itemsPerPage = 10;
-  const totalPages = Math.ceil(filteredLeads.length / itemsPerPage);
-  const paginatedLeads = filteredLeads.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
-  const totalLeads = filteredLeads.length;
-  const startIndex = totalLeads === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1;
-  const endIndex = Math.min(currentPage * itemsPerPage, totalLeads);
+  // A search or filter change clears the selection, as a tab change does: the page holds one page of the
+  // new view, so it cannot tell which selected leads on other pages that view still shows
+  useEffect(() => {
+    setSelectedLeads(prev => (prev.length === 0 ? prev : []));
+  }, [appliedSearch, filterStatus]);
+
+  // Loads the open table's page. A newer request aborts an older one, so a slow answer never replaces a newer page.
+  useEffect(() => {
+    if (!listUrl) {
+      setLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    setLoading(true);
+    fetch(listUrl, { signal: controller.signal })
+      .then(async res => {
+        if (!res.ok) throw new Error(`The server answered ${res.status}.`);
+        const data = await res.json();
+        if (controller.signal.aborted) return;
+        setLeads(data.leads);
+        setLeadTotal(data.total);
+        setLeadCount(data.leadCount);
+        setListError(false);
+        // A page past the end, after a delete or archive emptied the last one, is answered with the new last page
+        setCurrentPage(data.page);
+        // Selected leads on this page keep their latest values for Export and Check Domain MX
+        const loaded = new Map<string, any>(data.leads.map((lead: any) => [lead.id, lead]));
+        setSelectedLeads(prev => (prev.some(l => loaded.has(l.id)) ? prev.map(l => loaded.get(l.id) ?? l) : prev));
+      })
+      .catch(err => {
+        if (controller.signal.aborted) return;
+        console.error('Failed to load leads:', err);
+        setLeads([]);
+        setLeadTotal(0);
+        setListError(true);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [listUrl, listVersion]);
+
+  const totalPages = Math.ceil(leadTotal / LEAD_PAGE_SIZE);
+  const startIndex = leadTotal === 0 ? 0 : (currentPage - 1) * LEAD_PAGE_SIZE + 1;
+  const endIndex = Math.min(currentPage * LEAD_PAGE_SIZE, leadTotal);
+  const isSelected = (id: string) => selectedLeads.some(l => l.id === id);
+
+  // The open table's page buttons: every leads table pages through its list on the server
+  const paginationControls = leadTotal > 0 && (
+    <div className="px-5 py-4 border-t border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row justify-between items-center gap-4 bg-slate-50/20 dark:bg-slate-950/10">
+      <div className="text-xs text-slate-500 dark:text-slate-400">
+        Showing <span className="font-semibold text-slate-700 dark:text-white">{startIndex}</span> to{' '}
+        <span className="font-semibold text-slate-700 dark:text-white">{endIndex}</span> of{' '}
+        <span className="font-semibold text-slate-700 dark:text-white">{leadTotal}</span> leads
+      </div>
+      <div className="flex items-center gap-1.5">
+        <button
+          disabled={currentPage === 1}
+          onClick={() => setCurrentPage(1)}
+          className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+          title="First Page"
+        >
+          <ChevronsLeft className="w-3.5 h-3.5" />
+        </button>
+        <button
+          disabled={currentPage === 1}
+          onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+          className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+          title="Previous Page"
+        >
+          <ChevronLeft className="w-3.5 h-3.5" />
+        </button>
+
+        {/* Page numbers */}
+        {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+          let pageNum = currentPage;
+          if (currentPage <= 3) {
+            pageNum = i + 1;
+          } else if (currentPage >= totalPages - 2) {
+            pageNum = totalPages - 4 + i;
+          } else {
+            pageNum = currentPage - 2 + i;
+          }
+          if (pageNum < 1 || pageNum > totalPages) return null;
+          return (
+            <button
+              key={pageNum}
+              onClick={() => setCurrentPage(pageNum)}
+              className={`px-3 py-1 rounded-md text-xs font-semibold border transition-all cursor-pointer ${
+                currentPage === pageNum
+                  ? 'bg-blue-600 border-blue-600 text-white shadow-xs'
+                  : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
+              }`}
+            >
+              {pageNum}
+            </button>
+          );
+        })}
+
+        <button
+          disabled={currentPage === totalPages}
+          onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+          className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+          title="Next Page"
+        >
+          <ChevronRight className="w-3.5 h-3.5" />
+        </button>
+        <button
+          disabled={currentPage === totalPages}
+          onClick={() => setCurrentPage(totalPages)}
+          className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+          title="Last Page"
+        >
+          <ChevronsRight className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+  // What an empty table says: no match, or that its page could not be loaded
+  const emptyListMessage = (noMatch: string) => (listError ? 'Leads could not be loaded. Use Refresh to try again.' : noMatch);
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 max-w-5xl mx-auto">
@@ -892,11 +1163,11 @@ export default function LeadsPage() {
       <header className="flex justify-between items-start md:items-center flex-col md:flex-row gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white mb-0.5">Leads Directory</h1>
-          <p className="text-slate-500 dark:text-slate-400 text-xs">Import contacts, verify email deliverability, and organize your prospect lists.</p>
+          <p className="text-slate-500 dark:text-slate-400 text-xs">Import contacts, check their email domains for mail servers, and organize your prospect lists.</p>
         </div>
         <div className="flex gap-2.5">
-          <button 
-            onClick={fetchLeads}
+          <button
+            onClick={reloadLeads}
             className="p-2 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xs"
             title="Refresh Leads Catalog"
           >
@@ -915,42 +1186,59 @@ export default function LeadsPage() {
             disabled={isVerifying || loading}
             className="bg-blue-600 hover:bg-blue-500 disabled:bg-blue-700 text-white px-4 py-2 rounded-lg font-semibold flex items-center gap-2 transition-colors text-xs shadow-sm"
           >
-            <Play className={`w-3.5 h-3.5 ${isVerifying ? 'animate-spin' : ''}`} />
-            {isVerifying ? `Verifying (${verifyProgress}%)` : 'Verify Deliverability'}
+            <Globe className="w-3.5 h-3.5" />
+            {isVerifying && verifyProgress ? `Checking ${checkedOf(verifyProgress)}` : 'Check Domain MX'}
           </button>
           
-          <button 
-            onClick={() => {
-              setDeleteAllConfirmText('');
-              setShowDeleteAllConfirm(true);
-            }}
-            disabled={loading || leads.length === 0}
-            className="bg-rose-600 hover:bg-rose-500 disabled:bg-rose-800/40 text-white px-3.5 py-1.8 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            Delete All Leads
-          </button>
+          {isAdmin && (
+            <button
+              onClick={() => {
+                setDeleteAllConfirmText('');
+                setShowDeleteAllConfirm(true);
+              }}
+              disabled={loading || leadCount === 0}
+              className="bg-rose-600 hover:bg-rose-500 disabled:bg-rose-800/40 text-white px-3.5 py-1.8 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Delete All Leads
+            </button>
+          )}
         </div>
       </header>
 
-      {/* Verification progress status */}
-      {isVerifying && (
-        <div className="bg-blue-50 dark:bg-blue-950/25 border border-blue-100 dark:border-blue-500/10 p-4 rounded-xl animate-pulse flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <Sparkles className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+      {/* The groups feed the Groups tab and every group picker here, so a failed load is shown above them all */}
+      {groupsError && !loadingGroups && (
+        <div className="bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/30 p-4 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-start gap-2.5">
+            <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-px" />
             <div>
-              <p className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-wider">Checking Mailbox MX Status</p>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-medium">Resolving DNS setups, catching invalid syntax sequences...</p>
+              <p className="text-xs font-bold text-rose-700 dark:text-rose-400">Lead Groups Could Not Be Loaded</p>
+              <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">{groupsError} Group lists and group choices on this page may be missing groups until they load.</p>
             </div>
           </div>
-          <div className="w-full md:w-64 font-sans">
-            <div className="flex justify-between text-[11px] mb-1 font-bold">
-              <span className="text-blue-600 dark:text-blue-400">SMTP Progress</span>
-              <span className="text-slate-500 dark:text-slate-400">{verifyProgress}%</span>
+          <button
+            onClick={fetchGroups}
+            className="self-start sm:self-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-white px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 shrink-0 cursor-pointer"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            Retry
+          </button>
+        </div>
+      )}
+
+      {/* Domain MX check progress: real counts from the batches finished so far */}
+      {isVerifying && verifyProgress && (
+        <div className="bg-blue-50 dark:bg-blue-950/25 border border-blue-100 dark:border-blue-500/10 p-4 rounded-xl flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <Globe className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+            <div>
+              <p className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-wider">Checking Domain MX Records</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-medium">Looks up each email domain&apos;s MX records, or its A record when it has none. Mailboxes are not checked.</p>
             </div>
-            <div className="w-full bg-slate-200 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
-              <div className="bg-blue-600 dark:bg-blue-500 h-full rounded-full transition-all duration-300" style={{ width: `${verifyProgress}%` }}></div>
-            </div>
+          </div>
+          <div className="w-full md:w-64 font-sans text-[11px] font-bold space-y-1">
+            <p className="text-blue-600 dark:text-blue-400">Checked {checkedOf(verifyProgress)} leads</p>
+            <p className="text-slate-500 dark:text-slate-400">{verifyProgress.valid} Valid, {verifyProgress.risky} Risky, {verifyProgress.invalid} Invalid</p>
           </div>
         </div>
       )}
@@ -1038,6 +1326,35 @@ export default function LeadsPage() {
               <p className="text-slate-500 dark:text-slate-400 text-xs mt-1 font-medium">
                 {csvRows.length} prospects found. Match your CSV header columns to the corresponding CRM prospect fields.
               </p>
+              {csvEncoding !== 'utf-8' && (
+                <p className="text-slate-500 dark:text-slate-400 text-xs mt-1 font-medium">
+                  {csvEncoding === 'windows-1252'
+                    ? 'Read as Windows-1252 because the file is not UTF-8.'
+                    : 'Read as UTF-16.'}{' '}
+                  Check that accented names look right in the previews.
+                </p>
+              )}
+              {csvUnreadableRows > 0 && (
+                <p className="flex items-start gap-1.5 text-amber-700 dark:text-amber-400 text-xs mt-1 font-medium">
+                  <AlertCircle className="w-3.5 h-3.5 mt-px shrink-0" />
+                  <span>
+                    {csvUnreadableRows} {csvUnreadableRows === 1 ? 'row contains' : 'rows contain'} characters that could not be read (shown as {'\uFFFD'}).
+                    They will be imported and emailed as shown, so fix them in the file and import it again.
+                  </span>
+                </p>
+              )}
+              {mappings.email !== -1 && describeCsvSkips(csvPlan) && (
+                <p className="flex items-start gap-1.5 text-amber-700 dark:text-amber-400 text-xs mt-1 font-medium">
+                  <AlertCircle className="w-3.5 h-3.5 mt-px shrink-0" />
+                  <span>{describeCsvSkips(csvPlan)} These rows will be skipped.</span>
+                </p>
+              )}
+              {importFailure && (
+                <p className="flex items-start gap-1.5 text-rose-700 dark:text-rose-400 text-xs mt-1 font-medium">
+                  <AlertCircle className="w-3.5 h-3.5 mt-px shrink-0" />
+                  <span>{importFailure}</span>
+                </p>
+              )}
             </div>
             <button
               onClick={handleCancelImport}
@@ -1057,18 +1374,18 @@ export default function LeadsPage() {
                   Email Address <span className="text-rose-500">*</span>
                 </label>
                 <select
-                  value={mappings.email}
-                  onChange={e => setMappings({ ...mappings, email: e.target.value })}
+                  value={mappings.email === -1 ? '' : mappings.email}
+                  onChange={e => setMappings({ ...mappings, email: toColumnIndex(e.target.value) })}
                   className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-2.5 text-xs text-slate-800 dark:text-white cursor-pointer outline-none focus:ring-2 focus:ring-blue-500/40"
                 >
                   <option value="" disabled>-- Select Column --</option>
-                  {csvHeaders.map(h => (
-                    <option key={h} value={h}>{h}</option>
+                  {csvColumnOptions.map((label, i) => (
+                    <option key={i} value={i}>{label}</option>
                   ))}
                 </select>
-                {mappings.email && csvRows.length > 0 && (
+                {mappings.email !== -1 && csvRows.length > 0 && (
                   <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200/50 dark:border-slate-800/40 mt-1">
-                    Preview: {csvRows[0][csvHeaders.indexOf(mappings.email)] || <em className="text-slate-400">Empty</em>}
+                    Preview: {csvRows[0][mappings.email] || <em className="text-slate-400">Empty</em>}
                   </div>
                 )}
               </div>
@@ -1079,18 +1396,18 @@ export default function LeadsPage() {
                   Full Name
                 </label>
                 <select
-                  value={mappings.name}
-                  onChange={e => setMappings({ ...mappings, name: e.target.value })}
+                  value={mappings.name === -1 ? '' : mappings.name}
+                  onChange={e => setMappings({ ...mappings, name: toColumnIndex(e.target.value) })}
                   className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-2.5 text-xs text-slate-800 dark:text-white cursor-pointer outline-none focus:ring-2 focus:ring-blue-500/40"
                 >
-                  <option value="">{"[Don't Map - Autogenerate]"}</option>
-                  {csvHeaders.map(h => (
-                    <option key={h} value={h}>{h}</option>
+                  <option value="">{"[Don't Map - Leave Empty]"}</option>
+                  {csvColumnOptions.map((label, i) => (
+                    <option key={i} value={i}>{label}</option>
                   ))}
                 </select>
-                {mappings.name && csvRows.length > 0 && (
+                {mappings.name !== -1 && csvRows.length > 0 && (
                   <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200/50 dark:border-slate-800/40 mt-1">
-                    Preview: {csvRows[0][csvHeaders.indexOf(mappings.name)] || <em className="text-slate-400">Empty</em>}
+                    Preview: {csvRows[0][mappings.name] || <em className="text-slate-400">Empty</em>}
                   </div>
                 )}
               </div>
@@ -1101,18 +1418,18 @@ export default function LeadsPage() {
                   Company Name
                 </label>
                 <select
-                  value={mappings.company}
-                  onChange={e => setMappings({ ...mappings, company: e.target.value })}
+                  value={mappings.company === -1 ? '' : mappings.company}
+                  onChange={e => setMappings({ ...mappings, company: toColumnIndex(e.target.value) })}
                   className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-2.5 text-xs text-slate-800 dark:text-white cursor-pointer outline-none focus:ring-2 focus:ring-blue-500/40"
                 >
-                  <option value="">{"[Don't Map - Use 'Unknown']"}</option>
-                  {csvHeaders.map(h => (
-                    <option key={h} value={h}>{h}</option>
+                  <option value="">{"[Don't Map - Leave Empty]"}</option>
+                  {csvColumnOptions.map((label, i) => (
+                    <option key={i} value={i}>{label}</option>
                   ))}
                 </select>
-                {mappings.company && csvRows.length > 0 && (
+                {mappings.company !== -1 && csvRows.length > 0 && (
                   <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200/50 dark:border-slate-800/40 mt-1">
-                    Preview: {csvRows[0][csvHeaders.indexOf(mappings.company)] || <em className="text-slate-400">Empty</em>}
+                    Preview: {csvRows[0][mappings.company] || <em className="text-slate-400">Empty</em>}
                   </div>
                 )}
               </div>
@@ -1123,18 +1440,18 @@ export default function LeadsPage() {
                   Job Title
                 </label>
                 <select
-                  value={mappings.jobTitle}
-                  onChange={e => setMappings({ ...mappings, jobTitle: e.target.value })}
+                  value={mappings.jobTitle === -1 ? '' : mappings.jobTitle}
+                  onChange={e => setMappings({ ...mappings, jobTitle: toColumnIndex(e.target.value) })}
                   className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-2.5 text-xs text-slate-800 dark:text-white cursor-pointer outline-none focus:ring-2 focus:ring-blue-500/40"
                 >
-                  <option value="">{"[Don't Map - Use Empty]"}</option>
-                  {csvHeaders.map(h => (
-                    <option key={h} value={h}>{h}</option>
+                  <option value="">{"[Don't Map - Leave Empty]"}</option>
+                  {csvColumnOptions.map((label, i) => (
+                    <option key={i} value={i}>{label}</option>
                   ))}
                 </select>
-                {mappings.jobTitle && csvRows.length > 0 && (
+                {mappings.jobTitle !== -1 && csvRows.length > 0 && (
                   <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200/50 dark:border-slate-800/40 mt-1">
-                    Preview: {csvRows[0][csvHeaders.indexOf(mappings.jobTitle)] || <em className="text-slate-400">Empty</em>}
+                    Preview: {csvRows[0][mappings.jobTitle] || <em className="text-slate-400">Empty</em>}
                   </div>
                 )}
               </div>
@@ -1186,10 +1503,10 @@ export default function LeadsPage() {
                 </button>
                 <button
                   onClick={handleExecuteImport}
-                  disabled={!mappings.email || loading}
+                  disabled={mappings.email === -1 || loading}
                   className="bg-blue-600 hover:bg-blue-500 disabled:bg-slate-200 dark:disabled:bg-slate-800 text-white disabled:text-slate-400 dark:disabled:text-slate-600 px-5 py-2 rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer flex items-center gap-2"
                 >
-                  {loading && <RefreshCw className="w-3 h-3 animate-spin" />}
+                  {loading && <Loader2 className="w-3 h-3 animate-spin" />}
                   {loading ? (importProgress || 'Importing...') : 'Confirm & Import'}
                 </button>
               </div>
@@ -1211,7 +1528,7 @@ export default function LeadsPage() {
           <div className="w-10 h-10 mb-3 rounded-lg bg-slate-50 dark:bg-slate-950 flex items-center justify-center border border-slate-200 dark:border-slate-800">
             <UploadCloud className="w-4.5 h-4.5 text-blue-600 dark:text-blue-400" />
           </div>
-          <h3 className="text-sm font-semibold text-slate-800 dark:text-white uppercase tracking-widest mb-1">Import bulk list CSV</h3>
+          <h3 className="text-sm font-semibold text-slate-800 dark:text-white uppercase tracking-widest mb-1">Import Bulk List CSV</h3>
           <p className="text-slate-500 dark:text-slate-400 text-center max-w-md text-xs mb-3 font-medium">
             Drag and drop contacts list, or click to select and import custom CSV spreadsheets.
           </p>
@@ -1269,6 +1586,8 @@ export default function LeadsPage() {
               onClick={() => {
                 setActiveTab(tab.id as any);
                 setSelectedGroupIdForView(null);
+                // Each tab has its own bulk actions, so a selection never carries over
+                setSelectedLeads([]);
               }}
               className={`pb-3 text-xs font-bold uppercase tracking-wider border-b-2 flex items-center gap-2 transition-all cursor-pointer ${
                 activeTab === tab.id
@@ -1304,7 +1623,7 @@ export default function LeadsPage() {
                 </div>
                 
                 <div className="flex items-center gap-1 p-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xs">
-                  {['All', 'Valid', 'Risky', 'Invalid', 'Unverified', 'Bounced', 'Unsubscribed'].map(statusOption => (
+                  {LEAD_STATUS_FILTERS.map(statusOption => (
                     <button
                       key={statusOption}
                       onClick={() => setFilterStatus(statusOption)}
@@ -1322,12 +1641,13 @@ export default function LeadsPage() {
                 </div>
               </div>
               
-              <button 
+              <button
                 onClick={handleExportCSV}
+                disabled={exporting}
                 className="flex items-center gap-1.5 bg-white hover:bg-slate-50 dark:bg-slate-950 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-xs px-3.5 py-2 rounded-lg font-bold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors shadow-xs cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5" />
-                {selectedLeadIds.length > 0 ? `Export selected (${selectedLeadIds.length})` : 'Export CSV'}
+                {exporting ? 'Exporting...' : selectedLeads.length > 0 ? `Export selected (${selectedLeads.length})` : 'Export CSV'}
               </button>
             </div>
 
@@ -1345,14 +1665,14 @@ export default function LeadsPage() {
                       <th className="px-5 py-3 w-10">
                         <input
                           type="checkbox"
-                          checked={paginatedLeads.length > 0 && paginatedLeads.every(l => selectedLeadIds.includes(l.id))}
+                          checked={leads.length > 0 && leads.every(l => isSelected(l.id))}
                           onChange={(e) => {
+                            // Selects or deselects this page's leads, keeping those selected on the view's other pages
                             if (e.target.checked) {
-                              const newSelections = Array.from(new Set([...selectedLeadIds, ...paginatedLeads.map(l => l.id)]));
-                              setSelectedLeadIds(newSelections);
+                              setSelectedLeads([...selectedLeads, ...leads.filter(l => !isSelected(l.id))]);
                             } else {
-                              const paginatedIds = paginatedLeads.map(l => l.id);
-                              setSelectedLeadIds(selectedLeadIds.filter(id => !paginatedIds.includes(id)));
+                              const pageIds = leads.map(l => l.id);
+                              setSelectedLeads(selectedLeads.filter(l => !pageIds.includes(l.id)));
                             }
                           }}
                           onClick={(e) => e.stopPropagation()}
@@ -1369,26 +1689,26 @@ export default function LeadsPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50 text-slate-700 dark:text-slate-400">
-                    {paginatedLeads.map((lead) => (
-                      <tr 
-                        key={lead.id} 
+                    {leads.map((lead) => (
+                      <tr
+                        key={lead.id}
                         onClick={() => {
                           setSelectedLeadId(lead.id);
                           fetchLeadDetails(lead.id);
                         }}
                         className={`hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-all group cursor-pointer ${
-                          selectedLeadIds.includes(lead.id) ? 'bg-blue-50/20 dark:bg-blue-950/10' : ''
+                          isSelected(lead.id) ? 'bg-blue-50/20 dark:bg-blue-950/10' : ''
                         }`}
                       >
                         <td className="px-5 py-3.5 w-10" onClick={(e) => e.stopPropagation()}>
                           <input
                             type="checkbox"
-                            checked={selectedLeadIds.includes(lead.id)}
+                            checked={isSelected(lead.id)}
                             onChange={() => {
-                              if (selectedLeadIds.includes(lead.id)) {
-                                setSelectedLeadIds(selectedLeadIds.filter(id => id !== lead.id));
+                              if (isSelected(lead.id)) {
+                                deselectLead(lead.id);
                               } else {
-                                setSelectedLeadIds([...selectedLeadIds, lead.id]);
+                                setSelectedLeads([...selectedLeads, lead]);
                               }
                             }}
                             className="w-3.5 h-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500/40 cursor-pointer"
@@ -1399,7 +1719,7 @@ export default function LeadsPage() {
                           {lead.jobTitle && <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5 font-medium">{lead.jobTitle}</div>}
                         </td>
                         <td className="px-5 py-3.5 text-xs text-slate-500 dark:text-slate-400 font-mono flex items-center gap-2">
-                          <FileType className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
+                          <Mail className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
                           {lead.email}
                         </td>
                         <td className="px-5 py-3.5 text-xs text-slate-600 dark:text-slate-400 font-medium">{lead.company || 'N/A'}</td>
@@ -1418,21 +1738,7 @@ export default function LeadsPage() {
                           </span>
                         </td>
                         <td className="px-5 py-3.5">
-                          {lead.status === 'Bounced' && (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wider bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400 border-red-200 dark:border-red-900/30">
-                              <Ban className="w-3.5 h-3.5" />
-                              Bounced
-                            </span>
-                          )}
-                          {lead.status === 'Unsubscribed' && (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wider bg-orange-50 dark:bg-orange-950/30 text-orange-700 dark:text-orange-400 border-orange-200 dark:border-orange-900/30">
-                              <MailX className="w-3.5 h-3.5" />
-                              Unsubscribed
-                            </span>
-                          )}
-                          {lead.status !== 'Bounced' && lead.status !== 'Unsubscribed' && (
-                            <span className="text-[10px] text-slate-400 dark:text-slate-500">Active</span>
-                          )}
+                          <SuppressionChip lead={lead} />
                         </td>
                         {(activeTab === 'leads' || activeTab === 'suppressed') && (
                           <td className="px-5 py-3.5">
@@ -1461,7 +1767,9 @@ export default function LeadsPage() {
                                   });
                                   if (res.ok) {
                                     const updatedLead = await res.json();
-                                    setLeads(leads.map(l => l.id === lead.id ? updatedLead : l));
+                                    // It moves to the other tab
+                                    deselectLead(lead.id);
+                                    reloadLeads();
                                     showToast(updatedLead.isArchived ? 'Prospect archived.' : 'Prospect unarchived.');
                                   }
                                 } catch (err) {
@@ -1477,23 +1785,25 @@ export default function LeadsPage() {
                             >
                               <Archive className="w-3.5 h-3.5" />
                             </button>
-                            <button 
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDeleteLead(lead.id);
-                              }}
-                              className="p-1.5 hover:bg-rose-500/10 text-slate-400 hover:text-rose-600 rounded transition-colors"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            {isAdmin && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteLead(lead.id);
+                                }}
+                                className="p-1.5 hover:bg-rose-500/10 text-slate-400 hover:text-rose-600 rounded transition-colors"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
                     ))}
-                    {filteredLeads.length === 0 && (
+                    {leads.length === 0 && (
                       <tr>
                         <td colSpan={(activeTab === 'leads' || activeTab === 'suppressed') ? 7 : 6} className="text-center py-10 text-slate-400 dark:text-slate-500 text-xs">
-                          No lead records match your search filters.
+                          {emptyListMessage('No lead records match your search filters.')}
                         </td>
                       </tr>
                     )}
@@ -1502,76 +1812,7 @@ export default function LeadsPage() {
               </div>
 
               {/* Pagination Controls */}
-              {totalLeads > 0 && (
-                <div className="px-5 py-4 border-t border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row justify-between items-center gap-4 bg-slate-50/20 dark:bg-slate-950/10">
-                  <div className="text-xs text-slate-500 dark:text-slate-400">
-                    Showing <span className="font-semibold text-slate-700 dark:text-white">{startIndex}</span> to{' '}
-                    <span className="font-semibold text-slate-700 dark:text-white">{endIndex}</span> of{' '}
-                    <span className="font-semibold text-slate-700 dark:text-white">{totalLeads}</span> leads
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      disabled={currentPage === 1}
-                      onClick={() => setCurrentPage(1)}
-                      className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
-                      title="First Page"
-                    >
-                      <ChevronsLeft className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      disabled={currentPage === 1}
-                      onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                      className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
-                      title="Previous Page"
-                    >
-                      <ChevronLeft className="w-3.5 h-3.5" />
-                    </button>
-                    
-                    {/* Page numbers */}
-                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                      let pageNum = currentPage;
-                      if (currentPage <= 3) {
-                        pageNum = i + 1;
-                      } else if (currentPage >= totalPages - 2) {
-                        pageNum = totalPages - 4 + i;
-                      } else {
-                        pageNum = currentPage - 2 + i;
-                      }
-                      if (pageNum < 1 || pageNum > totalPages) return null;
-                      return (
-                        <button
-                          key={pageNum}
-                          onClick={() => setCurrentPage(pageNum)}
-                          className={`px-3 py-1 rounded-md text-xs font-semibold border transition-all cursor-pointer ${
-                            currentPage === pageNum
-                              ? 'bg-blue-600 border-blue-600 text-white shadow-xs'
-                              : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
-                          }`}
-                        >
-                          {pageNum}
-                        </button>
-                      );
-                    })}
-
-                    <button
-                      disabled={currentPage === totalPages}
-                      onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                      className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
-                      title="Next Page"
-                    >
-                      <ChevronRight className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      disabled={currentPage === totalPages}
-                      onClick={() => setCurrentPage(totalPages)}
-                      className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
-                      title="Last Page"
-                    >
-                      <ChevronsRight className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              )}
+              {paginationControls}
             </>
           )}
           </>
@@ -1610,6 +1851,12 @@ export default function LeadsPage() {
                 </div>
 
                 <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900">
+                  {loading && !isVerifying ? (
+                    <div className="p-6">
+                      <TableSkeleton rows={5} cols={4} />
+                    </div>
+                  ) : (
+                  <>
                   <table className="w-full text-left border-collapse">
                     <thead>
                       <tr className="border-b border-slate-200 dark:border-slate-800/80 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest bg-slate-50/20 dark:bg-slate-950/10">
@@ -1620,7 +1867,7 @@ export default function LeadsPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50 text-slate-700 dark:text-slate-300">
-                      {filteredLeads.map(lead => (
+                      {leads.map(lead => (
                         <tr 
                           key={lead.id} 
                           onClick={() => {
@@ -1634,7 +1881,7 @@ export default function LeadsPage() {
                             {lead.jobTitle && <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5 font-medium">{lead.jobTitle}</div>}
                           </td>
                           <td className="px-5 py-3.5 text-xs text-slate-500 dark:text-slate-400 font-mono flex items-center gap-2">
-                            <FileType className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
+                            <Mail className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
                             {lead.email}
                           </td>
                           <td className="px-5 py-3.5 text-xs text-slate-600 dark:text-slate-400 font-medium">{lead.company || 'N/A'}</td>
@@ -1646,25 +1893,30 @@ export default function LeadsPage() {
                               >
                                 Remove from group
                               </button>
-                              <button 
-                                onClick={() => handleDeleteLead(lead.id)}
-                                className="p-1.5 hover:bg-rose-500/10 text-slate-400 hover:text-rose-600 rounded transition-colors"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                              {isAdmin && (
+                                <button
+                                  onClick={() => handleDeleteLead(lead.id)}
+                                  className="p-1.5 hover:bg-rose-500/10 text-slate-400 hover:text-rose-600 rounded transition-colors"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
                       ))}
-                      {filteredLeads.length === 0 && (
+                      {leads.length === 0 && (
                         <tr>
                           <td colSpan={4} className="text-center py-10 text-slate-400 dark:text-slate-500 text-xs">
-                            No active prospects associated with this group.
+                            {emptyListMessage('No active prospects associated with this group.')}
                           </td>
                         </tr>
                       )}
                     </tbody>
                   </table>
+                  {paginationControls}
+                  </>
+                  )}
                 </div>
               </div>
             ) : (
@@ -1769,7 +2021,7 @@ export default function LeadsPage() {
                     ))}
                     {groups.length === 0 && (
                       <div className="col-span-full py-12 text-center text-slate-400 dark:text-slate-500 text-xs">
-                        No segments created yet. Create a group to organize prospects.
+                        {groupsError ? 'Lead groups could not be loaded. Use Retry above.' : 'No segments created yet. Create a group to organize prospects.'}
                       </div>
                     )}
                   </div>
@@ -1811,12 +2063,18 @@ export default function LeadsPage() {
                   );
                 })}
                 {groups.length === 0 && (
-                  <span className="text-xs text-slate-400 dark:text-slate-500 italic">No segments created yet.</span>
+                  <span className="text-xs text-slate-400 dark:text-slate-500 italic">{groupsError ? 'Lead groups could not be loaded.' : 'No segments created yet.'}</span>
                 )}
               </div>
             </div>
 
             <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900">
+              {loading && !isVerifying ? (
+                <div className="p-6">
+                  <TableSkeleton rows={5} cols={4} />
+                </div>
+              ) : (
+              <>
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="border-b border-slate-200 dark:border-slate-800/80 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest bg-slate-50/20 dark:bg-slate-950/10">
@@ -1827,7 +2085,7 @@ export default function LeadsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50 text-slate-700 dark:text-slate-400">
-                  {getOverlappingLeads().map(lead => (
+                  {leads.map(lead => (
                     <tr 
                       key={lead.id}
                       onClick={() => {
@@ -1841,7 +2099,7 @@ export default function LeadsPage() {
                         {lead.jobTitle && <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5 font-medium">{lead.jobTitle}</div>}
                       </td>
                       <td className="px-5 py-3.5 text-xs text-slate-500 dark:text-slate-400 font-mono flex items-center gap-2">
-                        <FileType className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
+                        <Mail className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
                         {lead.email}
                       </td>
                       <td className="px-5 py-3.5" onClick={(e) => e.stopPropagation()}>
@@ -1874,8 +2132,7 @@ export default function LeadsPage() {
                                   body: JSON.stringify({ id: lead.id, isArchived: true })
                                 });
                                 if (res.ok) {
-                                  const updatedLead = await res.json();
-                                  setLeads(leads.map(l => l.id === lead.id ? updatedLead : l));
+                                  reloadLeads();
                                   showToast('Prospect archived to resolve overlaps.');
                                 }
                               } catch (err) {
@@ -1886,25 +2143,30 @@ export default function LeadsPage() {
                           >
                             Archive Lead
                           </button>
-                          <button 
-                            onClick={() => handleDeleteLead(lead.id)}
-                            className="p-1.5 hover:bg-rose-500/10 text-slate-400 hover:text-rose-600 rounded transition-colors"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          {isAdmin && (
+                            <button
+                              onClick={() => handleDeleteLead(lead.id)}
+                              className="p-1.5 hover:bg-rose-500/10 text-slate-400 hover:text-rose-600 rounded transition-colors"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
                   ))}
-                  {getOverlappingLeads().length === 0 && (
+                  {leads.length === 0 && (
                     <tr>
                       <td colSpan={4} className="text-center py-10 text-slate-400 dark:text-slate-500 text-xs">
-                        No overlapping prospects found with the current cross-check filters.
+                        {emptyListMessage('No overlapping prospects found with the current cross-check filters.')}
                       </td>
                     </tr>
                   )}
                 </tbody>
               </table>
+              {paginationControls}
+              </>
+              )}
             </div>
           </div>
         )}
@@ -1987,6 +2249,32 @@ export default function LeadsPage() {
                         </div>
                       </div>
 
+                      {/* Suppression List entry: shown whatever the CRM status says; only an admin removes it */}
+                      {leadDetails.suppression && (
+                        <div className="pt-2 border-t border-slate-200/60 dark:border-slate-800/40 space-y-2">
+                          <div className="flex justify-between items-center gap-3">
+                            <span className="text-slate-400 dark:text-slate-500 font-medium uppercase tracking-wider text-[9px]">Suppression List</span>
+                            <SuppressionChip lead={leadDetails} />
+                          </div>
+                          <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                            {describeSuppression(leadDetails.suppression)}{' '}
+                            {OPT_OUT_REASONS.includes(leadDetails.suppression.reason)
+                              ? "ArcReach never emails this address: campaigns never enroll it and Unibox replies to it are blocked, whatever the lead's status."
+                              : "Campaigns never enroll or email this address, whatever the lead's status."}
+                          </p>
+                          {isAdmin ? (
+                            <button
+                              onClick={() => handleRemoveSuppression(leadDetails)}
+                              className="px-2.5 py-1 text-[10px] font-bold rounded-lg border uppercase tracking-wider transition-all cursor-pointer bg-white hover:bg-rose-50 dark:bg-slate-900 dark:hover:bg-rose-950/30 border-rose-200 dark:border-rose-900/40 text-rose-700 dark:text-rose-400"
+                            >
+                              Remove From List
+                            </button>
+                          ) : (
+                            <p className="text-[10px] text-slate-400 dark:text-slate-500">Only an admin can remove an address from the suppression list.</p>
+                          )}
+                        </div>
+                      )}
+
                       {/* Groups Management */}
                       <div className="pt-2 border-t border-slate-200/60 dark:border-slate-800/40">
                         <span className="text-slate-400 dark:text-slate-500 font-medium uppercase tracking-wider text-[9px]">Group Memberships</span>
@@ -2011,10 +2299,14 @@ export default function LeadsPage() {
                                     });
                                     if (res.ok) {
                                       const updatedLead = await res.json();
-                                      setLeadDetails(updatedLead);
-                                      setLeads(leads.map(l => l.id === leadDetails.id ? updatedLead : l));
+                                      // The PUT answer has no dispatches or replies, so the timeline is kept
+                                      setLeadDetails((prev: any) => prev && prev.id === updatedLead.id ? { ...prev, ...updatedLead } : prev);
+                                      reloadLeads();
                                       await fetchGroups();
                                       showToast('Group memberships updated.');
+                                    } else {
+                                      const err = await res.json().catch(() => ({}));
+                                      showToast(err.error || 'Failed to update group memberships.', 'error');
                                     }
                                   } catch (err) {
                                     console.error(err);
@@ -2031,7 +2323,7 @@ export default function LeadsPage() {
                             );
                           })}
                           {groups.length === 0 && (
-                            <span className="text-[10px] text-slate-400 dark:text-slate-500 italic">No lead groups created yet.</span>
+                            <span className="text-[10px] text-slate-400 dark:text-slate-500 italic">{groupsError ? 'Lead groups could not be loaded.' : 'No lead groups created yet.'}</span>
                           )}
                         </div>
                       </div>
@@ -2049,12 +2341,18 @@ export default function LeadsPage() {
                               });
                               if (res.ok) {
                                 const updatedLead = await res.json();
-                                setLeadDetails(updatedLead);
-                                setLeads(leads.map(l => l.id === leadDetails.id ? updatedLead : l));
+                                // The PUT answer has no dispatches or replies, so the timeline is kept
+                                setLeadDetails((prev: any) => prev && prev.id === updatedLead.id ? { ...prev, ...updatedLead } : prev);
+                                // It moves to the other tab
+                                deselectLead(updatedLead.id);
+                                reloadLeads();
                                 showToast(updatedLead.isArchived ? 'Prospect archived.' : 'Prospect unarchived.');
                                 if (updatedLead.isArchived) {
                                   setSelectedLeadId(null);
                                 }
+                              } else {
+                                const err = await res.json().catch(() => ({}));
+                                showToast(err.error || 'Failed to update the lead.', 'error');
                               }
                             } catch (err) {
                               console.error(err);
@@ -2130,6 +2428,16 @@ export default function LeadsPage() {
                                           <Ban className="w-3 h-3" />
                                           Failed
                                         </span>
+                                      ) : event.status === 'Sending' ? (
+                                        <span className="inline-flex items-center gap-1 bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200/50 dark:border-amber-500/10 text-[9px] font-bold text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded">
+                                          <Hourglass className="w-3 h-3" />
+                                          Sending
+                                        </span>
+                                      ) : event.status === 'Unknown' ? (
+                                        <span className="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/40 text-[9px] font-bold text-slate-500 dark:text-slate-400 px-2 py-0.5 rounded">
+                                          <MailQuestionMark className="w-3 h-3" />
+                                          Unconfirmed
+                                        </span>
                                       ) : event.deliveredAt ? (
                                         <span className="inline-flex items-center gap-1 bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200/50 dark:border-emerald-500/10 text-[9px] font-bold text-emerald-600 dark:text-emerald-400 px-2 py-0.5 rounded">
                                           <CheckCircle2 className="w-3 h-3" />
@@ -2174,12 +2482,13 @@ export default function LeadsPage() {
                                     )}
                                   </button>
 
-                                  {/* Body copy container */}
+                                  {/* Body copy container — plain text only; bodies are untrusted HTML */}
                                   {isExpanded && (
-                                    <div 
+                                    <div
                                       className="text-xs mt-2.5 p-3 rounded-lg bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 font-mono whitespace-pre-wrap max-h-56 overflow-y-auto break-words leading-relaxed"
-                                      dangerouslySetInnerHTML={{ __html: event.body }}
-                                    />
+                                    >
+                                      {emailBodyToText(event.body)}
+                                    </div>
                                   )}
                                 </div>
                               </div>
@@ -2190,7 +2499,18 @@ export default function LeadsPage() {
                     </div>
                   </>
                 ) : (
-                  <p className="text-center text-slate-400 py-10 text-xs">Error loading lead data.</p>
+                  <div className="text-center py-10 text-xs space-y-3">
+                    <p className="text-rose-600 dark:text-rose-400 font-medium">{leadDetailsError || 'This lead could not be loaded.'}</p>
+                    {selectedLeadId && (
+                      <button
+                        onClick={() => fetchLeadDetails(selectedLeadId)}
+                        className="inline-flex items-center gap-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-white px-3 py-1.5 rounded-lg font-semibold cursor-pointer"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        Retry
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
             </motion.div>
@@ -2200,7 +2520,7 @@ export default function LeadsPage() {
 
       {/* Floating Bulk Actions Bar */}
       <AnimatePresence>
-        {selectedLeadIds.length > 0 && (
+        {selectedLeads.length > 0 && (
           <motion.div
             initial={{ opacity: 0, y: 50, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -2208,7 +2528,7 @@ export default function LeadsPage() {
             className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 dark:bg-slate-950 border border-slate-800 text-white px-5 py-3 rounded-full shadow-2xl flex items-center gap-4.5 z-45 max-w-lg w-auto"
           >
             <span className="text-xs font-bold text-slate-300 pr-3 border-r border-slate-800">
-              {selectedLeadIds.length} selected
+              {selectedLeads.length} selected
             </span>
             <div className="flex items-center gap-2">
               {activeTab === 'suppressed' ? (
@@ -2225,8 +2545,8 @@ export default function LeadsPage() {
                   disabled={isVerifying}
                   className="bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1 transition-colors cursor-pointer"
                 >
-                  <Play className="w-3 h-3" />
-                  Verify
+                  <Globe className="w-3 h-3" />
+                  Check Domain MX
                 </button>
               )}
               <button
@@ -2236,16 +2556,18 @@ export default function LeadsPage() {
                 <Archive className="w-3 h-3 text-slate-400" />
                 {activeTab === 'archived' ? 'Unarchive' : 'Archive'}
               </button>
-              <button
-                onClick={handleBulkDeleteLeads}
-                className="bg-rose-950/60 hover:bg-rose-900 text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1 transition-colors cursor-pointer border border-rose-800/40 text-rose-200"
-              >
-                <Trash2 className="w-3 h-3" />
-                Delete
-              </button>
+              {isAdmin && (
+                <button
+                  onClick={handleBulkDeleteLeads}
+                  className="bg-rose-950/60 hover:bg-rose-900 text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1 transition-colors cursor-pointer border border-rose-800/40 text-rose-200"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  Delete
+                </button>
+              )}
             </div>
             <button
-              onClick={() => setSelectedLeadIds([])}
+              onClick={() => setSelectedLeads([])}
               className="text-slate-400 hover:text-white transition-colors text-xs font-semibold pl-1"
             >
               Clear
@@ -2352,21 +2674,23 @@ export default function LeadsPage() {
                   </div>
                 </label>
 
-                {/* DELETE option */}
-                <label className="flex items-start gap-3 p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200/60 dark:border-slate-800 rounded-xl cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-900/50 transition-colors">
-                  <input
-                    type="radio"
-                    name="disposalAction"
-                    value="DELETE"
-                    checked={leadDisposalAction === 'DELETE'}
-                    onChange={() => setLeadDisposalAction('DELETE')}
-                    className="mt-0.5 text-rose-600 focus:ring-rose-500/40 cursor-pointer"
-                  />
-                  <div>
-                    <span className="block text-xs font-bold text-rose-600 dark:text-rose-400">Delete associated leads</span>
-                    <span className="block text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">Permanently deletes all leads in this group from the CRM database.</span>
-                  </div>
-                </label>
+                {/* DELETE option (admin only) */}
+                {isAdmin && (
+                  <label className="flex items-start gap-3 p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200/60 dark:border-slate-800 rounded-xl cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-900/50 transition-colors">
+                    <input
+                      type="radio"
+                      name="disposalAction"
+                      value="DELETE"
+                      checked={leadDisposalAction === 'DELETE'}
+                      onChange={() => setLeadDisposalAction('DELETE')}
+                      className="mt-0.5 text-rose-600 focus:ring-rose-500/40 cursor-pointer"
+                    />
+                    <div>
+                      <span className="block text-xs font-bold text-rose-600 dark:text-rose-400">Delete associated leads</span>
+                      <span className="block text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">Permanently deletes all leads in this group from the CRM database.</span>
+                    </div>
+                  </label>
+                )}
 
                 {/* MOVE option */}
                 <label className="flex items-start gap-3 p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200/60 dark:border-slate-800 rounded-xl cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-900/50 transition-colors">

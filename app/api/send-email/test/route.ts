@@ -1,13 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
+import { getGlobalSettings } from '@/lib/settings';
 import { getSession } from '@/lib/session';
-import { sendMessage, EmailConfigError, EmailSendError } from '@/lib/emailProvider';
+import { UnauthorizedError, unauthorizedResponse } from '@/lib/sessionError';
+import { checkGlobalRateLimits } from '@/lib/rateLimits';
+import { sendMessage, sendingDisabledReason, EmailConfigError, EmailSendError } from '@/lib/emailProvider';
+import { findDirectSender } from '@/lib/senderOwnership';
+import { senderCapReachedReason } from '@/lib/sendEngine';
+import { normalizeEmail } from '@/lib/leadEmail';
 
 /**
  * POST /api/send-email/test
  * 
  * Sends a test email from a specific sender account to the current user's email address.
- * Used to validate that SMTP credentials are correctly configured for an individual account.
+ * Used to validate that Azure Communication Services can send from an individual account.
+ * The test counts toward the global rate limits and the mailbox's caps like any other send.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -19,36 +26,50 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'Sender account ID is required.' }, { status: 400 });
     }
 
-    // Fetch the sender account
-    const senderAccount = await prisma.senderAccount.findUnique({
-      where: { id: senderAccountId },
-    });
+    // Fetch the sender account; non-admins may only test their own mailboxes
+    const found = await findDirectSender(session, senderAccountId);
+    if ('error' in found) {
+      return NextResponse.json({ success: false, error: found.error }, { status: found.status });
+    }
+    const senderAccount = found.account;
 
-    if (!senderAccount) {
-      return NextResponse.json({ success: false, error: 'Sender account not found.' }, { status: 404 });
+    // Fetch global settings; only Azure Communication Services sends, so past
+    // this check every send below goes through it
+    const settings = await getGlobalSettings();
+    const sendingDisabled = sendingDisabledReason(settings);
+    if (sendingDisabled) {
+      return NextResponse.json({ success: false, error: sendingDisabled }, { status: 409 });
     }
 
-    // Fetch global settings
-    const settings = await prisma.globalSettings.findFirst();
-    const provider = settings?.activeProvider || 'MOCK';
+    // Check global outbound rate limits and the mailbox's daily and warmup caps
+    const rateCheck = await checkGlobalRateLimits();
+    if (!rateCheck.allowed) {
+      return NextResponse.json({ success: false, error: rateCheck.reason }, { status: 429 });
+    }
+    const capReached = await senderCapReachedReason(senderAccount, new Date());
+    if (capReached) {
+      return NextResponse.json({ success: false, error: capReached }, { status: 429 });
+    }
 
-    // Build the test email content
-    const recipientEmail = session.email;
-    const senderDisplayName = senderAccount.name || 'ArcReach Sender';
+    // Build the test email content. ACS takes the From name from the sender
+    // username configured in Azure, so the mailbox name is only an internal label.
+    const recipientEmail = normalizeEmail(session.email);
     const now = new Date().toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short' });
 
-    const subject = `✅ ArcReach Test — ${senderAccount.emailAddress} is connected`;
+    const subject = `ArcReach Test: ${senderAccount.emailAddress} is connected`;
     const bodyText = [
       `Hi ${session.name},`,
       '',
       `This is a test email sent from ArcReach to verify that the sender mailbox "${senderAccount.emailAddress}" is configured correctly and able to dispatch outbound emails.`,
       '',
       `Sender: ${senderAccount.emailAddress}`,
-      `Display Name: ${senderDisplayName}`,
-      `Provider: ${senderAccount.provider}`,
+      `Internal Label: ${senderAccount.name || '(not set)'}`,
+      'Provider: Azure Communication Services',
       `Sent At: ${now}`,
       '',
-      'If you received this email, the SMTP connection for this sender account is working as expected.',
+      'The From name on this email comes from the sender username configured in Azure Communication Services. The internal label is shown only in ArcReach.',
+      '',
+      'If you received this email, Azure Communication Services can send from this sender account as expected.',
       '',
       '— ArcReach Deliverability Engine',
     ].join('\n');
@@ -61,18 +82,36 @@ export async function POST(req: NextRequest) {
           body: bodyText,
           isHtml: false,
           sender: senderAccount,
-          fromName: senderDisplayName,
         },
         settings
       );
 
       const fallbackId = `mock-test-${Date.now()}-${Math.random().toString(36).substring(7)}`;
-      const messageId = providerMessageId || (provider === 'MOCK' ? fallbackId : fallbackId);
-      const label = provider === 'AZURE' ? ' via Azure Communication Services' : provider === 'MOCK' ? ' (Mock mode)' : '';
+      const messageId = providerMessageId || fallbackId;
+
+      // Record the test (it has no lead or campaign) so the global rate limits
+      // and the mailbox's caps count it
+      await prisma.emailDispatch.create({
+        data: {
+          senderAccountId: senderAccount.id,
+          messageId,
+          sentAt: new Date(),
+          subject,
+          body: bodyText,
+          // Recorded only after the provider accepted it.
+          status: 'Sent',
+        },
+      });
+      if (senderAccount.warmupEnabled) {
+        await prisma.senderAccount.updateMany({
+          where: { id: senderAccount.id },
+          data: { warmupSent: { increment: 1 } },
+        });
+      }
 
       return NextResponse.json({
         success: true,
-        message: `Test email successfully sent${label} to ${recipientEmail}.`,
+        message: `Test email successfully sent via Azure Communication Services to ${recipientEmail}.`,
         messageId,
         recipient: recipientEmail,
       });
@@ -81,15 +120,15 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: false, error: err.message }, { status: 400 });
       }
       if (err instanceof EmailSendError) {
-        const label = provider === 'AZURE' ? 'Azure Communication Services' : 'SMTP';
         return NextResponse.json({
           success: false,
-          error: `${label} failed to send: ${err.message}`,
+          error: `Azure Communication Services failed to send: ${err.message}`,
         }, { status: 550 });
       }
       throw err;
     }
   } catch (error: any) {
+    if (error instanceof UnauthorizedError) return unauthorizedResponse();
     console.error('[Test Email Error]', error);
     return NextResponse.json({ success: false, error: error.message || 'Failed to send test email.' }, { status: 500 });
   }

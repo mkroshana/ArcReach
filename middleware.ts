@@ -2,9 +2,33 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { jwtVerify } from 'jose';
 import { sessionSecretKey as secretKey } from './lib/sessionSecret';
+import { unauthorizedResponse } from './lib/sessionError';
+import { buildContentSecurityPolicy } from './lib/contentSecurityPolicy';
 
+/**
+ * Lets a page request through with a fresh script nonce: the Content-Security-Policy built on it
+ * goes on the response and on the forwarded request, where Next reads the nonce for its own
+ * scripts and app/layout.tsx reads it from x-nonce. Overwrites any x-nonce the client sent.
+ */
+function nextPage(request: NextRequest): NextResponse {
+  const nonce = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))));
+  const policy = buildContentSecurityPolicy(nonce, process.env.NODE_ENV === 'development');
+  const headers = new Headers(request.headers);
+  headers.set('x-nonce', nonce);
+  headers.set('content-security-policy', policy);
+  const response = NextResponse.next({ request: { headers } });
+  response.headers.set('content-security-policy', policy);
+  return response;
+}
+
+/**
+ * Checks only the session cookie's signature: the Edge runtime has no Prisma. It redirects pages
+ * and turns away API calls with no or a badly signed cookie. Whether a signed session is still
+ * live (user exists, not disabled, current tokenVersion) is decided by getSession in each API route.
+ */
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const isApi = pathname.startsWith('/api/');
 
   // 1. Allow auth APIs, webhook, tracking, and unsubscribe without authentication
   if (
@@ -18,10 +42,13 @@ export async function middleware(request: NextRequest) {
 
   const sessionCookie = request.cookies.get('user_session');
 
-  // 2. Redirect unauthenticated users to /login (allow /login itself to render)
+  // 2. Redirect unauthenticated users to /login (allow /login itself to render); API calls get a 401
   if (!sessionCookie || !sessionCookie.value) {
     if (pathname === '/login') {
-      return NextResponse.next();
+      return nextPage(request);
+    }
+    if (isApi) {
+      return unauthorizedResponse();
     }
     const url = request.nextUrl.clone();
     url.pathname = '/login';
@@ -35,11 +62,11 @@ export async function middleware(request: NextRequest) {
   } catch {
     // Malformed or expired session cookie
     if (pathname === '/login') {
-      const response = NextResponse.next();
+      const response = nextPage(request);
       response.cookies.delete('user_session');
       return response;
     }
-    const response = NextResponse.redirect(new URL('/login', request.url));
+    const response = isApi ? unauthorizedResponse() : NextResponse.redirect(new URL('/login', request.url));
     response.cookies.delete('user_session');
     return response;
   }
@@ -51,7 +78,8 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // 4. Protect /admin paths
+  // 4. Protect /admin paths. The token's role only steers the redirect; the admin APIs check the
+  // role stored in the database.
   if (pathname.startsWith('/admin')) {
     if (role !== 'ADMIN') {
       const url = request.nextUrl.clone();
@@ -60,7 +88,7 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  return NextResponse.next();
+  return isApi ? NextResponse.next() : nextPage(request);
 }
 
 export const config = {

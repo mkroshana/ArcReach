@@ -1,16 +1,18 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 'use client';
 
-import { Search, CornerUpLeft, Send, MailOpen, Pause, FileText, ChevronDown, RefreshCw, Download } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { Search, CornerUpLeft, Send, MailOpen, Pause, Play, ChevronDown, RefreshCw, Download } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
 import { toCsv, downloadCsv } from '@/lib/csv';
 import { decodeMimeHeader } from '@/lib/mime';
+import { LoadError, loadErrorMessage, readJsonObject } from '@/lib/apiResponse';
 import {
   Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
-  Snackbar, Alert, InputAdornment, CircularProgress, Avatar, Menu, MenuItem,
+  Snackbar, Alert, AlertTitle, InputAdornment, CircularProgress, Avatar, Menu, MenuItem,
   Tooltip as MuiTooltip,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
+import { CRM_STATUSES, OPT_OUT_REASONS, SUPPRESSION_LABELS, replyBlockedReason } from '@/lib/suppression';
 
 const statusColorMap: Record<string, 'success' | 'error' | 'primary' | 'warning' | 'default' | 'info'> = {
   Interested: 'success',
@@ -18,6 +20,7 @@ const statusColorMap: Record<string, 'success' | 'error' | 'primary' | 'warning'
   Meeting_Booked: 'primary',
   Out_of_Office: 'warning',
   Bounced: 'default',
+  Unsubscribed: 'default',
   Neutral: 'info',
 };
 
@@ -28,7 +31,57 @@ const readableStatus: Record<string, string> = {
   Meeting_Booked: 'Meeting Booked',
   Out_of_Office: 'Out of Office',
   Bounced: 'Bounced',
+  Unsubscribed: 'Unsubscribed',
 };
+
+/** Chip labels of the automated messages IMAP sync flags (InboundResponse.autoReply). */
+const autoReplyLabels: Record<string, string> = {
+  bounce: 'Bounce',
+  'out-of-office': 'Out of Office',
+  'auto-reply': 'Auto-Reply',
+};
+
+/** Whether the lead's suppression is its own opt-out (an unsubscribe or a spam complaint), so replies to it are blocked too. */
+function isOptOut(lead: any): boolean {
+  return !!lead?.suppression && OPT_OUT_REASONS.includes(lead.suppression.reason);
+}
+
+/**
+ * The thread lead's suppression, from the suppression list whatever its CRM
+ * status says, or null: the chip label and a line on why it is never emailed.
+ */
+function leadSuppression(lead: any): { chip: string; color: 'warning' | 'error'; detail: string } | null {
+  const label = lead?.suppression ? SUPPRESSION_LABELS[lead.suppression.reason as keyof typeof SUPPRESSION_LABELS] : null;
+  if (!label) return null;
+  return {
+    chip: label.chip,
+    color: label.chip === 'Unsubscribed' ? 'warning' : 'error',
+    detail: `On the suppression list because ${label.cause}. ${isOptOut(lead) ? 'ArcReach never emails this address, campaigns and replies alike' : 'Campaigns never email this address'}, whatever the lead status.`,
+  };
+}
+
+/** Whether the lead's status chip adds anything next to its suppression chip (a Bounced or Unsubscribed status repeats it). */
+function showsStatusChip(lead: any): boolean {
+  return !lead?.suppression || CRM_STATUSES.includes(lead?.status || 'Neutral');
+}
+
+/** Threads in one page of GET /api/unibox when no limit is asked for. */
+const THREAD_PAGE_SIZE = 50;
+
+/**
+ * When a thread or message happened: the time of day for today, else the date
+ * (with the year when it is not this year), followed by the time when `withTime`.
+ */
+function formatWhen(value: string | Date, withTime = false): string {
+  const date = new Date(value);
+  const now = new Date();
+  const time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (date.toDateString() === now.toDateString()) return time;
+  const day = date.toLocaleDateString([], {
+    month: 'short', day: 'numeric', ...(date.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }),
+  });
+  return withTime ? `${day}, ${time}` : day;
+}
 
 function sanitizeEmailBody(body: string): string {
   if (!body) return '';
@@ -94,113 +147,248 @@ function sanitizeEmailBody(body: string): string {
   return cleaned.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+/** A page of the thread list. Throws a LoadError when the request failed or the answer holds no thread list. */
+async function readThreadPage(res: Response) {
+  const data = await readJsonObject(res, 'Conversations');
+  if (!Array.isArray(data.threads)) throw new LoadError('Conversations could not be loaded: the server did not send a list.');
+  return data;
+}
+
 export default function UniboxPage() {
+  // Threads loaded so far (pages of the list), each with only what the list shows
   const [replies, setReplies] = useState<any[]>([]);
+  const [totalThreads, setTotalThreads] = useState(0);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [nextOffset, setNextOffset] = useState<number | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  // The search the loaded list answers; searchQuery is what is typed
+  const [appliedQuery, setAppliedQuery] = useState('');
+  // Messages of the threads opened so far, loaded when a thread is opened
+  const [threadMessages, setThreadMessages] = useState<Record<string, any[]>>({});
+  const [messagesErrorId, setMessagesErrorId] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const listRequest = useRef(0);
   const [loading, setLoading] = useState(true);
+  // Why the thread list could not be loaded, refreshed or searched. Threads already listed stay,
+  // and the list says so instead of showing no conversations.
+  const [listError, setListError] = useState('');
+  const [listLoaded, setListLoaded] = useState(false);
+  // Bumped by Retry to run a failed search again
+  const [searchAttempt, setSearchAttempt] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusMenuAnchor, setStatusMenuAnchor] = useState<HTMLElement | null>(null);
-  const [templateMenuAnchor, setTemplateMenuAnchor] = useState<HTMLElement | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [toastMessage, setToastMessage] = useState('');
   const [sentRepliesLocal, setSentRepliesLocal] = useState<Record<string, Array<{ body: string; sentAt: string }>>>({});
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  // A reply is being sent: Send Reply stays disabled until it resolves, so a second click never sends it twice
+  const [sendingReply, setSendingReply] = useState(false);
 
   const showToast = (message: string) => {
     setToastMessage(message);
     setTimeout(() => setToastMessage(''), 3000);
   };
 
-  const markAsRead = async (id: string) => {
+  // Takes the thread itself, not its id: the list state is not loaded yet when the first thread is opened
+  const markAsRead = async (thread: any) => {
+    if (!thread?.unread) return;
     try {
-      const target = replies.find(r => r.id === id);
-      if (target && target.unread) {
-        const res = await fetch('/api/unibox', {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ responseId: id, unread: false }),
-        });
-        if (res.ok) setReplies(prev => prev.map(r => r.id === id ? { ...r, unread: false } : r));
+      const res = await fetch('/api/unibox', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leadId: thread.leadId, normalizedSubject: thread.normalizedSubject, unread: false }),
+      });
+      if (res.ok) {
+        setReplies(prev => prev.map(r => r.id === thread.id ? { ...r, unread: false } : r));
+        setUnreadCount(count => Math.max(0, count - 1));
       }
     } catch (err) { console.error(err); }
   };
 
-  const fetchReplies = async (initial = false) => {
+  const loadThreadMessages = async (id: string) => {
+    setMessagesErrorId(prev => (prev === id ? null : prev));
+    try {
+      const res = await fetch(`/api/unibox?thread=${encodeURIComponent(id)}`);
+      if (!res.ok) throw new Error(`Loading the conversation failed (${res.status}).`);
+      const data = await res.json();
+      setThreadMessages(prev => ({ ...prev, [id]: data.messages }));
+    } catch (e) {
+      console.error(e);
+      setMessagesErrorId(id);
+    }
+  };
+
+  /**
+   * Loads the first page of threads matching `query`. A refresh syncs the
+   * mailboxes first and reloads as many threads as are loaded, and the opened
+   * thread's messages with them.
+   */
+  const fetchReplies = async (initial = false, query = appliedQuery) => {
+    const request = ++listRequest.current;
     try {
       if (initial) setLoading(true);
-      const url = initial ? '/api/unibox' : '/api/unibox?sync=true';
-      const res = await fetch(url);
-      if (res.ok) {
-        const data = await res.json();
-        setReplies(data);
-        if (initial && data.length > 0 && !selectedId) {
-          setSelectedId(data[0].id);
-          markAsRead(data[0].id);
-        }
-        setSentRepliesLocal({});
+      const params = new URLSearchParams();
+      if (!initial) params.set('sync', 'true');
+      if (query) params.set('q', query);
+      if (!initial && query === appliedQuery && replies.length > THREAD_PAGE_SIZE) params.set('limit', String(replies.length));
+      const res = await fetch(`/api/unibox${params.toString() ? `?${params}` : ''}`);
+      if (request !== listRequest.current) return;
+      const data = await readThreadPage(res);
+      if (request !== listRequest.current) return;
+      setReplies(data.threads);
+      setTotalThreads(data.total);
+      setUnreadCount(data.unreadCount);
+      setNextOffset(data.nextOffset);
+      setAppliedQuery(query);
+      setListLoaded(true);
+      setListError('');
+      if (initial && data.threads.length > 0 && !selectedId) {
+        setSelectedId(data.threads[0].id);
+        markAsRead(data.threads[0]);
+        loadThreadMessages(data.threads[0].id);
       }
-    } catch (e) { console.error(e); }
+      setSentRepliesLocal({});
+      if (!initial) {
+        setThreadMessages({});
+        if (selectedId) loadThreadMessages(selectedId);
+      }
+    } catch (e) {
+      console.error(e);
+      if (request === listRequest.current) setListError(loadErrorMessage(e, 'Conversations'));
+    }
     finally { if (initial) setLoading(false); }
+  };
+
+  // Loads the list again after a failure: the first load, a failed search again (without
+  // syncing the mailboxes), else a refresh
+  const retryList = () => {
+    const query = searchQuery.trim();
+    if (listLoaded && query !== appliedQuery) setSearchAttempt(n => n + 1);
+    else fetchReplies(!listLoaded, query);
+  };
+
+  const loadMoreThreads = async () => {
+    if (nextOffset === null || loadingMore) return;
+    const request = listRequest.current;
+    setLoadingMore(true);
+    try {
+      const params = new URLSearchParams({ offset: String(nextOffset) });
+      if (appliedQuery) params.set('q', appliedQuery);
+      const res = await fetch(`/api/unibox?${params}`);
+      const data = await readThreadPage(res);
+      // Dropped when the list was reloaded meanwhile
+      if (request === listRequest.current) {
+        setReplies(prev => [...prev, ...data.threads.filter((t: any) => !prev.some(p => p.id === t.id))]);
+        setTotalThreads(data.total);
+        setUnreadCount(data.unreadCount);
+        setNextOffset(data.nextOffset);
+      }
+    } catch (e) { console.error(e); showToast(loadErrorMessage(e, 'More conversations')); }
+    finally { setLoadingMore(false); }
   };
 
   useEffect(() => { fetchReplies(true); }, []);
 
+  // Searches the whole inbox on the server once typing pauses
+  useEffect(() => {
+    const query = searchQuery.trim();
+    if (query === appliedQuery) return;
+    const timer = setTimeout(() => {
+      const request = ++listRequest.current;
+      const params = new URLSearchParams();
+      if (query) params.set('q', query);
+      fetch(`/api/unibox${params.toString() ? `?${params}` : ''}`)
+        .then(async res => {
+          if (request !== listRequest.current) return;
+          const data = await readThreadPage(res);
+          if (request !== listRequest.current) return;
+          setReplies(data.threads);
+          setTotalThreads(data.total);
+          setUnreadCount(data.unreadCount);
+          setNextOffset(data.nextOffset);
+          setAppliedQuery(query);
+          setListLoaded(true);
+          setListError('');
+        })
+        .catch(e => {
+          console.error(e);
+          // A list that loaded keeps the conversations from before this search, so it says they do not match it
+          if (request === listRequest.current) {
+            setListError(`${loadErrorMessage(e, 'Search results')}${listLoaded ? ' The list shows the conversations from before this search.' : ''}`);
+          }
+        });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery, appliedQuery, listLoaded, searchAttempt]);
+
   const selectedEmail = replies.find(e => e.id === selectedId);
+  const selectedMessages: any[] | undefined = selectedId ? threadMessages[selectedId] : undefined;
+  const selectedSuppression = leadSuppression(selectedEmail?.lead);
+  // Why the thread's lead may not be replied to (it opted out), or null; the server refuses such a reply too
+  const replyBlocked = selectedEmail ? replyBlockedReason(selectedEmail.lead ?? {}, date => date.toLocaleDateString()) : null;
+  // The thread's enrollments Pause and Resume can change; finished ones (Completed, Bounced, ...) keep their status
+  const selectedSequence: any[] = (selectedEmail?.lead?.enrollments || []).filter((e: any) => e.status === 'Active' || e.status === 'Paused');
+  const sequencePaused = selectedSequence.some((e: any) => e.status === 'Paused');
+  // The conversation's latest message from the lead: a reply answers it, from the mailbox it reached
+  const answeredReply = [...(selectedMessages || [])].reverse().find((m: any) => m.type === 'inbound');
   const currentReplyText = selectedEmail ? (drafts[selectedEmail.id] || '') : '';
   const setReplyText = (newText: string) => {
     if (!selectedEmail) return;
     setDrafts(prev => ({ ...prev, [selectedEmail.id]: newText }));
   };
 
-  const handleSelectThread = (id: string) => { setSelectedId(id); markAsRead(id); };
-
-  const handleExportCSV = () => {
-    const rows: Record<string, any>[] = [];
-    filteredInbox.forEach(thread => {
-      const inboundMessages = (thread.messages || []).filter((msg: any) => msg.type === 'inbound');
-      inboundMessages.forEach((msg: any) => {
-        rows.push({
-          receivedAt: msg.timestamp,
-          leadEmail: thread.lead?.email || '',
-          leadName: thread.lead?.name || '',
-          company: thread.lead?.company || '',
-          campaign: msg.campaign?.name || thread.lead?.enrollments?.[0]?.campaign?.name || '',
-          senderAccount: msg.senderAccount?.emailAddress || thread.senderAccount?.emailAddress || '',
-          subject: msg.subject,
-          body: msg.body,
-          unread: msg.unread ? 'true' : 'false',
-          leadStatus: thread.lead?.status || 'Neutral',
-        });
-      });
-    });
-    if (rows.length === 0) { showToast('No replies to export.'); return; }
-    const columns = [
-      { key: 'receivedAt', label: 'Received At' },
-      { key: 'leadEmail', label: 'Lead Email' },
-      { key: 'leadName', label: 'Lead Name' },
-      { key: 'company', label: 'Company' },
-      { key: 'campaign', label: 'Campaign' },
-      { key: 'senderAccount', label: 'Sender Account' },
-      { key: 'subject', label: 'Subject' },
-      { key: 'body', label: 'Body' },
-      { key: 'unread', label: 'Unread' },
-      { key: 'leadStatus', label: 'Lead Status' },
-    ];
-    const csvContent = toCsv(rows, columns);
-    const dateStr = new Date().toISOString().split('T')[0];
-    downloadCsv(`replies-${dateStr}.csv`, csvContent);
-    showToast(`Successfully exported ${rows.length} replies to CSV.`);
+  const handleSelectThread = (thread: any) => {
+    setSelectedId(thread.id);
+    markAsRead(thread);
+    if (!threadMessages[thread.id]) loadThreadMessages(thread.id);
   };
 
-  const templatesList = [
-    { name: 'Arrange Quick Call', text: "Hi {{firstName}},\n\nI'd love to chat. Would Tuesday at 2 PM EST work for a brief 10-minute introduction call?\n\nBest,\nJohn" },
-    { name: 'SaaS Demo Setup', text: "Hi {{firstName}},\n\nAwesome to hear. Here is our direct booking calendar link to choose any open slot that works for you: [Calendar Link]\n\nI look forward to our presentation!\n\nBest,\nJohn" },
-    { name: 'Case Study Sharing', text: "Hey {{firstName}},\n\nNo problem! I've attached our Q2 case study deck below. Let me know if those metrics sync up with what you're trying to build.\n\nTake care,\nJohn" },
-  ];
-
-  const handleInsertTemplate = (templateText: string) => {
-    if (!selectedEmail) return;
-    const resolvedName = selectedEmail.lead?.name?.split(' ')[0] || 'there';
-    setReplyText(templateText.replace(/\{\{firstName\}\}/g, resolvedName));
-    setTemplateMenuAnchor(null);
+  // Exports every reply in the threads matching the search, loaded from the server a page at a time
+  const handleExportCSV = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const exported = new Map<string, any>();
+      let offset: number | null = 0;
+      while (offset !== null) {
+        const params: URLSearchParams = new URLSearchParams({ export: 'replies', offset: String(offset) });
+        if (appliedQuery) params.set('q', appliedQuery);
+        const res = await fetch(`/api/unibox?${params}`);
+        if (!res.ok) { showToast('Failed to export replies.'); return; }
+        const data = await res.json();
+        for (const reply of data.replies) exported.set(reply.id, reply);
+        offset = data.nextOffset !== null && data.nextOffset > offset ? data.nextOffset : null;
+      }
+      const rows: Record<string, any>[] = Array.from(exported.values()).map((msg: any) => ({
+        receivedAt: msg.receivedAt,
+        leadEmail: msg.lead?.email || '',
+        leadName: msg.lead?.name || '',
+        company: msg.lead?.company || '',
+        campaign: msg.campaign?.name || msg.lead?.enrollments?.[0]?.campaign?.name || '',
+        senderAccount: msg.senderAccount?.emailAddress || '',
+        subject: msg.subject,
+        body: msg.body,
+        unread: msg.unread ? 'true' : 'false',
+        leadStatus: msg.lead?.status || 'Neutral',
+      }));
+      if (rows.length === 0) { showToast('No replies to export.'); return; }
+      const columns = [
+        { key: 'receivedAt', label: 'Received At' },
+        { key: 'leadEmail', label: 'Lead Email' },
+        { key: 'leadName', label: 'Lead Name' },
+        { key: 'company', label: 'Company' },
+        { key: 'campaign', label: 'Campaign' },
+        { key: 'senderAccount', label: 'Sender Account' },
+        { key: 'subject', label: 'Subject' },
+        { key: 'body', label: 'Body' },
+        { key: 'unread', label: 'Unread' },
+        { key: 'leadStatus', label: 'Lead Status' },
+      ];
+      const csvContent = toCsv(rows, columns);
+      const dateStr = new Date().toISOString().split('T')[0];
+      downloadCsv(`replies-${dateStr}.csv`, csvContent);
+      showToast(`Successfully exported ${rows.length} replies to CSV.`);
+    } catch (e) { console.error(e); showToast('Failed to export replies.'); }
+    finally { setExporting(false); }
   };
 
   const handleUpdateStatus = async (statusKey: string) => {
@@ -212,43 +400,55 @@ export default function UniboxPage() {
       });
       if (res.ok) {
         setReplies(prev => prev.map(item => item.id === selectedId ? { ...item, lead: { ...item.lead, status: statusKey } } : item));
-        showToast(`Lead status updated to ${readableStatus[statusKey]}`);
+        showToast(selectedEmail.lead?.suppression
+          ? `Lead status updated to ${readableStatus[statusKey]}. The address stays on the suppression list, so ${isOptOut(selectedEmail.lead) ? 'ArcReach never emails it, replies included' : 'campaigns never email it'}.`
+          : `Lead status updated to ${readableStatus[statusKey]}`);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        showToast(data.error || 'Failed to update lead status.');
       }
     } catch (e) { console.error(e); }
     finally { setStatusMenuAnchor(null); }
   };
 
+  // Pauses the thread's Active enrollments, or resumes its Paused ones; the server refuses Resume for a lead campaigns may not email
   const handleTogglePause = async () => {
-    if (!selectedEmail) return;
-    const isPaused = selectedEmail.lead?.enrollments?.some((e: any) => e.status === 'Paused');
-    const nextStatus = isPaused ? 'Active' : 'Paused';
+    if (!selectedEmail || selectedSequence.length === 0) return;
+    const nextStatus = sequencePaused ? 'Active' : 'Paused';
+    const leadId = selectedEmail.lead.id;
     try {
       const res = await fetch('/api/unibox', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ leadId: selectedEmail.lead.id, enrollmentStatus: nextStatus }),
+        body: JSON.stringify({ leadId, normalizedSubject: selectedEmail.normalizedSubject, enrollmentStatus: nextStatus }),
       });
-      if (res.ok) {
-        setReplies(prev => prev.map(item => item.id === selectedId
-          ? { ...item, lead: { ...item.lead, enrollments: item.lead.enrollments.map((en: any) => ({ ...en, status: nextStatus })) } }
-          : item));
-        showToast(nextStatus === 'Paused' ? 'Outbound campaigns paused for prospect' : 'Active sending resumed for prospect');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error || 'Failed to update the sequence.');
+        return;
       }
-    } catch (e) { console.error(e); }
+      // The statuses the server reports for the enrollments it covers, in every loaded thread of the lead
+      const statusById = new Map<string, string>((data.enrollments || []).map((en: any) => [en.id, en.status]));
+      setReplies(prev => prev.map(item => item.lead?.id === leadId
+        ? { ...item, lead: { ...item.lead, enrollments: (item.lead.enrollments || []).map((en: any) => statusById.has(en.id) ? { ...en, status: statusById.get(en.id) } : en) } }
+        : item));
+      const changed = data.changed || 0;
+      showToast(changed === 0
+        ? (nextStatus === 'Paused' ? 'No active sequence to pause for this prospect.' : 'No paused sequence to resume for this prospect.')
+        : `Sequence ${nextStatus === 'Paused' ? 'paused' : 'resumed'} for this prospect in ${changed} campaign${changed === 1 ? '' : 's'}.`);
+    } catch (e) { console.error(e); showToast('Failed to update the sequence.'); }
   };
 
   const handleDispatchReply = async () => {
-    if (!selectedEmail || !currentReplyText.trim()) return;
+    if (!selectedEmail || !answeredReply || !currentReplyText.trim() || sendingReply || replyBlocked) return;
+    setSendingReply(true);
     try {
+      // The server titles it "Re: " and the answered reply's subject and threads it under that reply
       const res = await fetch('/api/unibox/reply', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          leadId: selectedEmail.lead.id,
-          subject: (() => {
-            const decoded = decodeMimeHeader(selectedEmail.subject).trim();
-            return /^re:/i.test(decoded) ? decoded : `Re: ${decoded}`;
-          })(),
+          responseId: answeredReply.id,
           body: currentReplyText,
-          senderAccountId: selectedEmail.senderAccountId,
+          senderAccountId: answeredReply.senderAccountId,
         }),
       });
       if (res.ok) {
@@ -257,21 +457,12 @@ export default function UniboxPage() {
         setReplyText('');
         showToast(`Reply sent to ${selectedEmail.lead.email}!`);
       } else {
-        showToast('Failed to dispatch reply.');
+        const data = await res.json().catch(() => ({}));
+        showToast(data.error || 'Failed to dispatch reply.');
       }
     } catch (err) { console.error(err); showToast('Error occurred dispatching reply.'); }
+    finally { setSendingReply(false); }
   };
-
-  const filteredInbox = replies.filter(item => {
-    const senderName = item.lead?.name || 'Unknown';
-    const emailAddr = item.lead?.email || '';
-    const subjectLine = item.subject || '';
-    const bodyText = item.body || '';
-    return senderName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      emailAddr.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      subjectLine.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      bodyText.toLowerCase().includes(searchQuery.toLowerCase());
-  });
 
   return (
     <Box sx={{ height: 'calc(100vh - 6rem)', display: 'flex', gap: 2 }}>
@@ -285,10 +476,10 @@ export default function UniboxPage() {
           <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
             <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
               <Typography variant="overline" sx={{ fontWeight: 700, letterSpacing: '0.1em' }}>Unified Inbox</Typography>
-              <Chip size="small" label={`${replies.filter(e => e.unread).length} NEW`} color="primary" sx={{ height: 18, fontSize: 10, fontFamily: 'monospace', fontWeight: 700 }} />
+              {listLoaded && <Chip size="small" label={`${unreadCount} NEW`} color="primary" sx={{ height: 18, fontSize: 10, fontFamily: 'monospace', fontWeight: 700 }} />}
             </Stack>
             <Stack direction="row" spacing={0.5}>
-              <MuiTooltip title="Export to CSV"><IconButton aria-label="Export to CSV" size="small" onClick={handleExportCSV}><Download size={14} /></IconButton></MuiTooltip>
+              <MuiTooltip title="Export to CSV"><span><IconButton aria-label="Export to CSV" size="small" onClick={handleExportCSV} disabled={exporting}>{exporting ? <CircularProgress size={14} /> : <Download size={14} />}</IconButton></span></MuiTooltip>
               <MuiTooltip title="Refresh"><IconButton aria-label="Refresh replies" size="small" onClick={() => fetchReplies(false)}><RefreshCw size={14} /></IconButton></MuiTooltip>
             </Stack>
           </Stack>
@@ -306,14 +497,24 @@ export default function UniboxPage() {
           </Stack>
         ) : (
           <Box sx={{ flex: 1, overflowY: 'auto', p: 1, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-            {filteredInbox.map(item => {
+            {listError && (
+              <Alert severity={listLoaded ? 'warning' : 'error'} sx={{ mb: 0.5, flexShrink: 0 }}>
+                <AlertTitle>{listLoaded ? 'Conversations Could Not Be Refreshed' : 'Conversations Could Not Be Loaded'}</AlertTitle>
+                {listError}
+                <Box>
+                  <Button color="inherit" size="small" startIcon={<RefreshCw size={12} />} onClick={retryList} sx={{ mt: 1, ml: -0.5 }}>Retry</Button>
+                </Box>
+              </Alert>
+            )}
+            {replies.map(item => {
               const leadPaused = item.lead?.enrollments?.some((e: any) => e.status === 'Paused');
+              const suppressed = leadSuppression(item.lead);
               const isSelected = selectedId === item.id;
-              const dateStr = new Date(item.receivedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+              const dateStr = formatWhen(item.receivedAt);
               return (
                 <Box
                   key={item.id}
-                  onClick={() => handleSelectThread(item.id)}
+                  onClick={() => handleSelectThread(item)}
                   sx={{
                     cursor: 'pointer', p: 1.5, borderRadius: '12px', border: 1, position: 'relative',
                     borderColor: isSelected ? 'primary.main' : 'transparent',
@@ -332,18 +533,33 @@ export default function UniboxPage() {
                     <Typography variant="caption" sx={{ fontWeight: 600, mr: 1, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{decodeMimeHeader(item.subject)}</Typography>
                     <Stack direction="row" spacing={0.5} sx={{ flexShrink: 0 }}>
                       {leadPaused && <Chip size="small" label="PAUSED" color="error" variant="outlined" sx={{ height: 16, fontSize: 8, fontWeight: 700 }} />}
-                      <Chip size="small" label={readableStatus[item.lead?.status || 'Neutral']} color={statusColorMap[item.lead?.status || 'Neutral']} variant="outlined" sx={{ height: 16, fontSize: 8, fontWeight: 700, textTransform: 'uppercase' }} />
+                      {suppressed && (
+                        <MuiTooltip title={suppressed.detail}>
+                          <Chip size="small" label={suppressed.chip} color={suppressed.color} sx={{ height: 16, fontSize: 8, fontWeight: 700, textTransform: 'uppercase' }} />
+                        </MuiTooltip>
+                      )}
+                      {showsStatusChip(item.lead) && (
+                        <Chip size="small" label={readableStatus[item.lead?.status || 'Neutral']} color={statusColorMap[item.lead?.status || 'Neutral']} variant="outlined" sx={{ height: 16, fontSize: 8, fontWeight: 700, textTransform: 'uppercase' }} />
+                      )}
                     </Stack>
                   </Stack>
                   <Typography variant="caption" sx={{ color: 'text.secondary', display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                    {sanitizeEmailBody(item.body)}
+                    {sanitizeEmailBody(item.preview)}
                   </Typography>
                   {item.unread && <Box sx={{ position: 'absolute', left: 4, top: '50%', transform: 'translateY(-50%)', width: 6, height: 6, borderRadius: '50%', bgcolor: 'primary.main' }} />}
                 </Box>
               );
             })}
-            {filteredInbox.length === 0 && (
+            {replies.length === 0 && !listError && (
               <Typography variant="caption" sx={{ color: 'text.secondary', textAlign: 'center', py: 5 }}>No matching records.</Typography>
+            )}
+            {nextOffset !== null && (
+              <Stack sx={{ alignItems: 'center', gap: 0.5, py: 1.5 }}>
+                <Typography sx={{ fontSize: 10, color: 'text.secondary' }}>Showing {replies.length} of {totalThreads} conversations</Typography>
+                <Button size="small" variant="outlined" onClick={loadMoreThreads} disabled={loadingMore} startIcon={loadingMore ? <CircularProgress size={12} /> : undefined}>
+                  Load More
+                </Button>
+              </Stack>
             )}
           </Box>
         )}
@@ -365,8 +581,13 @@ export default function UniboxPage() {
                     <Box>
                       <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
                         <Typography variant="body2" sx={{ fontWeight: 700 }}>{selectedEmail.lead?.name || 'Prospect'}</Typography>
-                        {selectedEmail.lead?.enrollments?.some((e: any) => e.status === 'Paused') && (
+                        {sequencePaused && (
                           <Chip size="small" label="PAUSED SEQUENCE" color="error" variant="outlined" sx={{ height: 18, fontSize: 9, fontWeight: 700 }} />
+                        )}
+                        {selectedSuppression && (
+                          <MuiTooltip title={selectedSuppression.detail}>
+                            <Chip size="small" label={selectedSuppression.chip} color={selectedSuppression.color} sx={{ height: 18, fontSize: 9, fontWeight: 700, textTransform: 'uppercase' }} />
+                          </MuiTooltip>
                         )}
                       </Stack>
                       <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace' }}>{selectedEmail.lead?.email}</Typography>
@@ -374,10 +595,12 @@ export default function UniboxPage() {
                   </Stack>
                 </Box>
                 <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                  <MuiTooltip title={selectedEmail.lead?.enrollments?.some((e: any) => e.status === 'Paused') ? 'Resume Sequence' : 'Pause Sequence'}>
-                    <IconButton aria-label={selectedEmail.lead?.enrollments?.some((e: any) => e.status === 'Paused') ? 'Resume sequence' : 'Pause sequence'} size="small" onClick={handleTogglePause} sx={{ border: 1, borderColor: 'divider', color: selectedEmail.lead?.enrollments?.some((e: any) => e.status === 'Paused') ? 'error.main' : 'text.secondary' }}>
-                      <Pause size={14} />
-                    </IconButton>
+                  <MuiTooltip title={selectedSequence.length === 0 ? 'No Active or Paused Sequence' : sequencePaused ? 'Resume Sequence' : 'Pause Sequence'}>
+                    <span>
+                      <IconButton aria-label={sequencePaused ? 'Resume sequence' : 'Pause sequence'} size="small" onClick={handleTogglePause} disabled={selectedSequence.length === 0} sx={{ border: 1, borderColor: 'divider', color: sequencePaused ? 'error.main' : 'text.secondary' }}>
+                        {sequencePaused ? <Play size={14} /> : <Pause size={14} />}
+                      </IconButton>
+                    </span>
                   </MuiTooltip>
                   <Button
                     size="small"
@@ -389,7 +612,7 @@ export default function UniboxPage() {
                     {readableStatus[selectedEmail.lead?.status || 'Neutral']}
                   </Button>
                   <Menu anchorEl={statusMenuAnchor} open={!!statusMenuAnchor} onClose={() => setStatusMenuAnchor(null)} slotProps={{ paper: { sx: { borderRadius: '12px' } } }}>
-                    {Object.keys(statusColorMap).map(k => (
+                    {CRM_STATUSES.map(k => (
                       <MenuItem key={k} onClick={() => handleUpdateStatus(k)} sx={{ fontSize: 12, fontWeight: 500 }}>{readableStatus[k]}</MenuItem>
                     ))}
                   </Menu>
@@ -399,7 +622,15 @@ export default function UniboxPage() {
 
             {/* Thread content */}
             <Box sx={{ flex: 1, overflowY: 'auto', p: 2.5, display: 'flex', flexDirection: 'column', gap: 2, bgcolor: 'action.hover' }}>
-              {(selectedEmail.messages || []).map((msg: any) => {
+              {!selectedMessages && (messagesErrorId === selectedEmail.id ? (
+                <Stack sx={{ alignItems: 'center', gap: 1, py: 5 }}>
+                  <Typography variant="caption" sx={{ color: 'text.secondary' }}>Could not load this conversation.</Typography>
+                  <Button size="small" variant="outlined" startIcon={<RefreshCw size={12} />} onClick={() => loadThreadMessages(selectedEmail.id)}>Retry</Button>
+                </Stack>
+              ) : (
+                <Stack sx={{ alignItems: 'center', py: 5 }}><CircularProgress size={22} /></Stack>
+              ))}
+              {(selectedMessages || []).map((msg: any) => {
                 const outbound = msg.type === 'outbound';
                 return (
                   <Stack key={msg.id} direction="row" spacing={1.5} sx={{ justifyContent: outbound ? 'flex-end' : 'flex-start' }}>
@@ -419,11 +650,21 @@ export default function UniboxPage() {
                       }}
                     >
                       <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+                        {!outbound && msg.autoReply && (
+                          <MuiTooltip title="Automated message. It did not pause the sequence and does not count as a reply.">
+                            <Chip size="small" label={autoReplyLabels[msg.autoReply] || 'Auto-Reply'} variant="outlined" sx={{ height: 16, fontSize: 8, fontWeight: 700, textTransform: 'uppercase', mb: 1 }} />
+                          </MuiTooltip>
+                        )}
                         <Typography variant="caption" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, display: 'block', color: 'text.primary' }}>
                           {outbound ? msg.body : sanitizeEmailBody(msg.body)}
                         </Typography>
+                        {!outbound && msg.bodyUnavailable && (
+                          <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontStyle: 'italic' }}>
+                            The text of this reply could not be read. Open it in the mailbox to see it.
+                          </Typography>
+                        )}
                         <Typography sx={{ fontSize: 9, color: 'text.secondary', fontFamily: 'monospace', textAlign: outbound ? 'right' : 'left', mt: 1 }}>
-                          {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          {formatWhen(msg.timestamp, true)}
                         </Typography>
                       </CardContent>
                     </Card>
@@ -453,31 +694,30 @@ export default function UniboxPage() {
                     Reply to {selectedEmail.lead?.name?.split(' ')[0] || 'Prospect'}
                   </Typography>
                 </Stack>
-                <TextField
-                  multiline minRows={3} fullWidth
-                  value={currentReplyText}
-                  onChange={(e) => setReplyText(e.target.value)}
-                  placeholder="Type your reply here, or insert matching template..."
-                  variant="standard"
-                  slotProps={{ input: { disableUnderline: true, sx: { px: 2, py: 1.5, fontFamily: 'monospace', fontSize: 12, lineHeight: 1.6 } } }}
-                />
-                <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', px: 1.5, py: 1, borderTop: 1, borderColor: 'divider' }}>
+                {/* A lead that opted out is never replied to: the composer explains that instead of taking a reply */}
+                {replyBlocked ? (
+                  <Typography variant="caption" sx={{ display: 'block', px: 2, py: 1.5, minHeight: 82, color: 'text.secondary', lineHeight: 1.6 }}>
+                    {replyBlocked}
+                  </Typography>
+                ) : (
+                  <TextField
+                    multiline minRows={3} fullWidth
+                    value={currentReplyText}
+                    onChange={(e) => setReplyText(e.target.value)}
+                    placeholder="Type your reply here..."
+                    variant="standard"
+                    slotProps={{ input: { disableUnderline: true, sx: { px: 2, py: 1.5, fontFamily: 'monospace', fontSize: 12, lineHeight: 1.6 } } }}
+                  />
+                )}
+                <Stack direction="row" sx={{ justifyContent: 'flex-end', alignItems: 'center', px: 1.5, py: 1, borderTop: 1, borderColor: 'divider' }}>
                   <Button
-                    size="small" variant="outlined" startIcon={<FileText size={12} />}
-                    onClick={(e) => setTemplateMenuAnchor(e.currentTarget)}
-                    sx={{ fontSize: 10 }}
+                    variant="contained" size="small"
+                    startIcon={sendingReply ? <CircularProgress size={14} color="inherit" /> : <Send size={14} />}
+                    onClick={handleDispatchReply}
+                    disabled={sendingReply || !answeredReply || !!replyBlocked}
                   >
-                    Templates
+                    Send Reply
                   </Button>
-                  <Menu anchorEl={templateMenuAnchor} open={!!templateMenuAnchor} onClose={() => setTemplateMenuAnchor(null)} anchorOrigin={{ vertical: 'top', horizontal: 'left' }} transformOrigin={{ vertical: 'bottom', horizontal: 'left' }} slotProps={{ paper: { sx: { borderRadius: '12px', maxWidth: 280 } } }}>
-                    {templatesList.map(template => (
-                      <MenuItem key={template.name} onClick={() => handleInsertTemplate(template.text)} sx={{ display: 'block', whiteSpace: 'normal' }}>
-                        <Typography variant="body2" sx={{ fontWeight: 700 }}>{template.name}</Typography>
-                        <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace', display: 'block', mt: 0.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{template.text}</Typography>
-                      </MenuItem>
-                    ))}
-                  </Menu>
-                  <Button variant="contained" size="small" startIcon={<Send size={14} />} onClick={handleDispatchReply}>Send Reply</Button>
                 </Stack>
               </Card>
             </Box>

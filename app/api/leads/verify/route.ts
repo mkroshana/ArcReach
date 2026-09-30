@@ -1,110 +1,158 @@
 import { NextRequest, NextResponse } from 'next/server';
+import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
-import dns from 'dns';
-import { promisify } from 'util';
+import { UnauthorizedError, unauthorizedResponse } from '@/lib/sessionError';
+import { findEnrollableLeadIds } from '@/lib/sendEligibility';
+import { liftsSuppression, suppressEmails, suppressionReasons } from '@/lib/suppression';
+import { normalizeEmail } from '@/lib/leadEmail';
+import { REMOVED_ENROLLMENT_STATUS } from '@/lib/campaignCohort';
+import {
+  checkDomains,
+  DOMAIN_CHECK_BATCH_SIZE,
+  emailDomain,
+  type DomainCheckCounts,
+  type DomainCheckStatus,
+} from '@/lib/domainCheck';
+import { promises as dnsPromises } from 'dns';
 
-const resolveMx = promisify(dns.resolveMx);
+/**
+ * The domain MX check's lookups (see lib/domainCheck): 3 seconds for the first
+ * try and one retry per name server, so a failing resolver makes a domain
+ * Risky in seconds, and a batch of distinct domains, looked up
+ * DOMAIN_CHECK_CONCURRENCY at a time, stays well inside the request timeout.
+ */
+const resolver = new dnsPromises.Resolver({ timeout: 3000, tries: 2 });
 
+/** The deduplicated lead ids of `ids`, or null unless it is an array of 1 to DOMAIN_CHECK_BATCH_SIZE non-empty strings. */
+function parseIds(ids: unknown): string[] | null {
+  if (!Array.isArray(ids) || ids.length === 0 || ids.length > DOMAIN_CHECK_BATCH_SIZE) return null;
+  if (!ids.every((id) => typeof id === 'string' && id !== '')) return null;
+  return Array.from(new Set(ids as string[]));
+}
+
+/** The leads `{ all: true }` checks: never checked, or checked without a certain answer. */
+const UNCHECKED_WHERE: Prisma.LeadWhereInput = { validationStatus: { in: ['Unverified', 'Risky'] } };
+
+/**
+ * Runs the domain MX check on one batch of leads and answers how many it set
+ * Valid, Risky and Invalid. The batch is `ids` (at most
+ * DOMAIN_CHECK_BATCH_SIZE), or with `{ all: true, after }` the next
+ * DOMAIN_CHECK_BATCH_SIZE Unverified and Risky leads in address order after
+ * `after`, so the leads page never sends every lead's id; that answer adds
+ * `next`, the `after` of the following batch (null when none is left), and how
+ * many such leads come after it (`remaining`). Stepping by address checks each
+ * lead once, even one the check leaves Risky. An Invalid domain puts the
+ * address on the suppression list; the lead's enrollments are left as they
+ * are, since the send engine never sends to an Invalid or suppressed lead.
+ */
 export async function POST(req: NextRequest) {
   try {
-    const session = await getSession();
+    await getSession();
     const body = await req.json().catch(() => ({}));
-    const { ids } = body;
-
-    let targetLeads;
-    if (ids && Array.isArray(ids)) {
-      targetLeads = await prisma.lead.findMany({
-        where: { id: { in: ids } }
-      });
-    } else {
-      targetLeads = await prisma.lead.findMany({
-        where: { 
-          validationStatus: { 
-            in: ['Unverified', 'Risky'] 
-          } 
-        }
-      });
+    const all = body?.all === true;
+    const after: unknown = body?.after ?? null;
+    if (all && after !== null && (typeof after !== 'string' || after === '')) {
+      return NextResponse.json({ error: 'after must be the address the previous batch answered as next.' }, { status: 400 });
+    }
+    const ids = all ? [] : parseIds(body?.ids);
+    if (!ids) {
+      return NextResponse.json(
+        { error: `ids must be an array of 1 to ${DOMAIN_CHECK_BATCH_SIZE} lead ids.` },
+        { status: 400 },
+      );
     }
 
-    const verifiedLeads = [];
+    const targetLeads = await prisma.lead.findMany({
+      where: all ? { ...UNCHECKED_WHERE, ...(after !== null ? { email: { gt: after as string } } : {}) } : { id: { in: ids } },
+      ...(all ? { orderBy: { email: 'asc' as const }, take: DOMAIN_CHECK_BATCH_SIZE } : {}),
+      select: { id: true, email: true },
+    });
 
-    for (const lead of targetLeads) {
-      const email = lead.email;
-      const parts = email.split('@');
-      if (parts.length !== 2) {
-        const updated = await prisma.lead.update({
-          where: { id: lead.id },
-          data: { validationStatus: 'Invalid' }
-        });
-        verifiedLeads.push(updated);
-        continue;
-      }
+    // Each distinct domain is looked up once, however many leads share it
+    const domainStatuses = await checkDomains(
+      resolver,
+      targetLeads.map((lead) => emailDomain(lead.email)).filter((domain): domain is string => domain !== null),
+    );
+    // Suppression reasons of the target addresses, so a re-check never lifts one (see liftsSuppression)
+    const suppression = await suppressionReasons(prisma, targetLeads.map((lead) => lead.email));
 
-      const domain = parts[1].trim();
-      let status: 'Valid' | 'Invalid' | 'Risky' = 'Invalid';
+    const results = targetLeads.map((lead) => {
+      const domain = emailDomain(lead.email);
+      // A malformed address is Invalid without a lookup
+      const checked: DomainCheckStatus = domain === null ? 'Invalid' : domainStatuses.get(domain)!;
+      // An address suppressed as a hard bounce or a failed verification stays
+      // Invalid, the validation status that shows its suppression
+      const reason = suppression.get(normalizeEmail(lead.email));
+      const validationStatus: DomainCheckStatus = reason && liftsSuppression({ validationStatus: checked }, reason) ? 'Invalid' : checked;
+      return { id: lead.id, email: lead.email, validationStatus, failedCheck: checked === 'Invalid' };
+    });
+    const idsWith = (status: DomainCheckStatus) => results.filter((r) => r.validationStatus === status).map((r) => r.id);
+    const validIds = idsWith('Valid');
 
-      try {
-        // Run DNS MX record lookup
-        const mxRecords = await resolveMx(domain);
-        if (mxRecords && mxRecords.length > 0) {
-          status = 'Valid';
-        } else {
-          status = 'Invalid';
+    await prisma.$transaction(async (tx) => {
+      for (const status of ['Valid', 'Risky', 'Invalid'] as const) {
+        const leadIds = idsWith(status);
+        if (leadIds.length > 0) {
+          await tx.lead.updateMany({ where: { id: { in: leadIds } }, data: { validationStatus: status } });
         }
-      } catch (err: any) {
-        // ENOTFOUND or ENODATA means no MX records or domain invalid
-        status = 'Invalid';
       }
 
-      const updated = await prisma.lead.update({
-        where: { id: lead.id },
-        data: { validationStatus: status }
-      });
+      // An address whose domain does not exist, or that is malformed, stays
+      // suppressed even if its lead is deleted and imported again
+      await suppressEmails(
+        tx,
+        results.filter((r) => r.failedCheck).map((r) => ({ email: r.email, reason: 'Invalid' as const })),
+        'verification',
+      );
 
-      if (status === 'Valid') {
-        // Remove from Unverified campaigns
-        await prisma.campaignEnrollment.deleteMany({
-          where: {
-            leadId: lead.id,
-            campaign: {
-              audienceCohort: 'Unverified'
-            }
-          }
+      if (validIds.length > 0) {
+        // A Valid lead leaves the Unverified cohort: its Active enrollments in
+        // Unverified campaigns stop (Removed, as the cohort sync marks leads
+        // that left), and every other enrollment is kept as it is
+        await tx.campaignEnrollment.updateMany({
+          where: { leadId: { in: validIds }, status: 'Active', campaign: { audienceCohort: 'Unverified' } },
+          data: { status: REMOVED_ENROLLMENT_STATUS, nextActionDate: null },
         });
-        
-        // Enroll in Valid campaigns
-        const validCampaigns = await prisma.campaign.findMany({
-          where: {
-            audienceCohort: 'Valid'
-          },
-          select: { id: true }
+
+        // Enroll in Valid campaigns, unless it may not be emailed (unsubscribed, bounced, archived or suppressed)
+        const validCampaigns = await tx.campaign.findMany({
+          where: { audienceCohort: 'Valid' },
+          select: { id: true },
         });
-        
-        if (validCampaigns.length > 0) {
-          await prisma.campaignEnrollment.createMany({
-            data: validCampaigns.map(c => ({
-              leadId: lead.id,
+        const enrollableLeadIds = validCampaigns.length > 0 ? await findEnrollableLeadIds(tx, { id: { in: validIds } }) : [];
+        if (enrollableLeadIds.length > 0) {
+          await tx.campaignEnrollment.createMany({
+            data: enrollableLeadIds.flatMap((leadId) => validCampaigns.map((c) => ({
+              leadId,
               campaignId: c.id,
               status: 'Active',
               currentSequenceStep: 1,
-              nextActionDate: new Date()
-            })),
-            skipDuplicates: true
+              nextActionDate: new Date(),
+            }))),
+            skipDuplicates: true,
           });
         }
-      } else if (status === 'Invalid') {
-        // Delete enrollments for invalid leads
-        await prisma.campaignEnrollment.deleteMany({
-          where: { leadId: lead.id }
-        });
       }
+    });
 
-      verifiedLeads.push(updated);
-    }
-
-    return NextResponse.json({ success: true, verifiedLeads });
+    const counts: DomainCheckCounts = {
+      valid: validIds.length,
+      risky: idsWith('Risky').length,
+      invalid: idsWith('Invalid').length,
+    };
+    // A full batch of { all: true } may have more after it
+    const last = all && targetLeads.length === DOMAIN_CHECK_BATCH_SIZE ? targetLeads[targetLeads.length - 1].email : null;
+    const remaining = last === null ? 0 : await prisma.lead.count({ where: { ...UNCHECKED_WHERE, email: { gt: last } } });
+    return NextResponse.json({
+      success: true,
+      checked: results.length,
+      counts,
+      results: results.map(({ id, validationStatus }) => ({ id, validationStatus })),
+      ...(all ? { next: remaining > 0 ? last : null, remaining } : {}),
+    });
   } catch (error: any) {
+    if (error instanceof UnauthorizedError) return unauthorizedResponse();
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

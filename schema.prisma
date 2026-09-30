@@ -20,11 +20,12 @@ model User {
   email          String          @unique
   name           String?
   organization   String?
-  timezone       String?
   passwordHash   String
   role           Role            @default(USER)
   createdAt      DateTime        @default(now())
-  
+  tokenVersion   Int             @default(0) // Signed into each session; bumping it ends every session issued before (see lib/session.ts)
+  disabledAt     DateTime?       // Set while an admin has disabled the account: sign-in and every session are refused
+
   // Ownership Relations
   campaigns      Campaign[]
   senderAccounts SenderAccount[]
@@ -33,20 +34,13 @@ model User {
 // ------------------------------------------------------
 // 2. GLOBAL SETTINGS
 // ------------------------------------------------------
+// Single row under the fixed id "global"; read and write it via lib/settings.ts.
 model GlobalSettings {
-  id                String   @id @default(uuid())
-  activeProvider    String   @default("MOCK")
+  id                String   @id @default("global")
+  activeProvider    String   @default("DISABLED") // AZURE sends; DISABLED (or anything else) sends nothing
   azureConnString   String?
   azureSenderDomain String?  // deprecated — read-only fallback for migration to azureSenderDomains
   azureSenderDomains Json?   // string[] of verified sender domains
-  smtpHost          String?
-  smtpPort          Int?
-  smtpUser          String?
-  smtpPass          String?
-  imapHost          String?
-  imapPort          Int?
-  imapUser          String?
-  imapPass          String?
   rateLimitMinute   Int?     @default(60)
   rateLimitHour     Int?     @default(1000)
   updatedAt         DateTime @updatedAt
@@ -65,14 +59,12 @@ model SenderAccount {
   
   // Ownership
   userId          String
-  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Restrict: deleting a user must never take their mailboxes with them.
+  user            User              @relation(fields: [userId], references: [id], onDelete: Restrict)
   
-  // Granular Sending Frequency & Limits
-  minuteLimit     Int               @default(2)
-  hourlyLimit     Int               @default(40)
+  // Daily Sending Limit (per-minute and per-hour limits are global, in GlobalSettings)
   dailyLimit      Int               @default(500)
-  dailyMax        Int               @default(500)     // Matches dailyMax target in UI
-  
+
   // Warmup & Deliverability Telemetry
   warmupEnabled   Boolean           @default(false)
   warmupStartedAt DateTime?
@@ -89,15 +81,31 @@ model SenderAccount {
   inboundReplies  InboundResponse[]
   dispatches      EmailDispatch[]
 
-  // Individual Mailbox Credentials
-  smtpHost        String?
-  smtpPort        Int?
-  smtpUser        String?
-  smtpPass        String?
+  // Individual Mailbox IMAP Credentials, used only to read replies (Azure sends every email)
   imapHost        String?
   imapPort        Int?
   imapUser        String?
   imapPass        String?
+  // Opt-in per mailbox: skip TLS certificate verification for an IMAP host with a self-signed certificate.
+  imapAllowSelfSigned Boolean   @default(false)
+  // Reply-sync checkpoint: the INBOX UIDVALIDITY and the highest UID already read under it.
+  // Null until the first sync, and reset when the IMAP host or login changes. UIDs are
+  // unsigned 32-bit, past Int's range; Float holds them exactly and stays a JSON-safe
+  // number (BigInt would break every API response that embeds the mailbox).
+  imapUidValidity Float?
+  imapLastUid     Float?
+  // The message the checkpoint waits on: the first after it that the latest sync could
+  // not record, and how many syncs in a row failed on it. It is read again by each sync
+  // and skipped once it has failed lib/imapService IMAP_MESSAGE_MAX_ATTEMPTS times, so
+  // one bad message never holds back the replies after it. Null and 0 when none.
+  imapFailedUid         Float?
+  imapFailedUidAttempts Int     @default(0)
+  // Reply-sync health shown on the Accounts page: when a sync last succeeded, and why
+  // the latest one failed (null once one succeeds, unless that sync skipped a message
+  // it could not record, which it notes here until the next sync). Both reset when the
+  // IMAP connection details change, so they always describe the details saved.
+  imapLastSyncAt    DateTime?
+  imapLastSyncError String?
 }
 
 // ------------------------------------------------------
@@ -110,16 +118,25 @@ model Campaign {
   
   // Ownership
   userId          String
-  user            User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Restrict: deleting a user must never take their campaigns and their history with them.
+  user            User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
   senderAccountId String
-  senderAccount   SenderAccount        @relation(fields: [senderAccountId], references: [id], onDelete: Cascade)
+  // Restrict: deleting a mailbox must never take its campaigns and their history with it.
+  senderAccount   SenderAccount        @relation(fields: [senderAccountId], references: [id], onDelete: Restrict)
   
   createdAt       DateTime             @default(now())
   updatedAt       DateTime             @updatedAt
 
   // When set, the send engine auto-resumes this campaign to Active once
-  // `pausedUntil <= now`. Null = paused indefinitely (manual pause).
+  // `pausedUntil <= now` (to Draft when it has no complete sending schedule).
+  // Null = paused indefinitely (manual pause). Only the
+  // send engine sets it, when it pauses an Active campaign; any status a user
+  // sets, or disabling the owner, clears it.
   pausedUntil     DateTime?
+  // Why the campaign is Paused: 'quota', 'systemic' or 'config' when the send
+  // engine paused it (with pausedUntil), 'user' when a user did,
+  // 'owner_disabled' when its owner was disabled. Null otherwise.
+  pauseReason     String?
 
   // Advanced scheduling and options (From original schema & UI elements)
   timezone        String               @default("UTC")
@@ -128,6 +145,12 @@ model Campaign {
   trackOpens      Boolean              @default(true)
   trackClicks     Boolean              @default(true)
   audienceCohort  String               @default("Valid") // Valid, Unverified, etc.
+  // The version (updatedAt) of the save whose audience the enrollments are
+  // still being synced to; null once they match audienceCohort. PUT
+  // /api/campaigns/[id] sets it with the audience and syncs after that save
+  // commits (lib/campaignCohort), so a sync that stopped part way leaves it
+  // set and the next save runs the sync again.
+  cohortSyncRequestedAt DateTime?
   
   steps           CampaignStep[]
   enrollments     CampaignEnrollment[]
@@ -153,7 +176,6 @@ model CampaignStep {
   waitDays   Int      @default(0)
   subject    String
   body       String   @db.Text
-  isABTest   Boolean  @default(false) // Matches AB variation trigger in UI
 }
 
 // ------------------------------------------------------
@@ -184,13 +206,59 @@ model Lead {
   jobTitle         String?              // Job title of the lead
   status           LeadStatus           @default(Neutral) // Global CRM status values
   validationStatus LeadValidationStatus @default(Unverified) // Matches bulk verification categories
-  customVariables  Json?                // Holds extra CSV metadata cols
-  isArchived       Boolean              @default(false)   // Is the lead archived?
+  isArchived      Boolean              @default(false)   // Is the lead archived?
+  // When the lead was added. Leads that predate this column keep null only when the
+  // column is created with no default before `prisma db push`: a push that adds it
+  // with DEFAULT CURRENT_TIMESTAMP gives every existing lead the push time instead.
+  createdAt        DateTime?            @default(now())
   
   enrollments      CampaignEnrollment[]
   dispatches       EmailDispatch[]
   replies          InboundResponse[]
   groups           LeadGroupMembership[]
+  aliases          LeadAlias[]
+}
+
+// Id of a lead merged into another because their emails differed only in case
+// (scripts/normalize-lead-emails.ts). Unsubscribe links already sent carry the
+// removed lead's id, so /api/unsubscribe resolves it to the kept lead here.
+model LeadAlias {
+  id        String   @id // the merged-away lead's id
+  leadId    String
+  lead      Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([leadId])
+}
+
+enum SuppressionReason {
+  Unsubscribed
+  HardBounce
+  Invalid
+  Complaint
+}
+
+// Addresses that are never enrolled or emailed again. Kept apart from Lead,
+// with no relation to it, so deleting a lead (which cascades its history)
+// never lifts its suppression and a lead created again for the address comes
+// back suppressed. Written on unsubscribe, hard bounce and a failed
+// verification; read and written through lib/suppression.ts.
+model SuppressedEmail {
+  email     String            @id // stored trimmed and lowercased (lib/leadEmail)
+  reason    SuppressionReason // the first reason recorded for the address
+  source    String            // what recorded it: unsubscribe-link, delivery-webhook, send-engine, verification or backfill
+  createdAt DateTime          @default(now())
+}
+
+// Id and address of a deleted lead that had been emailed, and of each lead
+// merged into it (LeadAlias). Unsubscribe links in mail already sent carry that
+// id, so /api/unsubscribe still finds the address after the delete and puts it
+// on the suppression list. No relation to Lead, so the delete leaves it in
+// place; written by lib/leadDelete.ts on every lead delete.
+model DeletedLead {
+  id        String   @id // the deleted lead's id, or the id of a lead merged into it
+  email     String   // the lead's address, stored trimmed and lowercased (lib/leadEmail)
+  deletedAt DateTime @default(now())
 }
 
 model LeadGroup {
@@ -226,11 +294,27 @@ model CampaignEnrollment {
   currentSequenceStep Int        @default(1)        // Step order tracking
   nextActionDate      DateTime?                     // Trigger timestamp for worker scheduler
   retryCount          Int        @default(0)
+  // Quota refusals matched only by their wording, in a row on this enrollment.
+  // After 5 the send engine handles the next one as a soft failure of this
+  // lead instead of pausing the campaign again. A sent step or a soft or hard
+  // failure resets it; ACS's own 429 or quota code and a systemic failure
+  // (settings, credentials, clock) leave it alone.
+  quotaFailures       Int        @default(0)
   lastError           String?
   lastBounceType      String?
 
+  // Per-send claim taken via lib/sendEligibility.ts right before a send and
+  // released when it finishes; a claim older than 10 minutes counts as abandoned.
+  claimToken          String?
+  claimedAt           DateTime?
+
   // Prevents enrolling the same lead into the same campaign twice
   @@unique([leadId, campaignId]) 
+  // Serves the send engine's due query: Active rows by nextActionDate, oldest first.
+  @@index([status, nextActionDate])
+  // Serves one campaign's enrollments (campaign page and list counts, Run Now,
+  // audience sync) and the cascade when a campaign is deleted.
+  @@index([campaignId, status])
 }
 
 // ------------------------------------------------------
@@ -238,37 +322,87 @@ model CampaignEnrollment {
 // ------------------------------------------------------
 model EmailDispatch {
   id          String        @id @default(uuid())
-  leadId      String
-  lead        Lead          @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  // Null only for mailbox test sends, which go to the testing user, not a lead.
+  leadId      String?
+  lead        Lead?         @relation(fields: [leadId], references: [id], onDelete: Cascade)
   senderAccountId String?
   senderAccount   SenderAccount? @relation(fields: [senderAccountId], references: [id], onDelete: SetNull)
   campaignId  String?
-  campaign    Campaign?     @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  // SetNull: deleting a campaign keeps what it sent, so tracked links and send caps survive.
+  campaign    Campaign?     @relation(fields: [campaignId], references: [id], onDelete: SetNull)
   messageId   String        @unique
   sentAt      DateTime      @default(now())
   subject     String?
   body        String?       @db.Text
 
-  // Send-attempt outcome: "Sent" (handed to the provider) or "Failed" (provider/SMTP error).
-  status      String        @default("Sent")
+  // Send-attempt outcome: "Sending" (recorded before the provider call), "Sent"
+  // (accepted by the provider), "Failed" (provider/SMTP error) or "Unknown" (an
+  // interrupted send ACS could not confirm; never resent, counted toward caps
+  // and rate limits but not as sent). lib/sendReconciler.ts settles stale
+  // "Sending" rows with ACS.
+  status      String        @default("Sending")
+  // ACS Operation-Id the send was made under, stored before the provider call
+  // so an accepted send whose bookkeeping failed can still be traced in ACS.
+  // Null for rows recorded after the send (Unibox replies, mailbox tests) or before this column.
+  operationId String?       @unique
   // Sequence step this dispatch belongs to (null for manual / non-campaign sends).
   stepOrder   Int?
+  // When the dispatch became "Sent" (ACS accepted the send), set by
+  // recordAcceptedSend. lib/botFilter's prefetch window starts here, since
+  // sentAt is set before the send. Null while Sending, for Failed sends and for
+  // rows recorded after the send or before this column, whose sentAt stands in.
+  acceptedAt  DateTime?
   // Set by the Azure delivery webhook when the message is confirmed delivered.
   deliveredAt DateTime?
+  // Status of the last ACS delivery report for this message (Delivered,
+  // Expanded, Bounced, Suppressed, Quarantined, FilteredSpam or Failed), set by
+  // the Azure delivery webhook (lib/deliveryReport.ts).
+  deliveryStatus String?
+  // When a delivery report said the message bounced, and how: 'hard' (Bounced,
+  // Suppressed or a permanent Failed; the address is suppressed) or 'soft' (any
+  // other Failed). A bounce is final: later reports never overwrite it, except
+  // a hard bounce replacing a soft one. Bounced metrics (lib/engagementMetrics)
+  // count 'hard' rows, and Failed ones the send engine gave a 'bounce' event,
+  // by the dispatch's campaign and sender, whatever its enrollment's status since.
+  bouncedAt   DateTime?
+  bounceType  String?
 
   events      EmailEvent[]
 
   // Speeds up the per-(campaign, lead, step) idempotency guard.
   @@index([campaignId, leadId, stepOrder])
+  // Serves the global per-minute and per-hour rate limit counts (lib/rateLimits).
+  @@index([sentAt])
+  // Serves each mailbox's rolling 24-hour cap count and when it frees up (senderCapDispatchWhere).
+  @@index([senderAccountId, sentAt])
+  // Serves a lead's dispatches by send time (Unibox threads, reply attribution,
+  // unsubscribe) and the cascade when a lead is deleted.
+  @@index([leadId, sentAt])
+  // Serves per-campaign and per-step send metrics (lib/engagementMetrics stepMetrics).
+  @@index([campaignId, stepOrder, status])
+  // Serves the reconciler's scan for stale 'Sending' rows, oldest first (lib/sendReconciler).
+  @@index([status, sentAt])
 }
 
 model EmailEvent {
   id         String        @id @default(uuid())
   messageId  String
   dispatch   EmailDispatch @relation(fields: [messageId], references: [messageId], onDelete: Cascade)
+  // 'open' and 'click' are a person's; engagement metrics count only these.
+  // 'machine_open' and 'machine_click' are hits lib/botFilter judged automated
+  // (a scanner, crawler, link unfurler, HTTP library, Apple Mail Privacy
+  // Protection or a prefetch), kept with the reason in botReason. Also
+  // 'bounce', 'send_failed' and 'unsubscribe' (the email whose unsubscribe
+  // link was used, which lib/engagementMetrics counts).
   eventType  String
   clickedUrl String?
+  botReason  String?
   timestamp  DateTime      @default(now())
+
+  // Serves the tracking routes' dedupe, the opened/clicked/unsubscribed metrics
+  // (lookups by messageId and eventType) and the cascade when a dispatch's
+  // messageId changes on send or the dispatch is deleted.
+  @@index([messageId, eventType])
 }
 
 // ------------------------------------------------------
@@ -279,13 +413,38 @@ model InboundResponse {
   leadId          String
   lead            Lead           @relation(fields: [leadId], references: [id], onDelete: Cascade)
   campaignId      String?
-  campaign        Campaign?      @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  // SetNull: deleting a campaign must never take the prospect's replies out of Unibox.
+  campaign        Campaign?      @relation(fields: [campaignId], references: [id], onDelete: SetNull)
   senderAccountId String?        // Captures which account received the inbound reply
   senderAccount   SenderAccount? @relation(fields: [senderAccountId], references: [id], onDelete: SetNull)
+  // The reply's Message-ID (hashed when long or not plain ASCII; a stand-in built from the
+  // INBOX UIDVALIDITY and UID when it has none), unique per mailbox so a message read by two
+  // syncs at once, or read again, is recorded once. Null on replies recorded before it was stored.
+  messageId       String?
+  // The message ids the reply's thread refers to, space-separated, which a Unibox reply
+  // to it repeats in References before its Message-ID: its References, else the single id
+  // of its In-Reply-To, at most 20 (lib/replyThreading). Null when it names none, and on
+  // replies recorded before it was stored.
+  references      String?        @db.Text
   subject         String
   body            String         @db.Text
   receivedAt      DateTime       @default(now())
   unread          Boolean        @default(true)
+  // Set when the message is automated, not written by the lead: 'bounce' (a delivery
+  // status report), 'out-of-office' or 'auto-reply' (lib/imapService autoReplyKind).
+  // It is kept for Unibox but never stops a sequence or counts as a reply. Null for a
+  // human reply and for replies recorded before automated mail was detected.
+  autoReply       String?
+  // Set when the reply's text could not be read (the mail server refused it, or it could
+  // not be decoded), so it was recorded with an empty body instead of holding back the
+  // replies after it.
+  bodyUnavailable Boolean        @default(false)
+
+  // Also serves lookups by senderAccountId alone, so that needs no index of its own.
+  @@unique([senderAccountId, messageId])
+  // Serves a lead's replies by time (Unibox threads, IMAP dedupe of replies with
+  // no Message-ID) and the cascade when a lead is deleted.
+  @@index([leadId, receivedAt])
 }
 
 // ------------------------------------------------------
@@ -300,4 +459,18 @@ model Template {
   steps     Json?    // Optional JSON array of steps: [{ id, waitDays, subject, body }]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// ------------------------------------------------------
+// 9. BACKGROUND WORKER LEASE
+// ------------------------------------------------------
+// One row per lease, taken and renewed via lib/workerLease.ts. Only the process
+// holding the "send-worker" lease runs the send and IMAP sync loops.
+model WorkerLease {
+  name          String    @id
+  holderId      String    // random id of the holding process
+  expiresAt     DateTime  // another process may take the lease after this
+  lastTickAt    DateTime? // start of the holder's last finished send tick
+  lastSuccessAt DateTime? // end of the last send tick that finished without an error
+  lastError     String?   // error from the last send tick; cleared when one succeeds
 }

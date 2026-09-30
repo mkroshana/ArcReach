@@ -1,28 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
-
-export async function POST(req: NextRequest) {
-  try {
-    const session = await getSession();
-    const data = await req.json();
-    const { groupId, leadIds } = data;
-
-    if (!groupId || !leadIds || !Array.isArray(leadIds)) {
-      return NextResponse.json({ error: 'Group ID and Lead IDs array are required.' }, { status: 400 });
-    }
-
-    // Add leads to group memberships
-    await prisma.leadGroupMembership.createMany({
-      data: leadIds.map((leadId: string) => ({ groupId, leadId })),
-      skipDuplicates: true
-    });
-
-    return NextResponse.json({ success: true });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-}
+import { UnauthorizedError, unauthorizedResponse } from '@/lib/sessionError';
+import { pauseGroupLeavers } from '@/lib/campaignCohort';
 
 export async function DELETE(req: NextRequest) {
   try {
@@ -35,14 +15,19 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Both groupId and leadId are required.' }, { status: 400 });
     }
 
-    await prisma.leadGroupMembership.delete({
-      where: {
-        leadId_groupId: { leadId, groupId }
-      }
+    // The lead's sequence stops in the campaigns targeting the group, kept Paused at its step
+    await prisma.$transaction(async (tx) => {
+      await tx.leadGroupMembership.delete({
+        where: {
+          leadId_groupId: { leadId, groupId }
+        }
+      });
+      await pauseGroupLeavers(tx, [leadId], [groupId]);
     });
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
+    if (error instanceof UnauthorizedError) return unauthorizedResponse();
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

@@ -1,13 +1,15 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 'use client';
 
-import { useState, useEffect } from 'react';
-import { FileText, Search, Plus, Eye, Sparkles, Copy, Check, Trash2, ArrowRight, X } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { FileText, Search, Plus, Eye, Copy, Check, Trash2, ArrowRight, X, RefreshCw } from 'lucide-react';
 import VariableToolbar from '@/components/VariableToolbar';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { personalizePreview, previewEmailBody } from '@/lib/personalize';
+import { loadErrorMessage, readJsonList } from '@/lib/apiResponse';
 import {
   Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
-  ToggleButtonGroup, ToggleButton, Snackbar, Alert, InputAdornment, CircularProgress,
+  ToggleButtonGroup, ToggleButton, Snackbar, Alert, AlertTitle, InputAdornment, CircularProgress,
   Tooltip as MuiTooltip,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
@@ -15,6 +17,8 @@ import { alpha } from '@mui/material/styles';
 export default function TemplatesPage() {
   const [templates, setTemplates] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  // A failed load shows an error with Retry, never the empty library.
+  const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [editingTemplate, setEditingTemplate] = useState<any>(null);
@@ -22,6 +26,11 @@ export default function TemplatesPage() {
   const [copiedId, setCopiedId] = useState<any>(null);
   const [previewResolved, setPreviewResolved] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
+  // A new template keeps its temporary id until the POST answers, so a second
+  // Save before then would POST it again. The ref blocks a click that lands
+  // before the disabled button re-renders.
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const [confirmState, setConfirmState] = useState<{ title: string; message: string; confirmLabel: string; onConfirm: () => void } | null>(null);
 
   const showToast = (message: string) => {
@@ -45,42 +54,19 @@ export default function TemplatesPage() {
   const fetchTemplates = async () => {
     try {
       setLoading(true);
-      const res = await fetch('/api/templates');
-      if (res.ok) {
-        const data = await res.json();
-        setTemplates(data);
-        if (data.length > 0) selectTemplate(data[0]);
-      }
+      setLoadError('');
+      const data = await readJsonList(await fetch('/api/templates'), 'Templates');
+      setTemplates(data);
+      if (data.length > 0) selectTemplate(data[0]);
     } catch (e) {
       console.error('Failed to fetch templates:', e);
-      showToast('Error loading templates');
+      setLoadError(loadErrorMessage(e, 'Templates'));
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => { fetchTemplates(); }, []);
-
-  const resolveTemplateText = (text: string) => {
-    if (!text) return '';
-    let result = text;
-    result = result.replace(/\{\{firstName\}\}/g, 'Emily');
-    result = result.replace(/\{\{company\}\}/g, 'Stark Industries');
-    result = result.replace(/\{\{name\}\}/g, 'Emily Carter');
-    result = result.replace(/\{\{jobTitle\}\}/g, 'VP of Marketing');
-    result = result.replace(/\{\{email\}\}/g, 'emily@starkindustries.com');
-    result = result.replace(/\{\{\s*\$json\.name\s*\|\|\s*'[^']*'\s*\}\}/g, 'Emily');
-    result = result.replace(/\{\{\s*\$json\.name\s*\}\}/g, 'Emily');
-    const spintaxRegex = /\{([^{}]+)\}/g;
-    result = result.replace(spintaxRegex, (match, options) => options.split('|')[0] || '');
-    return result;
-  };
-
-  const isHtml = (text: string) => {
-    if (!text) return false;
-    const clean = text.trim().toLowerCase();
-    return clean.startsWith('<!doctype html') || clean.startsWith('<html') || clean.startsWith('<body') || clean.includes('<div') || clean.includes('<table');
-  };
 
   const handleCopy = (id: any, text: string) => {
     navigator.clipboard.writeText(text);
@@ -102,7 +88,7 @@ export default function TemplatesPage() {
       id: `step-${Date.now()}`,
       waitDays: 3,
       subject: 'Follow-up query',
-      body: 'Hi {{firstName}},\n\nJust bumping this in case it got buried.\n\nBest,\nJohn',
+      body: 'Hi {{firstName}},\n\nJust bumping this in case it got buried.',
     }];
     setEditingTemplate({ ...editingTemplate, steps: newSteps });
     setActiveStepIndex(newSteps.length - 1);
@@ -124,7 +110,9 @@ export default function TemplatesPage() {
   };
 
   const handleSave = async () => {
-    if (!editingTemplate) return;
+    if (!editingTemplate || savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
     try {
       const isNew = typeof editingTemplate.id === 'number';
       const method = isNew ? 'POST' : 'PUT';
@@ -155,12 +143,15 @@ export default function TemplatesPage() {
     } catch (e) {
       console.error(e);
       showToast('Connection error while saving template');
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
   };
 
   const deleteTemplate = (id: any) => {
     setConfirmState({
-      title: 'Delete template?',
+      title: 'Delete Template',
       message: 'This removes the template and all of its sequence steps. This cannot be undone.',
       confirmLabel: 'Delete',
       onConfirm: () => { setConfirmState(null); performDeleteTemplate(id); },
@@ -206,6 +197,8 @@ export default function TemplatesPage() {
     selectTemplate(newT);
   };
 
+  const bodyPreview = previewResolved && editingTemplate ? previewEmailBody(editingTemplate.steps?.[activeStepIndex]?.body || '') : null;
+
   return (
     <Box sx={{ maxWidth: 1280, mx: 'auto', pb: 4, display: 'flex', flexDirection: 'column', gap: 3 }}>
       <Snackbar open={!!toastMessage} anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }} autoHideDuration={3000} onClose={() => setToastMessage('')}>
@@ -218,9 +211,18 @@ export default function TemplatesPage() {
           <Typography variant="h4" sx={{ fontWeight: 700 }}>Copy Library</Typography>
           <Typography variant="body2" sx={{ color: 'text.secondary' }}>Write and manage reusable email templates with personalization variables and Spintax.</Typography>
         </Box>
-        <Button variant="contained" startIcon={<Plus size={16} />} onClick={createNewTemplate}>Create Template</Button>
+        <Button variant="contained" startIcon={<Plus size={16} />} onClick={createNewTemplate} disabled={!!loadError}>Create Template</Button>
       </Stack>
 
+      {loadError ? (
+        <Alert
+          severity="error"
+          action={<Button color="inherit" size="small" startIcon={<RefreshCw size={14} />} onClick={() => fetchTemplates()}>Retry</Button>}
+        >
+          <AlertTitle>Templates Could Not Be Loaded</AlertTitle>
+          {loadError}
+        </Alert>
+      ) : (
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1fr 2fr' }, gap: 3 }}>
         {/* Left: list */}
         <Stack spacing={2}>
@@ -256,7 +258,9 @@ export default function TemplatesPage() {
             ) : filteredTemplates.length === 0 ? (
               <Card sx={{ borderStyle: 'dashed', textAlign: 'center', py: 5 }}>
                 <FileText size={24} style={{ margin: '0 auto', opacity: 0.5 }} />
-                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 1 }}>No email templates found</Typography>
+                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 1 }}>
+                  {templates.length === 0 ? 'No templates yet' : 'No templates match this search or category'}
+                </Typography>
               </Card>
             ) : (
               filteredTemplates.map(t => {
@@ -348,7 +352,7 @@ export default function TemplatesPage() {
                   <Stack spacing={2}>
                     <Card sx={{ bgcolor: (t) => alpha(t.palette.primary.main, 0.06), borderColor: (t) => alpha(t.palette.primary.main, 0.2) }}>
                       <CardContent sx={{ display: 'flex', gap: 1.5, alignItems: 'flex-start' }}>
-                        <Sparkles size={16} color="#2563EB" style={{ marginTop: 2, flexShrink: 0 }} />
+                        <Eye size={16} color="#2563EB" style={{ marginTop: 2, flexShrink: 0 }} />
                         <Box>
                           <Typography variant="overline" sx={{ color: 'primary.main', fontWeight: 700 }}>Live Preview (Step {activeStepIndex + 1})</Typography>
                           <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5 }}>
@@ -361,14 +365,14 @@ export default function TemplatesPage() {
                       <CardContent>
                         <Box sx={{ pb: 1.5, borderBottom: 1, borderColor: 'divider', mb: 1.5 }}>
                           <Typography variant="overline" sx={{ color: 'text.secondary', fontFamily: 'monospace' }}>Subject Preview:</Typography>
-                          <Typography variant="body2" sx={{ fontWeight: 600, mt: 0.5 }}>{resolveTemplateText(editingTemplate.steps?.[activeStepIndex]?.subject || '')}</Typography>
+                          <Typography variant="body2" sx={{ fontWeight: 600, mt: 0.5 }}>{personalizePreview(editingTemplate.steps?.[activeStepIndex]?.subject || '')}</Typography>
                         </Box>
                         <Typography variant="overline" sx={{ color: 'text.secondary', fontFamily: 'monospace', display: 'block', mb: 1 }}>Message Preview:</Typography>
-                        {isHtml(resolveTemplateText(editingTemplate.steps?.[activeStepIndex]?.body || '')) ? (
-                          <Box component="iframe" srcDoc={resolveTemplateText(editingTemplate.steps?.[activeStepIndex]?.body || '')} title="Email Preview" sandbox="allow-same-origin" sx={{ width: '100%', height: 500, border: 1, borderColor: 'divider', borderRadius: '12px', bgcolor: '#fff' }} />
+                        {bodyPreview?.isHtml ? (
+                          <Box component="iframe" srcDoc={bodyPreview.body} title="Email Preview" sandbox="" sx={{ width: '100%', height: 500, border: 1, borderColor: 'divider', borderRadius: '12px', bgcolor: '#fff' }} />
                         ) : (
                           <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, color: 'text.primary' }}>
-                            {resolveTemplateText(editingTemplate.steps?.[activeStepIndex]?.body || '')}
+                            {bodyPreview?.body}
                           </Typography>
                         )}
                       </CardContent>
@@ -429,11 +433,27 @@ export default function TemplatesPage() {
                       >
                         {copiedId === editingTemplate.id ? 'Copied' : 'Copy Code'}
                       </Button>
-                      <Button variant="contained" endIcon={<ArrowRight size={16} />} onClick={handleSave}>Save Template</Button>
+                      <Button
+                        variant="contained"
+                        endIcon={saving ? <CircularProgress size={16} color="inherit" /> : <ArrowRight size={16} />}
+                        onClick={handleSave}
+                        disabled={saving}
+                      >
+                        Save Template
+                      </Button>
                     </Stack>
                   </Stack>
                 )}
               </CardContent>
+            </Card>
+          ) : !loading && templates.length === 0 ? (
+            <Card sx={{ borderStyle: 'dashed', textAlign: 'center', py: 8, px: 3 }}>
+              <FileText size={40} style={{ margin: '0 auto', opacity: 0.4 }} />
+              <Typography variant="overline" sx={{ color: 'text.secondary', display: 'block', mt: 1.5 }}>Your Copy Library Is Empty</Typography>
+              <Typography variant="body2" sx={{ color: 'text.secondary', maxWidth: 420, mx: 'auto', mt: 0.5 }}>
+                Create a template to write a reusable email sequence. Campaigns can then fill their steps from it with Use Template.
+              </Typography>
+              <Button variant="contained" startIcon={<Plus size={16} />} onClick={createNewTemplate} sx={{ mt: 2.5 }}>Create Template</Button>
             </Card>
           ) : (
             <Card sx={{ borderStyle: 'dashed', textAlign: 'center', py: 8 }}>
@@ -443,6 +463,7 @@ export default function TemplatesPage() {
           )}
         </Box>
       </Box>
+      )}
 
       <ConfirmDialog
         isOpen={!!confirmState}

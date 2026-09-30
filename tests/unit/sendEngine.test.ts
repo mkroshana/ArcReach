@@ -1,67 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { validateSendingFrequency, checkSendingWindow, personalizeEmail, getEffectiveDailyCap, resolveCampaignSenders, pickSender, classifyFailure } from '../../lib/sendEngine';
+import { checkSendingWindow, getEffectiveDailyCap, resolveCampaignSenders, pickSender, classifyFailure } from '../../lib/sendEngine';
+import { personalizeEmail } from '../../lib/personalize';
+import { sendMessage, EmailConfigError, EmailSendError } from '../../lib/emailProvider';
 
-describe('validateSendingFrequency', () => {
-  it('should allow sending when all limits are within boundaries', () => {
-    const sender = {
-      minuteLimit: 5,
-      hourlyLimit: 50,
-      dailyLimit: 200,
-      emailsSentLastMinute: 2,
-      emailsSentLastHour: 20,
-      emailsSentToday: 100,
-    };
-    
-    const result = validateSendingFrequency(sender);
-    expect(result.allowed).toBe(true);
-    expect(result.reason).toBeUndefined();
-  });
-
-  it('should restrict sending when minute limits are exceeded', () => {
-    const sender = {
-      minuteLimit: 5,
-      hourlyLimit: 50,
-      dailyLimit: 200,
-      emailsSentLastMinute: 5,
-      emailsSentLastHour: 20,
-      emailsSentToday: 100,
-    };
-    
-    const result = validateSendingFrequency(sender);
-    expect(result.allowed).toBe(false);
-    expect(result.reason).toContain('Max 5 per minute');
-  });
-
-  it('should restrict sending when hourly limits are exceeded', () => {
-    const sender = {
-      minuteLimit: 5,
-      hourlyLimit: 50,
-      dailyLimit: 200,
-      emailsSentLastMinute: 2,
-      emailsSentLastHour: 50,
-      emailsSentToday: 100,
-    };
-    
-    const result = validateSendingFrequency(sender);
-    expect(result.allowed).toBe(false);
-    expect(result.reason).toContain('Max 50 per hour');
-  });
-
-  it('should restrict sending when daily limits are exceeded', () => {
-    const sender = {
-      minuteLimit: 5,
-      hourlyLimit: 50,
-      dailyLimit: 200,
-      emailsSentLastMinute: 2,
-      emailsSentLastHour: 20,
-      emailsSentToday: 200,
-    };
-    
-    const result = validateSendingFrequency(sender);
-    expect(result.allowed).toBe(false);
-    expect(result.reason).toContain('Max 200 per day');
-  });
-
+describe('sendEngine', () => {
   describe('checkSendingWindow', () => {
     beforeEach(() => {
       vi.useFakeTimers();
@@ -71,8 +13,8 @@ describe('validateSendingFrequency', () => {
       vi.useRealTimers();
     });
 
-    it('should return true if no schedule is specified', () => {
-      expect(checkSendingWindow('UTC', null)).toBe(true);
+    it('should return false if no schedule is specified', () => {
+      expect(checkSendingWindow('UTC', null)).toBe(false);
     });
 
     it('should return true if current time is within allowed schedule', () => {
@@ -184,28 +126,65 @@ describe('validateSendingFrequency', () => {
   describe('resolveCampaignSenders', () => {
     it('should return primary sender when pool is empty', () => {
       const campaign = {
+        userId: 'user-1',
         senderAccountId: 'acc-1',
-        senderAccount: { id: 'acc-1', emailAddress: 'acc1@test.com' },
+        senderAccount: { id: 'acc-1', userId: 'user-1', emailAddress: 'acc1@test.com' },
         senders: []
       };
       const result = resolveCampaignSenders(campaign);
-      expect(result).toEqual([{ id: 'acc-1', emailAddress: 'acc1@test.com' }]);
+      expect(result).toEqual({ pool: [{ id: 'acc-1', userId: 'user-1', emailAddress: 'acc1@test.com' }], foreign: [] });
     });
 
     it('should return pool senders when pool is populated', () => {
       const campaign = {
+        userId: 'user-1',
         senderAccountId: 'acc-1',
-        senderAccount: { id: 'acc-1', emailAddress: 'acc1@test.com' },
+        senderAccount: { id: 'acc-1', userId: 'user-1', emailAddress: 'acc1@test.com' },
         senders: [
-          { senderAccount: { id: 'acc-2', emailAddress: 'acc2@test.com' } },
-          { senderAccount: { id: 'acc-3', emailAddress: 'acc3@test.com' } }
+          { senderAccount: { id: 'acc-2', userId: 'user-1', emailAddress: 'acc2@test.com' } },
+          { senderAccount: { id: 'acc-3', userId: 'user-1', emailAddress: 'acc3@test.com' } }
         ]
       };
       const result = resolveCampaignSenders(campaign);
-      expect(result).toEqual([
-        { id: 'acc-2', emailAddress: 'acc2@test.com' },
-        { id: 'acc-3', emailAddress: 'acc3@test.com' }
-      ]);
+      expect(result).toEqual({
+        pool: [
+          { id: 'acc-2', userId: 'user-1', emailAddress: 'acc2@test.com' },
+          { id: 'acc-3', userId: 'user-1', emailAddress: 'acc3@test.com' }
+        ],
+        foreign: []
+      });
+    });
+
+    // H24: a campaign never sends from a mailbox its owner does not own.
+    const own = (id: string) => ({ id, userId: 'user-1', emailAddress: `${id}@test.com` });
+    const other = (id: string) => ({ id, userId: 'user-2', emailAddress: `${id}@test.com` });
+
+    it("should leave other users' mailboxes out of the pool", () => {
+      const result = resolveCampaignSenders({
+        userId: 'user-1',
+        senderAccount: own('acc-1'),
+        senders: [{ senderAccount: other('acc-2') }, { senderAccount: own('acc-3') }]
+      });
+      expect(result).toEqual({ pool: [own('acc-3')], foreign: [other('acc-2')] });
+    });
+
+    it('should fall back to an owned primary sender when every pool mailbox belongs to someone else', () => {
+      const result = resolveCampaignSenders({
+        userId: 'user-1',
+        senderAccount: own('acc-1'),
+        senders: [{ senderAccount: other('acc-2') }]
+      });
+      expect(result).toEqual({ pool: [own('acc-1')], foreign: [other('acc-2')] });
+    });
+
+    it('should return an empty pool, listing each foreign mailbox once, when the owner owns none of them', () => {
+      expect(resolveCampaignSenders({ userId: 'user-1', senderAccount: other('acc-1'), senders: [] }))
+        .toEqual({ pool: [], foreign: [other('acc-1')] });
+      expect(resolveCampaignSenders({
+        userId: 'user-1',
+        senderAccount: other('acc-1'),
+        senders: [{ senderAccount: other('acc-1') }, { senderAccount: other('acc-2') }]
+      })).toEqual({ pool: [], foreign: [other('acc-1'), other('acc-2')] });
     });
   });
 
@@ -265,13 +244,71 @@ describe('validateSendingFrequency', () => {
     it('should classify quota errors based on keywords', () => {
       expect(classifyFailure(new Error('Quota limit exceeded'))).toBe('quota');
       expect(classifyFailure(new Error('Daily sending rate reached'))).toBe('quota');
-      expect(classifyFailure({ message: '421 Space limit exceeded' })).toBe('quota');
+      expect(classifyFailure(new Error('Email send quota exceeded for this resource.'))).toBe('quota');
+      expect(classifyFailure(new Error('550 5.4.5 Daily user sending quota exceeded'))).toBe('quota');
+      expect(classifyFailure(new Error('Rate limit exceeded, retry later'))).toBe('quota');
+      expect(classifyFailure(new Error('Request was throttled'))).toBe('quota');
+      expect(classifyFailure(new Error('Hourly limit reached'))).toBe('quota');
     });
 
-    it('should classify Azure clock-skew rejections as quota (systemic pause, not per-lead retries)', () => {
+    it('should classify an ACS 429 or quota error code as quota whatever the message says (M2)', () => {
+      expect(classifyFailure(new EmailSendError('Slow down.', { statusCode: 429, code: 'TooManyRequests' }))).toBe('quota');
+      expect(classifyFailure(new EmailSendError('Please try again later.', { statusCode: 429 }))).toBe('quota');
+      expect(classifyFailure(new EmailSendError('Request refused.', { code: 'QuotaExceeded' }))).toBe('quota');
+    });
+
+    it('should match quota words whole, not inside other words or other limits (M2)', () => {
+      expect(classifyFailure(new Error('Could not generate a separate, accurate preview'))).toBe('soft');
+      expect(classifyFailure(new Error('Message size limit exceeded'))).toBe('soft');
+      expect(classifyFailure(new Error('Recipient list exceeded the unlimited plan'))).toBe('soft');
+      expect(classifyFailure({ message: '421 Space limit exceeded' })).toBe('soft');
+      expect(classifyFailure(new Error(
+        'Timed out fetching a new connection from the connection pool. (Current connection pool timeout: 10, connection limit: 5)'
+      ))).toBe('soft');
+    });
+
+    it("should classify a recipient's full or over-quota mailbox as soft, not the campaign's quota (M2)", () => {
+      expect(classifyFailure(new Error('Mailbox quota exceeded'))).toBe('soft');
+      expect(classifyFailure(new Error('452 4.2.2 The email account that you tried to reach is over quota'))).toBe('soft');
+      expect(classifyFailure(new Error("The recipient's inbox is full"))).toBe('soft');
+      expect(classifyFailure({ message: '552 5.2.2 Storage exceeded', responseCode: 552 })).toBe('soft');
+    });
+
+    it('should classify Azure clock-skew rejections as systemic (campaign pause, not per-lead retries)', () => {
       expect(classifyFailure(new Error(
         'The given request could not be resolved.\nThe time difference between the originating client and the server is greater than the allowed margin of 5 minutes.'
-      ))).toBe('quota');
+      ))).toBe('systemic');
+    });
+
+    it('should classify config errors, a refused access key and an unlinked sender domain as systemic (H9)', () => {
+      expect(classifyFailure(new EmailConfigError('Sender domain "gmail.com" is not in the verified Azure sender domains list.'))).toBe('systemic');
+      expect(classifyFailure(new EmailSendError('Denied by the resource provider.', { statusCode: 401, code: 'Denied' }))).toBe('systemic');
+      expect(classifyFailure(new EmailSendError('Forbidden.', { statusCode: 403 }))).toBe('systemic');
+      expect(classifyFailure(new EmailSendError('The specified sender domain has not been linked.', { statusCode: 404, code: 'DomainNotLinked' }))).toBe('systemic');
+    });
+
+    it('should classify a connection string that cannot be decrypted as systemic (H9)', async () => {
+      const err = await sendMessage(
+        { to: 'lead@prospect.test', subject: 's', body: 'b', isHtml: false, sender: { emailAddress: 'one@acme.test' } },
+        { activeProvider: 'AZURE', azureConnString: 'enc:v1:saved-under-another-key', azureSenderDomains: ['acme.test'] }
+      ).catch((e) => e);
+
+      expect(err).toBeInstanceOf(EmailConfigError);
+      expect(classifyFailure(err)).toBe('systemic');
+    });
+
+    it('should classify a connection string the Azure SDK cannot parse as systemic, without echoing it (H9)', async () => {
+      for (const azureConnString of ['accesskey-only-a2V5', 'endpoint=notaurl;accesskey=a2V5', 'endpoint=https://acs.test/path;accesskey=a2V5']) {
+        const err = await sendMessage(
+          { to: 'lead@prospect.test', subject: 's', body: 'b', isHtml: false, sender: { emailAddress: 'one@acme.test' } },
+          { activeProvider: 'AZURE', azureConnString, azureSenderDomains: ['acme.test'] }
+        ).catch((e) => e);
+
+        expect(err).toBeInstanceOf(EmailConfigError);
+        expect(err.message).toBe('The saved Azure Communication Services connection string is not valid; an admin must save it again in Settings.');
+        expect(err.message).not.toContain('a2V5');
+        expect(classifyFailure(err)).toBe('systemic');
+      }
     });
 
     it('should classify response codes 500-559 (except 552) as hard failures', () => {

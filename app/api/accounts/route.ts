@@ -1,17 +1,57 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { Prisma } from '@prisma/client';
 import { db, prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
+import { UnauthorizedError, unauthorizedResponse } from '@/lib/sessionError';
 import { MASKED_SECRET, encryptSecret } from '@/lib/secrets';
+import { getGlobalSettings } from '@/lib/settings';
+import { getVerifiedDomains, unverifiedSenderMessage } from '@/lib/azureDomains';
+import { getEffectiveDailyCap, senderCapDispatchWhere } from '@/lib/sendEngine';
+import { type MetricsScope, countHardBounces, countReplies, percent, sendSummary } from '@/lib/engagementMetrics';
+import { type FieldRule, fieldRules, isPlainObject, pickUpdateFields } from '@/lib/updateAllowList';
+
+/** Scalar columns the mailbox PUT may write: the daily limit, warmup and IMAP credential
+ *  controls on the Accounts page plus the internal label. Counters, reputation and
+ *  warmupStartedAt are server-managed. Per-minute and per-hour limits are global
+ *  (Settings), so a minuteLimit or hourlyLimit is refused, and Azure sends every
+ *  email, so SMTP details are too. */
+const ACCOUNT_UPDATE_FIELDS: Record<string, FieldRule> = {
+  name: fieldRules.nullableString,
+  replyTo: fieldRules.nullableString,
+  dailyLimit: fieldRules.nonNegativeInt,
+  warmupEnabled: fieldRules.boolean,
+  warmupLimit: fieldRules.nonNegativeInt,
+  warmupRamp: fieldRules.nonNegativeInt,
+  imapHost: fieldRules.nullableString,
+  imapPort: fieldRules.port,
+  imapUser: fieldRules.nullableString,
+  imapPass: fieldRules.nullableString,
+  imapAllowSelfSigned: fieldRules.boolean,
+  userId: fieldRules.nonEmptyString,
+};
 
 /** Redact stored secrets in API responses; UI sends the mask back unchanged
  *  for unedited fields, and PUT skips them so the real secret stays intact. */
 function redactAccount<T extends Record<string, any>>(acc: T): T {
-  return { ...acc, smtpPass: acc.smtpPass ? MASKED_SECRET : null, imapPass: acc.imapPass ? MASKED_SECRET : null };
+  return { ...acc, imapPass: acc.imapPass ? MASKED_SECRET : null };
 }
 
 /** Encrypt a plaintext secret, or pass null/empty through. */
 function encryptedOrNull(v: string | null | undefined): string | null {
   return v ? encryptSecret(v) : null;
+}
+
+/** Campaign names the in-use 409 spells out; any beyond this are only counted, so the toast stays readable. */
+const MAX_LISTED_CAMPAIGNS = 5;
+
+/** 409 text for a mailbox that `total` campaigns still send from, naming the ones in `visibleNames`. */
+function mailboxInUseMessage(total: number, visibleNames: string[]): string {
+  const listed = visibleNames.slice(0, MAX_LISTED_CAMPAIGNS).map((n) => `"${n}"`);
+  const unlisted = total - listed.length;
+  const detail = listed.length === 0 ? '' : `: ${listed.join(', ')}${unlisted > 0 ? ` and ${unlisted} more` : ''}`;
+  const one = total === 1;
+  return `Cannot delete this mailbox while ${one ? 'a campaign uses' : `${total} campaigns use`} it as a sender${detail}. ` +
+    `Switch ${one ? 'that campaign' : 'those campaigns'} to another mailbox or delete ${one ? 'it' : 'them'} first.`;
 }
 
 export async function GET() {
@@ -21,113 +61,48 @@ export async function GET() {
     // Fetch accounts with constraints. Admins see all, users only see theirs.
     const accounts = await db.getAccounts(session.id, session.role);
     
-    // Calculate emails sent today (since midnight) for each account
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
+    const now = new Date();
 
     const accountsWithStats = await Promise.all(accounts.map(async (account) => {
-      const campaigns = await prisma.campaign.findMany({
-        where: { senderAccountId: account.id },
-        select: { id: true }
-      });
-      const campaignIds = campaigns.map(c => c.id);
-
-      const dispatchWhereClause = {
-        OR: [
-          { senderAccountId: account.id },
-          {
-            senderAccountId: null,
-            campaign: {
-              senderAccountId: account.id
-            }
-          }
-        ]
-      };
-
-      const sentToday = await prisma.emailDispatch.count({
-        where: {
-          ...dispatchWhereClause,
-          sentAt: { gte: startOfToday }
-        }
+      // Counted as the send engine counts the mailbox's daily and warmup cap:
+      // sends in the last 24 hours, not since midnight, and never Failed ones.
+      const sentLast24Hours = await prisma.emailDispatch.count({
+        where: senderCapDispatchWhere(account.id, now)
       });
 
-      const sentTotal = await prisma.emailDispatch.count({
-        where: dispatchWhereClause
-      });
+      // The mailbox's campaign sends that ACS accepted, their opens, clicks and
+      // hard bounces (at send time or reported), defined in lib/engagementMetrics
+      // as on the campaign pages and the dashboard.
+      const scope: MetricsScope = { kind: 'mailbox', senderAccountId: account.id };
+      const [sends, bounced, replies] = await Promise.all([
+        sendSummary(prisma, scope),
+        countHardBounces(prisma, scope),
+        countReplies(prisma, scope),
+      ]);
 
-      const opens = await prisma.emailDispatch.count({
-        where: {
-          ...dispatchWhereClause,
-          events: {
-            some: { eventType: 'open' }
-          }
-        }
-      });
-
-      const clicks = await prisma.emailDispatch.count({
-        where: {
-          ...dispatchWhereClause,
-          events: {
-            some: { eventType: 'click' }
-          }
-        }
-      });
-
-      const delivered = await prisma.emailDispatch.count({
-        where: {
-          ...dispatchWhereClause,
-          status: 'Sent',
-          deliveredAt: { not: null }
-        }
-      });
-
-      const replies = await prisma.inboundResponse.count({
-        where: { senderAccountId: account.id }
-      });
-
-      const bounced = await prisma.campaignEnrollment.count({
-        where: {
-          campaignId: { in: campaignIds },
-          status: 'Bounced'
-        }
-      });
-
-      // Engagement rates against delivered mail when available, else against total sends.
-      const engagementBase = delivered > 0 ? delivered : sentTotal;
-      const deliveryRate = sentTotal > 0 ? Number(((delivered / sentTotal) * 100).toFixed(1)) : 0;
-      const openRate = engagementBase > 0 ? Number(((opens / engagementBase) * 100).toFixed(1)) : 0;
-      const clickRate = engagementBase > 0 ? Number(((clicks / engagementBase) * 100).toFixed(1)) : 0;
-      const replyRate = sentTotal > 0 ? Number(((replies / sentTotal) * 100).toFixed(1)) : 0;
-
-      // Calculate effectiveDailyCap
-      const now = new Date();
-      let effectiveDailyCap = account.dailyLimit;
-      if (account.warmupEnabled && account.warmupStartedAt) {
-        const startedAt = new Date(account.warmupStartedAt);
-        const elapsedMs = now.getTime() - startedAt.getTime();
-        const daysActive = Math.max(0, Math.floor(elapsedMs / 86400000));
-        effectiveDailyCap = Math.min(account.dailyLimit, account.warmupLimit + account.warmupRamp * daysActive);
-      }
+      // The cap the send engine enforces: the warmup ramp while it holds the mailbox below its daily limit.
+      const effectiveDailyCap = getEffectiveDailyCap(account, now);
 
       return {
         ...redactAccount(account),
-        sentToday,
-        sentTotal,
-        delivered,
-        opens,
-        clicks,
+        sentLast24Hours,
+        sentTotal: sends.sent,
+        delivered: sends.delivered,
+        opens: sends.opened,
+        clicks: sends.clicked,
         replies,
         bounced,
-        deliveryRate,
-        openRate,
-        clickRate,
-        replyRate,
+        deliveryRate: sends.deliveryRate,
+        openRate: sends.openRate,
+        clickRate: sends.clickRate,
+        replyRate: percent(replies, sends.sent),
         effectiveDailyCap
       };
     }));
 
     return NextResponse.json(accountsWithStats);
   } catch (error: any) {
+    if (error instanceof UnauthorizedError) return unauthorizedResponse();
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
@@ -143,25 +118,29 @@ export async function POST(req: NextRequest) {
       replyTo,
       provider, 
       status, 
-      minuteLimit, 
-      hourlyLimit, 
       dailyLimit,
       userId,
       warmupEnabled,
       warmupLimit,
       warmupRamp,
-      smtpHost,
-      smtpPort,
-      smtpUser,
-      smtpPass,
       imapHost,
       imapPort,
       imapUser,
-      imapPass
+      imapPass,
+      imapAllowSelfSigned
     } = data;
 
     if (!emailAddress || !provider) {
       return NextResponse.json({ error: 'Email address and Provider are required.' }, { status: 400 });
+    }
+
+    // Azure sends only from a verified domain, so refuse a mailbox it could
+    // never send from instead of failing every send later. PUT cannot change
+    // the address, so this is the only place it is set.
+    const settings = await getGlobalSettings();
+    const unverified = unverifiedSenderMessage(emailAddress, settings);
+    if (unverified) {
+      return NextResponse.json({ error: unverified, verifiedDomains: getVerifiedDomains(settings) }, { status: 400 });
     }
 
     // Role boundary checks: standard users can ONLY create accounts assigned to themselves
@@ -173,27 +152,23 @@ export async function POST(req: NextRequest) {
       replyTo: replyTo || null,
       provider,
       status: status || 'Active',
-      minuteLimit: Number(minuteLimit) || 1,
-      hourlyLimit: Number(hourlyLimit) || 60,
       dailyLimit: Number(dailyLimit) || 500,
-      dailyMax: Number(dailyLimit) || 500,
       userId: targetUserId,
       warmupEnabled: !!warmupEnabled,
       warmupStartedAt: warmupEnabled ? new Date() : null,
       warmupLimit: Number(warmupLimit) || 50,
       warmupRamp: Number(warmupRamp) || 2,
-      smtpHost: smtpHost || null,
-      smtpPort: smtpPort ? Number(smtpPort) : null,
-      smtpUser: smtpUser || null,
-      smtpPass: encryptedOrNull(smtpPass),
       imapHost: imapHost || null,
       imapPort: imapPort ? Number(imapPort) : null,
       imapUser: imapUser || null,
       imapPass: encryptedOrNull(imapPass),
+      // Certificate verification stays on unless explicitly turned off.
+      imapAllowSelfSigned: imapAllowSelfSigned === true,
     });
 
     return NextResponse.json(redactAccount(newAccount));
   } catch (error: any) {
+    if (error instanceof UnauthorizedError) return unauthorizedResponse();
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
@@ -202,11 +177,21 @@ export async function PUT(req: NextRequest) {
   try {
     const session = await getSession();
     const data = await req.json();
-    const { id, ...updates } = data;
+    if (!isPlainObject(data)) {
+      return NextResponse.json({ error: 'Request body must be a JSON object.' }, { status: 400 });
+    }
+    const { id, ...fields } = data;
 
-    if (!id) {
+    if (!id || typeof id !== 'string') {
       return NextResponse.json({ error: 'Account ID is required for editing.' }, { status: 400 });
     }
+
+    // Only listed scalar columns reach Prisma; object values would be nested writes.
+    const picked = pickUpdateFields(fields, ACCOUNT_UPDATE_FIELDS);
+    if (!picked.ok) {
+      return NextResponse.json({ error: picked.error }, { status: 400 });
+    }
+    const updates = picked.data;
 
     // Check permissions - if user, verify they own the mailbox
     const accountsList = await db.getAccounts(session.id, session.role);
@@ -217,38 +202,61 @@ export async function PUT(req: NextRequest) {
     }
 
     // If standard user, prevent them from reassigning the account to someone else
-    if (session.role !== 'ADMIN') {
-      delete updates.userId;
-    }
-
-    if (updates.smtpPort !== undefined) {
-      updates.smtpPort = updates.smtpPort ? Number(updates.smtpPort) : null;
-    }
-    if (updates.imapPort !== undefined) {
-      updates.imapPort = updates.imapPort ? Number(updates.imapPort) : null;
-    }
-
-    // Secrets: drop if echoed mask (don't overwrite real value); else encrypt.
-    for (const f of ['smtpPass', 'imapPass'] as const) {
-      if (updates[f] === MASKED_SECRET) {
-        delete updates[f];
-      } else if (updates[f] !== undefined) {
-        updates[f] = encryptedOrNull(updates[f]);
-      }
-    }
-
-    const existingAccount = await prisma.senderAccount.findUnique({ where: { id } });
-    if (existingAccount) {
-      if (updates.warmupEnabled === true && !existingAccount.warmupEnabled) {
-        if (!existingAccount.warmupStartedAt) {
-          updates.warmupStartedAt = new Date();
+    if (updates.userId !== undefined) {
+      if (session.role !== 'ADMIN') {
+        delete updates.userId;
+      } else {
+        const owner = await prisma.user.findUnique({ where: { id: updates.userId as string }, select: { id: true } });
+        if (!owner) {
+          return NextResponse.json({ error: 'Assigned user does not exist.' }, { status: 400 });
         }
       }
     }
 
+    // Secret: drop if echoed mask (don't overwrite real value); else encrypt.
+    if (updates.imapPass === MASKED_SECRET) {
+      delete updates.imapPass;
+    } else if (updates.imapPass !== undefined) {
+      updates.imapPass = encryptedOrNull(updates.imapPass as string | null);
+    }
+
+    // Turning warmup on, first time or again, starts the ramp over at Day 1: days
+    // with warmup off must not count as ramp days, and warmupSent counts this ramp only.
+    const existingAccount = await prisma.senderAccount.findUnique({ where: { id } });
+    if (existingAccount) {
+      if (updates.warmupEnabled === true && !existingAccount.warmupEnabled) {
+        updates.warmupStartedAt = new Date();
+        updates.warmupSent = 0;
+      }
+      // Another IMAP host or login is another mailbox, whose UIDs the reply-sync
+      // checkpoint says nothing about, so the next sync starts over.
+      const imapMoved = (['imapHost', 'imapUser'] as const).some(
+        (f) => updates[f] !== undefined && (updates[f] ?? null) !== (existingAccount[f] ?? null)
+      );
+      if (imapMoved) {
+        updates.imapUidValidity = null;
+        updates.imapLastUid = null;
+        updates.imapFailedUid = null;
+        updates.imapFailedUidAttempts = 0;
+      }
+      // The reply-sync status describes the connection details it was read with, so
+      // any change to them shows the mailbox as pending until the next sync. A new
+      // password always counts: the stored one is encrypted and can't be compared.
+      const imapConnectionChanged = (['imapHost', 'imapPort', 'imapUser', 'imapPass', 'imapAllowSelfSigned'] as const).some(
+        (f) => updates[f] !== undefined && (updates[f] ?? null) !== (existingAccount[f] ?? null)
+      );
+      if (imapConnectionChanged) {
+        updates.imapLastSyncAt = null;
+        updates.imapLastSyncError = null;
+      }
+    }
+
     const updated = await db.updateAccount(id, updates);
-    return NextResponse.json(redactAccount(updated));
+    // The Accounts page merges this into the mailbox it shows, keeping the stats GET counted;
+    // the effective cap is the one figure a limit or warmup change moves, so it is sent too.
+    return NextResponse.json({ ...redactAccount(updated), effectiveDailyCap: getEffectiveDailyCap(updated, new Date()) });
   } catch (error: any) {
+    if (error instanceof UnauthorizedError) return unauthorizedResponse();
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
@@ -271,9 +279,29 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized to delete this mailbox.' }, { status: 403 });
     }
 
+    // Refuse, deleting nothing, while any campaign sends from this mailbox as its primary sender
+    // or from its sender pool. Non-admins only get the names of their own campaigns.
+    const dependents = await prisma.campaign.findMany({
+      where: { OR: [{ senderAccountId: id }, { senders: { some: { senderAccountId: id } } }] },
+      select: { name: true, userId: true },
+      orderBy: { name: 'asc' },
+    });
+    if (dependents.length > 0) {
+      const visibleNames = dependents
+        .filter((c) => session.role === 'ADMIN' || c.userId === session.id)
+        .map((c) => c.name);
+      return NextResponse.json({ error: mailboxInUseMessage(dependents.length, visibleNames) }, { status: 409 });
+    }
+
     await db.deleteAccount(id);
     return NextResponse.json({ success: true });
   } catch (error: any) {
+    if (error instanceof UnauthorizedError) return unauthorizedResponse();
+    // P2003: a campaign picked this mailbox as primary sender after the check above, and the
+    // Restrict foreign key refused the delete.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
+      return NextResponse.json({ error: mailboxInUseMessage(1, []) }, { status: 409 });
+    }
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

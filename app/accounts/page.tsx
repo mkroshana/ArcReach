@@ -1,29 +1,133 @@
 /* eslint-disable react-hooks/set-state-in-effect, react/no-unescaped-entities, react-hooks/exhaustive-deps */
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import Link from 'next/link';
 import {
-  Plus, CheckCircle2, AlertCircle, Mail, Flame, ArrowLeft, Sparkles, Sliders,
-  ChevronRight, Gauge, User, Activity, Save, Send, Loader2, Trash2, Eye, EyeOff,
+  Plus, CheckCircle2, AlertCircle, Mail, Flame, ArrowLeft, Sliders,
+  ChevronRight, Gauge, User, Activity, Save, Send, Loader2, Trash2, Eye, EyeOff, ShieldAlert,
+  MailCheck, MailWarning, MailX, Clock, Settings, RefreshCw,
 } from 'lucide-react';
 import { TableSkeleton } from '@/components/Skeleton';
+import { IMAP_SYNC_LABELS, MICROSOFT_IMAP_NOTE, imapSyncState, isMicrosoftImapHost } from '@/lib/imapSyncStatus';
 import { useToast } from '@/components/Toast';
+import { LoadError, loadErrorMessage, readJsonList, readJsonObject, responseErrorMessage } from '@/lib/apiResponse';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { MAILBOX_LIMIT_FIELDS, type MailboxLimitField, MailboxSettingsSaves, mailboxLimitInputValue } from '@/lib/mailboxSettingsSave';
+import { combinedDailyCapacity } from '@/lib/mailboxCapacity';
 import {
   Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
   Dialog, DialogTitle, DialogContent, DialogActions, Table, TableHead, TableBody, TableRow, TableCell,
   InputAdornment, Select, MenuItem, FormControl, InputLabel, Switch, Avatar, LinearProgress,
-  Tooltip as MuiTooltip,
+  Tooltip as MuiTooltip, FormControlLabel, Alert, AlertTitle,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 
-const isSmtpDisabled = (provider: string) => provider === 'AZURE' || provider === 'MOCK';
+/** Per-mailbox opt-in that turns off IMAP certificate verification, labelled with what it risks. */
+function AllowSelfSignedSwitch({ checked, onChange }: { checked: boolean; onChange: (checked: boolean) => void }) {
+  return (
+    <FormControlLabel
+      labelPlacement="start"
+      sx={{ m: 0, gap: 1.5, justifyContent: 'space-between', alignItems: 'center' }}
+      control={<Switch checked={checked} onChange={(e) => onChange(e.target.checked)} color="warning" />}
+      disableTypography
+      label={
+        <Box component="span" sx={{ display: 'block' }}>
+          <Typography component="span" variant="body2" sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 0.75 }}>
+            <ShieldAlert size={14} color="#D97706" /> Allow Self-Signed Certificate
+          </Typography>
+          <Typography component="span" variant="caption" sx={{ color: 'warning.main', display: 'block' }}>
+            Turns off certificate checks for this IMAP server, so anyone on the network path could pose as it and capture the mailbox password. Turn on only for a server you run that uses a self-signed certificate.
+          </Typography>
+        </Box>
+      }
+    />
+  );
+}
+
+/** Reusable password TextField. Declared at module scope so the input keeps focus while typing
+ *  (a component declared inside the page is a new type each render and remounts). */
+function PwField(props: { label: string; value: string; onChange: (v: string) => void; show: boolean; setShow: (v: boolean) => void; placeholder?: string; disabled?: boolean }) {
+  return (
+    <TextField fullWidth size="small" label={props.label} type={props.show ? 'text' : 'password'} disabled={props.disabled}
+      value={props.value} onChange={(e) => props.onChange(e.target.value)} placeholder={props.placeholder}
+      slotProps={{ input: { sx: { fontFamily: 'monospace' }, endAdornment: !props.disabled ? (<InputAdornment position="end"><IconButton aria-label={props.show ? 'Hide password' : 'Show password'} size="small" onClick={() => props.setShow(!props.show)}>{props.show ? <EyeOff size={14} /> : <Eye size={14} />}</IconButton></InputAdornment>) : undefined } }}
+    />
+  );
+}
+
+/** Why there are no SMTP fields: Azure sends every email, so per-mailbox SMTP details would never be used. */
+function SmtpNotUsedNote() {
+  return (
+    <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
+      Outgoing email is sent through Azure Communication Services, so this mailbox needs no SMTP details. IMAP below is used only to read replies.
+    </Typography>
+  );
+}
+
+/** The workspace-wide caps from Settings; null or 0 is no cap, as the send engine reads them. */
+type GlobalRateLimitValues = { minute: number | null; hour: number | null };
+
+const formatRateLimit = (limit: number | null, unit: string) =>
+  limit && limit > 0 ? `${limit.toLocaleString()} / ${unit}` : 'No limit';
+
+/** The per-minute and per-hour limits, which the send engine applies to all mailboxes together,
+ *  shown read-only. Only admins can read them (null otherwise), and they are edited in Settings. */
+function GlobalRateLimits({ limits }: { limits: GlobalRateLimitValues | null }) {
+  return (
+    <Box sx={{ p: 1.5, borderRadius: '12px', bgcolor: 'action.hover', border: 1, borderColor: 'divider' }}>
+      <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block' }}>Global Rate Limits</Typography>
+      {limits && (
+        <Stack direction="row" spacing={3} sx={{ mt: 0.5 }}>
+          <Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{formatRateLimit(limits.minute, 'minute')}</Typography>
+          <Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{formatRateLimit(limits.hour, 'hour')}</Typography>
+        </Stack>
+      )}
+      <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5 }}>
+        Per-minute and per-hour limits apply to all mailboxes together, not to each one.{limits ? '' : ' An admin sets them in Settings.'}
+      </Typography>
+      {limits && (
+        <Button component={Link as any} href="/settings" size="small" variant="text" startIcon={<Settings size={14} />} sx={{ mt: 0.5, ml: -0.5 }}>
+          Change in Settings
+        </Button>
+      )}
+    </Box>
+  );
+}
+
+const REPLY_SYNC_ICONS = { off: MailX, waiting: Clock, ok: MailCheck, failing: MailWarning } as const;
+const REPLY_SYNC_COLORS = { off: 'default', waiting: 'default', ok: 'success', failing: 'error' } as const;
+
+/** What a mailbox's reply-sync state means for it: when it last synced, or why it doesn't. */
+function replySyncDetail(account: any): string {
+  const lastSynced = account.imapLastSyncAt ? new Date(account.imapLastSyncAt).toLocaleString() : null;
+  switch (imapSyncState(account)) {
+    case 'ok': return `Last synced ${lastSynced}.`;
+    case 'failing': return `${account.imapLastSyncError} Last successful sync: ${lastSynced ?? 'never'}.`;
+    case 'waiting': return 'IMAP details saved. Replies are read once the first sync finishes.';
+    default: return account.status && account.status !== 'Active'
+      ? 'This mailbox is not Active, so its replies are not synced.'
+      : 'No IMAP details, so replies to this mailbox are not read and Pause Sequence on Reply cannot pause its leads.';
+  }
+}
+
+/** The mailbox's reply-sync state, read from its last sync result; the tooltip says what it means. */
+function ReplySyncChip({ account, withTooltip = true }: { account: any; withTooltip?: boolean }) {
+  const state = imapSyncState(account);
+  const Icon = REPLY_SYNC_ICONS[state];
+  const chip = <Chip size="small" icon={<Icon size={11} />} label={IMAP_SYNC_LABELS[state]} color={REPLY_SYNC_COLORS[state]} variant="outlined" sx={{ fontWeight: 700, fontSize: 10 }} />;
+  return withTooltip ? <MuiTooltip title={replySyncDetail(account)}>{chip}</MuiTooltip> : chip;
+}
 
 export default function AccountsPage() {
   const [accounts, setAccounts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  // A failed load shows an error with Retry: the empty list and zero totals would read as no mailboxes.
+  const [loadError, setLoadError] = useState('');
   const [session, setSession] = useState<any>(null);
   const [users, setUsers] = useState<any[]>([]);
+  // Why the team list (admins only) could not be loaded; owners then show as Unknown Team Member.
+  const [usersError, setUsersError] = useState('');
   const [selectedWarmupAccount, setSelectedWarmupAccount] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<'accounts' | 'warmup'>('accounts');
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -32,127 +136,158 @@ export default function AccountsPage() {
   const [senderName, setSenderName] = useState('');
   const [provider, setProvider] = useState('Google Workspace');
   const [assignedUserId, setAssignedUserId] = useState('');
-  const [minuteLimit, setMinuteLimit] = useState(5);
-  const [hourlyLimit, setHourlyLimit] = useState(100);
   const [dailyLimit, setDailyLimit] = useState(500);
   const [replyTo, setReplyTo] = useState('');
   const [editReplyTo, setEditReplyTo] = useState('');
-  const [globalActiveProvider, setGlobalActiveProvider] = useState('MOCK');
-  const [globalRateLimitMinute, setGlobalRateLimitMinute] = useState(5);
-  const [globalRateLimitHour, setGlobalRateLimitHour] = useState(100);
+  const [globalRateLimits, setGlobalRateLimits] = useState<GlobalRateLimitValues | null>(null);
 
-  const totalSentToday = accounts.reduce((sum, a) => sum + (a.sentToday || 0), 0);
   const totalDailyLimit = accounts.reduce((sum, a) => sum + (a.dailyLimit || 0), 0);
-  const remainingCapacity = Math.max(0, totalDailyLimit - totalSentToday);
+  // What the mailboxes may send now: each one's enforced cap, which warmup holds below its daily limit.
+  const dailyCapacity = combinedDailyCapacity(accounts);
+  const failingSyncCount = accounts.filter(a => imapSyncState(a) === 'failing').length;
 
-  const [smtpHost, setSmtpHost] = useState('');
-  const [smtpPort, setSmtpPort] = useState('');
-  const [smtpUser, setSmtpUser] = useState('');
-  const [smtpPass, setSmtpPass] = useState('');
   const [imapHost, setImapHost] = useState('');
   const [imapPort, setImapPort] = useState('');
   const [imapUser, setImapUser] = useState('');
   const [imapPass, setImapPass] = useState('');
-  const [editSmtpHost, setEditSmtpHost] = useState('');
-  const [editSmtpPort, setEditSmtpPort] = useState('');
-  const [editSmtpUser, setEditSmtpUser] = useState('');
-  const [editSmtpPass, setEditSmtpPass] = useState('');
+  const [imapAllowSelfSigned, setImapAllowSelfSigned] = useState(false);
   const [editImapHost, setEditImapHost] = useState('');
   const [editImapPort, setEditImapPort] = useState('');
   const [editImapUser, setEditImapUser] = useState('');
   const [editImapPass, setEditImapPass] = useState('');
+  const [editImapAllowSelfSigned, setEditImapAllowSelfSigned] = useState(false);
   const [savingCredentials, setSavingCredentials] = useState(false);
-  const [showAddSmtpPass, setShowAddSmtpPass] = useState(false);
   const [showAddImapPass, setShowAddImapPass] = useState(false);
-  const [showEditSmtpPass, setShowEditSmtpPass] = useState(false);
   const [showEditImapPass, setShowEditImapPass] = useState(false);
   const [sendingTestEmail, setSendingTestEmail] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // Limit inputs as typed, until they are saved when they lose focus (never per keystroke).
+  const [limitDrafts, setLimitDrafts] = useState<Partial<Record<MailboxLimitField, string>>>({});
+  // Limit and warmup saves, one at a time in the order made, so the last value made is the one stored.
+  const [settingsSaves] = useState(() => new MailboxSettingsSaves());
+  // The open mailbox's id, for a credentials save answered after the user left it.
+  const openAccountId = useRef<string | null>(null);
   const { toast: showToast } = useToast();
 
+  /** Fill the credentials form with a mailbox's stored details (the password comes back masked). */
+  const seedCredentialForm = (account: any) => {
+    setEditImapHost(account.imapHost || '');
+    setEditImapPort(account.imapPort ? String(account.imapPort) : '');
+    setEditImapUser(account.imapUser || '');
+    setEditImapPass(account.imapPass || '');
+    setEditImapAllowSelfSigned(!!account.imapAllowSelfSigned);
+    setEditReplyTo(account.replyTo || '');
+  };
+
+  // Only opening a mailbox resets its forms: a limit or warmup save replaces the open mailbox
+  // object, which must not discard credential edits not yet saved.
   useEffect(() => {
-    if (selectedWarmupAccount) {
-      setEditSmtpHost(selectedWarmupAccount.smtpHost || '');
-      setEditSmtpPort(selectedWarmupAccount.smtpPort ? String(selectedWarmupAccount.smtpPort) : '');
-      setEditSmtpUser(selectedWarmupAccount.smtpUser || '');
-      setEditSmtpPass(selectedWarmupAccount.smtpPass || '');
-      setEditImapHost(selectedWarmupAccount.imapHost || '');
-      setEditImapPort(selectedWarmupAccount.imapPort ? String(selectedWarmupAccount.imapPort) : '');
-      setEditImapUser(selectedWarmupAccount.imapUser || '');
-      setEditImapPass(selectedWarmupAccount.imapPass || '');
-      setEditReplyTo(selectedWarmupAccount.replyTo || '');
-    }
-  }, [selectedWarmupAccount]);
+    openAccountId.current = selectedWarmupAccount?.id ?? null;
+    if (selectedWarmupAccount) seedCredentialForm(selectedWarmupAccount);
+    setLimitDrafts({});
+  }, [selectedWarmupAccount?.id]);
+
+  /** Merge saved (or about to be saved) columns into a mailbox in the list and, if still open, the detail
+   *  view. A PUT answers without the stats GET counted, so those are kept rather than replaced. */
+  const mergeAccount = (id: string, fields: Record<string, any>) => {
+    setAccounts(prev => prev.map(acc => acc.id === id ? { ...acc, ...fields } : acc));
+    setSelectedWarmupAccount((cur: any) => cur && cur.id === id ? { ...cur, ...fields } : cur);
+  };
 
   const handleOpenAddModal = () => {
     setIsAddOpen(true);
     setProvider('Google Workspace');
-    setSmtpHost('smtp.gmail.com'); setSmtpPort('587');
-    setImapHost('imap.gmail.com'); setImapPort('993');
-    setMinuteLimit(globalRateLimitMinute); setHourlyLimit(globalRateLimitHour); setDailyLimit(500);
+    setImapHost('imap.gmail.com'); setImapPort('993'); setImapAllowSelfSigned(false);
+    setDailyLimit(500);
   };
 
   const handleProviderChange = (selectedProvider: string) => {
     setProvider(selectedProvider);
-    if (selectedProvider === 'Google Workspace') { setSmtpHost('smtp.gmail.com'); setSmtpPort('587'); setImapHost('imap.gmail.com'); setImapPort('993'); }
-    else if (selectedProvider === 'Microsoft 365') { setSmtpHost('smtp.office365.com'); setSmtpPort('587'); setImapHost('outlook.office365.com'); setImapPort('993'); }
-    else if (selectedProvider === 'SendGrid Relay Node') { setSmtpHost('smtp.sendgrid.net'); setSmtpPort('587'); setImapHost(''); setImapPort(''); }
-    else { setSmtpHost(''); setSmtpPort(''); setImapHost(''); setImapPort(''); }
+    if (selectedProvider === 'Google Workspace') { setImapHost('imap.gmail.com'); setImapPort('993'); }
+    // Microsoft 365 refuses password IMAP sign-in, so no IMAP host is filled in for it.
+    else { setImapHost(''); setImapPort(''); }
   };
 
   const loadData = async () => {
     try {
       setLoading(true);
-      const sessRes = await fetch('/api/session');
-      const sessData = await sessRes.json();
+      setLoadError('');
+      setUsersError('');
+      const sessData = await readJsonObject(await fetch('/api/session'), 'Your session');
+      if (!sessData.id) throw new LoadError('Your session could not be loaded. Sign in again.');
       setSession(sessData);
       setAssignedUserId(sessData.id);
-      const accRes = await fetch('/api/accounts');
-      const accData = await accRes.json();
-      setAccounts(accData);
+      setAccounts(await readJsonList(await fetch('/api/accounts'), 'Mailboxes'));
       const settingsRes = await fetch('/api/settings');
       if (settingsRes.ok) {
         const settingsData = await settingsRes.json();
-        setGlobalActiveProvider(settingsData.settings?.activeProvider || 'MOCK');
+        // Settings come back for admins only, so other roles see the limits described without values.
         if (settingsData.settings) {
-          const gMin = settingsData.settings.rateLimitMinute ?? 5;
-          const gHour = settingsData.settings.rateLimitHour ?? 100;
-          setGlobalRateLimitMinute(gMin); setGlobalRateLimitHour(gHour);
-          setMinuteLimit(gMin); setHourlyLimit(gHour);
+          setGlobalRateLimits({ minute: settingsData.settings.rateLimitMinute ?? null, hour: settingsData.settings.rateLimitHour ?? null });
         }
       }
       if (sessData.role === 'ADMIN') {
-        const usersRes = await fetch('/api/users');
-        if (usersRes.ok) setUsers(await usersRes.json());
+        // Owner names and the owner picker come from this list, so the page says when it did not load.
+        try {
+          setUsers(await readJsonList(await fetch('/api/users'), 'Team members'));
+        } catch (err) { console.error(err); setUsersError(loadErrorMessage(err, 'Team members')); }
       }
-    } catch (err) { console.error(err); }
+    } catch (err) { console.error(err); setLoadError(loadErrorMessage(err, 'Mailboxes')); }
     finally { setLoading(false); }
   };
 
   useEffect(() => { loadData(); }, []);
 
-  const handleUpdateWarmupSettings = async (field: string, value: any) => {
+  const handleUpdateWarmupSettings = (field: string, value: any) => {
     if (!selectedWarmupAccount) return;
-    const previous = { ...selectedWarmupAccount };
-    const updatedLocal = { ...selectedWarmupAccount, [field]: value };
-    setSelectedWarmupAccount(updatedLocal);
-    setAccounts(prev => prev.map(acc => acc.id === selectedWarmupAccount.id ? updatedLocal : acc));
-    try {
-      const res = await fetch('/api/accounts', {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: selectedWarmupAccount.id, [field]: value }),
-      });
-      if (!res.ok) throw new Error();
-      const synced = await res.json();
-      setSelectedWarmupAccount(synced);
-      setAccounts(prev => prev.map(acc => acc.id === selectedWarmupAccount.id ? synced : acc));
-    } catch {
-      setSelectedWarmupAccount(previous);
-      setAccounts(prev => prev.map(acc => acc.id === selectedWarmupAccount.id ? previous : acc));
-      showToast('Autopilot values failed to save', 'error');
+    const account = selectedWarmupAccount;
+    const optimistic: Record<string, any> = { [field]: value };
+    // Turning warmup on restarts the ramp on the server; show Day 1 while the save is in flight.
+    if (field === 'warmupEnabled' && value === true && !account.warmupEnabled) {
+      optimistic.warmupStartedAt = new Date().toISOString();
+      optimistic.warmupSent = 0;
     }
+    mergeAccount(account.id, optimistic);
+    settingsSaves.enqueue({
+      accountId: account.id, field, shown: account,
+      send: async () => {
+        const res = await fetch('/api/accounts', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: account.id, [field]: value }),
+        });
+        if (!res.ok) throw new LoadError(await responseErrorMessage(res, 'Autopilot values failed to save.'));
+        return res.json();
+      },
+      onSaved: (synced) => mergeAccount(account.id, synced),
+      onFailed: (restore, err) => {
+        mergeAccount(account.id, restore);
+        // The server's reason when it answered one, else the generic message (not the browser's "Failed to fetch")
+        showToast(err instanceof LoadError ? err.message : 'Autopilot values failed to save.', 'error');
+      },
+    });
   };
+
+  /** Save a typed limit once its input loses focus; a value the field does not allow shows the saved one again. */
+  const commitLimitDraft = (field: MailboxLimitField) => {
+    const draft = limitDrafts[field];
+    if (draft === undefined || !selectedWarmupAccount) return;
+    setLimitDrafts(prev => { const next = { ...prev }; delete next[field]; return next; });
+    const { value, error } = mailboxLimitInputValue(field, draft);
+    if (error) { showToast(`${error} It was not saved.`, 'error'); return; }
+    if (value !== selectedWarmupAccount[field]) handleUpdateWarmupSettings(field, value);
+  };
+
+  /** Value and handlers for a limit input: typing edits a draft, blur or Enter saves it. */
+  const limitInputProps = (field: MailboxLimitField, saved: number) => ({
+    value: limitDrafts[field] ?? saved,
+    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      const text = e.target.value;
+      setLimitDrafts(prev => ({ ...prev, [field]: text }));
+    },
+    onBlur: () => commitLimitDraft(field),
+    onKeyDown: (e: React.KeyboardEvent<HTMLDivElement>) => { if (e.key === 'Enter') (e.target as HTMLElement).blur(); },
+  });
 
   const handleAddAccount = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -163,17 +298,16 @@ export default function AccountsPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           emailAddress, name: senderName, replyTo: replyTo || null, provider, userId: assignedUserId,
-          minuteLimit: Number(minuteLimit), hourlyLimit: Number(hourlyLimit), dailyLimit: Number(dailyLimit),
-          smtpHost: smtpHost || null, smtpPort: smtpPort ? Number(smtpPort) : null, smtpUser: smtpUser || null, smtpPass: smtpPass || null,
+          dailyLimit: Number(dailyLimit),
           imapHost: imapHost || null, imapPort: imapPort ? Number(imapPort) : null, imapUser: imapUser || null, imapPass: imapPass || null,
+          imapAllowSelfSigned,
         }),
       });
-      if (!res.ok) throw new Error(await res.text() || 'Failed to connect email account');
+      if (!res.ok) { const data = await res.json().catch(() => ({})); throw new Error(data.error || 'Failed to connect email account'); }
       await loadData();
       setIsAddOpen(false);
       setEmailAddress(''); setSenderName(''); setReplyTo(''); setProvider('Google Workspace');
-      setMinuteLimit(5); setHourlyLimit(100); setDailyLimit(500);
-      setSmtpHost(''); setSmtpPort(''); setSmtpUser(''); setSmtpPass('');
+      setDailyLimit(500);
       setImapHost(''); setImapPort(''); setImapUser(''); setImapPass('');
       showToast('Mailbox connected successfully');
     } catch (err: any) {
@@ -184,20 +318,23 @@ export default function AccountsPage() {
   const handleSaveAccountCredentials = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedWarmupAccount) return;
+    const id = selectedWarmupAccount.id;
     try {
       setSavingCredentials(true);
       const res = await fetch('/api/accounts', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          id: selectedWarmupAccount.id, replyTo: editReplyTo || null,
-          smtpHost: editSmtpHost || null, smtpPort: editSmtpPort ? Number(editSmtpPort) : null, smtpUser: editSmtpUser || null, smtpPass: editSmtpPass || null,
+          id, replyTo: editReplyTo || null,
           imapHost: editImapHost || null, imapPort: editImapPort ? Number(editImapPort) : null, imapUser: editImapUser || null, imapPass: editImapPass || null,
+          imapAllowSelfSigned: editImapAllowSelfSigned,
         }),
       });
-      if (!res.ok) throw new Error('Failed to update credentials.');
+      if (!res.ok) throw new Error(await responseErrorMessage(res, 'Failed to update credentials.'));
       const updated = await res.json();
-      setAccounts(prev => prev.map(acc => acc.id === selectedWarmupAccount.id ? updated : acc));
-      setSelectedWarmupAccount(updated);
+      // Limit or warmup values a queued save is about to change keep showing that save's value.
+      mergeAccount(id, settingsSaves.withoutQueuedFields(id, updated));
+      // The form shows what was stored, the password as a mask, unless the user has left this mailbox.
+      if (openAccountId.current === id) seedCredentialForm(updated);
       showToast('Mailbox connection credentials updated successfully.');
     } catch (err: any) { showToast(err.message || 'Failed to update credentials.', 'error'); }
     finally { setSavingCredentials(false); }
@@ -211,9 +348,11 @@ export default function AccountsPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ senderAccountId: selectedWarmupAccount.id }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to send test email.');
-      showToast(`Test email sent to ${data.recipient || session?.email}`);
+      const data = await res.json().catch(() => ({}));
+      // 409 means sending is disabled: nothing was sent, which is a warning rather than a failure.
+      if (res.status === 409) { showToast(data.error || 'Sending is disabled. No test email was sent.', 'warning'); return; }
+      if (!res.ok || !data.success) throw new Error(data.error || 'Failed to send test email.');
+      showToast(data.message || `Test email sent to ${data.recipient || session?.email}.`);
     } catch (err: any) { showToast(err.message || 'Failed to send test email.', 'error'); }
     finally { setSendingTestEmail(false); }
   };
@@ -241,12 +380,8 @@ export default function AccountsPage() {
 
   const currentActiveTab = selectedWarmupAccount ? activeTab : 'accounts';
 
-  // Reusable password TextField
-  const PwField = (props: { label: string; value: string; onChange: (v: string) => void; show: boolean; setShow: (v: boolean) => void; placeholder?: string; disabled?: boolean }) => (
-    <TextField fullWidth size="small" label={props.label} type={props.show ? 'text' : 'password'} disabled={props.disabled}
-      value={props.value} onChange={(e) => props.onChange(e.target.value)} placeholder={props.placeholder}
-      slotProps={{ input: { sx: { fontFamily: 'monospace' }, endAdornment: !props.disabled ? (<InputAdornment position="end"><IconButton aria-label={props.show ? 'Hide password' : 'Show password'} size="small" onClick={() => props.setShow(!props.show)}>{props.show ? <EyeOff size={14} /> : <Eye size={14} />}</IconButton></InputAdornment>) : undefined } }}
-    />
+  const retryButton = (
+    <Button color="inherit" size="small" startIcon={<RefreshCw size={14} />} onClick={() => loadData()}>Retry</Button>
   );
 
   return (
@@ -262,40 +397,56 @@ export default function AccountsPage() {
             <Button variant="contained" startIcon={<Plus size={16} />} onClick={handleOpenAddModal}>Add Sender Mailbox</Button>
           </Stack>
 
+          {loadError && !loading && (
+            <Alert severity="error" action={retryButton}>
+              <AlertTitle>Mailboxes Could Not Be Loaded</AlertTitle>
+              {loadError}
+            </Alert>
+          )}
+
+          {usersError && !loadError && !loading && (
+            <Alert severity="warning" action={retryButton}>
+              <AlertTitle>Team Members Could Not Be Loaded</AlertTitle>
+              Mailboxes owned by others show Unknown Team Member, and the owner picker lists no one until the list loads. {usersError}
+            </Alert>
+          )}
+
           {/* KPIs */}
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(3, 1fr)' }, gap: 2 }}>
+          {!loadError && (
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, 1fr)' }, gap: 2 }}>
             {[
               { label: 'Total Senders', value: loading ? '…' : `${accounts.length} Senders`, color: undefined },
-              { label: 'Active Senders', value: `${accounts.filter(a => a.status === 'Active').length} Active`, color: '#10b981', pulse: true },
-              { label: 'Combined Daily Limit', value: `${accounts.reduce((sum, a) => sum + (a.dailyLimit || 0), 0).toLocaleString()} Emails`, color: '#2563EB' },
+              { label: 'Combined Daily Limit', value: loading ? '…' : `${totalDailyLimit.toLocaleString()} Emails`, color: '#2563EB' },
             ].map((kpi, i) => (
               <Card key={i}>
                 <CardContent>
                   <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
                     <Typography variant="overline" sx={{ color: 'text.secondary', fontWeight: 700 }}>{kpi.label}</Typography>
-                    {kpi.pulse && <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: 'success.main', animation: 'pulse 2s infinite' }} />}
                   </Stack>
                   <Typography variant="h6" sx={{ fontWeight: 700, fontFamily: 'monospace', mt: 0.5, color: kpi.color }}>{kpi.value}</Typography>
                 </CardContent>
               </Card>
             ))}
           </Box>
+          )}
 
           {/* Table */}
           {loading ? (
             <Card><CardContent><TableSkeleton rows={4} cols={5} /></CardContent></Card>
-          ) : (
+          ) : loadError ? null : (
             <Card>
               <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', p: 2, borderBottom: 1, borderColor: 'divider' }}>
                 <Typography variant="overline" sx={{ fontWeight: 700, letterSpacing: '0.1em' }}>Connected Outreach Senders</Typography>
-                <Chip size="small" label="SMTP & IMAP READY" color="primary" variant="outlined" sx={{ fontWeight: 700, fontSize: 9, fontFamily: 'monospace' }} />
+                {failingSyncCount > 0 && (
+                  <Chip size="small" icon={<MailWarning size={11} />} label={`${failingSyncCount} ${failingSyncCount === 1 ? 'Mailbox' : 'Mailboxes'} Failing Reply Sync`} color="error" variant="outlined" sx={{ fontWeight: 700, fontSize: 9, fontFamily: 'monospace' }} />
+                )}
               </Stack>
               <Box sx={{ overflowX: 'auto' }}>
                 <Table size="small">
                   <TableHead>
                     <TableRow sx={{ '& th': { fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', fontSize: 10, color: 'text.secondary' } }}>
                       <TableCell>Sender Mailbox</TableCell>
-                      <TableCell>Protocol</TableCell>
+                      <TableCell>Reply Sync</TableCell>
                       <TableCell>Daily Limit</TableCell>
                       <TableCell>Owner</TableCell>
                       <TableCell>Status</TableCell>
@@ -328,18 +479,15 @@ export default function AccountsPage() {
                           </Stack>
                         </TableCell>
                         <TableCell>
-                          <Chip size="small" label={(account.provider === 'SendGrid Relay Node' || account.provider === 'Azure Relay Node') ? 'Send-Only' : 'SMTP & IMAP'}
-                            color={(account.provider === 'SendGrid Relay Node' || account.provider === 'Azure Relay Node') ? 'warning' : 'primary'} variant="outlined"
-                            sx={{ fontWeight: 700, fontSize: 9, fontFamily: 'monospace' }} />
+                          <ReplySyncChip account={account} />
                         </TableCell>
                         <TableCell sx={{ fontFamily: 'monospace', fontSize: 12 }}>
                           {account.warmupEnabled ? (
                             <>
-                              <Box component="span" sx={{ color: 'warning.main', fontWeight: 700 }}>{account.effectiveDailyCap} today</Box>
+                              <Box component="span" sx={{ color: 'warning.main', fontWeight: 700 }}>{account.effectiveDailyCap} now</Box>
                               <Box component="span" sx={{ color: 'text.secondary' }}> / {account.dailyLimit}</Box>
                             </>
                           ) : (<>{account.dailyLimit} daily max</>)}
-                          <Box sx={{ fontSize: 9, color: 'text.secondary', fontFamily: 'sans-serif' }}>Min: {account.minuteLimit}/min • Hour: {account.hourlyLimit}/hr</Box>
                         </TableCell>
                         <TableCell sx={{ color: 'text.secondary' }}>
                           <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}><User size={12} /> {getOwnerName(account.userId)}</Stack>
@@ -376,8 +524,8 @@ export default function AccountsPage() {
                   const startedAt = selectedWarmupAccount.warmupStartedAt ? new Date(selectedWarmupAccount.warmupStartedAt) : new Date();
                   const daysActive = Math.max(0, Math.floor((new Date().getTime() - startedAt.getTime()) / 86400000));
                   const effectiveCap = selectedWarmupAccount.effectiveDailyCap ?? selectedWarmupAccount.dailyLimit;
-                  return <Box component="span" sx={{ color: 'warning.main', fontWeight: 600 }}>Warmup Day {daysActive + 1} · Today's Cap: {effectiveCap} / {selectedWarmupAccount.dailyLimit} daily limit</Box>;
-                })() : 'Configure sending rate limits, connection details, and credentials for this mailbox.'}
+                  return <Box component="span" sx={{ color: 'warning.main', fontWeight: 600 }}>Warmup Day {daysActive + 1} · Current Cap: {effectiveCap} / {selectedWarmupAccount.dailyLimit} daily limit</Box>;
+                })() : 'Configure the daily sending limit, connection details, and credentials for this mailbox.'}
               </Typography>
             </Box>
             <Stack direction="row" spacing={1}>
@@ -398,7 +546,7 @@ export default function AccountsPage() {
                   { title: 'Total Sent', value: selectedWarmupAccount.sentTotal ?? 0, desc: 'All campaigns' },
                   { title: 'Delivered', value: selectedWarmupAccount.delivered ?? 0, desc: `${selectedWarmupAccount.deliveryRate ?? 0}% delivery rate` },
                   { title: 'Unique Opens', value: selectedWarmupAccount.opens ?? 0, desc: `${selectedWarmupAccount.openRate ?? 0}% open rate` },
-                  { title: 'Link Clicks', value: selectedWarmupAccount.clicks ?? 0, desc: `${selectedWarmupAccount.clickRate ?? 0}% clickthrough` },
+                  { title: 'Unique Clicks', value: selectedWarmupAccount.clicks ?? 0, desc: `${selectedWarmupAccount.clickRate ?? 0}% click rate` },
                   { title: 'Replies', value: selectedWarmupAccount.replies ?? 0, desc: `${selectedWarmupAccount.replyRate ?? 0}% reply rate` },
                   { title: 'Bounced', value: selectedWarmupAccount.bounced ?? 0, desc: 'Hard bounces' },
                 ].map((s, idx) => (
@@ -423,40 +571,33 @@ export default function AccountsPage() {
                 <form onSubmit={handleSaveAccountCredentials}>
                   <Stack spacing={2}>
                     <TextField size="small" label="Reply-To Address (Optional)" type="email" placeholder="replies@mycompany.com" value={editReplyTo} onChange={(e) => setEditReplyTo(e.target.value)} sx={{ maxWidth: 360 }} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-                    {selectedWarmupAccount.provider !== 'Azure Relay Node' && (
-                      <Card variant="outlined" sx={{ bgcolor: 'action.hover' }}>
-                        <CardContent>
-                          <Typography variant="overline" sx={{ color: 'text.secondary', fontWeight: 700, display: 'block', mb: 1.5 }}>Outbound Email (SMTP)</Typography>
-                          <Stack spacing={1.5}>
-                            <Stack direction="row" spacing={1.5}>
-                              <TextField fullWidth size="small" label="SMTP Host" value={editSmtpHost} onChange={(e) => setEditSmtpHost(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-                              <TextField fullWidth size="small" label="Port" value={editSmtpPort} onChange={(e) => setEditSmtpPort(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-                            </Stack>
-                            <Stack direction="row" spacing={1.5}>
-                              <TextField fullWidth size="small" label="Username" value={editSmtpUser} onChange={(e) => setEditSmtpUser(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-                              <PwField label="Password" value={editSmtpPass} onChange={setEditSmtpPass} show={showEditSmtpPass} setShow={setShowEditSmtpPass} />
-                            </Stack>
+                    <SmtpNotUsedNote />
+                    {/* Any mailbox can sync replies over IMAP, whatever its provider label */}
+                    <Card variant="outlined" sx={{ bgcolor: 'action.hover' }}>
+                      <CardContent>
+                        <Typography variant="overline" sx={{ color: 'text.secondary', fontWeight: 700, display: 'block', mb: 1.5 }}>Inbound Replies (IMAP)</Typography>
+                        <Stack spacing={1.5}>
+                          <Box>
+                            <ReplySyncChip account={selectedWarmupAccount} withTooltip={false} />
+                            <Typography variant="caption" sx={{ color: imapSyncState(selectedWarmupAccount) === 'failing' ? 'error.main' : 'text.secondary', display: 'block', mt: 0.75, overflowWrap: 'anywhere' }}>
+                              {replySyncDetail(selectedWarmupAccount)}
+                            </Typography>
+                          </Box>
+                          {(selectedWarmupAccount.provider === 'Microsoft 365' || isMicrosoftImapHost(editImapHost)) && (
+                            <Typography variant="caption" sx={{ color: 'warning.main', display: 'block' }}>{MICROSOFT_IMAP_NOTE}</Typography>
+                          )}
+                          <Stack direction="row" spacing={1.5}>
+                            <TextField fullWidth size="small" label="IMAP Host" value={editImapHost} onChange={(e) => setEditImapHost(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
+                            <TextField fullWidth size="small" label="Port" value={editImapPort} onChange={(e) => setEditImapPort(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
                           </Stack>
-                        </CardContent>
-                      </Card>
-                    )}
-                    {selectedWarmupAccount.provider !== 'SendGrid Relay Node' && selectedWarmupAccount.provider !== 'Azure Relay Node' && (
-                      <Card variant="outlined" sx={{ bgcolor: 'action.hover' }}>
-                        <CardContent>
-                          <Typography variant="overline" sx={{ color: 'text.secondary', fontWeight: 700, display: 'block', mb: 1.5 }}>Inbound Replies (IMAP)</Typography>
-                          <Stack spacing={1.5}>
-                            <Stack direction="row" spacing={1.5}>
-                              <TextField fullWidth size="small" label="IMAP Host" value={editImapHost} onChange={(e) => setEditImapHost(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-                              <TextField fullWidth size="small" label="Port" value={editImapPort} onChange={(e) => setEditImapPort(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-                            </Stack>
-                            <Stack direction="row" spacing={1.5}>
-                              <TextField fullWidth size="small" label="Username" value={editImapUser} onChange={(e) => setEditImapUser(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-                              <PwField label="Password" value={editImapPass} onChange={setEditImapPass} show={showEditImapPass} setShow={setShowEditImapPass} />
-                            </Stack>
+                          <Stack direction="row" spacing={1.5}>
+                            <TextField fullWidth size="small" label="Username" value={editImapUser} onChange={(e) => setEditImapUser(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
+                            <PwField label="Password" value={editImapPass} onChange={setEditImapPass} show={showEditImapPass} setShow={setShowEditImapPass} />
                           </Stack>
-                        </CardContent>
-                      </Card>
-                    )}
+                          <AllowSelfSignedSwitch checked={editImapAllowSelfSigned} onChange={setEditImapAllowSelfSigned} />
+                        </Stack>
+                      </CardContent>
+                    </Card>
                     <Stack direction="row" sx={{ justifyContent: 'flex-end', pt: 1 }}>
                       <Button type="submit" variant="contained" disabled={savingCredentials} startIcon={<Save size={14} />}>
                         {savingCredentials ? 'Saving…' : 'Save Credentials'}
@@ -468,26 +609,15 @@ export default function AccountsPage() {
             </Card>
 
             <Stack spacing={2.5}>
-              {/* Throttling */}
+              {/* Sending limits */}
               <Card>
                 <CardContent>
                   <Stack direction="row" spacing={1} sx={{ alignItems: 'center', pb: 1.5, mb: 2, borderBottom: 1, borderColor: 'divider' }}>
                     <Gauge size={16} color="#2563EB" />
-                    <Typography variant="overline" sx={{ fontWeight: 700 }}>Throttling & Sending Frequency</Typography>
+                    <Typography variant="overline" sx={{ fontWeight: 700 }}>Sending Limits</Typography>
                   </Stack>
-                  <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5}>
-                    <TextField fullWidth size="small" label="Per Minute" type="number" value={selectedWarmupAccount.minuteLimit} onChange={(e) => handleUpdateWarmupSettings('minuteLimit', parseInt(e.target.value))} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { min: 1 } }} />
-                    <TextField fullWidth size="small" label="Per Hour" type="number" value={selectedWarmupAccount.hourlyLimit} onChange={(e) => handleUpdateWarmupSettings('hourlyLimit', parseInt(e.target.value))} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { min: 1 } }} />
-                    <TextField fullWidth size="small" label="Per Day" type="number" value={selectedWarmupAccount.dailyLimit} onChange={(e) => handleUpdateWarmupSettings('dailyLimit', parseInt(e.target.value))} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { min: 10 } }} />
-                  </Stack>
-                  <Card sx={{ mt: 2, bgcolor: (t) => alpha(t.palette.primary.main, 0.06), borderColor: (t) => alpha(t.palette.primary.main, 0.2) }}>
-                    <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 }, display: 'flex', gap: 1, alignItems: 'flex-start' }}>
-                      <Sparkles size={14} color="#2563EB" style={{ flexShrink: 0, marginTop: 2 }} />
-                      <Typography variant="caption" sx={{ color: 'primary.main', lineHeight: 1.5 }}>
-                        <strong>Throttling tip:</strong> Spread sends over time to protect sender reputation. A per-minute limit around 5 is recommended for new mailboxes.
-                      </Typography>
-                    </CardContent>
-                  </Card>
+                  <TextField fullWidth size="small" label={MAILBOX_LIMIT_FIELDS.dailyLimit.label} type="number" {...limitInputProps('dailyLimit', selectedWarmupAccount.dailyLimit)} sx={{ maxWidth: 240 }} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { min: MAILBOX_LIMIT_FIELDS.dailyLimit.min } }} />
+                  <Box sx={{ mt: 2 }}><GlobalRateLimits limits={globalRateLimits} /></Box>
                 </CardContent>
               </Card>
 
@@ -501,15 +631,15 @@ export default function AccountsPage() {
                   <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', p: 2, borderRadius: '14px', border: 1, borderColor: 'divider', bgcolor: 'action.hover' }}>
                     <Box>
                       <Typography variant="body2" sx={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Warmup Autopilot</Typography>
-                      <Typography variant="caption" sx={{ color: 'text.secondary' }}>Slowly ramp up daily volume to establish sender domain reputation.</Typography>
+                      <Typography variant="caption" sx={{ color: 'text.secondary' }}>Slowly ramp up daily volume to establish sender domain reputation. Turning it on again restarts the ramp at Day 1.</Typography>
                     </Box>
                     <Switch checked={!!selectedWarmupAccount.warmupEnabled} onChange={(e) => handleUpdateWarmupSettings('warmupEnabled', e.target.checked)} color="warning" />
                   </Stack>
                   {selectedWarmupAccount.warmupEnabled && (
                     <Stack spacing={2} sx={{ mt: 2 }}>
                       <Stack direction="row" spacing={2}>
-                        <TextField fullWidth size="small" label="Starting Volume (Day 1)" type="number" value={selectedWarmupAccount.warmupLimit ?? 50} onChange={(e) => handleUpdateWarmupSettings('warmupLimit', parseInt(e.target.value))} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { min: 1, max: selectedWarmupAccount.dailyLimit } }} />
-                        <TextField fullWidth size="small" label="Daily Ramp Increment" type="number" value={selectedWarmupAccount.warmupRamp ?? 2} onChange={(e) => handleUpdateWarmupSettings('warmupRamp', parseInt(e.target.value))} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { min: 0 } }} />
+                        <TextField fullWidth size="small" label={MAILBOX_LIMIT_FIELDS.warmupLimit.label} type="number" {...limitInputProps('warmupLimit', selectedWarmupAccount.warmupLimit ?? 50)} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { min: MAILBOX_LIMIT_FIELDS.warmupLimit.min, max: selectedWarmupAccount.dailyLimit } }} />
+                        <TextField fullWidth size="small" label={MAILBOX_LIMIT_FIELDS.warmupRamp.label} type="number" {...limitInputProps('warmupRamp', selectedWarmupAccount.warmupRamp ?? 2)} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { min: MAILBOX_LIMIT_FIELDS.warmupRamp.min } }} />
                       </Stack>
                       <Card sx={{ bgcolor: (t) => alpha(t.palette.warning.main, 0.06), borderColor: (t) => alpha(t.palette.warning.main, 0.2) }}>
                         <CardContent>
@@ -519,8 +649,8 @@ export default function AccountsPage() {
                               <Typography variant="caption" sx={{ fontWeight: 700, color: 'warning.main', display: 'block', mb: 0.5 }}>Warmup Progress</Typography>
                               <Box component="ul" sx={{ pl: 2, m: 0, fontSize: 11, color: 'warning.main' }}>
                                 <li>Started On: <Box component="strong" sx={{ fontFamily: 'monospace' }}>{selectedWarmupAccount.warmupStartedAt ? new Date(selectedWarmupAccount.warmupStartedAt).toLocaleDateString() : 'Just now'}</Box></li>
-                                <li>Lifetime Warmup Emails: <Box component="strong" sx={{ fontFamily: 'monospace' }}>{selectedWarmupAccount.warmupSent ?? 0}</Box></li>
-                                <li>Today's Effective Limit: <Box component="strong" sx={{ fontFamily: 'monospace' }}>{selectedWarmupAccount.effectiveDailyCap ?? selectedWarmupAccount.dailyLimit}</Box> emails</li>
+                                <li>Emails Sent This Ramp: <Box component="strong" sx={{ fontFamily: 'monospace' }}>{selectedWarmupAccount.warmupSent ?? 0}</Box></li>
+                                <li>Current Limit: <Box component="strong" sx={{ fontFamily: 'monospace' }}>{selectedWarmupAccount.effectiveDailyCap ?? selectedWarmupAccount.dailyLimit}</Box> emails per 24 hours</li>
                               </Box>
                             </Box>
                           </Stack>
@@ -547,7 +677,7 @@ export default function AccountsPage() {
           <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '2fr 1fr' }, gap: 2 }}>
               <TextField label="Sender Email Address" type="email" required value={emailAddress} onChange={(e) => setEmailAddress(e.target.value)} size="small" placeholder="outreach@mycompany.com" slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-              <TextField label="Display Name (From)" required value={senderName} onChange={(e) => setSenderName(e.target.value)} size="small" placeholder="Michael Scott" />
+              <TextField label="Internal Label" required value={senderName} onChange={(e) => setSenderName(e.target.value)} size="small" placeholder="Sales Outreach" helperText="Shown only in ArcReach. Recipients see the From name set on the sender username in Azure." />
               <TextField label="Reply-To (Optional)" type="email" value={replyTo} onChange={(e) => setReplyTo(e.target.value)} size="small" placeholder="replies@mycompany.com" slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
               <FormControl size="small">
                 <InputLabel>Email Provider</InputLabel>
@@ -567,48 +697,34 @@ export default function AccountsPage() {
                 {session?.role !== 'ADMIN' ? (
                   <MenuItem value={session?.id}>Me ({session?.name})</MenuItem>
                 ) : (
-                  users.map((u) => <MenuItem key={u.id} value={u.id}>{u.name} ({u.role})</MenuItem>)
+                  // Disabled users cannot sign in, so they are not offered as owners.
+                  users.filter((u) => !u.disabledAt).map((u) => <MenuItem key={u.id} value={u.id}>{u.name} ({u.role})</MenuItem>)
                 )}
               </Select>
             </FormControl>
 
-            {provider !== 'Azure Relay Node' && (
-              <Card variant="outlined" sx={{ bgcolor: 'action.hover' }}>
-                <CardContent>
-                  <Typography variant="overline" sx={{ color: 'text.secondary', fontWeight: 700, display: 'block', mb: 1.5 }}>
-                    Outbound Email (SMTP){isSmtpDisabled(globalActiveProvider) ? ' · overrides global route' : ''}
-                  </Typography>
-                  <Stack spacing={1.5}>
-                    <Stack direction="row" spacing={1.5}>
-                      <TextField fullWidth size="small" label="SMTP Host" value={smtpHost} onChange={(e) => setSmtpHost(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-                      <TextField fullWidth size="small" label="Port" value={smtpPort} onChange={(e) => setSmtpPort(e.target.value)} placeholder="587" slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-                    </Stack>
-                    <Stack direction="row" spacing={1.5}>
-                      <TextField fullWidth size="small" label="Username" value={smtpUser} onChange={(e) => setSmtpUser(e.target.value)} placeholder="user@domain.com" slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-                      <PwField label="Password" value={smtpPass} onChange={setSmtpPass} show={showAddSmtpPass} setShow={setShowAddSmtpPass} placeholder="Password or App Key" />
-                    </Stack>
-                  </Stack>
-                </CardContent>
-              </Card>
-            )}
+            <SmtpNotUsedNote />
 
-            {provider !== 'SendGrid Relay Node' && provider !== 'Azure Relay Node' && (
-              <Card variant="outlined" sx={{ bgcolor: 'action.hover' }}>
-                <CardContent>
-                  <Typography variant="overline" sx={{ color: 'text.secondary', fontWeight: 700, display: 'block', mb: 1.5 }}>Inbound Replies (IMAP)</Typography>
-                  <Stack spacing={1.5}>
-                    <Stack direction="row" spacing={1.5}>
-                      <TextField fullWidth size="small" label="IMAP Host" value={imapHost} onChange={(e) => setImapHost(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-                      <TextField fullWidth size="small" label="Port" value={imapPort} onChange={(e) => setImapPort(e.target.value)} placeholder="993" slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-                    </Stack>
-                    <Stack direction="row" spacing={1.5}>
-                      <TextField fullWidth size="small" label="Username" value={imapUser} onChange={(e) => setImapUser(e.target.value)} placeholder="user@domain.com" slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-                      <PwField label="Password" value={imapPass} onChange={setImapPass} show={showAddImapPass} setShow={setShowAddImapPass} placeholder="Password or App Key" />
-                    </Stack>
+            {/* Any mailbox can sync replies over IMAP, whatever its provider label */}
+            <Card variant="outlined" sx={{ bgcolor: 'action.hover' }}>
+              <CardContent>
+                <Typography variant="overline" sx={{ color: 'text.secondary', fontWeight: 700, display: 'block', mb: 1.5 }}>Inbound Replies (IMAP)</Typography>
+                <Stack spacing={1.5}>
+                  {(provider === 'Microsoft 365' || isMicrosoftImapHost(imapHost)) && (
+                    <Typography variant="caption" sx={{ color: 'warning.main', display: 'block' }}>{MICROSOFT_IMAP_NOTE}</Typography>
+                  )}
+                  <Stack direction="row" spacing={1.5}>
+                    <TextField fullWidth size="small" label="IMAP Host" value={imapHost} onChange={(e) => setImapHost(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
+                    <TextField fullWidth size="small" label="Port" value={imapPort} onChange={(e) => setImapPort(e.target.value)} placeholder="993" slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
                   </Stack>
-                </CardContent>
-              </Card>
-            )}
+                  <Stack direction="row" spacing={1.5}>
+                    <TextField fullWidth size="small" label="Username" value={imapUser} onChange={(e) => setImapUser(e.target.value)} placeholder="user@domain.com" slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
+                    <PwField label="Password" value={imapPass} onChange={setImapPass} show={showAddImapPass} setShow={setShowAddImapPass} placeholder="Password or App Key" />
+                  </Stack>
+                  <AllowSelfSignedSwitch checked={imapAllowSelfSigned} onChange={setImapAllowSelfSigned} />
+                </Stack>
+              </CardContent>
+            </Card>
 
             <Card variant="outlined">
               <CardContent>
@@ -616,22 +732,19 @@ export default function AccountsPage() {
                   <Activity size={14} color="#2563EB" />
                   <Typography variant="overline" sx={{ fontWeight: 700, color: 'text.secondary' }}>Sending Limits</Typography>
                 </Stack>
-                <Stack direction="row" spacing={1.5}>
-                  <TextField fullWidth size="small" label="Max / Minute" type="number" value={minuteLimit} onChange={(e) => setMinuteLimit(parseInt(e.target.value) || 1)} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { min: 1 } }} />
-                  <TextField fullWidth size="small" label="Max / Hour" type="number" value={hourlyLimit} onChange={(e) => setHourlyLimit(parseInt(e.target.value) || 1)} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { min: 1 } }} />
-                  <TextField fullWidth size="small" label="Max / Day" type="number" value={dailyLimit} onChange={(e) => setDailyLimit(parseInt(e.target.value) || 10)} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { min: 10 } }} />
-                </Stack>
+                <TextField fullWidth size="small" label="Max / Day" type="number" value={dailyLimit} onChange={(e) => setDailyLimit(parseInt(e.target.value) || 10)} sx={{ maxWidth: 240 }} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { min: 10 } }} />
+                <Box sx={{ mt: 2 }}><GlobalRateLimits limits={globalRateLimits} /></Box>
                 {accounts.length > 0 && (
                   <Box sx={{ mt: 2, pt: 2, borderTop: 1, borderColor: 'divider' }}>
                     <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                       <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Combined Daily Capacity</Typography>
-                      <Typography variant="caption" sx={{ fontWeight: 700, color: 'primary.main', fontFamily: 'monospace' }}>{totalSentToday} / {totalDailyLimit} sent today</Typography>
+                      <Typography variant="caption" sx={{ fontWeight: 700, color: 'primary.main', fontFamily: 'monospace' }}>{dailyCapacity.sent} / {dailyCapacity.cap} sent in the last 24 hours</Typography>
                     </Stack>
-                    <LinearProgress variant="determinate" value={Math.min(100, totalDailyLimit > 0 ? (totalSentToday / totalDailyLimit) * 100 : 0)} sx={{ height: 6, borderRadius: 999 }} />
+                    <LinearProgress variant="determinate" value={Math.min(100, dailyCapacity.cap > 0 ? (dailyCapacity.sent / dailyCapacity.cap) * 100 : 0)} sx={{ height: 6, borderRadius: 999 }} />
                     <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 1.5, mt: 2, p: 1.5, borderRadius: '12px', bgcolor: 'action.hover', border: 1, borderColor: 'divider', textAlign: 'center', fontSize: 10 }}>
-                      <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Remaining</Typography><Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{remainingCapacity} / day</Typography></Box>
+                      <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Remaining</Typography><Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{dailyCapacity.remaining} / day</Typography></Box>
                       <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Mailboxes</Typography><Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{accounts.length}</Typography></Box>
-                      <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Avg / Account</Typography><Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{accounts.length > 0 ? Math.round(totalDailyLimit / accounts.length) : 0}</Typography></Box>
+                      <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Avg / Account</Typography><Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{accounts.length > 0 ? Math.round(dailyCapacity.cap / accounts.length) : 0}</Typography></Box>
                     </Box>
                   </Box>
                 )}
@@ -651,7 +764,7 @@ export default function AccountsPage() {
       <ConfirmDialog
         isOpen={confirmOpen}
         title="Delete Mailbox Connection"
-        message={`Are you sure you want to delete the mailbox connection for ${selectedWarmupAccount?.emailAddress || 'this account'}? All campaign records using this sender will remain, but you won't be able to send new emails from it.`}
+        message={`Delete the mailbox connection for ${selectedWarmupAccount?.emailAddress || 'this account'}? You will no longer be able to send from it. Its sent-mail history and received replies are kept but unlinked from it, so only admins will still see those replies in Unibox. If any campaign still sends from this mailbox, nothing is deleted until you switch that campaign to another mailbox or delete it.`}
         confirmLabel="Delete"
         cancelLabel="Cancel"
         onConfirm={handleDeleteAccount}

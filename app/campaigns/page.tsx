@@ -5,28 +5,36 @@ import { useState, useEffect, Fragment } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
-  Plus, PlayCircle, Search, Layers, Filter, FileSpreadsheet, RefreshCw,
-  Mail, User, ChevronRight, ChevronDown, Sparkles, Inbox, Trash2, Play, Pause, Send, Check,
+  Plus, PlayCircle, Search, Layers, RefreshCw, Loader2,
+  Mail, User, ChevronRight, ChevronDown, Gauge, Inbox, Trash2, Play, Pause, Send, Check, Clock, TimerOff, UserX,
 } from 'lucide-react';
 import {
   Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
   Dialog, DialogTitle, DialogContent, DialogActions, Table, TableHead, TableBody, TableRow, TableCell,
-  Snackbar, Alert, InputAdornment, CircularProgress, Tooltip as MuiTooltip, Select, MenuItem,
+  Snackbar, Alert, AlertTitle, InputAdornment, CircularProgress, Tooltip as MuiTooltip, Select, MenuItem,
   Checkbox, FormControlLabel,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { queuedLeadsMessage } from '@/lib/campaignSteps';
+import { autoResumeNote, ownerDisabledNote } from '@/lib/campaignPause';
+import { LoadError, loadErrorMessage, readJsonList, readJsonObject } from '@/lib/apiResponse';
+import { toastDuration } from '@/lib/toastDuration';
 
 interface DbCampaign {
   id: string;
   name: string;
   status: 'Active' | 'Draft' | 'Paused';
-  senderAccountId: string;
+  pausedUntil?: string | null;
+  pauseReason?: string | null;
+  // Whether its saved sending window is complete; without one the auto-resume sets it to Draft.
+  hasSendingSchedule: boolean;
   senderAccount?: { emailAddress: string };
   userId: string | null;
   user?: { id: string; name: string | null; email: string } | null;
   createdAt: string;
-  steps?: { id: string; stepOrder: number; waitDays: number; subject: string; body: string }[];
+  // Step metadata only: bodies load with a single campaign on its page.
+  steps?: { id: string; stepOrder: number; waitDays: number; subject: string }[];
   // Server-side aggregates — raw enrollment/dispatch rows are never shipped
   // (payloads at scale OOM'd the server).
   stepStats?: { stepOrder: number; active: number; sent: number; delivered: number; failed: number }[];
@@ -41,6 +49,12 @@ export default function CampaignsPage() {
   const [accounts, setAccounts] = useState<any[]>([]);
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  // Set when a load or refresh fails. The list shows only once loaded, so a failure is never shown as no sequences.
+  const [loadError, setLoadError] = useState('');
+  const [campaignsLoaded, setCampaignsLoaded] = useState(false);
+  const [accountsLoaded, setAccountsLoaded] = useState(false);
+  // Why the mailboxes could not be loaded. Only Create Sequence needs them.
+  const [accountsError, setAccountsError] = useState('');
   const [search, setSearch] = useState('');
   const [expandedCampaignId, setExpandedCampaignId] = useState<string | null>(null);
   const [executingId, setExecutingId] = useState<string | null>(null);
@@ -51,11 +65,13 @@ export default function CampaignsPage() {
   const [selectedPoolIds, setSelectedPoolIds] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error'; duration: number | null } | null>(null);
   const [confirmState, setConfirmState] = useState<{ title: string; message: string; confirmLabel: string; onConfirm: () => void } | null>(null);
+  // A long error, such as the server's reason a sequence was not created, stays until dismissed.
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3050);
+    const next = { message, type, duration: toastDuration(message, type, 3000) };
+    setToast(next);
+    if (next.duration !== null) setTimeout(() => setToast(current => (current === next ? null : current)), next.duration + 50);
   };
 
   const handleToggleStatus = async (id: string, currentStatus: string, e: React.MouseEvent) => {
@@ -67,8 +83,27 @@ export default function CampaignsPage() {
         body: JSON.stringify({ id, status: newStatus }),
       });
       if (res.ok) { showToast(`Sequence status updated to ${newStatus}`); loadData(); }
-      else showToast('Failed to update status.', 'error');
+      else {
+        const data = await res.json().catch(() => null);
+        showToast(data?.error || 'Failed to update status.', 'error');
+      }
     } catch { showToast('Error updating status.', 'error'); }
+  };
+
+  // Setting Paused again cancels the auto-resume the send engine scheduled.
+  const handleKeepPaused = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const res = await fetch('/api/campaigns', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, status: 'Paused' }),
+      });
+      if (res.ok) { showToast('Auto-resume cancelled. The campaign stays paused until you activate it.'); loadData(); }
+      else {
+        const data = await res.json().catch(() => null);
+        showToast(data?.error || 'Failed to keep the campaign paused.', 'error');
+      }
+    } catch { showToast('Error keeping the campaign paused.', 'error'); }
   };
 
   const handleRunCampaign = async (id: string, stepOrder?: number) => {
@@ -77,46 +112,63 @@ export default function CampaignsPage() {
       setExecutingId(key);
       const url = `/api/campaigns/${id}/run` + (stepOrder ? `?stepOrder=${stepOrder}` : '');
       const res = await fetch(url, { method: 'POST' });
-      const data = await res.json();
-      if (res.ok && data.success) { showToast(`Manual cycle completed! Sent ${data.dispatchedCount} emails.`); loadData(); }
-      else showToast(data.error || 'Failed to dispatch manual cycle.', 'error');
-    } catch { showToast('Failed to execute dispatch cycle.', 'error'); }
+      const data = await res.json().catch(() => null);
+      // The route only queues leads; the background worker sends them.
+      if (res.ok && typeof data?.queued === 'number') { showToast(queuedLeadsMessage(data.queued, stepOrder)); loadData(); }
+      else showToast(data?.error || 'Failed to queue leads.', 'error');
+    } catch { showToast('Failed to queue leads.', 'error'); }
     finally { setExecutingId(null); }
   };
 
   const loadData = async () => {
     try {
       setLoading(true);
-      const sessRes = await fetch('/api/session');
-      const sessData = await sessRes.json();
+      setLoadError('');
+      const sessData = await readJsonObject(await fetch('/api/session'), 'Your session');
+      if (!sessData.id) throw new LoadError('Your session could not be loaded. Sign in again.');
       setSession(sessData);
-      const accRes = await fetch('/api/accounts');
-      if (accRes.ok) {
-        const accData = await accRes.json();
+      // The mailboxes load on their own: a failure there blocks only Create Sequence,
+      // never the list, where running sequences are paused and resumed.
+      try {
+        // A new campaign belongs to the signed-in user and only sends from its
+        // owner's mailboxes, so an admin picks among their own, not every user's.
+        const accData = (await readJsonList(await fetch('/api/accounts'), 'Your mailboxes')).filter((acc: any) => acc.userId === sessData.id);
         setAccounts(accData);
+        setAccountsLoaded(true);
+        setAccountsError('');
         if (accData.length > 0) setSelectedMailboxId(accData[0].id);
-      }
-      const cmpRes = await fetch(`/api/campaigns?t=${Date.now()}`);
-      if (cmpRes.ok) setCampaigns(await cmpRes.json());
-    } catch { showToast('Error syncing sequences', 'error'); }
+      } catch (err) { console.error(err); setAccountsError(loadErrorMessage(err, 'Your mailboxes')); }
+      setCampaigns(await readJsonList(await fetch(`/api/campaigns?t=${Date.now()}`), 'Sequences'));
+      setCampaignsLoaded(true);
+    } catch (err) { console.error(err); setLoadError(loadErrorMessage(err, 'Sequences')); }
     finally { setLoading(false); }
   };
 
+  // A failed refresh keeps the last list on screen and says it may be out of date.
   const refreshCampaigns = async () => {
     try {
-      const cmpRes = await fetch(`/api/campaigns?t=${Date.now()}`);
-      if (cmpRes.ok) setCampaigns(await cmpRes.json());
-    } catch (err) { console.error('Failed to auto-refresh campaigns:', err); }
+      setCampaigns(await readJsonList(await fetch(`/api/campaigns?t=${Date.now()}`), 'Sequences'));
+      setCampaignsLoaded(true);
+      setLoadError('');
+    } catch (err) {
+      console.error('Failed to auto-refresh campaigns:', err);
+      setLoadError(loadErrorMessage(err, 'Sequences'));
+    }
   };
+
+  const retryButton = (
+    <Button color="inherit" size="small" startIcon={<RefreshCw size={14} />} onClick={() => loadData()}>Retry</Button>
+  );
 
   useEffect(() => { loadData(); }, []);
 
   const anyCampaignActive = campaigns.some(c => c.status === 'Active');
   const isRunning = executingId !== null;
 
+  // Refreshes every 30s while a sequence is Active or queuing, and only while the tab is visible.
   useEffect(() => {
     if (!anyCampaignActive && !isRunning) return;
-    const interval = setInterval(() => refreshCampaigns(), 2000);
+    const interval = setInterval(() => { if (document.visibilityState === 'visible') refreshCampaigns(); }, 30000);
     return () => clearInterval(interval);
   }, [anyCampaignActive, isRunning]);
 
@@ -137,7 +189,10 @@ export default function CampaignsPage() {
           status: 'Draft',
         }),
       });
-      if (!res.ok) throw new Error(await res.text() || 'Failed to establish campaign.');
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        throw new Error(data?.error || 'Failed to establish campaign.');
+      }
       const created = await res.json();
       showToast('Campaign sequence initiated successfully');
       setCampaignName(''); setSelectedPoolIds([]); setIsAddOpen(false);
@@ -150,8 +205,8 @@ export default function CampaignsPage() {
   const handleDeleteCampaign = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setConfirmState({
-      title: 'Delete campaign sequence?',
-      message: 'This permanently deletes the campaign. All step templates and metrics will be purged.',
+      title: 'Delete Campaign?',
+      message: 'Permanently delete this campaign, its steps and its lead enrollments? This cannot be undone. Emails it already sent and the replies they received are kept but unlinked from it, so they stay in lead timelines and Unibox and the links in those emails keep working.',
       confirmLabel: 'Delete',
       onConfirm: async () => {
         setConfirmState(null);
@@ -168,8 +223,8 @@ export default function CampaignsPage() {
 
   return (
     <Box sx={{ maxWidth: 1100, mx: 'auto', pb: 4, display: 'flex', flexDirection: 'column', gap: 3 }}>
-      <Snackbar open={!!toast} anchorOrigin={{ vertical: 'top', horizontal: 'right' }} autoHideDuration={3000} onClose={() => setToast(null)}>
-        {toast ? <Alert severity={toast.type} variant="filled" sx={{ borderRadius: '12px' }}>{toast.message}</Alert> : undefined}
+      <Snackbar open={!!toast} anchorOrigin={{ vertical: 'top', horizontal: 'right' }} autoHideDuration={toast?.duration ?? null} onClose={(_, reason) => { if (reason !== 'clickaway') setToast(null); }}>
+        {toast ? <Alert severity={toast.type} variant="filled" onClose={() => setToast(null)} sx={{ borderRadius: '12px' }}>{toast.message}</Alert> : undefined}
       </Snackbar>
 
       {/* Header */}
@@ -181,11 +236,26 @@ export default function CampaignsPage() {
         <Button
           variant="contained" startIcon={<Plus size={16} />}
           onClick={() => {
-            if (accounts.length === 0) { showToast('Please first connect at least one Mailbox in the Senders view before starting a campaign.', 'error'); return; }
+            if (!accountsLoaded) { showToast('Your mailboxes could not be loaded, so a sequence cannot be created yet. Use Retry to load them.', 'error'); return; }
+            if (accounts.length === 0) { showToast('Please first connect at least one Mailbox of your own in the Senders view before starting a campaign.', 'error'); return; }
             setIsAddOpen(true);
           }}
         >Create Sequence</Button>
       </Stack>
+
+      {loadError && campaignsLoaded && !loading && (
+        <Alert severity="warning" action={retryButton}>
+          <AlertTitle>Sequences Could Not Be Refreshed</AlertTitle>
+          This list may be out of date. {loadError}
+        </Alert>
+      )}
+
+      {accountsError && !accountsLoaded && !loading && (
+        <Alert severity="warning" action={retryButton}>
+          <AlertTitle>Mailboxes Could Not Be Loaded</AlertTitle>
+          A sequence cannot be created until your mailboxes load. {accountsError}
+        </Alert>
+      )}
 
       <Card>
         {/* Toolbar */}
@@ -195,10 +265,6 @@ export default function CampaignsPage() {
             value={search} onChange={e => setSearch(e.target.value)}
             slotProps={{ input: { startAdornment: <InputAdornment position="start"><Search size={14} /></InputAdornment> } }}
           />
-          <Stack direction="row" spacing={1}>
-            <Button size="small" variant="outlined" color="inherit" startIcon={<Filter size={14} />} onClick={() => showToast('Campaign criteria filters loaded')} sx={{ borderColor: 'divider', color: 'text.secondary' }}>Filter</Button>
-            <Button size="small" variant="outlined" color="inherit" startIcon={<FileSpreadsheet size={14} />} onClick={() => showToast('Campaign stats CSV report ready for download')} sx={{ borderColor: 'divider', color: 'text.secondary' }}>Export CSV</Button>
-          </Stack>
         </Stack>
 
         {loading ? (
@@ -206,6 +272,13 @@ export default function CampaignsPage() {
             <CircularProgress size={24} />
             <Typography variant="caption" sx={{ color: 'text.secondary' }}>Loading campaigns…</Typography>
           </Stack>
+        ) : !campaignsLoaded ? (
+          <Box sx={{ p: 2 }}>
+            <Alert severity="error" action={retryButton}>
+              <AlertTitle>Sequences Could Not Be Loaded</AlertTitle>
+              {loadError || 'Sequences could not be loaded.'}
+            </Alert>
+          </Box>
         ) : (
           <Box sx={{ overflowX: 'auto' }}>
             <Table size="small">
@@ -221,6 +294,8 @@ export default function CampaignsPage() {
               <TableBody>
                 {filteredCampaigns.map(campaign => {
                   const isExpanded = expandedCampaignId === campaign.id;
+                  const resumeNote = autoResumeNote(campaign);
+                  const ownerNote = ownerDisabledNote(campaign);
                   return (
                     <Fragment key={campaign.id}>
                       <TableRow hover onClick={() => setExpandedCampaignId(isExpanded ? null : campaign.id)} sx={{ cursor: 'pointer', bgcolor: isExpanded ? 'action.hover' : undefined }}>
@@ -253,6 +328,16 @@ export default function CampaignsPage() {
                             variant="outlined"
                             sx={{ fontWeight: 700, fontSize: 10 }}
                           />
+                          {resumeNote && (
+                            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
+                              <Clock size={11} style={{ flexShrink: 0 }} /> {resumeNote}
+                            </Typography>
+                          )}
+                          {ownerNote && (
+                            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
+                              <UserX size={11} style={{ flexShrink: 0 }} /> {ownerNote}
+                            </Typography>
+                          )}
                         </TableCell>
                         <TableCell align="right" onClick={(e) => e.stopPropagation()}>
                           <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
@@ -279,6 +364,16 @@ export default function CampaignsPage() {
                                   </Typography>
                                 </Box>
                                 <Stack direction="row" spacing={1}>
+                                  {resumeNote && (
+                                    <Button
+                                      size="small" variant="outlined" color="inherit"
+                                      startIcon={<TimerOff size={12} />}
+                                      onClick={(e) => handleKeepPaused(campaign.id, e)}
+                                      sx={{ borderColor: 'divider' }}
+                                    >
+                                      Keep Paused
+                                    </Button>
+                                  )}
                                   <Button
                                     size="small" variant="outlined" color="inherit"
                                     startIcon={campaign.status === 'Active' ? <Pause size={12} color="#d97706" /> : <Play size={12} color="#10b981" />}
@@ -290,7 +385,7 @@ export default function CampaignsPage() {
                                   {campaign.status === 'Active' && (
                                     <Button
                                       size="small" variant="contained"
-                                      startIcon={executingId === campaign.id ? <RefreshCw size={12} className="animate-spin" /> : <PlayCircle size={12} />}
+                                      startIcon={executingId === campaign.id ? <Loader2 size={12} className="animate-spin" /> : <PlayCircle size={12} />}
                                       onClick={() => handleRunCampaign(campaign.id)}
                                       disabled={executingId !== null}
                                     >
@@ -432,7 +527,7 @@ export default function CampaignsPage() {
             )}
             <Card sx={{ bgcolor: (t) => alpha(t.palette.primary.main, 0.06), borderColor: (t) => alpha(t.palette.primary.main, 0.2) }}>
               <CardContent sx={{ p: 2, '&:last-child': { pb: 2 }, display: 'flex', gap: 1.5, alignItems: 'flex-start' }}>
-                <Sparkles size={16} color="#2563EB" style={{ marginTop: 2, flexShrink: 0 }} />
+                <Gauge size={16} color="#2563EB" style={{ marginTop: 2, flexShrink: 0 }} />
                 <Typography variant="caption" sx={{ color: 'primary.main', lineHeight: 1.6 }}>
                   This sequence will follow the sending limits configured on the connected mailbox(es).
                 </Typography>

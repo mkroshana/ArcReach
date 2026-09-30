@@ -3,7 +3,7 @@
 
 import { useState, useEffect } from 'react';
 import {
-  Users, Shield, Trash2, UserPlus, AlertTriangle, Mail, Lock, Eye, EyeOff, Copy, RefreshCw, KeyRound,
+  Users, Shield, Trash2, UserPlus, UserX, UserCheck, AlertTriangle, Mail, Lock, Eye, EyeOff, Copy, RefreshCw, KeyRound,
 } from 'lucide-react';
 import {
   Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
@@ -13,6 +13,7 @@ import {
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { passwordPolicyError } from '@/lib/passwordPolicy';
 
 interface DbUser {
   id: string;
@@ -20,6 +21,7 @@ interface DbUser {
   name: string;
   role: 'ADMIN' | 'USER';
   createdAt: string;
+  disabledAt: string | null;
 }
 
 function generatePassword(length = 16): string {
@@ -133,10 +135,8 @@ export default function UsersAdminPage() {
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newEmail) return;
-    if (!newPassword || newPassword.length < 8) {
-      showToast('Set a password of at least 8 characters (use Generate for a strong one).', 'error');
-      return;
-    }
+    const passwordError = passwordPolicyError(newPassword);
+    if (passwordError) { showToast(passwordError, 'error'); return; }
     try {
       setSubmitting(true);
       const res = await fetch('/api/users', {
@@ -164,10 +164,8 @@ export default function UsersAdminPage() {
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!resetUser) return;
-    if (!resetPassword || resetPassword.length < 8) {
-      showToast('Set a password of at least 8 characters (use Generate for a strong one).', 'error');
-      return;
-    }
+    const passwordError = passwordPolicyError(resetPassword);
+    if (passwordError) { showToast(passwordError, 'error'); return; }
     try {
       setResetting(true);
       const res = await fetch('/api/users', {
@@ -179,7 +177,9 @@ export default function UsersAdminPage() {
         const errObj = await res.json().catch(() => ({}));
         throw new Error(errObj.error || 'Failed to reset password.');
       }
-      showToast(`Password reset for ${resetUser.email}`);
+      showToast(resetUser.id === currentSession?.id
+        ? 'Password reset. Your other sessions were signed out.'
+        : `Password reset for ${resetUser.email}. They were signed out everywhere.`);
       setResetUser(null); setResetPassword('');
     } catch (err: any) {
       showToast(err.message || 'Failed to reset password', 'error');
@@ -189,7 +189,7 @@ export default function UsersAdminPage() {
   };
 
   const handleToggleRole = async (userId: string, currentRole: 'ADMIN' | 'USER') => {
-    if (userId === 'admin-id-999') { showToast('Cannot modify default root administrator privileges.', 'error'); return; }
+    if (currentSession && userId === currentSession.id) { showToast('You cannot change your own role.', 'error'); return; }
     const targetRole = currentRole === 'ADMIN' ? 'USER' : 'ADMIN';
     try {
       const res = await fetch('/api/users', {
@@ -197,28 +197,68 @@ export default function UsersAdminPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: userId, role: targetRole }),
       });
-      if (!res.ok) throw new Error((await res.text()) || 'Failed to update credentials.');
-      showToast(`User permissions changed to ${targetRole}`);
+      if (!res.ok) {
+        const errObj = await res.json().catch(() => ({}));
+        throw new Error(errObj.error || 'Failed to update role.');
+      }
+      showToast(`Role changed to ${targetRole}. They were signed out and must sign in again.`);
       await fetchUsers();
     } catch (err: any) {
       showToast(err.message || 'Failed to modify role', 'error');
     }
   };
 
+  const setUserDisabled = async (user: DbUser, disabled: boolean) => {
+    try {
+      const res = await fetch('/api/users', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: user.id, disabled }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || `Failed to ${disabled ? 'disable' : 'enable'} user.`);
+      }
+      if (disabled) {
+        const paused = Number(data.pausedCampaigns) || 0;
+        const campaigns = paused === 0 ? 'They had no Active campaigns.'
+          : `${paused} Active ${paused === 1 ? 'campaign was' : 'campaigns were'} paused.`;
+        showToast(`${user.email} is disabled and was signed out. ${campaigns}`);
+      } else {
+        showToast(`${user.email} is enabled and can sign in again. Their paused campaigns stay paused until activated.`);
+      }
+      await fetchUsers();
+    } catch (err: any) {
+      showToast(err.message || `Failed to ${disabled ? 'disable' : 'enable'} user`, 'error');
+    }
+  };
+
+  const handleDisableUser = (user: DbUser) => {
+    if (currentSession && user.id === currentSession.id) { showToast('You cannot disable your own account.', 'error'); return; }
+    setConfirmState({
+      title: 'Disable User?',
+      message: `${user.email} will be signed out everywhere at once and can not sign in until an admin enables the account again. Their Active campaigns will be paused, and campaigns paused by the send engine will no longer resume on their own. Enabling the account again does not resume them; an admin or the owner must activate them. Their mailboxes and Draft campaigns are kept as they are.`,
+      confirmLabel: 'Disable User',
+      onConfirm: async () => {
+        setConfirmState(null);
+        await setUserDisabled(user, true);
+      },
+    });
+  };
+
   const handleDeleteUser = (userId: string) => {
-    if (userId === 'admin-id-999') { showToast('Cannot delete root super administrative profile.', 'error'); return; }
     if (currentSession && userId === currentSession.id) { showToast('Cannot delete your own active session.', 'error'); return; }
     setConfirmState({
-      title: 'Remove user?',
-      message: 'This removes the user from ArcReach. All assigned mailboxes and campaigns will lock.',
-      confirmLabel: 'Remove',
+      title: 'Delete User?',
+      message: `Permanently delete the account for ${users.find((u) => u.id === userId)?.email || 'this user'}? This cannot be undone. Only a user who owns no mailboxes or campaigns can be deleted; to keep their work, disable them instead.`,
+      confirmLabel: 'Delete User',
       onConfirm: async () => {
         setConfirmState(null);
         try {
           const res = await fetch(`/api/users?id=${userId}`, { method: 'DELETE' });
           if (!res.ok) {
             const errObj = await res.json().catch(() => ({}));
-            throw new Error(errObj.error || 'Failed to revoke permissions.');
+            throw new Error(errObj.error || 'Failed to delete user.');
           }
           showToast('User deleted');
           await fetchUsers();
@@ -266,7 +306,6 @@ export default function UsersAdminPage() {
         <Card>
           <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', p: 2, borderBottom: 1, borderColor: 'divider' }}>
             <Typography variant="overline" sx={{ fontWeight: 700, letterSpacing: '0.1em' }}>All Users</Typography>
-            <Chip size="small" label="RBAC ACTIVE" color="success" variant="outlined" sx={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 10 }} />
           </Stack>
           <Box sx={{ overflowX: 'auto' }}>
             <Table size="small">
@@ -281,7 +320,6 @@ export default function UsersAdminPage() {
               </TableHead>
               <TableBody>
                 {users.map((item) => {
-                  const isRoot = item.id === 'admin-id-999';
                   const isSelf = item.id === currentSession?.id;
                   return (
                     <TableRow key={item.id} hover>
@@ -298,14 +336,19 @@ export default function UsersAdminPage() {
                       </TableCell>
                       <TableCell sx={{ fontFamily: 'monospace', fontSize: 12, color: 'text.secondary' }}>{item.email}</TableCell>
                       <TableCell>
-                        <Chip
-                          size="small"
-                          icon={item.role === 'ADMIN' ? <Shield size={12} /> : <Users size={12} />}
-                          label={item.role}
-                          color={item.role === 'ADMIN' ? 'error' : 'primary'}
-                          variant="outlined"
-                          sx={{ fontWeight: 700, fontSize: 10 }}
-                        />
+                        <Stack direction="row" spacing={1}>
+                          <Chip
+                            size="small"
+                            icon={item.role === 'ADMIN' ? <Shield size={12} /> : <Users size={12} />}
+                            label={item.role}
+                            color={item.role === 'ADMIN' ? 'error' : 'primary'}
+                            variant="outlined"
+                            sx={{ fontWeight: 700, fontSize: 10 }}
+                          />
+                          {item.disabledAt && (
+                            <Chip size="small" icon={<UserX size={12} />} label="Disabled" variant="outlined" sx={{ fontWeight: 700, fontSize: 10 }} />
+                          )}
+                        </Stack>
                       </TableCell>
                       <TableCell sx={{ color: 'text.secondary' }}>
                         {new Date(item.createdAt).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' })}
@@ -316,7 +359,7 @@ export default function UsersAdminPage() {
                             size="small"
                             variant="outlined"
                             color="inherit"
-                            disabled={isRoot}
+                            disabled={isSelf}
                             onClick={() => handleToggleRole(item.id, item.role)}
                             sx={{ fontSize: 10, borderColor: 'divider', color: 'text.secondary' }}
                           >
@@ -327,9 +370,24 @@ export default function UsersAdminPage() {
                               <KeyRound size={14} />
                             </IconButton>
                           </MuiTooltip>
-                          <MuiTooltip title={isSelf ? 'Cannot delete yourself' : isRoot ? 'Cannot delete root admin' : 'Remove user'}>
+                          {item.disabledAt ? (
+                            <MuiTooltip title="Enable user">
+                              <IconButton aria-label="Enable user" size="small" sx={{ border: 1, borderColor: 'divider' }} onClick={() => setUserDisabled(item, false)}>
+                                <UserCheck size={14} />
+                              </IconButton>
+                            </MuiTooltip>
+                          ) : (
+                            <MuiTooltip title={isSelf ? 'Cannot disable yourself' : 'Disable user'}>
+                              <span>
+                                <IconButton aria-label="Disable user" size="small" disabled={isSelf} onClick={() => handleDisableUser(item)} sx={{ border: 1, borderColor: 'divider' }}>
+                                  <UserX size={14} />
+                                </IconButton>
+                              </span>
+                            </MuiTooltip>
+                          )}
+                          <MuiTooltip title={isSelf ? 'Cannot delete yourself' : 'Delete user'}>
                             <span>
-                              <IconButton aria-label="Remove user" size="small" disabled={isRoot || isSelf} onClick={() => handleDeleteUser(item.id)} sx={{ border: 1, borderColor: (t) => alpha(t.palette.error.main, 0.3), color: 'error.main' }}>
+                              <IconButton aria-label="Delete user" size="small" disabled={isSelf} onClick={() => handleDeleteUser(item.id)} sx={{ border: 1, borderColor: (t) => alpha(t.palette.error.main, 0.3), color: 'error.main' }}>
                                 <Trash2 size={14} />
                               </IconButton>
                             </span>

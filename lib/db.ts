@@ -1,5 +1,9 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, type Prisma } from '@prisma/client';
 import { hashPassword } from '@/lib/auth';
+import { stepMetrics } from '@/lib/engagementMetrics';
+import { devSeedRefusal } from '@/lib/devSeed';
+import type { PauseReason } from '@/lib/campaignPause';
+import { hasSendingSchedule } from '@/lib/sendSchedule';
 
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient | undefined };
 
@@ -20,7 +24,7 @@ export async function ensureDefaultUsers() {
         id: 'admin-id-999',
         email: 'admin@arcreach.com',
         name: 'ArcReach Admin',
-        passwordHash: hashPassword(process.env.ADMIN_PASSWORD || 'securepassword123'),
+        passwordHash: await hashPassword(process.env.ADMIN_PASSWORD || 'securepassword123'),
         role: 'ADMIN'
       }
     });
@@ -36,7 +40,7 @@ export async function ensureDefaultUsers() {
         id: 'user-id-111',
         email: 'mkroshana@gmail.com',
         name: 'Standard Marketer',
-        passwordHash: hashPassword(process.env.DEMO_USER_PASSWORD || 'securepassword123'),
+        passwordHash: await hashPassword(process.env.DEMO_USER_PASSWORD || 'securepassword123'),
         role: 'USER'
       }
     });
@@ -45,8 +49,9 @@ export async function ensureDefaultUsers() {
 
 async function ensureInit() {
   if (initialized) return;
-  // Automatic dev seeding is skipped in production
-  if (process.env.NODE_ENV !== 'production') {
+  // Automatic dev seeding runs only outside production and against a local or test database,
+  // so `npm run dev` pointed at a shared database never adds users with the default password.
+  if (!devSeedRefusal(process.env)) {
     try {
       await ensureDefaultUsers();
     } catch (error) {
@@ -97,23 +102,34 @@ export const db = {
    * Never ships raw enrollment/dispatch rows — with tens of thousands of rows
    * those payloads OOM'd the server (Prisma JSON.parse of a multi-MB engine
    * response per request). Four groupBy queries total, regardless of volume.
+   * Step sends count as on the campaign page (lib/engagementMetrics).
+   * Selects only what the campaigns list shows: step bodies, the sender pool
+   * and mailbox rows stay with the campaign page, which loads one campaign.
    */
   async getCampaigns(userId: string, role: string) {
     await ensureInit();
     const campaigns = await prisma.campaign.findMany({
       where: role === 'ADMIN' ? undefined : { userId },
-      include: {
-        senderAccount: true,
-        senders: { include: { senderAccount: true } },
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        pausedUntil: true,
+        pauseReason: true,
+        timezone: true,
+        sendSchedule: true,
+        userId: true,
+        createdAt: true,
+        senderAccount: { select: { emailAddress: true } },
         user: { select: { id: true, name: true, email: true } },
-        steps: { orderBy: { stepOrder: 'asc' } },
+        steps: { orderBy: { stepOrder: 'asc' }, select: { id: true, stepOrder: true, waitDays: true, subject: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
     if (campaigns.length === 0) return campaigns;
     const ids = campaigns.map((c) => c.id);
 
-    const [enrollByStatus, activeByStep, dispatchByStep, deliveredByStep] = await Promise.all([
+    const [enrollByStatus, activeByStep, stepCounts] = await Promise.all([
       prisma.campaignEnrollment.groupBy({
         by: ['campaignId', 'status'],
         where: { campaignId: { in: ids } },
@@ -124,29 +140,21 @@ export const db = {
         where: { campaignId: { in: ids }, status: 'Active' },
         _count: { id: true },
       }),
-      prisma.emailDispatch.groupBy({
-        by: ['campaignId', 'stepOrder', 'status'],
-        where: { campaignId: { in: ids }, stepOrder: { not: null } },
-        _count: { id: true },
-      }),
-      prisma.emailDispatch.groupBy({
-        by: ['campaignId', 'stepOrder'],
-        where: { campaignId: { in: ids }, stepOrder: { not: null }, status: 'Sent', deliveredAt: { not: null } },
-        _count: { id: true },
-      }),
+      stepMetrics(prisma, ids),
     ]);
 
-    return campaigns.map((c) => {
+    return campaigns.map(({ timezone, sendSchedule, ...c }) => {
       const enrollments = enrollByStatus.filter((e) => e.campaignId === c.id);
       const stepStats = c.steps.map((s) => {
         const active = activeByStep.find((a) => a.campaignId === c.id && a.currentSequenceStep === s.stepOrder)?._count.id || 0;
-        const sent = dispatchByStep.find((d) => d.campaignId === c.id && d.stepOrder === s.stepOrder && d.status === 'Sent')?._count.id || 0;
-        const failed = dispatchByStep.find((d) => d.campaignId === c.id && d.stepOrder === s.stepOrder && d.status === 'Failed')?._count.id || 0;
-        const delivered = deliveredByStep.find((d) => d.campaignId === c.id && d.stepOrder === s.stepOrder)?._count.id || 0;
+        const { sent, delivered, failed } = stepCounts(c.id, s.stepOrder);
         return { stepOrder: s.stepOrder, active, sent, delivered, failed };
       });
       return {
         ...c,
+        // Only whether the saved window is complete, not the window: without
+        // one the auto-resume sets the campaign to Draft instead of Active.
+        hasSendingSchedule: hasSendingSchedule(timezone, sendSchedule),
         stepStats,
         enrollmentSummary: {
           total: enrollments.reduce((n, e) => n + e._count.id, 0),
@@ -187,7 +195,8 @@ export const db = {
         email: true,
         name: true,
         role: true,
-        createdAt: true
+        createdAt: true,
+        disabledAt: true
       },
       orderBy: { createdAt: 'desc' }
     });
@@ -200,18 +209,19 @@ export const db = {
         name: data.name,
         email: data.email,
         role: data.role,
-        passwordHash: hashPassword(data.password)
+        passwordHash: await hashPassword(data.password)
       },
       // Never return the password hash to the client.
       select: { id: true, email: true, name: true, role: true, createdAt: true }
     });
   },
 
-  async updateUserRole(id: string, role: 'ADMIN' | 'USER') {
+  async updateUserRole(id: string, role: 'ADMIN' | 'USER', client: Prisma.TransactionClient = prisma) {
     await ensureInit();
-    return prisma.user.update({
+    return client.user.update({
       where: { id },
-      data: { role },
+      // Bumping tokenVersion ends the user's sessions, so they sign in again under the new role.
+      data: { role, tokenVersion: { increment: 1 } },
       select: { id: true, email: true, name: true, role: true, createdAt: true }
     });
   },
@@ -220,14 +230,44 @@ export const db = {
     await ensureInit();
     return prisma.user.update({
       where: { id },
-      data: { passwordHash: hashPassword(password) },
-      select: { id: true, email: true, name: true, role: true, createdAt: true }
+      // Bumping tokenVersion ends every session signed in with the old password.
+      data: { passwordHash: await hashPassword(password), tokenVersion: { increment: 1 } },
+      select: { id: true, email: true, name: true, role: true, createdAt: true, tokenVersion: true }
     });
   },
 
-  async deleteUser(id: string) {
+  /**
+   * Disables (sign-in refused, every session ended by bumping tokenVersion) or re-enables user `id`.
+   * Re-enabling leaves tokenVersion alone, so sessions from before the disable stay dead.
+   * Disabling also stops the user's campaigns, so run it in a transaction: it first clears the
+   * auto-resume time of each campaign the send engine paused, so no timer can make it Active
+   * again, then pauses every Active campaign, both recorded as 'owner_disabled'. Drafts stay
+   * Draft, and re-enabling resumes nothing: an admin or the owner activates the campaigns again.
+   * `pausedCampaigns` counts the Active campaigns the disable paused.
+   */
+  async setUserDisabled(id: string, disabled: boolean, client: Prisma.TransactionClient = prisma) {
     await ensureInit();
-    return prisma.user.delete({
+    const user = await client.user.update({
+      where: { id },
+      data: disabled ? { disabledAt: new Date(), tokenVersion: { increment: 1 } } : { disabledAt: null },
+      select: { id: true, email: true, name: true, role: true, createdAt: true, disabledAt: true }
+    });
+    if (!disabled) return user;
+    const pauseReason: PauseReason = 'owner_disabled';
+    await client.campaign.updateMany({
+      where: { userId: id, status: 'Paused', pausedUntil: { not: null } },
+      data: { pausedUntil: null, pauseReason }
+    });
+    const { count } = await client.campaign.updateMany({
+      where: { userId: id, status: 'Active' },
+      data: { status: 'Paused', pausedUntil: null, pauseReason }
+    });
+    return { ...user, pausedCampaigns: count };
+  },
+
+  async deleteUser(id: string, client: Prisma.TransactionClient = prisma) {
+    await ensureInit();
+    return client.user.delete({
       where: { id }
     });
   }

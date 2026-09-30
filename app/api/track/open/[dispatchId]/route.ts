@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { shouldDropEvent } from '@/lib/botFilter';
+import { engagementBotReason, MACHINE_EVENT_TYPE } from '@/lib/botFilter';
+import { hasValidSession } from '@/lib/session';
 
 // 1×1 transparent PNG pixel (68 bytes)
 const TRACKING_PIXEL = Buffer.from(
@@ -9,48 +10,7 @@ const TRACKING_PIXEL = Buffer.from(
   'base64'
 );
 
-export async function GET(
-  req: NextRequest,
-  { params }: { params: Promise<{ dispatchId: string }> }
-) {
-  try {
-    const { dispatchId } = await params;
-
-    // Look up the dispatch record
-    const dispatch = await prisma.emailDispatch.findUnique({
-      where: { id: dispatchId },
-    });
-
-    if (dispatch) {
-      const userAgent = req.headers.get('user-agent');
-      const botFilter = shouldDropEvent(dispatch.sentAt, userAgent, 'open');
-
-      if (botFilter.drop) {
-        console.log(`[Track Open] Bot filter: ${botFilter.reason || 'dropped'} for dispatch ${dispatchId} (UA: ${userAgent})`);
-      } else {
-        // Dedupe: one 'open' event per dispatch (repeated pixel loads shouldn't pile up rows).
-        const existingOpen = await prisma.emailEvent.findFirst({
-          where: { messageId: dispatch.messageId, eventType: 'open' },
-        });
-        if (!existingOpen) {
-          await prisma.emailEvent.create({
-            data: {
-              messageId: dispatch.messageId,
-              eventType: 'open',
-            },
-          }).catch((err) => {
-            console.error('[Track Open] Failed to record open event:', err);
-          });
-        }
-      }
-    } else {
-      console.log(`[Track Open] Dispatch not found: ${dispatchId}`);
-    }
-  } catch (err) {
-    console.error('[Track Open] Error:', err);
-  }
-
-  // Always return the pixel, even if recording failed
+function pixelResponse(): NextResponse {
   return new NextResponse(TRACKING_PIXEL, {
     status: 200,
     headers: {
@@ -61,4 +21,69 @@ export async function GET(
       'Expires': '0',
     },
   });
+}
+
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ dispatchId: string }> }
+) {
+  try {
+    const { dispatchId } = await params;
+
+    // A signed-in user of the app loading the pixel (the operator viewing a
+    // copy of the email) is not the recipient opening it: record nothing.
+    if (await hasValidSession(req)) {
+      console.log(`[Track Open] App session for dispatch ${dispatchId}; not recorded.`);
+      return pixelResponse();
+    }
+
+    // Look up the dispatch record: only what the bot filter and the event
+    // need, never the stored body, since this is the most frequent public hit.
+    const dispatch = await prisma.emailDispatch.findUnique({
+      where: { id: dispatchId },
+      select: { messageId: true, status: true, sentAt: true, acceptedAt: true },
+    });
+
+    if (dispatch) {
+      // An automated open (a scanner, Apple Mail Privacy Protection, a
+      // prefetch) is kept as a machine open, which metrics never count.
+      const userAgent = req.headers.get('user-agent');
+      const botReason = engagementBotReason(dispatch, userAgent, 'open');
+      if (botReason) {
+        console.log(`[Track Open] Bot filter: ${botReason} for dispatch ${dispatchId} (UA: ${userAgent}); recorded as a machine open.`);
+      }
+      const eventType = botReason ? MACHINE_EVENT_TYPE.open : 'open';
+
+      // Dedupe: one 'open' and one machine open per dispatch (repeated pixel loads shouldn't pile up rows).
+      const existingOpen = await prisma.emailEvent.findFirst({
+        where: { messageId: dispatch.messageId, eventType },
+      });
+      if (!existingOpen) {
+        await prisma.emailEvent.create({
+          data: {
+            messageId: dispatch.messageId,
+            eventType,
+            ...(botReason ? { botReason } : {}),
+          },
+        }).catch((err) => {
+          console.error('[Track Open] Failed to record open event:', err);
+        });
+      }
+    } else {
+      console.log(`[Track Open] Dispatch not found: ${dispatchId}`);
+    }
+  } catch (err) {
+    console.error('[Track Open] Error:', err);
+  }
+
+  // Always return the pixel, even if recording failed
+  return pixelResponse();
+}
+
+/**
+ * HEAD returns the pixel's headers but never records an open: link checkers
+ * and proxies send HEAD, a mail client loading the image never does.
+ */
+export async function HEAD() {
+  return pixelResponse();
 }

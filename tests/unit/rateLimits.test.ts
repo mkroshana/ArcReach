@@ -6,6 +6,7 @@ vi.mock('../../lib/db', () => {
   return {
     prisma: {
       globalSettings: {
+        findUnique: vi.fn(),
         findFirst: vi.fn(),
       },
       emailDispatch: {
@@ -21,6 +22,7 @@ describe('checkGlobalRateLimits', () => {
   });
 
   it('should allow sending when global settings are not found', async () => {
+    vi.mocked(prisma.globalSettings.findUnique).mockResolvedValue(null);
     vi.mocked(prisma.globalSettings.findFirst).mockResolvedValue(null);
 
     const result = await checkGlobalRateLimits();
@@ -29,20 +31,12 @@ describe('checkGlobalRateLimits', () => {
   });
 
   it('should allow sending when limits are not configured', async () => {
-    vi.mocked(prisma.globalSettings.findFirst).mockResolvedValue({
-      id: 'settings-id',
+    vi.mocked(prisma.globalSettings.findUnique).mockResolvedValue({
+      id: 'global',
       activeProvider: 'AZURE',
       azureConnString: null,
       azureSenderDomain: null,
       azureSenderDomains: null,
-      smtpHost: null,
-      smtpPort: null,
-      smtpUser: null,
-      smtpPass: null,
-      imapHost: null,
-      imapPort: null,
-      imapUser: null,
-      imapPass: null,
       rateLimitMinute: null,
       rateLimitHour: null,
       updatedAt: new Date(),
@@ -54,20 +48,12 @@ describe('checkGlobalRateLimits', () => {
   });
 
   it('should restrict sending when global minute limit is exceeded', async () => {
-    vi.mocked(prisma.globalSettings.findFirst).mockResolvedValue({
-      id: 'settings-id',
+    vi.mocked(prisma.globalSettings.findUnique).mockResolvedValue({
+      id: 'global',
       activeProvider: 'AZURE',
       azureConnString: 'something',
       azureSenderDomain: 'something',
       azureSenderDomains: ['something'],
-      smtpHost: null,
-      smtpPort: null,
-      smtpUser: null,
-      smtpPass: null,
-      imapHost: null,
-      imapPort: null,
-      imapUser: null,
-      imapPass: null,
       rateLimitMinute: 5,
       rateLimitHour: 100,
       updatedAt: new Date(),
@@ -82,20 +68,12 @@ describe('checkGlobalRateLimits', () => {
   });
 
   it('should restrict sending when global hourly limit is exceeded', async () => {
-    vi.mocked(prisma.globalSettings.findFirst).mockResolvedValue({
-      id: 'settings-id',
+    vi.mocked(prisma.globalSettings.findUnique).mockResolvedValue({
+      id: 'global',
       activeProvider: 'AZURE',
       azureConnString: 'something',
       azureSenderDomain: 'something',
       azureSenderDomains: ['something'],
-      smtpHost: null,
-      smtpPort: null,
-      smtpUser: null,
-      smtpPass: null,
-      imapHost: null,
-      imapPort: null,
-      imapUser: null,
-      imapPass: null,
       rateLimitMinute: 10,
       rateLimitHour: 50,
       updatedAt: new Date(),
@@ -113,20 +91,12 @@ describe('checkGlobalRateLimits', () => {
   });
 
   it('should allow sending when all limits are within boundaries', async () => {
-    vi.mocked(prisma.globalSettings.findFirst).mockResolvedValue({
-      id: 'settings-id',
+    vi.mocked(prisma.globalSettings.findUnique).mockResolvedValue({
+      id: 'global',
       activeProvider: 'AZURE',
       azureConnString: 'something',
       azureSenderDomain: 'something',
       azureSenderDomains: ['something'],
-      smtpHost: null,
-      smtpPort: null,
-      smtpUser: null,
-      smtpPass: null,
-      imapHost: null,
-      imapPort: null,
-      imapUser: null,
-      imapPass: null,
       rateLimitMinute: 10,
       rateLimitHour: 50,
       updatedAt: new Date(),
@@ -143,7 +113,7 @@ describe('checkGlobalRateLimits', () => {
 
   it('should restrict sending and log error on database failure', async () => {
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    vi.mocked(prisma.globalSettings.findFirst).mockRejectedValue(new Error('DB Connection Failed'));
+    vi.mocked(prisma.globalSettings.findUnique).mockRejectedValue(new Error('DB Connection Failed'));
 
     const result = await checkGlobalRateLimits();
     expect(result.allowed).toBe(false);

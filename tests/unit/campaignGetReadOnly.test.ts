@@ -1,0 +1,176 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { NextRequest } from 'next/server';
+
+/** Every model gets the read and write methods, so a stray write is recorded. */
+const fake = vi.hoisted(() => {
+  const methods = ['findUnique', 'findMany', 'count', 'groupBy', 'create', 'createMany', 'update', 'updateMany', 'upsert', 'delete', 'deleteMany'];
+  const model = () => Object.fromEntries(methods.map((n) => [n, vi.fn()]));
+  return {
+    campaign: model(),
+    campaignEnrollment: model(),
+    campaignSenderAccount: model(),
+    campaignStep: model(),
+    emailDispatch: model(),
+    inboundResponse: model(),
+    lead: model(),
+    leadGroup: model(),
+    senderAccount: model(),
+    suppressedEmail: model(),
+    $transaction: vi.fn(),
+    $queryRaw: vi.fn(),
+  };
+});
+
+vi.mock('../../lib/db', () => ({
+  db: { createCampaign: vi.fn() },
+  prisma: fake,
+}));
+
+vi.mock('../../lib/session', () => ({
+  getSession: vi.fn(),
+}));
+
+import { db } from '../../lib/db';
+import { getSession } from '../../lib/session';
+import { POST as postCampaign } from '../../app/api/campaigns/route';
+import { GET as getCampaign, PUT as putCampaign } from '../../app/api/campaigns/[id]/route';
+import { matchesWhere } from './helpers/prismaWhere';
+
+const mockedDb = db as any;
+const mockedSession = vi.mocked(getSession);
+
+const WRITES = ['create', 'createMany', 'update', 'updateMany', 'upsert', 'delete', 'deleteMany'];
+const USER = { id: 'user-1', name: 'User', email: 'user@example.com', role: 'USER' as const };
+const ADMIN = { id: 'admin-1', name: 'Admin', email: 'admin@example.com', role: 'ADMIN' as const };
+
+/** Published while group g1 was empty, so it has no enrollments yet. */
+const CAMPAIGN = {
+  id: 'cmp-1', name: 'Launch', userId: 'user-1', status: 'Active', audienceCohort: 'group_g1', senderAccountId: 'mb-1', steps: [],
+  timezone: 'UTC', sendSchedule: { days: ['Mon'], window: { start: '09:00', end: '17:00' } },
+  updatedAt: new Date('2026-09-01T10:00:00.000Z'),
+};
+
+/** Leads later imported into group g1 for a different campaign. */
+const GROUP_LEADS = [
+  { id: 'lead-1', email: 'lead-1@example.com' },
+  { id: 'lead-2', email: 'lead-2@example.com' },
+  { id: 'lead-3', email: 'lead-3@example.com' },
+];
+
+const params = { params: Promise.resolve({ id: 'cmp-1' }) };
+
+function makeReq(method: string, path: string, body?: unknown): NextRequest {
+  return new NextRequest(`http://localhost${path}`, {
+    method,
+    headers: { 'content-type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+}
+
+function writeCalls() {
+  const calls: string[] = [];
+  for (const [name, model] of Object.entries(fake)) {
+    if (typeof model === 'function') continue;
+    for (const method of WRITES) {
+      if (model[method].mock.calls.length > 0) calls.push(`${name}.${method}`);
+    }
+  }
+  if (fake.$transaction.mock.calls.length > 0) calls.push('$transaction');
+  return calls;
+}
+
+function expectEnrolled(createMany: any, campaignId: string) {
+  expect(createMany).toHaveBeenCalledTimes(1);
+  const [{ data, skipDuplicates }] = createMany.mock.calls[0];
+  expect(skipDuplicates).toBe(true);
+  expect(data.map((e: any) => e.leadId)).toEqual(['lead-1', 'lead-2', 'lead-3']);
+  for (const e of data) {
+    expect(e).toMatchObject({ campaignId, status: 'Active', currentSequenceStep: 1 });
+  }
+}
+
+beforeEach(() => {
+  vi.resetAllMocks();
+  mockedSession.mockResolvedValue(USER);
+  for (const model of [fake.campaignEnrollment, fake.emailDispatch, fake.inboundResponse, fake.lead, fake.suppressedEmail]) {
+    model.count.mockResolvedValue(0);
+    model.groupBy.mockResolvedValue([]);
+    model.findMany.mockResolvedValue([]);
+  }
+  fake.campaign.findUnique.mockResolvedValue(CAMPAIGN);
+  fake.$queryRaw.mockResolvedValue([]);
+  // Enrollment reads the cohort's leads that may be emailed: the cohort filter AND the sendable one.
+  fake.lead.findMany.mockImplementation(async ({ where }: any) =>
+    where.AND?.some((w: any) => w.groups?.some?.groupId === 'g1') ? GROUP_LEADS : [],
+  );
+  fake.senderAccount.findMany.mockImplementation(async ({ where }: any) =>
+    where.id.in.map((id: string) => ({ id })),
+  );
+  fake.leadGroup.findUnique.mockImplementation(async ({ where }: any) => (where.id === 'g1' ? { id: 'g1' } : null));
+  fake.$transaction.mockImplementation(async (fn: (tx: typeof fake) => unknown) => fn(fake));
+});
+
+describe('GET /api/campaigns/[id] is read-only (M24)', () => {
+  it.each(['GET', 'HEAD'])('%s of a campaign with no enrollments enrolls no one', async (method) => {
+    const res = await getCampaign(makeReq(method, '/api/campaigns/cmp-1'), params);
+    expect(res.status).toBe(200);
+    expect((await res.json()).telemetry.activeEnrollments).toBe(0);
+    expect(writeCalls()).toEqual([]);
+  });
+
+  it('writes nothing when an ADMIN views another user\'s campaign', async () => {
+    mockedSession.mockResolvedValue(ADMIN);
+    const res = await getCampaign(makeReq('GET', '/api/campaigns/cmp-1'), params);
+    expect(res.status).toBe(200);
+    expect(writeCalls()).toEqual([]);
+  });
+
+  it('reports the stored enrollment count unchanged', async () => {
+    fake.campaignEnrollment.count.mockImplementation(async ({ where }: any) =>
+      where.status === 'Active' ? 7 : 0,
+    );
+    const res = await getCampaign(makeReq('GET', '/api/campaigns/cmp-1'), params);
+    expect((await res.json()).telemetry.activeEnrollments).toBe(7);
+    expect(writeCalls()).toEqual([]);
+  });
+});
+
+describe('GET /api/campaigns/[id] counts only Active enrollments (L29)', () => {
+  it('leaves Paused, Completed, Failed, Bounced and Removed enrollments and other campaigns out', async () => {
+    const enrollments = ['Active', 'Active', 'Paused', 'Completed', 'Failed', 'Bounced', 'Removed']
+      .map((status, i) => ({ id: `e-${i}`, campaignId: 'cmp-1', status, currentSequenceStep: 1 }));
+    enrollments.push({ id: 'e-other', campaignId: 'cmp-2', status: 'Active', currentSequenceStep: 1 });
+    fake.campaignEnrollment.count.mockImplementation(async ({ where }: any) =>
+      enrollments.filter((e) => matchesWhere(e, where)).length,
+    );
+
+    const res = await getCampaign(makeReq('GET', '/api/campaigns/cmp-1'), params);
+
+    expect(res.status).toBe(200);
+    const { telemetry } = await res.json();
+    expect(telemetry.activeEnrollments).toBe(2);
+    expect(telemetry).not.toHaveProperty('enrollments');
+  });
+});
+
+describe('explicit create and save still enroll the cohort (M24)', () => {
+  it('POST /api/campaigns enrolls the new campaign\'s cohort', async () => {
+    mockedDb.createCampaign.mockImplementation(async (data: any) => ({ id: 'cmp-new', ...data }));
+    const res = await postCampaign(makeReq('POST', '/api/campaigns', {
+      name: 'Launch', senderAccountId: 'mb-1', audienceCohort: 'group_g1',
+    }));
+    expect(res.status).toBe(200);
+    expectEnrolled(fake.campaignEnrollment.createMany, 'cmp-new');
+  });
+
+  it('PUT /api/campaigns/[id] enrolls the cohort on save or publish', async () => {
+    fake.campaignStep.findMany.mockResolvedValue([{ stepOrder: 1, waitDays: 0, subject: 'Hi', body: 'Hello' }]);
+    // The sync runs after the save and writes while the campaign row names the save's request.
+    let saved: any = null;
+    fake.campaign.updateMany.mockImplementation(async ({ data }: any) => { saved ??= data; return { count: 1 }; });
+    fake.$queryRaw.mockImplementation(async () => [{ cohortSyncRequestedAt: saved?.cohortSyncRequestedAt ?? null, updatedAt: saved?.updatedAt }]);
+    const res = await putCampaign(makeReq('PUT', '/api/campaigns/cmp-1', { status: 'Active', updatedAt: CAMPAIGN.updatedAt.toISOString() }), params);
+    expect(res.status).toBe(200);
+    expectEnrolled(fake.campaignEnrollment.createMany, 'cmp-1');
+  });
+});

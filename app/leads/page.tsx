@@ -42,7 +42,17 @@ import { emailBodyToText } from '@/lib/emailText';
 import { normalizeEmail } from '@/lib/leadEmail';
 import { useToast } from '@/components/Toast';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-import { toCsv, downloadCsv } from '@/lib/csv';
+import {
+  toCsv,
+  downloadCsv,
+  decodeCsvBytes,
+  readCsvTable,
+  matchCsvColumns,
+  csvColumnLabels,
+  CsvParseError,
+  type CsvEncoding,
+  type CsvColumnMapping
+} from '@/lib/csv';
 import { SUPPRESSION_LABELS } from '@/lib/suppression';
 import { DOMAIN_CHECK_BATCH_SIZE, type DomainCheckCounts } from '@/lib/domainCheck';
 import type { SuppressionReason } from '@prisma/client';
@@ -182,12 +192,15 @@ export default function LeadsPage() {
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
   const [csvRows, setCsvRows] = useState<string[][]>([]);
   const [csvFileName, setCsvFileName] = useState<string>('');
+  const [csvEncoding, setCsvEncoding] = useState<CsvEncoding>('utf-8');
+  const [csvUnreadableRows, setCsvUnreadableRows] = useState<number>(0);
   const [showMapping, setShowMapping] = useState<boolean>(false);
-  const [mappings, setMappings] = useState({
-    email: '',
-    name: '',
-    company: '',
-    jobTitle: ''
+  // Column index for each field, -1 when unmapped (headers can repeat or be blank)
+  const [mappings, setMappings] = useState<CsvColumnMapping>({
+    email: -1,
+    name: -1,
+    company: -1,
+    jobTitle: -1
   });
   const [importProgress, setImportProgress] = useState<string>('');
 
@@ -783,85 +796,40 @@ export default function LeadsPage() {
     showToast(`Successfully exported ${exportLeads.length} leads to CSV.`);
   };
 
-  const parseCSVLine = (line: string): string[] => {
-    const result: string[] = [];
-    let current = '';
-    let inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-      const char = line[i];
-      if (char === '"' || char === "'") {
-        inQuotes = !inQuotes;
-      } else if (char === ',' && !inQuotes) {
-        result.push(current.trim().replace(/^["']|["']$/g, ''));
-        current = '';
-      } else {
-        current += char;
-      }
-    }
-    result.push(current.trim().replace(/^["']|["']$/g, ''));
-    return result;
-  };
-
-  const findBestHeaderMatch = (headers: string[], keywords: string[]): string => {
-    return headers.find(h => {
-      const lower = h.toLowerCase();
-      return keywords.some(k => lower.includes(k));
-    }) || '';
-  };
-
   const processCSVFile = async (file: File) => {
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const text = event.target?.result as string;
-      try {
-        const lines = text.split(/\r?\n/).filter(line => line.trim().length > 0);
-        if (lines.length < 2) {
-          showToast('Invalid CSV format. Header row and data required.');
-          return;
-        }
-
-        const headers = parseCSVLine(lines[0]);
-        const rows = lines.slice(1).map(line => parseCSVLine(line));
-
-        const matchedEmail = findBestHeaderMatch(headers, ['email', 'mail', 'addr']);
-        const matchedName = findBestHeaderMatch(headers, ['name', 'contact', 'person']);
-        const matchedCompany = findBestHeaderMatch(headers, ['company', 'org', 'brand', 'business']);
-        const matchedJobTitle = findBestHeaderMatch(headers, ['title', 'job', 'role', 'position']);
-
-        setCsvHeaders(headers);
-        setCsvRows(rows);
-        setCsvFileName(file.name);
-        setMappings({
-          email: matchedEmail,
-          name: matchedName,
-          company: matchedCompany,
-          jobTitle: matchedJobTitle
-        });
-        setShowMapping(true);
-        showToast('CSV parsed. Please map your columns.');
-      } catch (err) {
-        showToast('Error parsing CSV file.');
-        console.error(err);
+    try {
+      // UTF-8 when the bytes are valid UTF-8, else windows-1252 (Excel's "CSV (Comma delimited)")
+      const { text, encoding } = decodeCsvBytes(new Uint8Array(await file.arrayBuffer()));
+      const { headers, rows } = readCsvTable(text);
+      if (rows.length === 0) {
+        showToast('Invalid CSV format. Header row and data required.');
+        return;
       }
-    };
-    reader.readAsText(file);
+
+      setCsvHeaders(headers);
+      setCsvRows(rows);
+      setCsvFileName(file.name);
+      setCsvEncoding(encoding);
+      setCsvUnreadableRows(rows.filter(row => row.some(cell => cell.includes('\uFFFD'))).length);
+      setMappings(matchCsvColumns(headers));
+      setShowMapping(true);
+      showToast('CSV parsed. Please map your columns.');
+    } catch (err) {
+      showToast(err instanceof CsvParseError ? `Could not read the CSV file: ${err.message}.` : 'Error parsing CSV file.', 'error');
+      console.error(err);
+    }
   };
+
+  const csvColumnOptions = csvColumnLabels(csvHeaders);
+  const toColumnIndex = (value: string) => (value === '' ? -1 : Number(value));
 
   const handleExecuteImport = async () => {
-    if (!mappings.email) {
+    if (mappings.email === -1) {
       showToast('You must select a column for the Email field.');
       return;
     }
 
-    const emailIdx = csvHeaders.indexOf(mappings.email);
-    const nameIdx = mappings.name ? csvHeaders.indexOf(mappings.name) : -1;
-    const companyIdx = mappings.company ? csvHeaders.indexOf(mappings.company) : -1;
-    const jobTitleIdx = mappings.jobTitle ? csvHeaders.indexOf(mappings.jobTitle) : -1;
-
-    if (emailIdx === -1) {
-      showToast('Selected Email column not found.');
-      return;
-    }
+    const { email: emailIdx, name: nameIdx, company: companyIdx, jobTitle: jobTitleIdx } = mappings;
 
     setLoading(true);
     setImportProgress('Preparing import payload...');
@@ -1185,6 +1153,23 @@ export default function LeadsPage() {
               <p className="text-slate-500 dark:text-slate-400 text-xs mt-1 font-medium">
                 {csvRows.length} prospects found. Match your CSV header columns to the corresponding CRM prospect fields.
               </p>
+              {csvEncoding !== 'utf-8' && (
+                <p className="text-slate-500 dark:text-slate-400 text-xs mt-1 font-medium">
+                  {csvEncoding === 'windows-1252'
+                    ? 'Read as Windows-1252 because the file is not UTF-8.'
+                    : 'Read as UTF-16.'}{' '}
+                  Check that accented names look right in the previews.
+                </p>
+              )}
+              {csvUnreadableRows > 0 && (
+                <p className="flex items-start gap-1.5 text-amber-700 dark:text-amber-400 text-xs mt-1 font-medium">
+                  <AlertCircle className="w-3.5 h-3.5 mt-px shrink-0" />
+                  <span>
+                    {csvUnreadableRows} {csvUnreadableRows === 1 ? 'row contains' : 'rows contain'} characters that could not be read (shown as {'\uFFFD'}).
+                    They will be imported and emailed as shown, so fix them in the file and import it again.
+                  </span>
+                </p>
+              )}
             </div>
             <button
               onClick={handleCancelImport}
@@ -1204,18 +1189,18 @@ export default function LeadsPage() {
                   Email Address <span className="text-rose-500">*</span>
                 </label>
                 <select
-                  value={mappings.email}
-                  onChange={e => setMappings({ ...mappings, email: e.target.value })}
+                  value={mappings.email === -1 ? '' : mappings.email}
+                  onChange={e => setMappings({ ...mappings, email: toColumnIndex(e.target.value) })}
                   className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-2.5 text-xs text-slate-800 dark:text-white cursor-pointer outline-none focus:ring-2 focus:ring-blue-500/40"
                 >
                   <option value="" disabled>-- Select Column --</option>
-                  {csvHeaders.map(h => (
-                    <option key={h} value={h}>{h}</option>
+                  {csvColumnOptions.map((label, i) => (
+                    <option key={i} value={i}>{label}</option>
                   ))}
                 </select>
-                {mappings.email && csvRows.length > 0 && (
+                {mappings.email !== -1 && csvRows.length > 0 && (
                   <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200/50 dark:border-slate-800/40 mt-1">
-                    Preview: {csvRows[0][csvHeaders.indexOf(mappings.email)] || <em className="text-slate-400">Empty</em>}
+                    Preview: {csvRows[0][mappings.email] || <em className="text-slate-400">Empty</em>}
                   </div>
                 )}
               </div>
@@ -1226,18 +1211,18 @@ export default function LeadsPage() {
                   Full Name
                 </label>
                 <select
-                  value={mappings.name}
-                  onChange={e => setMappings({ ...mappings, name: e.target.value })}
+                  value={mappings.name === -1 ? '' : mappings.name}
+                  onChange={e => setMappings({ ...mappings, name: toColumnIndex(e.target.value) })}
                   className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-2.5 text-xs text-slate-800 dark:text-white cursor-pointer outline-none focus:ring-2 focus:ring-blue-500/40"
                 >
                   <option value="">{"[Don't Map - Autogenerate]"}</option>
-                  {csvHeaders.map(h => (
-                    <option key={h} value={h}>{h}</option>
+                  {csvColumnOptions.map((label, i) => (
+                    <option key={i} value={i}>{label}</option>
                   ))}
                 </select>
-                {mappings.name && csvRows.length > 0 && (
+                {mappings.name !== -1 && csvRows.length > 0 && (
                   <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200/50 dark:border-slate-800/40 mt-1">
-                    Preview: {csvRows[0][csvHeaders.indexOf(mappings.name)] || <em className="text-slate-400">Empty</em>}
+                    Preview: {csvRows[0][mappings.name] || <em className="text-slate-400">Empty</em>}
                   </div>
                 )}
               </div>
@@ -1248,18 +1233,18 @@ export default function LeadsPage() {
                   Company Name
                 </label>
                 <select
-                  value={mappings.company}
-                  onChange={e => setMappings({ ...mappings, company: e.target.value })}
+                  value={mappings.company === -1 ? '' : mappings.company}
+                  onChange={e => setMappings({ ...mappings, company: toColumnIndex(e.target.value) })}
                   className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-2.5 text-xs text-slate-800 dark:text-white cursor-pointer outline-none focus:ring-2 focus:ring-blue-500/40"
                 >
                   <option value="">{"[Don't Map - Use 'Unknown']"}</option>
-                  {csvHeaders.map(h => (
-                    <option key={h} value={h}>{h}</option>
+                  {csvColumnOptions.map((label, i) => (
+                    <option key={i} value={i}>{label}</option>
                   ))}
                 </select>
-                {mappings.company && csvRows.length > 0 && (
+                {mappings.company !== -1 && csvRows.length > 0 && (
                   <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200/50 dark:border-slate-800/40 mt-1">
-                    Preview: {csvRows[0][csvHeaders.indexOf(mappings.company)] || <em className="text-slate-400">Empty</em>}
+                    Preview: {csvRows[0][mappings.company] || <em className="text-slate-400">Empty</em>}
                   </div>
                 )}
               </div>
@@ -1270,18 +1255,18 @@ export default function LeadsPage() {
                   Job Title
                 </label>
                 <select
-                  value={mappings.jobTitle}
-                  onChange={e => setMappings({ ...mappings, jobTitle: e.target.value })}
+                  value={mappings.jobTitle === -1 ? '' : mappings.jobTitle}
+                  onChange={e => setMappings({ ...mappings, jobTitle: toColumnIndex(e.target.value) })}
                   className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-2.5 text-xs text-slate-800 dark:text-white cursor-pointer outline-none focus:ring-2 focus:ring-blue-500/40"
                 >
                   <option value="">{"[Don't Map - Use Empty]"}</option>
-                  {csvHeaders.map(h => (
-                    <option key={h} value={h}>{h}</option>
+                  {csvColumnOptions.map((label, i) => (
+                    <option key={i} value={i}>{label}</option>
                   ))}
                 </select>
-                {mappings.jobTitle && csvRows.length > 0 && (
+                {mappings.jobTitle !== -1 && csvRows.length > 0 && (
                   <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200/50 dark:border-slate-800/40 mt-1">
-                    Preview: {csvRows[0][csvHeaders.indexOf(mappings.jobTitle)] || <em className="text-slate-400">Empty</em>}
+                    Preview: {csvRows[0][mappings.jobTitle] || <em className="text-slate-400">Empty</em>}
                   </div>
                 )}
               </div>
@@ -1333,7 +1318,7 @@ export default function LeadsPage() {
                 </button>
                 <button
                   onClick={handleExecuteImport}
-                  disabled={!mappings.email || loading}
+                  disabled={mappings.email === -1 || loading}
                   className="bg-blue-600 hover:bg-blue-500 disabled:bg-slate-200 dark:disabled:bg-slate-800 text-white disabled:text-slate-400 dark:disabled:text-slate-600 px-5 py-2 rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer flex items-center gap-2"
                 >
                   {loading && <RefreshCw className="w-3 h-3 animate-spin" />}

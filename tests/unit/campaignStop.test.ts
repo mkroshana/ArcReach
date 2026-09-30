@@ -38,7 +38,8 @@ import { getSession } from '../../lib/session';
 import { getGlobalSettings } from '../../lib/settings';
 import { CAMPAIGN_OWNER_DISABLED_ERROR } from '../../lib/campaignPause';
 import {
-  CAMPAIGN_STOPPED_ERROR, NOT_STOPPABLE_ERROR, isStopped, stopChangeError, stoppedAtChange, stoppedNote,
+  CAMPAIGN_STOPPED_ERROR, NOT_STOPPABLE_ERROR, isStopped, restartConfirmMessage, stopChangeError, stopConfirmMessage,
+  stoppedAtChange, stoppedNote,
 } from '../../lib/campaignStop';
 import { SCHEDULE_REQUIRED_ERROR } from '../../lib/sendSchedule';
 import { PUT as putCampaignList } from '../../app/api/campaigns/route';
@@ -275,6 +276,15 @@ describe('lib/campaignStop', () => {
     expect(stoppedAtChange('Stopped', 'Stopped', now)).toBeUndefined();
     expect(stoppedAtChange('Active', 'Paused', now)).toBeUndefined();
     expect(stoppedAtChange('Paused', undefined, now)).toBeUndefined();
+  });
+
+  it('asks before stopping, saying how many leads keep their place, and before restarting', () => {
+    expect(stopConfirmMessage('Launch', 3)).toMatch(/^Stop "Launch"\? It sends nothing more until you restart it/);
+    expect(stopConfirmMessage('Launch', 3)).toContain('Its 3 leads still in the sequence keep their place, so a restart continues each from the step it was on.');
+    expect(stopConfirmMessage('Launch', 1)).toContain('Its 1 lead still in the sequence keeps its place, so a restart continues it');
+    expect(stopConfirmMessage('Launch', 0)).toContain('No lead is still in its sequence.');
+    expect(stopConfirmMessage('Launch', 0)).toMatch(/An email already being sent when you stop still goes out\.$/);
+    expect(restartConfirmMessage('Launch')).toMatch(/^Restart "Launch"\? It becomes Active and sends its saved steps again inside its sending window\./);
   });
 
   it('says when a stopped campaign was stopped', () => {

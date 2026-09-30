@@ -54,6 +54,26 @@ export function stoppedAtChange(current: string, next: unknown, now: Date = new 
 }
 
 /**
+ * What Stop asks before it stops `name`, with how many leads are still in its
+ * sequence (Active enrollments), which keep their place for a restart.
+ */
+export function stopConfirmMessage(name: string, leadsInSequence: number): string {
+  const place = leadsInSequence === 0
+    ? 'No lead is still in its sequence.'
+    : leadsInSequence === 1
+      ? 'Its 1 lead still in the sequence keeps its place, so a restart continues it from the step it was on.'
+      : `Its ${leadsInSequence.toLocaleString()} leads still in the sequence keep their place, so a restart continues each from the step it was on.`;
+  return `Stop "${name}"? It sends nothing more until you restart it, and it can't be edited while stopped. ${place} ` +
+    'An email already being sent when you stop still goes out.';
+}
+
+/** What Restart asks before it makes the stopped campaign `name` Active again. */
+export function restartConfirmMessage(name: string): string {
+  return `Restart "${name}"? It becomes Active and sends its saved steps again inside its sending window. ` +
+    'Each lead continues from the step it was on, and leads whose next email came due while it was stopped get it as soon as the sending window and limits allow.';
+}
+
+/**
  * "Stopped on 30 Sep 2026, 14:02", in local 24-hour time, for a stopped
  * campaign; "Stopped" when it has no stop time; null when it is not stopped.
  */

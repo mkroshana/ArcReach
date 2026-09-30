@@ -4,7 +4,7 @@
 import {
   ArrowLeft, Save, Send, Settings, Users, AlignLeft, Clock, ToggleLeft, Plus, Trash2,
   Mail, CheckCircle2, MousePointerClick, Reply, SendHorizontal,
-  Eye, Play, Loader2, XCircle, AlertTriangle, UserMinus, TimerOff, Lock, RefreshCw, UserX,
+  Eye, Play, Loader2, XCircle, AlertTriangle, UserMinus, TimerOff, Lock, RefreshCw, UserX, CircleStop, RotateCcw,
 } from 'lucide-react';
 import Link from 'next/link';
 import { use, useState, useEffect } from 'react';
@@ -18,6 +18,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import VariableToolbar from '@/components/VariableToolbar';
 import { activationBlocker, findIncompleteSteps, queuedLeadsMessage, sequenceDurationDays } from '@/lib/campaignSteps';
 import { autoResumeNote, noScheduleOutcome, ownerDisabledNote, savedScheduleNote } from '@/lib/campaignPause';
+import { STOPPABLE_STATUSES, STOPPED_STATUS, restartConfirmMessage, stopConfirmMessage, stoppedNote } from '@/lib/campaignStop';
 import { sameCampaignVersion } from '@/lib/campaignVersion';
 import { hasSendingSchedule, sendScheduleError, timezoneError } from '@/lib/sendSchedule';
 import { personalizePreview, previewEmailBody } from '@/lib/personalize';
@@ -55,6 +56,8 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
   const [runningCampaign, setRunningCampaign] = useState(false);
   const [keepingPaused, setKeepingPaused] = useState(false);
   const [changingStatus, setChangingStatus] = useState(false);
+  // The Stop or Restart confirmation on screen, if any.
+  const [confirmAction, setConfirmAction] = useState<'stop' | 'restart' | null>(null);
   // The updatedAt of the campaign the form was loaded from. Saves send it, and the
   // server refuses one once the campaign has changed since (showChangedPrompt).
   const [editorVersion, setEditorVersion] = useState<string | null>(null);
@@ -258,7 +261,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
     });
     const data = await res.json().catch(() => null);
     if (!res.ok || !data) return { ok: false, error: data?.error };
-    setCampaign((prev: any) => ({ ...prev, status: data.status, pausedUntil: data.pausedUntil, pauseReason: data.pauseReason }));
+    setCampaign((prev: any) => ({ ...prev, status: data.status, pausedUntil: data.pausedUntil, pauseReason: data.pauseReason, stoppedAt: data.stoppedAt }));
     setStatus(data.status);
     setEditorVersion(prev => (sameCampaignVersion(prev, data.previousUpdatedAt) ? data.updatedAt : prev));
     return { ok: true };
@@ -285,6 +288,24 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
       else showToast(data?.error || 'Failed to queue leads.', 'error');
     } catch (err) { console.error(err); showToast('Failed to queue leads.', 'error'); }
     finally { setRunningCampaign(false); }
+  };
+
+  // Stop and Restart go through the status route like the status menu, so
+  // unsaved edits stay in the form (a stopped campaign can't save them).
+  const handleStopOrRestart = async (action: 'stop' | 'restart') => {
+    setConfirmAction(null);
+    try {
+      setChangingStatus(true);
+      const result = await changeStatus(action === 'stop' ? STOPPED_STATUS : 'Active');
+      if (result.ok) {
+        showToast(action === 'stop'
+          ? 'Campaign stopped. It sends nothing until you restart it.'
+          : 'Campaign restarted. Sending resumes inside its sending window.');
+      } else {
+        showToast(result.error || `Failed to ${action} the campaign.`, 'error');
+      }
+    } catch (err) { console.error(err); showToast(`Error trying to ${action} the campaign.`, 'error'); }
+    finally { setChangingStatus(false); }
   };
 
   // Setting Paused again cancels the auto-resume the send engine scheduled. Only
@@ -351,6 +372,9 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
   ];
 
   const statusColor = status === 'Active' ? 'success' : status === 'Paused' ? 'warning' : 'default';
+  // A stopped campaign is read-only until it is restarted: the form shows its
+  // settings, but nothing in it can be changed or saved.
+  const stopped = status === STOPPED_STATUS;
   // Without a complete saved window the auto-resume sets the campaign to Draft, so the note says so.
   const resumeNote = campaign ? autoResumeNote({ ...campaign, hasSendingSchedule: hasSendingSchedule(campaign.timezone, campaign.sendSchedule) }) : null;
   const ownerNote = campaign ? ownerDisabledNote(campaign) : null;
@@ -377,23 +401,30 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
           <Box>
             <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
               <Typography variant="h5" sx={{ fontWeight: 700 }}>{campaignName || 'Sequence Setup'}</Typography>
-              <FormControl size="small">
-                <Select
-                  value={status}
-                  disabled={changingStatus}
-                  onChange={(e) => handleStatusChange(e.target.value)}
-                  sx={{
-                    height: 26, fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
-                    bgcolor: (t) => statusColor !== 'default' ? alpha(t.palette[statusColor as 'success' | 'warning'].main, 0.14) : 'action.hover',
-                    color: statusColor !== 'default' ? `${statusColor}.main` : 'text.secondary',
-                    '& .MuiOutlinedInput-notchedOutline': { borderColor: statusColor !== 'default' ? `${statusColor}.main` : 'divider' },
-                  }}
-                >
-                  <MenuItem value="Draft">Draft</MenuItem>
-                  <MenuItem value="Active">Active</MenuItem>
-                  <MenuItem value="Paused">Paused</MenuItem>
-                </Select>
-              </FormControl>
+              {stopped ? (
+                <Chip
+                  size="small" variant="outlined" color="error" label="Stopped" icon={<CircleStop size={12} />}
+                  sx={{ height: 26, fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}
+                />
+              ) : (
+                <FormControl size="small">
+                  <Select
+                    value={status}
+                    disabled={changingStatus}
+                    onChange={(e) => handleStatusChange(e.target.value)}
+                    sx={{
+                      height: 26, fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+                      bgcolor: (t) => statusColor !== 'default' ? alpha(t.palette[statusColor as 'success' | 'warning'].main, 0.14) : 'action.hover',
+                      color: statusColor !== 'default' ? `${statusColor}.main` : 'text.secondary',
+                      '& .MuiOutlinedInput-notchedOutline': { borderColor: statusColor !== 'default' ? `${statusColor}.main` : 'divider' },
+                    }}
+                  >
+                    <MenuItem value="Draft">Draft</MenuItem>
+                    <MenuItem value="Active">Active</MenuItem>
+                    <MenuItem value="Paused">Paused</MenuItem>
+                  </Select>
+                </FormControl>
+              )}
             </Stack>
             <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5 }}>
               Primary Mailbox: {campaign?.senderAccount?.emailAddress || 'N/A'}
@@ -423,18 +454,38 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                 {runningCampaign ? 'Running…' : 'Run Campaign'}
               </Button>
             )}
-            <Button variant="outlined" color="inherit" disabled={saving} startIcon={<Save size={14} />} onClick={() => handleSaveCampaign()} sx={{ borderColor: 'divider', color: 'text.secondary' }}>
-              {saving ? 'Saving…' : 'Save'}
-            </Button>
-            <Button variant="contained" disabled={saving || scheduleMissing} startIcon={<Send size={14} />} onClick={() => handleSaveCampaign(true)}>Publish Sequence</Button>
+            {stopped ? (
+              <Button variant="contained" disabled={changingStatus} startIcon={<RotateCcw size={14} />} onClick={() => setConfirmAction('restart')}>
+                Restart
+              </Button>
+            ) : (
+              <>
+                {STOPPABLE_STATUSES.includes(status) && (
+                  <Button variant="outlined" color="error" disabled={changingStatus} startIcon={<CircleStop size={14} />} onClick={() => setConfirmAction('stop')}>
+                    Stop
+                  </Button>
+                )}
+                <Button variant="outlined" color="inherit" disabled={saving} startIcon={<Save size={14} />} onClick={() => handleSaveCampaign()} sx={{ borderColor: 'divider', color: 'text.secondary' }}>
+                  {saving ? 'Saving…' : 'Save'}
+                </Button>
+                <Button variant="contained" disabled={saving || scheduleMissing} startIcon={<Send size={14} />} onClick={() => handleSaveCampaign(true)}>Publish Sequence</Button>
+              </>
+            )}
           </Stack>
-          {scheduleMissing && (
+          {scheduleMissing && !stopped && (
             <Typography variant="caption" sx={{ color: 'text.secondary', display: 'flex', alignItems: 'center', gap: 0.5 }}>
               <Clock size={12} style={{ flexShrink: 0 }} /> Publishing needs a sending schedule: set days, times and a timezone on the Schedule tab.
             </Typography>
           )}
         </Stack>
       </Stack>
+
+      {stopped && (
+        <Alert severity="info" icon={<CircleStop size={20} />}>
+          <AlertTitle>Campaign Stopped</AlertTitle>
+          {stoppedNote(campaign)}. It sends nothing, and can&apos;t be edited, until you restart it. Its leads keep their place in the sequence, and its stats and sent emails are kept.
+        </Alert>
+      )}
 
       {failedListMessages.length > 0 && (
         <Alert
@@ -541,7 +592,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                     <Settings size={16} color="#2563EB" />
                     <Typography variant="overline" sx={{ fontWeight: 700 }}>Campaign Title</Typography>
                   </Stack>
-                  <TextField fullWidth size="small" placeholder="e.g. Q4 Inactive Leads Engagement" value={campaignName} onChange={(e) => setCampaignName(e.target.value)} />
+                  <TextField fullWidth size="small" placeholder="e.g. Q4 Inactive Leads Engagement" value={campaignName} disabled={stopped} onChange={(e) => setCampaignName(e.target.value)} />
                 </CardContent>
               </Card>
 
@@ -552,7 +603,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                 </Stack>
                 {templates.length > 0 && (
                   <FormControl size="small" sx={{ minWidth: 220 }}>
-                    <Select displayEmpty value="" disabled={stepsLocked} onChange={(e) => applyTemplate(e.target.value)}>
+                    <Select displayEmpty value="" disabled={stepsLocked || stopped} onChange={(e) => applyTemplate(e.target.value)}>
                       <MenuItem value="" disabled>— Use Template —</MenuItem>
                       {templates.map(t => <MenuItem key={t.id} value={t.id}>{t.name} ({t.category})</MenuItem>)}
                     </Select>
@@ -560,7 +611,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                 )}
               </Stack>
 
-              {stepsLocked && (
+              {stepsLocked && !stopped && (
                 <Stack direction="row" spacing={1} sx={{ alignItems: 'center', color: 'text.secondary' }}>
                   <Lock size={14} style={{ flexShrink: 0 }} />
                   <Typography variant="caption" sx={{ fontWeight: 600 }}>
@@ -570,7 +621,8 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
               )}
 
               {steps.map((step, index) => {
-                const showPreview = previewSteps[step.id || index] !== false;
+                // A stopped campaign can't be edited, so its steps only show their preview.
+                const showPreview = stopped || previewSteps[step.id || index] !== false;
                 const bodyPreview = showPreview ? previewEmailBody(step.body || '') : null;
                 const stepIssue = incompleteSteps.find(s => s.stepNumber === index + 1);
                 return (
@@ -582,21 +634,23 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                           {index > 0 ? (
                             <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
                               <Typography variant="body2" sx={{ fontWeight: 600 }}>Wait for</Typography>
-                              <TextField size="small" type="number" value={step.waitDays} onChange={(e) => updateStepField(index, 'waitDays', parseInt(e.target.value) || 0)} sx={{ width: 72 }} slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: 12 } } }} />
+                              <TextField size="small" type="number" value={step.waitDays} disabled={stopped} onChange={(e) => updateStepField(index, 'waitDays', parseInt(e.target.value) || 0)} sx={{ width: 72 }} slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: 12 } } }} />
                               <Typography variant="body2" sx={{ fontWeight: 600 }}>days</Typography>
                             </Stack>
                           ) : (<Typography variant="overline" sx={{ fontWeight: 700, color: 'text.secondary' }}>Initial Dispatch</Typography>)}
                         </Stack>
-                        <Stack direction="row" spacing={1}>
-                          <Button size="small" variant={showPreview ? 'contained' : 'outlined'} color={showPreview ? 'primary' : 'inherit'} onClick={() => toggleStepPreview(step.id || index)} sx={{ borderColor: showPreview ? undefined : 'divider', color: showPreview ? undefined : 'text.secondary', fontSize: 10 }}>
-                            {showPreview ? 'Edit Mode' : 'Preview Mode'}
-                          </Button>
-                          {steps.length > 1 && (
-                            <IconButton aria-label="Remove step" size="small" disabled={stepsLocked && savedStepIds.has(step.id)} onClick={() => removeStep(index)} sx={{ border: 1, borderColor: 'divider', color: 'text.secondary', '&:hover': { color: 'error.main', borderColor: 'error.main' } }}>
-                              <Trash2 size={14} />
-                            </IconButton>
-                          )}
-                        </Stack>
+                        {!stopped && (
+                          <Stack direction="row" spacing={1}>
+                            <Button size="small" variant={showPreview ? 'contained' : 'outlined'} color={showPreview ? 'primary' : 'inherit'} onClick={() => toggleStepPreview(step.id || index)} sx={{ borderColor: showPreview ? undefined : 'divider', color: showPreview ? undefined : 'text.secondary', fontSize: 10 }}>
+                              {showPreview ? 'Edit Mode' : 'Preview Mode'}
+                            </Button>
+                            {steps.length > 1 && (
+                              <IconButton aria-label="Remove step" size="small" disabled={stepsLocked && savedStepIds.has(step.id)} onClick={() => removeStep(index)} sx={{ border: 1, borderColor: 'divider', color: 'text.secondary', '&:hover': { color: 'error.main', borderColor: 'error.main' } }}>
+                                <Trash2 size={14} />
+                              </IconButton>
+                            )}
+                          </Stack>
+                        )}
                       </Stack>
 
                       {stepIssue && (
@@ -652,9 +706,11 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                 );
               })}
 
-              <Button fullWidth variant="outlined" color="inherit" startIcon={<Plus size={16} />} onClick={addStep} sx={{ py: 1.5, borderStyle: 'dashed', borderColor: 'divider', color: 'text.secondary', fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-                Add Journey Step
-              </Button>
+              {!stopped && (
+                <Button fullWidth variant="outlined" color="inherit" startIcon={<Plus size={16} />} onClick={addStep} sx={{ py: 1.5, borderStyle: 'dashed', borderColor: 'divider', color: 'text.secondary', fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                  Add Journey Step
+                </Button>
+              )}
             </>
           )}
 
@@ -677,7 +733,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                 <Stack spacing={2.5}>
                   <FormControl fullWidth size="small">
                     <InputLabel>Outbox Timezone</InputLabel>
-                    <Select label="Outbox Timezone" value={timezone} onChange={(e) => setTimezone(e.target.value)}>
+                    <Select label="Outbox Timezone" value={timezone} disabled={stopped} onChange={(e) => setTimezone(e.target.value)}>
                       {timezoneOptions.map(o => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
                     </Select>
                   </FormControl>
@@ -685,7 +741,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                     <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Permitted Active Days</Typography>
                     <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap' }}>
                       {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => (
-                        <ToggleButton key={day} value={day} selected={selectedDays.includes(day)} onChange={() => toggleDaySelection(day)} sx={{ flex: 1, py: 0.75, fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>
+                        <ToggleButton key={day} value={day} selected={selectedDays.includes(day)} disabled={stopped} onChange={() => toggleDaySelection(day)} sx={{ flex: 1, py: 0.75, fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>
                           {day}
                         </ToggleButton>
                       ))}
@@ -694,9 +750,9 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                   <Box>
                     <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Cadence Delivery Window (Local Senders Clock)</Typography>
                     <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
-                      <TextField fullWidth size="small" type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
+                      <TextField fullWidth size="small" type="time" value={startTime} disabled={stopped} onChange={(e) => setStartTime(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
                       <Typography variant="caption" sx={{ color: 'text.secondary' }}>to</Typography>
-                      <TextField fullWidth size="small" type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
+                      <TextField fullWidth size="small" type="time" value={endTime} disabled={stopped} onChange={(e) => setEndTime(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
                     </Stack>
                   </Box>
                 </Stack>
@@ -728,7 +784,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                           </Stack>
                         )}
                       </Box>
-                      <Switch checked={f.val} onChange={(e) => f.set(e.target.checked)} />
+                      <Switch checked={f.val} disabled={stopped} onChange={(e) => f.set(e.target.checked)} />
                     </Stack>
                   ))}
                 </Stack>
@@ -746,7 +802,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                 <Stack spacing={2}>
                   <FormControl fullWidth size="small">
                     <InputLabel>Target CRM List</InputLabel>
-                    <Select label="Target CRM List" value={audienceCohort} onChange={(e) => setAudienceCohort(e.target.value)}>
+                    <Select label="Target CRM List" value={audienceCohort} disabled={stopped} onChange={(e) => setAudienceCohort(e.target.value)}>
                       <MenuItem value="Valid">All Active Valid Leads ({campaign?.telemetry?.validLeadsCount || 0})</MenuItem>
                       <MenuItem value="Unverified">All Unverified Leads ({campaign?.telemetry?.unverifiedLeadsCount || 0})</MenuItem>
                       {groups.map((g: any) => <MenuItem key={g.id} value={g.id}>Segment: {g.name} ({g._count?.leads || 0})</MenuItem>)}
@@ -800,7 +856,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                         <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
                           <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', gap: 1.5 }}>
                             <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flex: 1 }}>
-                              <Checkbox size="small" checked={isChecked} disabled={isPrimary} onChange={toggleCheckbox} />
+                              <Checkbox size="small" checked={isChecked} disabled={isPrimary || stopped} onChange={toggleCheckbox} />
                               <Box>
                                 <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
                                   <Typography variant="body2" sx={{ fontWeight: 700 }}>{mailbox.name || 'SMTP Account'}</Typography>
@@ -816,7 +872,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                                 </Stack>
                               </Box>
                             </Stack>
-                            {!isPrimary && (
+                            {!isPrimary && !stopped && (
                               <Button size="small" variant="outlined" color="inherit" onClick={makePrimary} sx={{ fontSize: 10, borderColor: 'divider', color: 'text.secondary' }}>
                                 Set as Primary
                               </Button>
@@ -937,6 +993,25 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
         isDestructive
         onConfirm={() => { setShowChangedPrompt(false); loadCampaign(); }}
         onCancel={() => setShowChangedPrompt(false)}
+      />
+
+      <ConfirmDialog
+        isOpen={confirmAction === 'stop'}
+        title="Stop Campaign?"
+        message={stopConfirmMessage(campaignName || 'this campaign', campaign?.telemetry?.activeEnrollments ?? 0)}
+        confirmLabel="Stop Campaign"
+        isDestructive
+        onConfirm={() => handleStopOrRestart('stop')}
+        onCancel={() => setConfirmAction(null)}
+      />
+
+      <ConfirmDialog
+        isOpen={confirmAction === 'restart'}
+        title="Restart Campaign?"
+        message={restartConfirmMessage(campaignName || 'this campaign')}
+        confirmLabel="Restart"
+        onConfirm={() => handleStopOrRestart('restart')}
+        onCancel={() => setConfirmAction(null)}
       />
     </Box>
   );

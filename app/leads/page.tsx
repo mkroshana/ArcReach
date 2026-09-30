@@ -34,7 +34,7 @@ import {
   Hourglass,
   MailQuestionMark
 } from 'lucide-react';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { TableSkeleton } from '@/components/Skeleton';
 import { decodeMimeHeader } from '@/lib/mime';
@@ -48,11 +48,20 @@ import {
   readCsvTable,
   matchCsvColumns,
   csvColumnLabels,
-  csvRowLead,
+  planCsvImport,
   CsvParseError,
   type CsvEncoding,
-  type CsvColumnMapping
+  type CsvColumnMapping,
+  type CsvImportPlan
 } from '@/lib/csv';
+import { parseLeadEmail } from '@/lib/leadEmail';
+import {
+  LEAD_IMPORT_BATCH_SIZE,
+  LEAD_IMPORT_OUTCOMES,
+  emptyLeadImportCounts,
+  describeLeadImport,
+  type LeadImportTotals
+} from '@/lib/leadImport';
 import { SUPPRESSION_LABELS } from '@/lib/suppression';
 import { DOMAIN_CHECK_BATCH_SIZE, type DomainCheckCounts } from '@/lib/domainCheck';
 import type { SuppressionReason } from '@prisma/client';
@@ -140,6 +149,27 @@ function describeDomainCheck(counts: DomainCheckCounts): string {
   return found.length > 0 ? `${found.join(', ')}.` : 'No leads were checked.';
 }
 
+/** Invalid emails the CSV mapping step quotes; any beyond this are only counted. */
+const MAX_QUOTED_EMAILS = 3;
+/** Longest invalid email cell the mapping step quotes in full. */
+const MAX_QUOTED_EMAIL_LENGTH = 60;
+
+/** The rows a CSV import will skip before sending anything, or '' when it skips none. */
+function describeCsvSkips(plan: CsvImportPlan): string {
+  const rows = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  const quoted = plan.invalid.slice(0, MAX_QUOTED_EMAILS).map(value =>
+    `"${value.length > MAX_QUOTED_EMAIL_LENGTH ? `${value.slice(0, MAX_QUOTED_EMAIL_LENGTH - 3)}...` : value}"`);
+  const more = plan.invalid.length - quoted.length;
+  const parts = [
+    plan.invalid.length > 0
+      ? `${rows(plan.invalid.length, 'row has', 'rows have')} an email that is not one valid address (${quoted.join(', ')}${more > 0 ? ` and ${more} more` : ''})`
+      : '',
+    plan.blank > 0 ? `${rows(plan.blank, 'row has', 'rows have')} no email` : '',
+    plan.duplicate > 0 ? `${rows(plan.duplicate, 'row repeats', 'rows repeat')} an earlier row's address` : '',
+  ].filter(Boolean);
+  return parts.length > 0 ? `${parts.join(', ')}.` : '';
+}
+
 export default function LeadsPage() {
   const [leads, setLeads] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -203,6 +233,10 @@ export default function LeadsPage() {
     jobTitle: -1
   });
   const [importProgress, setImportProgress] = useState<string>('');
+  // What the last import did when part of it failed; the file stays loaded so it can be imported again
+  const [importFailure, setImportFailure] = useState<string | null>(null);
+  // The rows the import will send and skip under the current Email mapping
+  const csvPlan = useMemo(() => planCsvImport(csvRows, mappings), [csvRows, mappings]);
 
   // Bulk Actions & disposal states
   const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
@@ -725,6 +759,11 @@ export default function LeadsPage() {
       showToast('Name is required.', 'error');
       return;
     }
+    // The server makes the same check; the browser's email input lets some malformed addresses through
+    if (!parseLeadEmail(newLead.email)) {
+      showToast('Enter one valid email address, like name@example.com.', 'error');
+      return;
+    }
 
     try {
       // A blank company or job title is stored empty, so templates use their own fallback for it
@@ -755,8 +794,8 @@ export default function LeadsPage() {
           showToast('Prospect added to CRM.');
         }
       } else {
-        const errText = await res.text();
-        showToast(errText || 'Failed to create lead.');
+        const err = await res.json().catch(() => ({}));
+        showToast(err.error || 'Failed to create lead.', 'error');
       }
     } catch (error) {
       showToast('Error saving lead.');
@@ -818,6 +857,7 @@ export default function LeadsPage() {
       setCsvEncoding(encoding);
       setCsvUnreadableRows(rows.filter(row => row.some(cell => cell.includes('\uFFFD'))).length);
       setMappings(matchCsvColumns(headers));
+      setImportFailure(null);
       setShowMapping(true);
       showToast('CSV parsed. Please map your columns.');
     } catch (err) {
@@ -835,52 +875,68 @@ export default function LeadsPage() {
       return;
     }
 
-    setLoading(true);
-    setImportProgress('Preparing import payload...');
+    // Rows with no email, one that is not a valid address or an address an earlier row has are never sent
+    const plan = csvPlan;
+    if (plan.leads.length === 0) {
+      showToast(`Nothing to import: ${describeCsvSkips(plan)}`, 'error');
+      return;
+    }
 
+    setLoading(true);
+    setImportFailure(null);
+
+    // A group that cannot be created stops the import, so no lead is imported without the group asked for
     let targetGroupId = selectedGroupForImport;
-    if (newGroupNameForImport.trim()) {
+    const newGroupName = newGroupNameForImport.trim();
+    if (newGroupName) {
+      setImportProgress('Creating group...');
+      let groupError: string | null = null;
       try {
         const groupRes = await fetch('/api/leads/groups', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: newGroupNameForImport.trim() })
+          body: JSON.stringify({ name: newGroupName })
         });
         if (groupRes.ok) {
           const newG = await groupRes.json();
           targetGroupId = newG.id;
+          // Picked from the list from now on, so importing again uses this group instead of creating it twice
+          setSelectedGroupForImport(newG.id);
+          setNewGroupNameForImport('');
+          await fetchGroups();
+        } else {
+          const err = await groupRes.json().catch(() => ({}));
+          groupError = err.error || `The server answered ${groupRes.status}.`;
         }
       } catch (err) {
         console.error('Failed to create group during CSV import:', err);
+        groupError = 'The request failed.';
+      }
+      if (groupError) {
+        showToast(`Could not create the group "${newGroupName}": ${groupError} Nothing was imported.`, 'error');
+        setImportProgress('');
+        setLoading(false);
+        return;
       }
     }
 
     const groupIds = targetGroupId ? [targetGroupId] : [];
 
-    // Filter valid rows and map them; a blank or unmapped Name, Company or Job Title is left empty
-    const mappedLeads = [];
-    for (const row of csvRows) {
-      const lead = csvRowLead(row, mappings);
-      if (lead) mappedLeads.push(lead);
-    }
+    // Every row lands in exactly one count: the server's outcome for the rows it took, else skipped here or failed
+    const totals: LeadImportTotals = {
+      ...emptyLeadImportCounts(),
+      invalid: plan.invalid.length,
+      duplicate: plan.duplicate,
+      blank: plan.blank,
+      failed: 0
+    };
+    let firstFailure: string | undefined;
 
-    if (mappedLeads.length === 0) {
-      showToast('No valid leads found (missing email or invalid format).');
-      setLoading(false);
-      setImportProgress('');
-      return;
-    }
+    for (let i = 0; i < plan.leads.length; i += LEAD_IMPORT_BATCH_SIZE) {
+      const batch = plan.leads.slice(i, i + LEAD_IMPORT_BATCH_SIZE);
+      setImportProgress(`Importing leads ${i + 1} to ${i + batch.length} of ${plan.leads.length}...`);
 
-    // Process in batches of 1,000
-    const batchSize = 1000;
-    let totalImported = 0;
-    let totalSuppressed = 0;
-
-    for (let i = 0; i < mappedLeads.length; i += batchSize) {
-      const batch = mappedLeads.slice(i, i + batchSize);
-      const progressText = `Importing leads ${i + 1} to ${Math.min(i + batchSize, mappedLeads.length)} of ${mappedLeads.length}...`;
-      setImportProgress(progressText);
-
+      let failure: string | null = null;
       try {
         const res = await fetch('/api/leads/bulk', {
           method: 'POST',
@@ -890,39 +946,45 @@ export default function LeadsPage() {
 
         if (res.ok) {
           const result = await res.json();
-          totalImported += (result.count || 0);
-          totalSuppressed += (result.suppressed || 0);
+          for (const outcome of LEAD_IMPORT_OUTCOMES) totals[outcome] += result.counts?.[outcome] || 0;
         } else {
-          console.error(`Failed to import batch starting at index ${i}`);
+          const err = await res.json().catch(() => ({}));
+          failure = err.error || `the server answered ${res.status}`;
         }
       } catch (err) {
         console.error(`Error importing batch starting at index ${i}:`, err);
+        failure = 'the request failed';
+      }
+      // The server imports a batch in one transaction, so a batch it answered with an error imported none of its rows
+      if (failure) {
+        totals.failed += batch.length;
+        firstFailure ??= failure;
       }
     }
 
-    // Reset import states
-    setSelectedGroupForImport('');
-    setNewGroupNameForImport('');
-    setCsvHeaders([]);
-    setCsvRows([]);
-    setCsvFileName('');
-    setShowMapping(false);
-    setImportProgress('');
-    
-    await fetchGroups(); // refresh group counts
-    if (totalSuppressed > 0) {
-      showToast(
-        `Spreadsheet imported! Added ${totalImported} new contacts to CRM. ` +
-        `${totalSuppressed} ${totalSuppressed === 1 ? 'is' : 'are'} on the suppression list (unsubscribed, bounced or invalid) and will not be emailed.`,
-        'warning'
-      );
+    const summary = describeLeadImport(totals, firstFailure);
+    if (totals.failed > 0) {
+      // Keep the file and mapping so the import can be run again; rows imported this time come back as already in the CRM
+      setImportFailure(summary);
     } else {
-      showToast(`Spreadsheet imported! Added ${totalImported} new contacts to CRM.`);
+      setSelectedGroupForImport('');
+      setNewGroupNameForImport('');
+      setCsvHeaders([]);
+      setCsvRows([]);
+      setCsvFileName('');
+      setShowMapping(false);
     }
+    setImportProgress('');
+
+    await fetchGroups(); // refresh group counts
+    const added = totals.created + totals.suppressed;
+    const skipped = totals.suppressed + totals.invalid + totals.blank + totals.duplicate > 0;
+    showToast(summary, totals.failed > 0 ? 'error' : skipped || added === 0 ? 'warning' : 'success');
     fetchLeads();
   };
 
   const handleCancelImport = () => {
+    setImportFailure(null);
     setCsvHeaders([]);
     setCsvRows([]);
     setCsvFileName('');
@@ -1165,6 +1227,18 @@ export default function LeadsPage() {
                     {csvUnreadableRows} {csvUnreadableRows === 1 ? 'row contains' : 'rows contain'} characters that could not be read (shown as {'\uFFFD'}).
                     They will be imported and emailed as shown, so fix them in the file and import it again.
                   </span>
+                </p>
+              )}
+              {mappings.email !== -1 && describeCsvSkips(csvPlan) && (
+                <p className="flex items-start gap-1.5 text-amber-700 dark:text-amber-400 text-xs mt-1 font-medium">
+                  <AlertCircle className="w-3.5 h-3.5 mt-px shrink-0" />
+                  <span>{describeCsvSkips(csvPlan)} These rows will be skipped.</span>
+                </p>
+              )}
+              {importFailure && (
+                <p className="flex items-start gap-1.5 text-rose-700 dark:text-rose-400 text-xs mt-1 font-medium">
+                  <AlertCircle className="w-3.5 h-3.5 mt-px shrink-0" />
+                  <span>{importFailure}</span>
                 </p>
               )}
             </div>

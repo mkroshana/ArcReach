@@ -1,4 +1,4 @@
-import { normalizeEmail } from './leadEmail';
+import { parseLeadEmail } from './leadEmail';
 
 /**
  * Escapes a cell value according to RFC-4180 CSV specifications.
@@ -303,13 +303,51 @@ export interface CsvRowLead {
 }
 
 /**
- * The lead in a CSV data row, or null when its Email cell holds no address. The email
- * is stored trimmed and lowercased. A Name, Company or Job Title that is unmapped or
- * blank is null, never a stand-in value, so templates use their own fallback for it.
+ * The lead in a CSV data row, or null when its Email cell is not one valid address
+ * (see parseLeadEmail). The email is stored trimmed and lowercased. A Name, Company or
+ * Job Title that is unmapped or blank is null, never a stand-in value, so templates
+ * use their own fallback for it.
  */
 export function csvRowLead(row: string[], mapping: CsvColumnMapping): CsvRowLead | null {
-  const email = normalizeEmail(mapping.email === -1 ? '' : row[mapping.email]);
-  if (!email.includes('@')) return null;
+  const email = parseLeadEmail(mapping.email === -1 ? '' : row[mapping.email]);
+  if (!email) return null;
   const cell = (column: number) => (column === -1 ? '' : (row[column] ?? '').trim()) || null;
   return { email, name: cell(mapping.name), company: cell(mapping.company), jobTitle: cell(mapping.jobTitle) };
+}
+
+/** The data rows of a CSV import, sorted into the leads to send and the rows skipped. */
+export interface CsvImportPlan {
+  /** One lead per address, in file order: the first row with an address wins. */
+  leads: CsvRowLead[];
+  /** Rows whose Email cell is blank or unmapped. */
+  blank: number;
+  /** Email cells that are not one valid address, trimmed, as the file has them. */
+  invalid: string[];
+  /** Rows repeating the address of an earlier row, under any capitalisation. */
+  duplicate: number;
+}
+
+/**
+ * Sorts `rows` into the leads the import sends and the rows it skips, so the
+ * page can say before the import which rows will not be imported, and count
+ * them in its result. Repeats are dropped across the whole file here, since a
+ * repeat in a later batch would otherwise come back as already in the CRM.
+ */
+export function planCsvImport(rows: string[][], mapping: CsvColumnMapping): CsvImportPlan {
+  const plan: CsvImportPlan = { leads: [], blank: 0, invalid: [], duplicate: 0 };
+  const seen = new Set<string>();
+  for (const row of rows) {
+    const lead = csvRowLead(row, mapping);
+    if (!lead) {
+      const value = mapping.email === -1 ? '' : (row[mapping.email] ?? '').trim();
+      if (value === '') plan.blank++;
+      else plan.invalid.push(value);
+    } else if (seen.has(lead.email)) {
+      plan.duplicate++;
+    } else {
+      seen.add(lead.email);
+      plan.leads.push(lead);
+    }
+  }
+  return plan;
 }

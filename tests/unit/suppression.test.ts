@@ -281,7 +281,11 @@ describe('the suppression list outlives the lead (H18)', () => {
     }));
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ success: true, count: 2, suppressed: 1 });
+    expect(await res.json()).toEqual({
+      success: true,
+      counts: { created: 1, suppressed: 1, existing: 0, duplicate: 0, invalid: 0 },
+      outcomes: ['suppressed', 'created'],
+    });
     // Still created, but as Unsubscribed, and enrolled nowhere.
     expect(leadByEmail('jane@acme.com')).toMatchObject({ status: 'Unsubscribed', validationStatus: 'Unverified' });
     expect(leadByEmail('bob@acme.com')).toMatchObject({ status: 'Neutral', validationStatus: 'Unverified' });
@@ -293,7 +297,7 @@ describe('the suppression list outlives the lead (H18)', () => {
 
     const res = await postBulk(makeReq('POST', '/api/leads/bulk', { leads: [{ email: 'old@acme.com' }] }));
 
-    expect((await res.json()).suppressed).toBe(1);
+    expect((await res.json()).outcomes).toEqual(['suppressed']);
     expect(leadByEmail('old@acme.com')).toMatchObject({ status: 'Bounced', validationStatus: 'Invalid' });
     expect(db.tables.campaignEnrollment).toHaveLength(0);
   });
@@ -349,7 +353,7 @@ describe('unsubscribe links of deleted leads (H18)', () => {
     const imported = await postBulk(makeReq('POST', '/api/leads/bulk', {
       leads: [{ email: 'Jane@Acme.com', name: 'Jane' }, { email: 'bob@acme.com', name: 'Bob' }],
     }));
-    expect(await imported.json()).toEqual({ success: true, count: 2, suppressed: 1 });
+    expect((await imported.json()).outcomes).toEqual(['suppressed', 'created']);
     expect(leadByEmail('jane@acme.com')).toMatchObject({ status: 'Unsubscribed' });
     expect(enrolledIn('cmp-unverified')).toEqual(['bob@acme.com']);
   });

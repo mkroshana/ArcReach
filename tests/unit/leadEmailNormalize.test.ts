@@ -11,8 +11,8 @@ import { NextRequest } from 'next/server';
 const fake = vi.hoisted(() => {
   type Row = Record<string, any>;
   const tables: Record<string, Row[]> = {
-    lead: [], campaign: [], campaignEnrollment: [], emailDispatch: [], inboundResponse: [], leadGroupMembership: [], leadAlias: [],
-    suppressedEmail: [],
+    lead: [], campaign: [], campaignEnrollment: [], emailDispatch: [], inboundResponse: [], leadGroup: [], leadGroupMembership: [],
+    leadAlias: [], suppressedEmail: [],
   };
   const uniqueKeys: Record<string, string[][]> = {
     lead: [['id'], ['email']],
@@ -104,6 +104,8 @@ const fake = vi.hoisted(() => {
 
   const client: Record<string, any> = {};
   for (const table of Object.keys(tables)) client[table] = model(table);
+  // An interactive transaction runs on the same tables
+  client.$transaction = async (fn: (tx: any) => Promise<unknown>) => fn(client);
 
   return {
     client,
@@ -208,6 +210,7 @@ describe('POST /api/leads', () => {
 describe('POST /api/leads/bulk', () => {
   it('creates each address once, lowercased, skipping case variants in the batch and in the database', async () => {
     fake.tables.lead.push(storedLead({ id: 'lead-1', email: 'John.Smith@Acme.com' }));
+    fake.tables.leadGroup.push({ id: 'group-1', name: 'Group 1' });
 
     const res = await postBulk(makeReq('/api/leads/bulk', {
       leads: [
@@ -221,7 +224,7 @@ describe('POST /api/leads/bulk', () => {
     }));
 
     expect(res.status).toBe(200);
-    expect((await res.json()).count).toBe(2);
+    expect((await res.json()).outcomes).toEqual(['existing', 'created', 'duplicate', 'created', 'invalid']);
     expect(fake.tables.lead.map((l) => [l.email, l.name])).toEqual([
       ['John.Smith@Acme.com', null],
       ['jane@acme.com', 'Jane First'],
@@ -231,9 +234,14 @@ describe('POST /api/leads/bulk', () => {
     expect(fake.tables.leadGroupMembership.map((m) => m.leadId)).toEqual(created);
   });
 
-  it('refuses a batch with no usable address', async () => {
+  it('reports every row of a batch with no usable address as invalid and creates nothing', async () => {
     const res = await postBulk(makeReq('/api/leads/bulk', { leads: [{ email: '  ' }, { name: 'No email' }] }));
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      counts: { created: 0, suppressed: 0, existing: 0, duplicate: 0, invalid: 2 },
+      outcomes: ['invalid', 'invalid'],
+    });
+    expect(fake.tables.lead).toHaveLength(0);
   });
 });
 

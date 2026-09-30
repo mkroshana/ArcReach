@@ -7,6 +7,7 @@ import {
   csvColumnLabels,
   matchCsvColumns,
   csvRowLead,
+  planCsvImport,
   CsvParseError
 } from '../../lib/csv';
 import { personalizeEmail } from '../../lib/personalize';
@@ -363,9 +364,46 @@ describe('csvRowLead', () => {
     expect(csvRowLead(['jane@acme.com'], { email: -1, name: -1, company: -1, jobTitle: -1 })).toBeNull();
   });
 
+  it('skips a row whose Email cell holds anything but one plain address (M62)', () => {
+    expect(csvRowLead(['John <john@acme.com>', 'John'], mapping)).toBeNull();
+    expect(csvRowLead(['a@x.com; b@x.com'], mapping)).toBeNull();
+    expect(csvRowLead(['john@acme.com;John;Acme'], mapping)).toBeNull();
+    expect(csvRowLead(['jane@acme'], mapping)).toBeNull();
+  });
+
   it('lets templates use their fallbacks for a lead imported with only an email', () => {
     const lead = csvRowLead(['info@acme.com'], { email: 0, name: -1, company: -1, jobTitle: -1 })!;
     expect(personalizeEmail('Hi {{firstName}}, I noticed {{company}} is hiring', lead))
       .toBe('Hi there, I noticed your company is hiring');
+  });
+});
+
+describe('planCsvImport (M62, M63)', () => {
+  const mapping = { email: 1, name: 0, company: -1, jobTitle: -1 };
+
+  it('sends one lead per valid address and counts every row it skips', () => {
+    const plan = planCsvImport([
+      ['Jane', 'Jane@Acme.com'],
+      ['John', 'John <john@acme.com>'],
+      ['No Email', ''],
+      ['Jane Again', ' jane@acme.com '],
+      ['Bob', 'bob@acme.com'],
+      ['Semicolons', 'amy@acme.com;Amy;Acme'],
+      ['Short Row'],
+    ], mapping);
+
+    expect(plan.leads).toEqual([
+      { email: 'jane@acme.com', name: 'Jane', company: null, jobTitle: null },
+      { email: 'bob@acme.com', name: 'Bob', company: null, jobTitle: null },
+    ]);
+    expect(plan.invalid).toEqual(['John <john@acme.com>', 'amy@acme.com;Amy;Acme']);
+    expect(plan.blank).toBe(2);
+    expect(plan.duplicate).toBe(1);
+  });
+
+  it('counts every row blank while no column is mapped to Email', () => {
+    expect(planCsvImport([['Jane', 'jane@acme.com']], { ...mapping, email: -1 })).toEqual({
+      leads: [], blank: 1, invalid: [], duplicate: 0,
+    });
   });
 });

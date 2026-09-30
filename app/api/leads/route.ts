@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { LeadValidationStatus } from '@prisma/client';
+import { LeadValidationStatus, type LeadStatus } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { UnauthorizedError, unauthorizedResponse } from '@/lib/sessionError';
 import { CAMPAIGN_LABEL_SELECT, dispatchScope, replyScope } from '@/lib/leadHistoryScope';
 import { type FieldRule, fieldRules, isPlainObject, pickUpdateFields } from '@/lib/updateAllowList';
-import { leadEmailIn, normalizeEmail } from '@/lib/leadEmail';
+import { leadEmailIn, normalizeEmail, parseLeadEmail } from '@/lib/leadEmail';
 import { findEnrollableLeadIds } from '@/lib/sendEligibility';
 import {
   CRM_STATUSES, liftsSuppression, suppressedLeadFields, suppressionEntries, suppressionReasons, withSuppression,
@@ -148,17 +148,39 @@ export async function POST(req: NextRequest) {
   try {
     const session = await getSession();
     const data = await req.json();
-    const { name, company, jobTitle, status, validationStatus, groupIds } = data;
-    const email = normalizeEmail(data.email);
-
-    if (!email) {
+    if (!isPlainObject(data)) {
+      return NextResponse.json({ error: 'Request body must be a JSON object.' }, { status: 400 });
+    }
+    if (!normalizeEmail(data.email)) {
       return NextResponse.json({ error: 'Email address is required.' }, { status: 400 });
     }
+    // The same check as the CSV import: one plain address, stored trimmed and lowercased
+    const email = parseLeadEmail(data.email);
+    if (!email) {
+      return NextResponse.json({ error: 'Email address must be one valid address, like name@example.com.' }, { status: 400 });
+    }
 
+    // Only text, known statuses and group ids reach Prisma; anything else would fail the create or be a nested write
+    for (const field of ['name', 'company', 'jobTitle']) {
+      if (data[field] != null && typeof data[field] !== 'string') {
+        return NextResponse.json({ error: `${field} must be text or null.` }, { status: 400 });
+      }
+    }
     // The status is CRM sentiment only: Bounced and Unsubscribed come with a suppression
-    if (status && !CRM_STATUSES.includes(status)) {
+    if (data.status != null && !(CRM_STATUSES as unknown[]).includes(data.status)) {
       return NextResponse.json({ error: `status must be one of ${CRM_STATUSES.join(', ')}.` }, { status: 400 });
     }
+    const validationStatuses = Object.values(LeadValidationStatus);
+    if (data.validationStatus != null && !(validationStatuses as unknown[]).includes(data.validationStatus)) {
+      return NextResponse.json({ error: `validationStatus must be one of ${validationStatuses.join(', ')}.` }, { status: 400 });
+    }
+    if (data.groupIds != null && !isIdArray(data.groupIds)) {
+      return NextResponse.json({ error: 'groupIds must be an array of lead group IDs.' }, { status: 400 });
+    }
+    const { name, company, jobTitle, status, validationStatus, groupIds } = data as {
+      name?: string | null; company?: string | null; jobTitle?: string | null;
+      status?: LeadStatus | null; validationStatus?: LeadValidationStatus | null; groupIds?: string[] | null;
+    };
 
     // Check if lead already exists, under any capitalisation
     const existing = await prisma.lead.findFirst({

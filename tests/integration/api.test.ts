@@ -372,9 +372,9 @@ describe('ArcReach Live API Integration Tests', () => {
       expect(bulkRes.status).toBe(200);
       const bulkResult = await bulkRes.json();
       expect(bulkResult.success).toBe(true);
-      expect(bulkResult.count).toBe(2);
+      expect(bulkResult.counts.created).toBe(2);
 
-      // 2. Re-ingest same payload to verify duplicate filtering (should return count: 0)
+      // 2. Re-ingest same payload to verify duplicate filtering (both rows come back as existing)
       const duplicateRes = await testFetch(`${BASE_URL}/api/leads/bulk`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -383,7 +383,8 @@ describe('ArcReach Live API Integration Tests', () => {
       expect(duplicateRes.status).toBe(200);
       const duplicateResult = await duplicateRes.json();
       expect(duplicateResult.success).toBe(true);
-      expect(duplicateResult.count).toBe(0);
+      expect(duplicateResult.counts.created).toBe(0);
+      expect(duplicateResult.outcomes).toEqual(['existing', 'existing']);
 
       // 3. Clean up created leads
       const getLeadsRes = await testFetch(`${BASE_URL}/api/leads`);

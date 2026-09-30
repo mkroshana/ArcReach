@@ -14,6 +14,7 @@ import { useToast } from '@/components/Toast';
 import { LoadError, loadErrorMessage, readJsonList, readJsonObject, responseErrorMessage } from '@/lib/apiResponse';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { MAILBOX_LIMIT_FIELDS, type MailboxLimitField, MailboxSettingsSaves, mailboxLimitInputValue } from '@/lib/mailboxSettingsSave';
+import { combinedDailyCapacity } from '@/lib/mailboxCapacity';
 import {
   Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
   Dialog, DialogTitle, DialogContent, DialogActions, Table, TableHead, TableBody, TableRow, TableCell,
@@ -140,9 +141,9 @@ export default function AccountsPage() {
   const [editReplyTo, setEditReplyTo] = useState('');
   const [globalRateLimits, setGlobalRateLimits] = useState<GlobalRateLimitValues | null>(null);
 
-  const totalSentLast24Hours = accounts.reduce((sum, a) => sum + (a.sentLast24Hours || 0), 0);
   const totalDailyLimit = accounts.reduce((sum, a) => sum + (a.dailyLimit || 0), 0);
-  const remainingCapacity = Math.max(0, totalDailyLimit - totalSentLast24Hours);
+  // What the mailboxes may send now: each one's enforced cap, which warmup holds below its daily limit.
+  const dailyCapacity = combinedDailyCapacity(accounts);
   const failingSyncCount = accounts.filter(a => imapSyncState(a) === 'failing').length;
 
   const [imapHost, setImapHost] = useState('');
@@ -737,13 +738,13 @@ export default function AccountsPage() {
                   <Box sx={{ mt: 2, pt: 2, borderTop: 1, borderColor: 'divider' }}>
                     <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                       <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Combined Daily Capacity</Typography>
-                      <Typography variant="caption" sx={{ fontWeight: 700, color: 'primary.main', fontFamily: 'monospace' }}>{totalSentLast24Hours} / {totalDailyLimit} sent in the last 24 hours</Typography>
+                      <Typography variant="caption" sx={{ fontWeight: 700, color: 'primary.main', fontFamily: 'monospace' }}>{dailyCapacity.sent} / {dailyCapacity.cap} sent in the last 24 hours</Typography>
                     </Stack>
-                    <LinearProgress variant="determinate" value={Math.min(100, totalDailyLimit > 0 ? (totalSentLast24Hours / totalDailyLimit) * 100 : 0)} sx={{ height: 6, borderRadius: 999 }} />
+                    <LinearProgress variant="determinate" value={Math.min(100, dailyCapacity.cap > 0 ? (dailyCapacity.sent / dailyCapacity.cap) * 100 : 0)} sx={{ height: 6, borderRadius: 999 }} />
                     <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 1.5, mt: 2, p: 1.5, borderRadius: '12px', bgcolor: 'action.hover', border: 1, borderColor: 'divider', textAlign: 'center', fontSize: 10 }}>
-                      <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Remaining</Typography><Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{remainingCapacity} / day</Typography></Box>
+                      <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Remaining</Typography><Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{dailyCapacity.remaining} / day</Typography></Box>
                       <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Mailboxes</Typography><Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{accounts.length}</Typography></Box>
-                      <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Avg / Account</Typography><Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{accounts.length > 0 ? Math.round(totalDailyLimit / accounts.length) : 0}</Typography></Box>
+                      <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Avg / Account</Typography><Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{accounts.length > 0 ? Math.round(dailyCapacity.cap / accounts.length) : 0}</Typography></Box>
                     </Box>
                   </Box>
                 )}

@@ -83,14 +83,8 @@ export async function GET() {
         countReplies(prisma, scope),
       ]);
 
-      // Calculate effectiveDailyCap
-      let effectiveDailyCap = account.dailyLimit;
-      if (account.warmupEnabled && account.warmupStartedAt) {
-        const startedAt = new Date(account.warmupStartedAt);
-        const elapsedMs = now.getTime() - startedAt.getTime();
-        const daysActive = Math.max(0, Math.floor(elapsedMs / 86400000));
-        effectiveDailyCap = Math.min(account.dailyLimit, account.warmupLimit + account.warmupRamp * daysActive);
-      }
+      // The cap the send engine enforces: the warmup ramp while it holds the mailbox below its daily limit.
+      const effectiveDailyCap = getEffectiveDailyCap(account, now);
 
       return {
         ...redactAccount(account),

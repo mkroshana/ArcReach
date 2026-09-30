@@ -19,7 +19,7 @@ const fake = vi.hoisted(() => ({
 vi.mock('../../lib/db', () => ({ prisma: fake }));
 
 import { POST } from '../../app/api/webhook/route';
-import { classifyDeliveryFailure, parseDeliveryStatus } from '../../lib/deliveryReport';
+import { classifyDeliveryFailure, deliveryOutcome, parseDeliveryStatus } from '../../lib/deliveryReport';
 
 function makeReq(body: any, headers: Record<string, string> = {}): NextRequest {
   return new NextRequest('http://localhost/api/webhook', {
@@ -294,6 +294,37 @@ describe('webhook delivery reports map every ACS status (H20)', () => {
     expectHardBounce('d-1', status);
   });
 
+  it.each([
+    ['a bad-address code', '550 5.1.1 The email account that you tried to reach does not exist; user unknown.'],
+    ['no reason at all', undefined],
+    ['a reason it does not recognise', '554 5.4.4 Unable to route the message.'],
+  ])('Bounced with %s stays a hard bounce that suppresses the lead', async (_label, statusMessage) => {
+    addDispatch({ id: 'd-1' });
+
+    const res = await post([report('op-d-1', 'Bounced', statusMessage)]);
+
+    expect(res.status).toBe(200);
+    expectHardBounce('d-1', 'Bounced');
+  });
+
+  it.each([
+    ['a suspected spam refusal', '550 5.7.1 [203.0.113.7] Gmail has detected that this message is likely suspected spam.'],
+    ['an authentication refusal', '550-5.7.26 This mail has been blocked because the sender is unauthenticated.'],
+    ['a transient rate limit', '421 4.7.28 Our system has detected an unusual rate of mail from your IP; rate limited.'],
+    ['spam wording without a code', 'Message rejected as unsolicited mail.'],
+  ])('Bounced with %s is a soft bounce that suppresses nobody and leaves the lead mailable', async (_label, statusMessage) => {
+    addDispatch({ id: 'd-1' });
+
+    const res = await post([report('op-d-1', 'Bounced', statusMessage)]);
+
+    expect(res.status).toBe(200);
+    expect(dispatch('d-1')).toMatchObject({ deliveryStatus: 'Bounced', bounceType: 'soft', bouncedAt: new Date(ATTEMPTED_AT) });
+    expectLeadUntouched();
+    expect(fake.suppressedEmail.createMany).not.toHaveBeenCalled();
+    expect(fake.lead.update).not.toHaveBeenCalled();
+    expect(events).toEqual([]);
+  });
+
   it.each(['Quarantined', 'FilteredSpam'])('%s is recorded on the dispatch without bouncing it or touching the lead', async (status) => {
     addDispatch({ id: 'd-1' });
 
@@ -464,7 +495,42 @@ describe('classifyDeliveryFailure (H20)', () => {
     [undefined, 'soft'],
   ])('%j is %s', (statusMessage, expected) => {
     expect(classifyDeliveryFailure(statusMessage)).toBe(expected);
+    expect(deliveryOutcome('Failed', statusMessage)).toBe(expected);
   });
+});
+
+describe('deliveryOutcome for Bounced and Suppressed (H20)', () => {
+  it.each([
+    ['550 5.7.1 Message rejected: suspected spam', 'soft'],
+    ['550-5.7.26 Unauthenticated email from example.com is not accepted due to its DMARC policy', 'soft'],
+    ['421 4.7.28 rate limited', 'soft'],
+    ['452 4.2.2 The email account that you tried to reach is over quota.', 'soft'],
+    ['451 Temporary local problem, try again later', 'soft'],
+    ['554 Your IP address is listed on a blocklist', 'soft'],
+    ['550 Sender reputation too low', 'soft'],
+    ['550 SPF check failed', 'soft'],
+    ['550 Message failed DKIM verification', 'soft'],
+    ['550 Too many messages from your IP address', 'soft'],
+    ['550 Mailbox unavailable: client host blocked', 'soft'],
+    ['550 5.1.1 The email account that you tried to reach does not exist.', 'hard'],
+    ['550 5.1.10 RESOLVER.ADR.RecipientNotFound; Recipient not found by SMTP address lookup', 'hard'],
+    ['550 5.1.1 Recipient rejected by policy: user unknown', 'hard'],
+    ['Recipient address does not exist.', 'hard'],
+    ['554 5.4.4 Unable to route: no MX record for the domain', 'hard'],
+    ['552 5.2.2 Mailbox full', 'hard'],
+    ['', 'hard'],
+    [null, 'hard'],
+    [undefined, 'hard'],
+  ])('Bounced %j is %s', (statusMessage, expected) => {
+    expect(deliveryOutcome('Bounced', statusMessage)).toBe(expected);
+  });
+
+  it.each(['550 5.7.1 Message rejected: suspected spam', '421 4.7.28 rate limited', null])(
+    'Suppressed %j is hard whatever its reason',
+    (statusMessage) => {
+      expect(deliveryOutcome('Suppressed', statusMessage)).toBe('hard');
+    }
+  );
 });
 
 describe('parseDeliveryStatus (H20)', () => {

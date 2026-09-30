@@ -6,9 +6,13 @@ import { suppressEmail } from './suppression';
  * applied by the delivery webhook to the dispatch they report on. ACS reports:
  *  - Delivered: the recipient's mail server accepted the message.
  *  - Expanded: a distribution list was expanded; each member gets a report of its own.
- *  - Bounced: permanently undeliverable, a hard bounce.
+ *  - Bounced: the recipient's mail server refused it for good. A hard bounce,
+ *    unless its statusMessage shows the refusal was transient or over spam,
+ *    reputation, policy, rate or authentication rather than the address: then
+ *    a soft one, so a sender reputation problem never suppresses good
+ *    recipients (classifyBounce).
  *  - Suppressed: ACS did not send it because the address hard-bounced before
- *    (ACS's own suppression list), so a hard bounce too.
+ *    (ACS's own suppression list), so a hard bounce.
  *  - Quarantined, FilteredSpam: the recipient's filtering held or rejected the
  *    message as spam. Nothing is wrong with the address; the dispatch records it.
  *  - Failed: not delivered; its statusMessage says whether for good (classifyDeliveryFailure).
@@ -35,6 +39,26 @@ const TRANSIENT_REPLY_CODE = /(?:^|\s)4\d\d[\s-]/;
 /** Wording for a mailbox or domain that does not exist. */
 const BAD_ADDRESS_WORDING =
   /no such (user|mailbox)|user unknown|unknown user|recipient not found|recipientnotfound|mailbox (unavailable|not found)|does not exist|doesn't exist|invalid recipient|domain not found|nxdomain|no mx|null mx/;
+/** Wording for a refusal over spam, the sender's reputation or authentication, policy or rate, not the address. */
+const POLICY_WORDING =
+  /spam|unsolicited|reputation|polic(y|ies)|blocked|block ?list|black ?list|rate.?limit|too many|dmarc|\bspf\b|dkim|authenticat/;
+
+/**
+ * What a lowercased statusMessage's reply codes alone say: 'soft' for a code
+ * that is not permanent (4.x.x or a bare 4xx) or a policy one (5.7.x: spam,
+ * reputation, authentication), 'hard' for a bad-address one (5.1.x), or null
+ * when its codes, or the lack of any, leave it to the wording.
+ */
+function classifyReplyCode(text: string): 'hard' | 'soft' | null {
+  const code = ENHANCED_CODE.exec(text);
+  if (code) {
+    const [, codeClass, subject, detail] = code;
+    if (codeClass !== '5' || subject === '7') return 'soft';
+    if (subject === '1' && BAD_ADDRESS_DETAILS.includes(detail)) return 'hard';
+    return null;
+  }
+  return TRANSIENT_REPLY_CODE.test(text) ? 'soft' : null;
+}
 
 /**
  * Whether a Failed report's statusMessage (deliveryStatusDetails) says the
@@ -46,18 +70,31 @@ const BAD_ADDRESS_WORDING =
  */
 export function classifyDeliveryFailure(statusMessage: string | null | undefined): 'hard' | 'soft' {
   const text = (statusMessage || '').toLowerCase();
-  const code = ENHANCED_CODE.exec(text);
-  if (code) {
-    const [, codeClass, subject, detail] = code;
-    if (codeClass !== '5' || subject === '7') return 'soft';
-    if (subject === '1' && BAD_ADDRESS_DETAILS.includes(detail)) return 'hard';
-  } else if (TRANSIENT_REPLY_CODE.test(text)) {
-    return 'soft';
-  }
-  return BAD_ADDRESS_WORDING.test(text) ? 'hard' : 'soft';
+  return classifyReplyCode(text) ?? (BAD_ADDRESS_WORDING.test(text) ? 'hard' : 'soft');
 }
 
-/** What a report with this status (and, for Failed, this statusMessage) does to its dispatch. */
+/**
+ * Whether a Bounced report's statusMessage leaves it a hard bounce (the
+ * address is suppressed) or makes it a soft one. ACS reports Bounced for a
+ * permanent refusal, but a mail server that refuses a sender with a poor
+ * reputation says so permanently too, and the address is fine. A transient
+ * code (4.x.x or a bare 4xx), a policy one (5.7.x) or, without a deciding
+ * code, spam, reputation, policy, block list, rate or authentication wording
+ * is soft, even beside bad-address wording; a bad-address code (5.1.x) is hard
+ * whatever the wording; anything else, a missing message included, is hard.
+ */
+function classifyBounce(statusMessage: string | null | undefined): 'hard' | 'soft' {
+  const text = (statusMessage || '').toLowerCase();
+  return classifyReplyCode(text) ?? (POLICY_WORDING.test(text) ? 'soft' : 'hard');
+}
+
+/**
+ * What a report with this status (and, for Bounced and Failed, this
+ * statusMessage) does to its dispatch. Suppressed is always a hard bounce;
+ * Bounced is hard unless its statusMessage shows a transient or policy
+ * refusal (classifyBounce); Failed is soft unless its statusMessage shows a
+ * bad address (classifyDeliveryFailure).
+ */
 export function deliveryOutcome(status: DeliveryStatus, statusMessage?: string | null): DeliveryOutcome {
   switch (status) {
     case 'Delivered':
@@ -68,6 +105,7 @@ export function deliveryOutcome(status: DeliveryStatus, statusMessage?: string |
     case 'FilteredSpam':
       return 'filtered';
     case 'Bounced':
+      return classifyBounce(statusMessage);
     case 'Suppressed':
       return 'hard';
     case 'Failed':

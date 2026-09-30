@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { FileText, Search, Plus, Eye, Sparkles, Copy, Check, Trash2, ArrowRight, X, RefreshCw } from 'lucide-react';
 import VariableToolbar from '@/components/VariableToolbar';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -26,6 +26,11 @@ export default function TemplatesPage() {
   const [copiedId, setCopiedId] = useState<any>(null);
   const [previewResolved, setPreviewResolved] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
+  // A new template keeps its temporary id until the POST answers, so a second
+  // Save before then would POST it again. The ref blocks a click that lands
+  // before the disabled button re-renders.
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const [confirmState, setConfirmState] = useState<{ title: string; message: string; confirmLabel: string; onConfirm: () => void } | null>(null);
 
   const showToast = (message: string) => {
@@ -105,7 +110,9 @@ export default function TemplatesPage() {
   };
 
   const handleSave = async () => {
-    if (!editingTemplate) return;
+    if (!editingTemplate || savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
     try {
       const isNew = typeof editingTemplate.id === 'number';
       const method = isNew ? 'POST' : 'PUT';
@@ -136,6 +143,9 @@ export default function TemplatesPage() {
     } catch (e) {
       console.error(e);
       showToast('Connection error while saving template');
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
     }
   };
 
@@ -423,7 +433,14 @@ export default function TemplatesPage() {
                       >
                         {copiedId === editingTemplate.id ? 'Copied' : 'Copy Code'}
                       </Button>
-                      <Button variant="contained" endIcon={<ArrowRight size={16} />} onClick={handleSave}>Save Template</Button>
+                      <Button
+                        variant="contained"
+                        endIcon={saving ? <CircularProgress size={16} color="inherit" /> : <ArrowRight size={16} />}
+                        onClick={handleSave}
+                        disabled={saving}
+                      >
+                        Save Template
+                      </Button>
                     </Stack>
                   </Stack>
                 )}

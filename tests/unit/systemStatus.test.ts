@@ -205,9 +205,10 @@ describe('GET /api/system-status derives delivery from the worker heartbeat and 
 describe('GET /api/system-status lists campaigns paused for setup problems (M17)', () => {
   beforeEach(() => {
     const pausedUntil = new Date(NOW.getTime() + 30 * MINUTE);
+    const sendSchedule = { days: ['Mon'], window: { start: '09:00', end: '17:00' } };
     campaigns = [
-      { id: 'cmp-config', userId: 'user-1', name: 'Refused Key', status: 'Paused', pauseReason: 'config', pausedUntil },
-      { id: 'cmp-systemic', userId: 'admin-1', name: 'No Owned Sender', status: 'Paused', pauseReason: 'systemic', pausedUntil },
+      { id: 'cmp-config', userId: 'user-1', name: 'Refused Key', status: 'Paused', pauseReason: 'config', pausedUntil, timezone: 'UTC', sendSchedule },
+      { id: 'cmp-systemic', userId: 'admin-1', name: 'No Owned Sender', status: 'Paused', pauseReason: 'systemic', pausedUntil, timezone: 'UTC', sendSchedule: null },
       { id: 'cmp-quota', userId: 'user-1', name: 'Quota', status: 'Paused', pauseReason: 'quota', pausedUntil },
       { id: 'cmp-user', userId: 'user-1', name: 'Held', status: 'Paused', pauseReason: 'user', pausedUntil: null },
       { id: 'cmp-active', userId: 'user-1', name: 'Running', status: 'Active', pauseReason: null, pausedUntil: null },
@@ -220,8 +221,25 @@ describe('GET /api/system-status lists campaigns paused for setup problems (M17)
     expect(body.setupPausedCampaigns.map((c: any) => c.id)).toEqual(['cmp-config', 'cmp-systemic']);
     expect(body.setupPausedCampaigns[0]).toEqual({
       id: 'cmp-config', name: 'Refused Key', status: 'Paused', pauseReason: 'config', pausedUntil: new Date(NOW.getTime() + 30 * MINUTE).toISOString(),
+      hasSendingSchedule: true,
     });
     expect(body.setupPausedCount).toBe(2);
+  });
+
+  it('flags each listed campaign without a complete sending schedule, without shipping the schedule (owner decision)', async () => {
+    campaigns[0].timezone = 'Mars/Olympus_Mons';
+
+    const body = await status();
+
+    expect(body.setupPausedCampaigns.map((c: any) => [c.id, c.hasSendingSchedule])).toEqual([['cmp-config', false], ['cmp-systemic', false]]);
+    for (const campaign of body.setupPausedCampaigns) {
+      expect(campaign).not.toHaveProperty('sendSchedule');
+      expect(campaign).not.toHaveProperty('timezone');
+    }
+
+    campaigns[0].timezone = 'UTC';
+    campaigns[1].sendSchedule = campaigns[0].sendSchedule;
+    expect((await status()).setupPausedCampaigns.map((c: any) => c.hasSendingSchedule)).toEqual([true, true]);
   });
 
   it('lists only the caller\'s own campaigns for a non-admin', async () => {

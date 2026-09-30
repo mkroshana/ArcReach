@@ -17,9 +17,9 @@ import { useToast } from '@/components/Toast';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import VariableToolbar from '@/components/VariableToolbar';
 import { activationBlocker, findIncompleteSteps, queuedLeadsMessage, sequenceDurationDays } from '@/lib/campaignSteps';
-import { autoResumeNote, ownerDisabledNote } from '@/lib/campaignPause';
+import { autoResumeNote, noScheduleOutcome, ownerDisabledNote, savedScheduleNote } from '@/lib/campaignPause';
 import { sameCampaignVersion } from '@/lib/campaignVersion';
-import { sendScheduleError, timezoneError } from '@/lib/sendSchedule';
+import { hasSendingSchedule, sendScheduleError, timezoneError } from '@/lib/sendSchedule';
 import { personalizePreview, previewEmailBody } from '@/lib/personalize';
 import { IMAP_SYNC_LABELS, imapSyncState, stopOnReplyWarning } from '@/lib/imapSyncStatus';
 import { loadErrorMessage, readJsonList, responseErrorMessage } from '@/lib/apiResponse';
@@ -72,7 +72,6 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
   const [selectedDays, setSelectedDays] = useState<string[]>([]);
   const [startTime, setStartTime] = useState('');
   const [endTime, setEndTime] = useState('');
-  const [savedWindowNote, setSavedWindowNote] = useState<string | null>(null);
 
   // A list that fails to load is named in a warning, so its empty picker is not taken for none.
   // (The error is recorded after the try: a state update in the catch stops the React Compiler lint rules checking this page.)
@@ -131,10 +130,6 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
         setSelectedDays(Array.isArray(sched?.days) ? sched.days : []);
         setStartTime(typeof sched?.window?.start === 'string' ? sched.window.start : '');
         setEndTime(typeof sched?.window?.end === 'string' ? sched.window.end : '');
-        // What the send engine does with the saved window, which the form may not show.
-        if (data.sendSchedule == null) setSavedWindowNote('No sending window is saved, so this campaign sends nothing and stays Draft. Choose days and times, then save.');
-        else if (sendScheduleError(sched) || timezoneError(data.timezone)) setSavedWindowNote('The saved sending window is incomplete or its timezone is unknown, so this campaign sends nothing and stays Draft until you fix it and save.');
-        else setSavedWindowNote(null);
       } else {
         const message = await responseErrorMessage(res, `The campaign could not be loaded (the server answered ${res.status}).`);
         setLoadError(message);
@@ -232,9 +227,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
       if (res.ok) {
         if (clearSchedule) {
           // The send engine's auto-resume sets a campaign without a window to Draft instead of Active.
-          const outcome = status === 'Draft' ? 'stays Draft until you set one on the Schedule tab'
-            : campaign?.pausedUntil ? 'goes to Draft instead of resuming when its auto-resume time arrives, unless you set one on the Schedule tab before then'
-            : "stays Paused and can't be made Active until you set one on the Schedule tab";
+          const outcome = noScheduleOutcome({ status, pausedUntil: campaign?.pausedUntil }, 'you set one on the Schedule tab');
           showToast(`Saved without a sending window, so this campaign sends nothing and ${outcome}.`, 'warning');
         } else {
           showToast('Outbound sequence configuration successfully saved!');
@@ -358,7 +351,8 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
   ];
 
   const statusColor = status === 'Active' ? 'success' : status === 'Paused' ? 'warning' : 'default';
-  const resumeNote = campaign ? autoResumeNote(campaign) : null;
+  // Without a complete saved window the auto-resume sets the campaign to Draft, so the note says so.
+  const resumeNote = campaign ? autoResumeNote({ ...campaign, hasSendingSchedule: hasSendingSchedule(campaign.timezone, campaign.sendSchedule) }) : null;
   const ownerNote = campaign ? ownerDisabledNote(campaign) : null;
   const incompleteSteps = showStepErrors ? findIncompleteSteps(steps) : [];
   // Once the campaign has started sending, saved steps may be edited in place
@@ -368,6 +362,9 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
   // Publish Sequence saves the form's window with it, and a campaign without a
   // complete one never sends, so it can't be published until one is set.
   const scheduleMissing = !!(timezoneError(timezone) ?? sendScheduleError({ days: selectedDays, window: { start: startTime, end: endTime } }));
+  // What the send engine does with the saved window, which the form may not show,
+  // for the campaign's current status (a status change here does not reload it).
+  const savedWindowNote = savedScheduleNote(campaign);
 
   return (
     <Box sx={{ maxWidth: 1100, mx: 'auto', pb: 8, display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -669,7 +666,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                   <Typography variant="overline" sx={{ fontWeight: 700 }}>Target Cadence Window</Typography>
                 </Stack>
                 <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 2 }}>
-                  Required before publishing: the campaign sends only on these days, between these times in its timezone. Without a schedule it stays Draft and sends nothing.
+                  Required before publishing: the campaign sends only on these days, between these times in its timezone. Without a schedule it sends nothing and can&apos;t be made Active.
                 </Typography>
                 {savedWindowNote && (
                   <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 2, color: 'warning.main' }}>

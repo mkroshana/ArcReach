@@ -117,8 +117,9 @@ export function Sidebar() {
     ? workerStatusText(systemStatus.workerStatus, systemStatus.workerHeartbeat)
     : null;
 
-  // Campaigns the send engine paused until their setup is fixed.
-  const setupPaused: Array<{ id: string; name: string; status: string; pauseReason: string | null; pausedUntil: string | null }> =
+  // Campaigns the send engine paused until their setup is fixed, and whether each
+  // has a complete sending schedule (without one its auto-resume sets it to Draft).
+  const setupPaused: Array<{ id: string; name: string; status: string; pauseReason: string | null; pausedUntil: string | null; hasSendingSchedule: boolean }> =
     systemStatus?.setupPausedCampaigns ?? [];
   const setupPausedMore = (systemStatus?.setupPausedCount ?? 0) - setupPaused.length;
 

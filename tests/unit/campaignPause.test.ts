@@ -28,7 +28,7 @@ vi.mock('../../lib/session', () => ({
 import { db } from '../../lib/db';
 import { getSession } from '../../lib/session';
 import { autoResumeQuotaPausedCampaigns, handleSendFailure } from '../../lib/sendEngine';
-import { autoResumeNote, userStatusPause } from '../../lib/campaignPause';
+import { autoResumeNote, noScheduleOutcome, savedScheduleNote, userStatusPause } from '../../lib/campaignPause';
 import { CAMPAIGN_CHANGED_ERROR, nextCampaignVersion, parseCampaignVersion, sameCampaignVersion } from '../../lib/campaignVersion';
 import { PUT as putCampaign } from '../../app/api/campaigns/[id]/route';
 import { PUT as putCampaignList } from '../../app/api/campaigns/route';
@@ -355,25 +355,73 @@ describe('PUT /api/campaigns validates the timezone like PUT /api/campaigns/[id]
 describe('autoResumeNote', () => {
   it('shows when an engine-paused campaign resumes, in 24-hour local time, with the reason', () => {
     const at = new Date(2026, 8, 29, 14, 5);
-    expect(autoResumeNote({ status: 'Paused', pausedUntil: at, pauseReason: 'quota' }))
+    const scheduled = { status: 'Paused', pausedUntil: at, hasSendingSchedule: true };
+    expect(autoResumeNote({ ...scheduled, pauseReason: 'quota' }))
       .toMatch(/^Auto-resumes at 14.05 \(sending quota or rate limit reached\)$/);
-    expect(autoResumeNote({ status: 'Paused', pausedUntil: at.toISOString(), pauseReason: 'systemic' }))
+    expect(autoResumeNote({ ...scheduled, pausedUntil: at.toISOString(), pauseReason: 'systemic' }))
       .toMatch(/^Auto-resumes at 14.05 \(server clock out of sync with Azure, or no sender mailbox owned by the campaign owner\)$/);
-    expect(autoResumeNote({ status: 'Paused', pausedUntil: at, pauseReason: 'config' }))
+    expect(autoResumeNote({ ...scheduled, pauseReason: 'config' }))
       .toMatch(/^Auto-resumes at 14.05 \(Azure settings or sender domain not accepted\)$/);
     // Pauses from before pauseReason existed carry no reason.
-    expect(autoResumeNote({ status: 'Paused', pausedUntil: at, pauseReason: null })).toMatch(/^Auto-resumes at 14.05$/);
+    expect(autoResumeNote({ ...scheduled, pauseReason: null })).toMatch(/^Auto-resumes at 14.05$/);
+  });
+
+  it('says a campaign without a sending schedule goes to Draft at that time instead, whatever paused it (owner decision)', () => {
+    const at = new Date(2026, 8, 29, 14, 5);
+    for (const pauseReason of ['quota', 'systemic', 'config', null]) {
+      expect(autoResumeNote({ status: 'Paused', pausedUntil: at, pauseReason, hasSendingSchedule: false }))
+        .toMatch(/^Goes to Draft at 14.05 \(no sending schedule\)$/);
+    }
+    expect(autoResumeNote({ status: 'Paused', pausedUntil: null, pauseReason: 'user', hasSendingSchedule: false })).toBeNull();
   });
 
   it('is empty for a campaign that will not resume on its own', () => {
-    expect(autoResumeNote({ status: 'Paused', pausedUntil: null, pauseReason: 'user' })).toBeNull();
-    expect(autoResumeNote({ status: 'Active', pausedUntil: new Date(), pauseReason: null })).toBeNull();
-    expect(autoResumeNote({ status: 'Paused', pausedUntil: 'not a date', pauseReason: 'quota' })).toBeNull();
+    expect(autoResumeNote({ status: 'Paused', pausedUntil: null, pauseReason: 'user', hasSendingSchedule: true })).toBeNull();
+    expect(autoResumeNote({ status: 'Active', pausedUntil: new Date(), pauseReason: null, hasSendingSchedule: true })).toBeNull();
+    expect(autoResumeNote({ status: 'Paused', pausedUntil: 'not a date', pauseReason: 'quota', hasSendingSchedule: true })).toBeNull();
   });
 
   it('records a user pause and clears the reason for any other status', () => {
     expect(userStatusPause('Paused')).toEqual({ pausedUntil: null, pauseReason: 'user' });
     expect(userStatusPause('Active')).toEqual({ pausedUntil: null, pauseReason: null });
     expect(userStatusPause('Draft')).toEqual({ pausedUntil: null, pauseReason: null });
+  });
+});
+
+describe('what the campaign page says happens to a campaign without a sending schedule (owner decision)', () => {
+  const SCHEDULE = { days: ['Mon'], window: { start: '09:00', end: '17:00' } };
+  const AT = new Date(2026, 8, 29, 14, 5);
+
+  it('words the outcome by status and auto-resume, as the auto-resume and send engine act', () => {
+    const fix = 'you set one on the Schedule tab';
+    expect(noScheduleOutcome({ status: 'Draft', pausedUntil: null }, fix))
+      .toBe('stays Draft until you set one on the Schedule tab');
+    expect(noScheduleOutcome({ status: 'Paused', pausedUntil: AT.toISOString() }, fix))
+      .toBe('goes to Draft instead of resuming when its auto-resume time arrives, unless you set one on the Schedule tab before then');
+    expect(noScheduleOutcome({ status: 'Paused', pausedUntil: null }, fix))
+      .toBe("stays Paused and can't be made Active until you set one on the Schedule tab");
+    expect(noScheduleOutcome({ status: 'Active', pausedUntil: null }, fix))
+      .toBe('goes back to Draft when its next email is due, unless you set one on the Schedule tab before then');
+  });
+
+  it('notes a missing saved window by status on the Schedule tab', () => {
+    expect(savedScheduleNote({ status: 'Draft', pausedUntil: null, timezone: 'UTC', sendSchedule: null }))
+      .toBe('No sending window is saved, so this campaign sends nothing and stays Draft until you choose days and times and save.');
+    expect(savedScheduleNote({ status: 'Paused', pausedUntil: AT, timezone: 'UTC', sendSchedule: null }))
+      .toBe('No sending window is saved, so this campaign sends nothing and goes to Draft instead of resuming when its auto-resume time arrives, unless you choose days and times and save before then.');
+    expect(savedScheduleNote({ status: 'Paused', pausedUntil: null, timezone: 'UTC', sendSchedule: null }))
+      .toBe("No sending window is saved, so this campaign sends nothing and stays Paused and can't be made Active until you choose days and times and save.");
+  });
+
+  it('notes an incomplete window, an unknown timezone or unreadable legacy text by status, and nothing for a complete one', () => {
+    expect(savedScheduleNote({ status: 'Paused', pausedUntil: null, timezone: 'UTC', sendSchedule: { days: [], window: SCHEDULE.window } }))
+      .toBe("The saved sending window is incomplete or its timezone is unknown, so this campaign sends nothing and stays Paused and can't be made Active until you fix it and save.");
+    expect(savedScheduleNote({ status: 'Paused', pausedUntil: AT, timezone: 'Mars/Olympus_Mons', sendSchedule: SCHEDULE }))
+      .toBe('The saved sending window is incomplete or its timezone is unknown, so this campaign sends nothing and goes to Draft instead of resuming when its auto-resume time arrives, unless you fix it and save before then.');
+    expect(savedScheduleNote({ status: 'Draft', pausedUntil: null, timezone: 'UTC', sendSchedule: '{not json' }))
+      .toBe('The saved sending window is incomplete or its timezone is unknown, so this campaign sends nothing and stays Draft until you fix it and save.');
+
+    expect(savedScheduleNote({ status: 'Paused', pausedUntil: AT, timezone: 'UTC', sendSchedule: SCHEDULE })).toBeNull();
+    expect(savedScheduleNote({ status: 'Active', pausedUntil: null, timezone: 'UTC', sendSchedule: JSON.stringify(SCHEDULE) })).toBeNull();
   });
 });

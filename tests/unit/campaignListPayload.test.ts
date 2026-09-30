@@ -160,6 +160,21 @@ describe('GET /api/campaigns returns list fields only (M40)', () => {
     expect(JSON.parse(text).map((c: any) => c.id).sort()).toEqual(['cmp-1', 'cmp-2']);
     expect(text).not.toContain('Hello there');
   });
+
+  it('says whether each campaign has a complete sending schedule, without shipping the schedule or timezone (owner decision)', async () => {
+    mockedSession.mockResolvedValue(ADMIN);
+    const flags = async () => Object.fromEntries(((await (await getCampaigns()).json()) as any[]).map((c) => {
+      expect(c).not.toHaveProperty('sendSchedule');
+      expect(c).not.toHaveProperty('timezone');
+      return [c.id, c.hasSendingSchedule];
+    }));
+
+    expect(await flags()).toEqual({ 'cmp-1': true, 'cmp-2': false });
+
+    campaigns[0].timezone = 'Mars/Olympus_Mons';
+    (campaigns[1] as any).sendSchedule = JSON.stringify({ days: ['Tue'], window: { start: '08:00', end: '12:00' } });
+    expect(await flags()).toEqual({ 'cmp-1': false, 'cmp-2': true });
+  });
 });
 
 describe('PUT and DELETE /api/campaigns check ownership on the one campaign (M40)', () => {

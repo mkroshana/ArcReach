@@ -3,6 +3,7 @@ import { hashPassword } from '@/lib/auth';
 import { stepMetrics } from '@/lib/engagementMetrics';
 import { devSeedRefusal } from '@/lib/devSeed';
 import type { PauseReason } from '@/lib/campaignPause';
+import { hasSendingSchedule } from '@/lib/sendSchedule';
 
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient | undefined };
 
@@ -115,6 +116,8 @@ export const db = {
         status: true,
         pausedUntil: true,
         pauseReason: true,
+        timezone: true,
+        sendSchedule: true,
         userId: true,
         createdAt: true,
         senderAccount: { select: { emailAddress: true } },
@@ -140,7 +143,7 @@ export const db = {
       stepMetrics(prisma, ids),
     ]);
 
-    return campaigns.map((c) => {
+    return campaigns.map(({ timezone, sendSchedule, ...c }) => {
       const enrollments = enrollByStatus.filter((e) => e.campaignId === c.id);
       const stepStats = c.steps.map((s) => {
         const active = activeByStep.find((a) => a.campaignId === c.id && a.currentSequenceStep === s.stepOrder)?._count.id || 0;
@@ -149,6 +152,9 @@ export const db = {
       });
       return {
         ...c,
+        // Only whether the saved window is complete, not the window: without
+        // one the auto-resume sets the campaign to Draft instead of Active.
+        hasSendingSchedule: hasSendingSchedule(timezone, sendSchedule),
         stepStats,
         enrollmentSummary: {
           total: enrollments.reduce((n, e) => n + e._count.id, 0),

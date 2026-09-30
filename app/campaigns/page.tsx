@@ -27,6 +27,8 @@ interface DbCampaign {
   status: 'Active' | 'Draft' | 'Paused';
   pausedUntil?: string | null;
   pauseReason?: string | null;
+  // Whether its saved sending window is complete; without one the auto-resume sets it to Draft.
+  hasSendingSchedule: boolean;
   senderAccount?: { emailAddress: string };
   userId: string | null;
   user?: { id: string; name: string | null; email: string } | null;

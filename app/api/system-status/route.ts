@@ -6,6 +6,7 @@ import { UnauthorizedError, unauthorizedResponse } from '@/lib/sessionError';
 import { azureSettingsProblem } from '@/lib/emailProvider';
 import { SEND_WORKER_LEASE } from '@/lib/workerLease';
 import { SETUP_PAUSE_REASONS, workerStatus, type AzureStatus, type DeliveryStatus } from '@/lib/systemStatus';
+import { hasSendingSchedule } from '@/lib/sendSchedule';
 
 /** How many setup-paused campaigns are listed by name; the rest are counted. */
 const SETUP_PAUSED_LIST_LIMIT = 5;
@@ -56,15 +57,21 @@ export async function GET() {
     // 4. Campaigns the send engine paused because nothing can be sent until
     // the Azure settings, sender domain, senders or server clock are fixed.
     const setupPausedWhere = { ...filterScope, status: 'Paused', pauseReason: { in: SETUP_PAUSE_REASONS } };
-    const [setupPausedCampaigns, setupPausedCount] = await Promise.all([
+    const [setupPausedRows, setupPausedCount] = await Promise.all([
       prisma.campaign.findMany({
         where: setupPausedWhere,
-        select: { id: true, name: true, status: true, pauseReason: true, pausedUntil: true },
+        select: { id: true, name: true, status: true, pauseReason: true, pausedUntil: true, timezone: true, sendSchedule: true },
         orderBy: { updatedAt: 'desc' },
         take: SETUP_PAUSED_LIST_LIMIT,
       }),
       prisma.campaign.count({ where: setupPausedWhere }),
     ]);
+    // Only whether each saved window is complete, not the window: without one
+    // the auto-resume sets the campaign to Draft instead of Active.
+    const setupPausedCampaigns = setupPausedRows.map(({ timezone, sendSchedule, ...campaign }) => ({
+      ...campaign,
+      hasSendingSchedule: hasSendingSchedule(timezone, sendSchedule),
+    }));
 
     return NextResponse.json({
       database: 'OPERATIONAL',

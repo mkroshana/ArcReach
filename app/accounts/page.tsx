@@ -42,6 +42,17 @@ function AllowSelfSignedSwitch({ checked, onChange }: { checked: boolean; onChan
   );
 }
 
+/** Reusable password TextField. Declared at module scope so the input keeps focus while typing
+ *  (a component declared inside the page is a new type each render and remounts). */
+function PwField(props: { label: string; value: string; onChange: (v: string) => void; show: boolean; setShow: (v: boolean) => void; placeholder?: string; disabled?: boolean }) {
+  return (
+    <TextField fullWidth size="small" label={props.label} type={props.show ? 'text' : 'password'} disabled={props.disabled}
+      value={props.value} onChange={(e) => props.onChange(e.target.value)} placeholder={props.placeholder}
+      slotProps={{ input: { sx: { fontFamily: 'monospace' }, endAdornment: !props.disabled ? (<InputAdornment position="end"><IconButton aria-label={props.show ? 'Hide password' : 'Show password'} size="small" onClick={() => props.setShow(!props.show)}>{props.show ? <EyeOff size={14} /> : <Eye size={14} />}</IconButton></InputAdornment>) : undefined } }}
+    />
+  );
+}
+
 /** Why there are no SMTP fields: Azure sends every email, so per-mailbox SMTP details would never be used. */
 function SmtpNotUsedNote() {
   return (
@@ -313,14 +324,6 @@ export default function AccountsPage() {
   };
 
   const currentActiveTab = selectedWarmupAccount ? activeTab : 'accounts';
-
-  // Reusable password TextField
-  const PwField = (props: { label: string; value: string; onChange: (v: string) => void; show: boolean; setShow: (v: boolean) => void; placeholder?: string; disabled?: boolean }) => (
-    <TextField fullWidth size="small" label={props.label} type={props.show ? 'text' : 'password'} disabled={props.disabled}
-      value={props.value} onChange={(e) => props.onChange(e.target.value)} placeholder={props.placeholder}
-      slotProps={{ input: { sx: { fontFamily: 'monospace' }, endAdornment: !props.disabled ? (<InputAdornment position="end"><IconButton aria-label={props.show ? 'Hide password' : 'Show password'} size="small" onClick={() => props.setShow(!props.show)}>{props.show ? <EyeOff size={14} /> : <Eye size={14} />}</IconButton></InputAdornment>) : undefined } }}
-    />
-  );
 
   return (
     <Box sx={{ maxWidth: 1100, mx: 'auto', pb: 6 }}>

@@ -166,14 +166,6 @@ export default function SettingsPage() {
     } catch (err) { console.error(err); triggerToast('Error saving Azure settings.'); }
   };
 
-  const handleRandomizeAvatar = () => {
-    const randomFirstNames = ['Evelyn', 'Marcus', 'Sienna', 'Damian', 'Clara', 'Julian'];
-    const randomLastNames = ['Vance', 'Sterling', 'Gale', 'Manning', 'Kemp', 'Brooks'];
-    setFirstName(randomFirstNames[Math.floor(Math.random() * randomFirstNames.length)]);
-    setLastName(randomLastNames[Math.floor(Math.random() * randomLastNames.length)]);
-    triggerToast(`Avatar updated. Remember to Save Profile!`);
-  };
-
   if (loading) {
     return (
       <Stack sx={{ alignItems: 'center', py: 12, gap: 2 }}>
@@ -251,10 +243,6 @@ export default function SettingsPage() {
                       <Avatar variant="rounded" sx={{ width: 56, height: 56, fontSize: 18, fontWeight: 700, bgcolor: (t) => alpha(t.palette.primary.main, 0.14), color: 'primary.main', fontFamily: 'monospace', borderRadius: '14px' }}>
                         {profileInitials}
                       </Avatar>
-                      <Box>
-                        <Button size="small" variant="outlined" color="inherit" onClick={handleRandomizeAvatar} sx={{ borderColor: 'divider', color: 'text.secondary', mb: 0.5 }}>Randomize Avatar</Button>
-                        <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>Generates a placeholder avatar from random initials.</Typography>
-                      </Box>
                     </Stack>
 
                     <Stack spacing={2.5}>

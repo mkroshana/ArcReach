@@ -8,6 +8,9 @@
 #                        on workflow_dispatch.
 #   - build-and-deploy:  needs `test`; only runs on push to `azure`, so manual
 #                        workflow_dispatch can re-run tests without redeploying.
+#                        Fails before deploying while the Azure database schema
+#                        differs from schema.prisma (read-only check, needs the
+#                        AZURE_DATABASE_URL secret; skipped with a warning without it).
 
 name: Build and deploy Node.js app to Azure Web App - arcreach-app
 
@@ -116,6 +119,31 @@ jobs:
         run: |
           npm ci
           npm run build
+
+      - name: Check the Azure database schema matches schema.prisma
+        # Read-only: `prisma migrate diff` compares the live database with schema.prisma
+        # and never changes it. Code whose columns the database lacks fails its queries
+        # (P2022), so schema changes are pushed with `npx prisma db push` before deploying
+        # (README: Deploying Updates). Skipped with a warning while the AZURE_DATABASE_URL
+        # secret is not set.
+        env:
+          DATABASE_URL: ${{ secrets.AZURE_DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::warning title=Database Schema Not Checked::The AZURE_DATABASE_URL secret is not set, so this deploy did not check that the Azure database has the schema.prisma changes. Add the secret (README: Deploying Updates) to block deploys while the database schema is behind."
+            exit 0
+          fi
+          status=0
+          npx prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel schema.prisma --exit-code || status=$?
+          if [ "$status" -eq 0 ]; then
+            echo "The Azure database schema matches schema.prisma."
+          elif [ "$status" -eq 2 ]; then
+            echo "::error title=Database Schema Is Behind::The Azure database does not match schema.prisma (the changes db push would make are listed above). Run npx prisma db push against the Azure database first (README: Deploying Updates), then re-run this job."
+            exit 1
+          else
+            echo "::error title=Database Schema Check Failed::Could not compare the Azure database with schema.prisma (prisma exited with $status). Check the AZURE_DATABASE_URL secret and that the database firewall admits GitHub-hosted runners."
+            exit 1
+          fi
 
       - name: Create deployment package
         run: |

@@ -285,9 +285,15 @@ git checkout azure
 # Merge latest changes from main
 git merge main
 
+# If schema.prisma changed, push it to the Azure database first
+# (DATABASE_URL set to the Azure connection string, as in Step 2)
+npx prisma db push
+
 # Push to trigger deployment
 git push origin azure
 ```
+
+The deploy never changes the database schema itself. To stop code reaching the app before its schema, add the Azure connection string as the repository secret **`AZURE_DATABASE_URL`** (GitHub → **Settings** → **Secrets and variables** → **Actions**). The deploy job then runs the read-only `prisma migrate diff --exit-code` against the Azure database before deploying and fails with **Database Schema Is Behind**, listing the differences, while the database does not match `schema.prisma`. Run `npx prisma db push` and re-run the job. Removals count too: a column or table dropped from `schema.prisma` must be dropped from the database before the deploy. Without the secret the check is skipped with a **Database Schema Not Checked** warning. With it, the database firewall must admit GitHub-hosted runners, which have no fixed IP address; when the check cannot connect the deploy fails with **Database Schema Check Failed**.
 
 ---
 

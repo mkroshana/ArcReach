@@ -6,7 +6,7 @@ import { UnauthorizedError, unauthorizedResponse } from '@/lib/sessionError';
 import { MASKED_SECRET, encryptSecret } from '@/lib/secrets';
 import { getGlobalSettings } from '@/lib/settings';
 import { getVerifiedDomains, unverifiedSenderMessage } from '@/lib/azureDomains';
-import { senderCapDispatchWhere } from '@/lib/sendEngine';
+import { getEffectiveDailyCap, senderCapDispatchWhere } from '@/lib/sendEngine';
 import { type MetricsScope, countHardBounces, countReplies, percent, sendSummary } from '@/lib/engagementMetrics';
 import { type FieldRule, fieldRules, isPlainObject, pickUpdateFields } from '@/lib/updateAllowList';
 
@@ -272,7 +272,9 @@ export async function PUT(req: NextRequest) {
     }
 
     const updated = await db.updateAccount(id, updates);
-    return NextResponse.json(redactAccount(updated));
+    // The Accounts page merges this into the mailbox it shows, keeping the stats GET counted;
+    // the effective cap is the one figure a limit or warmup change moves, so it is sent too.
+    return NextResponse.json({ ...redactAccount(updated), effectiveDailyCap: getEffectiveDailyCap(updated, new Date()) });
   } catch (error: any) {
     if (error instanceof UnauthorizedError) return unauthorizedResponse();
     return NextResponse.json({ error: error.message }, { status: 500 });

@@ -117,7 +117,7 @@ describe('responseErrorMessage shows the server error on a refused save (M69)', 
   });
 
   it("returns the mailbox PUT's 400 message for a cleared daily limit instead of a generic failure", async () => {
-    // A cleared Per Day field sends parseInt('') (NaN), which JSON turns into null.
+    // NaN, which a cleared Per Day field used to send as parseInt(''), and which JSON turns into null.
     const res = await putAccount(putReq({ id: 'acc-1', dailyLimit: NaN }));
     expect(res.status).toBe(400);
 

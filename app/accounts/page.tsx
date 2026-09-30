@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/set-state-in-effect, react/no-unescaped-entities, react-hooks/exhaustive-deps */
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import {
   Plus, CheckCircle2, AlertCircle, Mail, Flame, ArrowLeft, Sliders,
@@ -13,6 +13,7 @@ import { IMAP_SYNC_LABELS, MICROSOFT_IMAP_NOTE, imapSyncState, isMicrosoftImapHo
 import { useToast } from '@/components/Toast';
 import { LoadError, loadErrorMessage, readJsonList, readJsonObject, responseErrorMessage } from '@/lib/apiResponse';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { MAILBOX_LIMIT_FIELDS, type MailboxLimitField, MailboxSettingsSaves, mailboxLimitInputValue } from '@/lib/mailboxSettingsSave';
 import {
   Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
   Dialog, DialogTitle, DialogContent, DialogActions, Table, TableHead, TableBody, TableRow, TableCell,
@@ -160,18 +161,38 @@ export default function AccountsPage() {
   const [sendingTestEmail, setSendingTestEmail] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // Limit inputs as typed, until they are saved when they lose focus (never per keystroke).
+  const [limitDrafts, setLimitDrafts] = useState<Partial<Record<MailboxLimitField, string>>>({});
+  // Limit and warmup saves, one at a time in the order made, so the last value made is the one stored.
+  const [settingsSaves] = useState(() => new MailboxSettingsSaves());
+  // The open mailbox's id, for a credentials save answered after the user left it.
+  const openAccountId = useRef<string | null>(null);
   const { toast: showToast } = useToast();
 
+  /** Fill the credentials form with a mailbox's stored details (the password comes back masked). */
+  const seedCredentialForm = (account: any) => {
+    setEditImapHost(account.imapHost || '');
+    setEditImapPort(account.imapPort ? String(account.imapPort) : '');
+    setEditImapUser(account.imapUser || '');
+    setEditImapPass(account.imapPass || '');
+    setEditImapAllowSelfSigned(!!account.imapAllowSelfSigned);
+    setEditReplyTo(account.replyTo || '');
+  };
+
+  // Only opening a mailbox resets its forms: a limit or warmup save replaces the open mailbox
+  // object, which must not discard credential edits not yet saved.
   useEffect(() => {
-    if (selectedWarmupAccount) {
-      setEditImapHost(selectedWarmupAccount.imapHost || '');
-      setEditImapPort(selectedWarmupAccount.imapPort ? String(selectedWarmupAccount.imapPort) : '');
-      setEditImapUser(selectedWarmupAccount.imapUser || '');
-      setEditImapPass(selectedWarmupAccount.imapPass || '');
-      setEditImapAllowSelfSigned(!!selectedWarmupAccount.imapAllowSelfSigned);
-      setEditReplyTo(selectedWarmupAccount.replyTo || '');
-    }
-  }, [selectedWarmupAccount]);
+    openAccountId.current = selectedWarmupAccount?.id ?? null;
+    if (selectedWarmupAccount) seedCredentialForm(selectedWarmupAccount);
+    setLimitDrafts({});
+  }, [selectedWarmupAccount?.id]);
+
+  /** Merge saved (or about to be saved) columns into a mailbox in the list and, if still open, the detail
+   *  view. A PUT answers without the stats GET counted, so those are kept rather than replaced. */
+  const mergeAccount = (id: string, fields: Record<string, any>) => {
+    setAccounts(prev => prev.map(acc => acc.id === id ? { ...acc, ...fields } : acc));
+    setSelectedWarmupAccount((cur: any) => cur && cur.id === id ? { ...cur, ...fields } : cur);
+  };
 
   const handleOpenAddModal = () => {
     setIsAddOpen(true);
@@ -217,33 +238,55 @@ export default function AccountsPage() {
 
   useEffect(() => { loadData(); }, []);
 
-  const handleUpdateWarmupSettings = async (field: string, value: any) => {
+  const handleUpdateWarmupSettings = (field: string, value: any) => {
     if (!selectedWarmupAccount) return;
-    const previous = { ...selectedWarmupAccount };
-    const updatedLocal = { ...selectedWarmupAccount, [field]: value };
+    const account = selectedWarmupAccount;
+    const optimistic: Record<string, any> = { [field]: value };
     // Turning warmup on restarts the ramp on the server; show Day 1 while the save is in flight.
-    if (field === 'warmupEnabled' && value === true && !selectedWarmupAccount.warmupEnabled) {
-      updatedLocal.warmupStartedAt = new Date().toISOString();
-      updatedLocal.warmupSent = 0;
+    if (field === 'warmupEnabled' && value === true && !account.warmupEnabled) {
+      optimistic.warmupStartedAt = new Date().toISOString();
+      optimistic.warmupSent = 0;
     }
-    setSelectedWarmupAccount(updatedLocal);
-    setAccounts(prev => prev.map(acc => acc.id === selectedWarmupAccount.id ? updatedLocal : acc));
-    try {
-      const res = await fetch('/api/accounts', {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: selectedWarmupAccount.id, [field]: value }),
-      });
-      if (!res.ok) throw new LoadError(await responseErrorMessage(res, 'Autopilot values failed to save.'));
-      const synced = await res.json();
-      setSelectedWarmupAccount(synced);
-      setAccounts(prev => prev.map(acc => acc.id === selectedWarmupAccount.id ? synced : acc));
-    } catch (err) {
-      setSelectedWarmupAccount(previous);
-      setAccounts(prev => prev.map(acc => acc.id === selectedWarmupAccount.id ? previous : acc));
-      // The server's reason when it answered one, else the generic message (not the browser's "Failed to fetch")
-      showToast(err instanceof LoadError ? err.message : 'Autopilot values failed to save.', 'error');
-    }
+    mergeAccount(account.id, optimistic);
+    settingsSaves.enqueue({
+      accountId: account.id, field, shown: account,
+      send: async () => {
+        const res = await fetch('/api/accounts', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: account.id, [field]: value }),
+        });
+        if (!res.ok) throw new LoadError(await responseErrorMessage(res, 'Autopilot values failed to save.'));
+        return res.json();
+      },
+      onSaved: (synced) => mergeAccount(account.id, synced),
+      onFailed: (restore, err) => {
+        mergeAccount(account.id, restore);
+        // The server's reason when it answered one, else the generic message (not the browser's "Failed to fetch")
+        showToast(err instanceof LoadError ? err.message : 'Autopilot values failed to save.', 'error');
+      },
+    });
   };
+
+  /** Save a typed limit once its input loses focus; a value the field does not allow shows the saved one again. */
+  const commitLimitDraft = (field: MailboxLimitField) => {
+    const draft = limitDrafts[field];
+    if (draft === undefined || !selectedWarmupAccount) return;
+    setLimitDrafts(prev => { const next = { ...prev }; delete next[field]; return next; });
+    const { value, error } = mailboxLimitInputValue(field, draft);
+    if (error) { showToast(`${error} It was not saved.`, 'error'); return; }
+    if (value !== selectedWarmupAccount[field]) handleUpdateWarmupSettings(field, value);
+  };
+
+  /** Value and handlers for a limit input: typing edits a draft, blur or Enter saves it. */
+  const limitInputProps = (field: MailboxLimitField, saved: number) => ({
+    value: limitDrafts[field] ?? saved,
+    onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      const text = e.target.value;
+      setLimitDrafts(prev => ({ ...prev, [field]: text }));
+    },
+    onBlur: () => commitLimitDraft(field),
+    onKeyDown: (e: React.KeyboardEvent<HTMLDivElement>) => { if (e.key === 'Enter') (e.target as HTMLElement).blur(); },
+  });
 
   const handleAddAccount = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -274,20 +317,23 @@ export default function AccountsPage() {
   const handleSaveAccountCredentials = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedWarmupAccount) return;
+    const id = selectedWarmupAccount.id;
     try {
       setSavingCredentials(true);
       const res = await fetch('/api/accounts', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          id: selectedWarmupAccount.id, replyTo: editReplyTo || null,
+          id, replyTo: editReplyTo || null,
           imapHost: editImapHost || null, imapPort: editImapPort ? Number(editImapPort) : null, imapUser: editImapUser || null, imapPass: editImapPass || null,
           imapAllowSelfSigned: editImapAllowSelfSigned,
         }),
       });
       if (!res.ok) throw new Error(await responseErrorMessage(res, 'Failed to update credentials.'));
       const updated = await res.json();
-      setAccounts(prev => prev.map(acc => acc.id === selectedWarmupAccount.id ? updated : acc));
-      setSelectedWarmupAccount(updated);
+      // Limit or warmup values a queued save is about to change keep showing that save's value.
+      mergeAccount(id, settingsSaves.withoutQueuedFields(id, updated));
+      // The form shows what was stored, the password as a mask, unless the user has left this mailbox.
+      if (openAccountId.current === id) seedCredentialForm(updated);
       showToast('Mailbox connection credentials updated successfully.');
     } catch (err: any) { showToast(err.message || 'Failed to update credentials.', 'error'); }
     finally { setSavingCredentials(false); }
@@ -569,7 +615,7 @@ export default function AccountsPage() {
                     <Gauge size={16} color="#2563EB" />
                     <Typography variant="overline" sx={{ fontWeight: 700 }}>Sending Limits</Typography>
                   </Stack>
-                  <TextField fullWidth size="small" label="Per Day" type="number" value={selectedWarmupAccount.dailyLimit} onChange={(e) => handleUpdateWarmupSettings('dailyLimit', parseInt(e.target.value))} sx={{ maxWidth: 240 }} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { min: 10 } }} />
+                  <TextField fullWidth size="small" label={MAILBOX_LIMIT_FIELDS.dailyLimit.label} type="number" {...limitInputProps('dailyLimit', selectedWarmupAccount.dailyLimit)} sx={{ maxWidth: 240 }} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { min: MAILBOX_LIMIT_FIELDS.dailyLimit.min } }} />
                   <Box sx={{ mt: 2 }}><GlobalRateLimits limits={globalRateLimits} /></Box>
                 </CardContent>
               </Card>
@@ -591,8 +637,8 @@ export default function AccountsPage() {
                   {selectedWarmupAccount.warmupEnabled && (
                     <Stack spacing={2} sx={{ mt: 2 }}>
                       <Stack direction="row" spacing={2}>
-                        <TextField fullWidth size="small" label="Starting Volume (Day 1)" type="number" value={selectedWarmupAccount.warmupLimit ?? 50} onChange={(e) => handleUpdateWarmupSettings('warmupLimit', parseInt(e.target.value))} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { min: 1, max: selectedWarmupAccount.dailyLimit } }} />
-                        <TextField fullWidth size="small" label="Daily Ramp Increment" type="number" value={selectedWarmupAccount.warmupRamp ?? 2} onChange={(e) => handleUpdateWarmupSettings('warmupRamp', parseInt(e.target.value))} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { min: 0 } }} />
+                        <TextField fullWidth size="small" label={MAILBOX_LIMIT_FIELDS.warmupLimit.label} type="number" {...limitInputProps('warmupLimit', selectedWarmupAccount.warmupLimit ?? 50)} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { min: MAILBOX_LIMIT_FIELDS.warmupLimit.min, max: selectedWarmupAccount.dailyLimit } }} />
+                        <TextField fullWidth size="small" label={MAILBOX_LIMIT_FIELDS.warmupRamp.label} type="number" {...limitInputProps('warmupRamp', selectedWarmupAccount.warmupRamp ?? 2)} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { min: MAILBOX_LIMIT_FIELDS.warmupRamp.min } }} />
                       </Stack>
                       <Card sx={{ bgcolor: (t) => alpha(t.palette.warning.main, 0.06), borderColor: (t) => alpha(t.palette.warning.main, 0.2) }}>
                         <CardContent>

@@ -11,13 +11,13 @@ import { useTimezones } from '@/hooks/use-timezones';
 import { useToast } from '@/components/Toast';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import VariableToolbar from '@/components/VariableToolbar';
-import CampaignAnalytics from '@/components/CampaignAnalytics';
+import CampaignAnalytics, { StepStatStrip, analyticsCaveats } from '@/components/CampaignAnalytics';
 import { activationBlocker, findIncompleteSteps, queuedLeadsMessage, sequenceDurationDays } from '@/lib/campaignSteps';
 import { autoResumeNote, noScheduleOutcome, ownerDisabledNote, savedScheduleNote } from '@/lib/campaignPause';
 import { STOPPABLE_STATUSES, STOPPED_STATUS, restartConfirmMessage, stopConfirmMessage, stoppedNote } from '@/lib/campaignStop';
 import { sameCampaignVersion } from '@/lib/campaignVersion';
 import { hasSendingSchedule, sendScheduleError, timezoneError } from '@/lib/sendSchedule';
-import { personalizePreview, previewEmailBody } from '@/lib/personalize';
+import { isHtmlTemplate, personalizePreview, previewEmailBody } from '@/lib/personalize';
 import { IMAP_SYNC_LABELS, imapSyncState, stopOnReplyWarning } from '@/lib/imapSyncStatus';
 import { loadErrorMessage, readJsonList, responseErrorMessage } from '@/lib/apiResponse';
 import {
@@ -363,6 +363,8 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
   // A stopped campaign is read-only until it is restarted: the form shows its
   // settings, but nothing in it can be changed or saved.
   const stopped = status === STOPPED_STATUS;
+  // Which of the campaign's stats depend on something not set up (lib/imapSyncStatus, delivery reports, tracking).
+  const statCaveats = analyticsCaveats(campaign, listErrors.mailboxes ? null : availableMailboxes);
   // Without a complete saved window the auto-resume sets the campaign to Draft, so the note says so.
   const resumeNote = campaign ? autoResumeNote({ ...campaign, hasSendingSchedule: hasSendingSchedule(campaign.timezone, campaign.sendSchedule) }) : null;
   const ownerNote = campaign ? ownerDisabledNote(campaign) : null;
@@ -538,6 +540,9 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                   const showPreview = stopped || previewSteps[step.id || index] !== false;
                   const bodyPreview = showPreview ? previewEmailBody(step.body || '') : null;
                   const stepIssue = incompleteSteps.find(s => s.stepNumber === index + 1);
+                  // Stats belong to the saved step this card edits, matched by its id.
+                  const savedStep = (campaign?.steps || []).find((s: any) => s.id === step.id);
+                  const savedStepStats = savedStep ? (campaign?.telemetry?.stepStats || []).find((s: any) => s.stepOrder === savedStep.stepOrder) : null;
                   return (
                     <Card key={step.id || index} sx={stepIssue ? { borderColor: 'error.main' } : undefined}>
                       <CardContent>
@@ -565,6 +570,8 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                             </Stack>
                           )}
                         </Stack>
+
+                        <StepStatStrip stats={savedStepStats} htmlStep={isHtmlTemplate(savedStep?.body ?? '')} caveats={statCaveats} />
 
                         {stepIssue && (
                           <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 2, color: 'error.main' }}>

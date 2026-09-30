@@ -244,6 +244,36 @@ function Th({ children, title, caveat }: { children: ReactNode; title: string; c
   );
 }
 
+/**
+ * One line of a step's stats for its card on the Sequence tab, or nothing
+ * before the step has been sent (or attempted).
+ */
+export function StepStatStrip({ stats, htmlStep, caveats }: { stats: any; htmlStep: boolean; caveats: AnalyticsCaveats }) {
+  if (!stats || (stats.sent === 0 && stats.failed === 0)) return null;
+  const opensGap = trackingGap(caveats.trackOpens, htmlStep, stats.opened);
+  const clicksGap = trackingGap(caveats.trackClicks, htmlStep, stats.clicked);
+  const items: Array<{ label: string; value: string; caveat?: string | null }> = [
+    { label: 'Sent', value: stats.leads && stats.leads !== stats.sent ? `${count(stats.sent)} to ${count(stats.leads)} leads` : count(stats.sent) },
+    ...(noReportsFor(stats, caveats) ? [] : [{ label: 'Delivered', value: `${stats.deliveryRate}%` }]),
+    { label: 'Opened', value: opensGap ?? `${stats.openRate}%` },
+    { label: 'Clicked', value: clicksGap ?? `${stats.clickRate}%` },
+    { label: 'Replied', value: `${stats.replyRate}%`, caveat: caveats.replySync ? REPLY_SYNC_NOTES[caveats.replySync].long : null },
+    { label: 'Unsubscribed', value: count(stats.unsubscribed) },
+    { label: 'Bounced', value: count(stats.bounced) },
+    ...(stats.failed > 0 ? [{ label: 'Failed', value: count(stats.failed) }] : []),
+  ];
+  return (
+    <Stack direction="row" sx={{ flexWrap: 'wrap', columnGap: 2, rowGap: 0.5, mb: 2, px: 1.5, py: 1, borderRadius: '10px', bgcolor: 'action.hover' }}>
+      {items.map((item) => (
+        <Typography key={item.label} variant="caption" sx={{ color: 'text.secondary', display: 'inline-flex', alignItems: 'center' }}>
+          {item.label}&nbsp;<Box component="strong" sx={{ color: 'text.primary', fontVariantNumeric: 'tabular-nums' }}>{item.value}</Box>
+          {item.caveat && <Caveat note={item.caveat} />}
+        </Typography>
+      ))}
+    </Stack>
+  );
+}
+
 const SENTIMENT_COLORS: Record<string, string> = {
   'Neutral': '#94a3b8', 'Interested': '#10b981', 'Not Interested': '#f43f5e', 'Meeting Booked': '#6366f1',
   'Out of Office': '#f59e0b', 'Bounced': '#8b5cf6', 'Unsubscribed': '#475569',

@@ -230,7 +230,12 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
       } else {
         const data = await res.json().catch(() => null);
         if (res.status === 409 && data?.stale) setShowChangedPrompt(true);
-        else showToast(data?.error || 'Failed to update campaign configuration.', 'error');
+        else {
+          showToast(data?.error || 'Failed to update campaign configuration.', 'error');
+          // Saved, but enrolling its audience did not finish: the form takes the
+          // saved version, so the next Save runs the enrollment sync again.
+          if (data?.saved) await loadCampaign();
+        }
       }
     } catch (err) { console.error(err); showToast('Error occurred saving sequence configuration.', 'error'); }
     finally { setSaving(false); }

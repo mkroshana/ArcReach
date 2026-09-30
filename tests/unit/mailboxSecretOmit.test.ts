@@ -187,6 +187,8 @@ describe('mailbox secrets in API responses', () => {
 
   it('PUT /api/campaigns/[id] returns the updated campaign without mailbox passwords', async () => {
     fake.campaign.updateMany.mockResolvedValue({ count: 1 });
+    // An enrolled campaign, so a save that keeps its audience runs no enrollment sync.
+    fake.campaignEnrollment.count.mockResolvedValue(1);
     await expectNoMailboxSecrets(await putCampaign(makeReq('/api/campaigns/cmp-1', 'PUT', { name: 'Renamed', updatedAt: UPDATED_AT.toISOString() }), params));
     expect(fake.campaign.updateMany).toHaveBeenCalledWith({
       where: { id: 'cmp-1', updatedAt: UPDATED_AT },

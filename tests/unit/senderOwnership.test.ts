@@ -5,8 +5,6 @@ const tx = vi.hoisted(() => ({
   campaign: { updateMany: vi.fn() },
   campaignSenderAccount: { deleteMany: vi.fn(), createMany: vi.fn() },
   campaignStep: { deleteMany: vi.fn(), createMany: vi.fn() },
-  lead: { findMany: vi.fn() },
-  campaignEnrollment: { count: vi.fn(), findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
 }));
 
 vi.mock('../../lib/db', () => ({
@@ -19,7 +17,7 @@ vi.mock('../../lib/db', () => ({
     user: { findUnique: vi.fn() },
     campaign: { findUnique: vi.fn(), findFirst: vi.fn() },
     lead: { findMany: vi.fn() },
-    campaignEnrollment: { createMany: vi.fn() },
+    campaignEnrollment: { count: vi.fn(), createMany: vi.fn() },
     $transaction: vi.fn(),
   },
 }));
@@ -153,9 +151,8 @@ describe('PUT /api/campaigns/[id] sender ownership (H24)', () => {
     mockedPrisma.campaign.findUnique.mockResolvedValue(CAMPAIGN);
     mockedPrisma.$transaction.mockImplementation(async (fn: any) => fn(tx));
     tx.campaign.updateMany.mockResolvedValue({ count: 1 });
-    tx.lead.findMany.mockResolvedValue([]);
-    tx.campaignEnrollment.count.mockResolvedValue(0);
-    tx.campaignEnrollment.findMany.mockResolvedValue([]);
+    // An enrolled campaign, so a save that keeps its audience runs no enrollment sync.
+    mockedPrisma.campaignEnrollment.count.mockResolvedValue(1);
   });
 
   const update = (body: Record<string, unknown>) =>
@@ -309,7 +306,7 @@ describe('reassigning a campaign keeps its senders with its owner (H24)', () => 
     });
     mockedPrisma.$transaction.mockImplementation(async (fn: any) => fn(tx));
     tx.campaign.updateMany.mockResolvedValue({ count: 1 });
-    tx.campaignEnrollment.count.mockResolvedValue(1);
+    mockedPrisma.campaignEnrollment.count.mockResolvedValue(1);
 
     const body = { name: 'Renamed', userId: 'user-2', updatedAt: UPDATED_AT.toISOString() };
     const res = await putCampaignDetail(makeReq('PUT', '/api/campaigns/cmp-1', body), {

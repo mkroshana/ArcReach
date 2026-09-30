@@ -341,13 +341,24 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     if (trackClicks !== undefined) updates.trackClicks = !!trackClicks;
     if (audienceCohort !== undefined) updates.audienceCohort = audienceCohort;
 
-    // Use a transaction to ensure atomic updates of campaign config and sequence steps
+    // Enrollments are synced when the audience changed, when the campaign has
+    // none yet (e.g. published while its group was empty), or when an earlier
+    // save's sync did not finish. The save stores its version as the sync's
+    // request with the audience, and the sync runs after the save commits.
+    const version = nextCampaignVersion(loadedVersion);
+    const syncCohort = cohortChanged
+      || campaign.cohortSyncRequestedAt != null
+      || (await prisma.campaignEnrollment.count({ where: { campaignId: id } })) === 0;
+    if (syncCohort) updates.cohortSyncRequestedAt = version;
+
+    // Use a transaction to ensure atomic updates of campaign config and sequence
+    // steps. It holds no enrollment work, so it stays short whatever the audience's size.
     await prisma.$transaction(async (tx) => {
       // 1. Update the campaign record, only while it is still the version the
       // save edited: if another write landed since the check above, nothing is saved.
       const { count } = await tx.campaign.updateMany({
         where: { id, updatedAt: loadedVersion },
-        data: { ...updates, updatedAt: nextCampaignVersion(loadedVersion) }
+        data: { ...updates, updatedAt: version }
       });
       if (count === 0) throw new CampaignChangedError();
 
@@ -398,14 +409,22 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
           await tx.campaignStep.createMany({ data: newSteps });
         }
       }
-
-      // 3. Sync enrollments when the audience changed, or enroll the cohort when
-      // the campaign has none yet (e.g. published while its group was empty)
-      const firstEnrollment = !cohortChanged && (await tx.campaignEnrollment.count({ where: { campaignId: id } })) === 0;
-      if (cohortChanged || firstEnrollment) {
-        await syncCohortEnrollments(tx, id, cohortChanged ? audienceCohort : campaign.audienceCohort || 'Valid');
-      }
     });
+
+    // 3. Sync enrollments to the saved audience in short batches. The save
+    // above stands if this fails, and the next save runs the sync again.
+    if (syncCohort) {
+      try {
+        await syncCohortEnrollments(id, cohortChanged ? audienceCohort : campaign.audienceCohort || 'Valid', version);
+      } catch (error: any) {
+        console.error(`[Campaigns] Enrollment sync for campaign ${id} did not finish:`, error?.message || error);
+        // `saved` tells the campaign page to load the saved version, so its next Save runs the sync again.
+        return NextResponse.json({
+          error: `The campaign was saved, but enrolling its audience did not finish (${error?.message || 'unknown error'}). Save again to finish it.`,
+          saved: true
+        }, { status: 500 });
+      }
+    }
 
     const updatedCampaign = await prisma.campaign.findUnique({
       where: { id },

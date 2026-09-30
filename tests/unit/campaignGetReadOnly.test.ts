@@ -164,7 +164,10 @@ describe('explicit create and save still enroll the cohort (M24)', () => {
 
   it('PUT /api/campaigns/[id] enrolls the cohort on save or publish', async () => {
     fake.campaignStep.findMany.mockResolvedValue([{ stepOrder: 1, waitDays: 0, subject: 'Hi', body: 'Hello' }]);
-    fake.campaign.updateMany.mockResolvedValue({ count: 1 });
+    // The sync runs after the save and writes while the campaign row names the save's request.
+    let saved: any = null;
+    fake.campaign.updateMany.mockImplementation(async ({ data }: any) => { saved ??= data; return { count: 1 }; });
+    fake.$queryRaw.mockImplementation(async () => [{ cohortSyncRequestedAt: saved?.cohortSyncRequestedAt ?? null, updatedAt: saved?.updatedAt }]);
     const res = await putCampaign(makeReq('PUT', '/api/campaigns/cmp-1', { status: 'Active', updatedAt: CAMPAIGN.updatedAt.toISOString() }), params);
     expect(res.status).toBe(200);
     expectEnrolled(fake.campaignEnrollment.createMany, 'cmp-1');

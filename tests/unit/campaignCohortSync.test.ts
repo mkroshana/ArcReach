@@ -17,6 +17,7 @@ const fake = vi.hoisted(() => ({
   senderAccount: { findMany: vi.fn() },
   suppressedEmail: { findMany: vi.fn() },
   $transaction: vi.fn(),
+  $queryRaw: vi.fn(),
 }));
 
 vi.mock('../../lib/db', () => ({
@@ -32,6 +33,7 @@ import { db } from '../../lib/db';
 import { getSession } from '../../lib/session';
 import { POST as postCampaign } from '../../app/api/campaigns/route';
 import { PUT as putCampaign } from '../../app/api/campaigns/[id]/route';
+import { COHORT_SYNC_BATCH } from '../../lib/campaignCohort';
 import { matchesWhere } from './helpers/prismaWhere';
 
 const mockedDb = db as any;
@@ -46,13 +48,18 @@ type EnrollmentRow = {
   currentSequenceStep: number; nextActionDate: Date | null;
 };
 
-let campaign: { id: string; userId: string; status: string; audienceCohort: string; senderAccountId: string; updatedAt: Date };
+let campaign: {
+  id: string; userId: string; status: string; audienceCohort: string; senderAccountId: string; updatedAt: Date;
+  cohortSyncRequestedAt: Date | null;
+};
 let leads: LeadRow[];
 let enrollments: EnrollmentRow[];
 let dispatches: { leadId: string; campaignId: string | null }[];
 /** Addresses on the suppression list. */
 let suppressed: string[];
 let nextEnrollmentId = 0;
+/** The calls each transaction made through its client, in order. */
+let transactions: string[][];
 
 const DUE = new Date('2026-09-01T09:00:00Z');
 
@@ -82,6 +89,19 @@ const inList = (value: string, cond: any) => cond === undefined || (typeof cond 
 
 function enrollmentOf(leadId: string, campaignId = 'cmp-1') {
   return enrollments.find((e) => e.leadId === leadId && e.campaignId === campaignId);
+}
+
+/** `fake` as a transaction client that records each call made through it, as model.method or $queryRaw. */
+function recordingClient(calls: string[]): typeof fake {
+  return new Proxy(fake, {
+    get(target: any, name: string) {
+      const member = target[name];
+      if (typeof member === 'function') return (...args: any[]) => { calls.push(name); return member(...args); };
+      return new Proxy(member, {
+        get: (model: any, method: string) => (...args: any[]) => { calls.push(`${name}.${method}`); return model[method](...args); },
+      });
+    },
+  });
 }
 
 function makeReq(method: string, path: string, body: unknown): NextRequest {
@@ -119,10 +139,11 @@ beforeEach(() => {
   mockedSession.mockResolvedValue(USER);
   nextEnrollmentId = 0;
   suppressed = [];
+  transactions = [];
 
   campaign = {
     id: 'cmp-1', userId: 'user-1', status: 'Active', audienceCohort: 'Valid', senderAccountId: 'mb-1',
-    updatedAt: new Date('2026-09-01T10:00:00.000Z'),
+    updatedAt: new Date('2026-09-01T10:00:00.000Z'), cohortSyncRequestedAt: null,
   };
   leads = [
     lead('in-both', 'Valid', ['g1']),           // Active mid-sequence, stays in the audience
@@ -202,7 +223,25 @@ beforeEach(() => {
     );
     return [...ids].map((leadId) => ({ leadId }));
   });
-  fake.$transaction.mockImplementation(async (fn: (tx: typeof fake) => unknown) => fn(fake));
+  // The sync's batches lock the campaign row and read the save that requested the sync.
+  fake.$queryRaw.mockImplementation(async (query: any) =>
+    query.values[0] === campaign.id
+      ? [{ cohortSyncRequestedAt: campaign.cohortSyncRequestedAt, updatedAt: campaign.updatedAt }]
+      : [],
+  );
+  // A transaction opened inside another would keep the outer one open for the inner one's work.
+  let open = false;
+  fake.$transaction.mockImplementation(async (fn: (tx: typeof fake) => unknown) => {
+    if (open) throw new Error('Transaction opened inside another transaction');
+    const calls: string[] = [];
+    transactions.push(calls);
+    open = true;
+    try {
+      return await fn(recordingClient(calls));
+    } finally {
+      open = false;
+    }
+  });
 });
 
 describe('saving a campaign without changing its audience (H12)', () => {
@@ -373,5 +412,104 @@ describe('only leads that may be emailed are enrolled (M23)', () => {
     expect(enrollmentOf('new-g1')).toMatchObject({ status: 'Active', currentSequenceStep: 1 });
     // Emailed by this campaign, so it keeps its history as Removed instead of showing as queued forever.
     expect(enrollmentOf('in-both')).toMatchObject({ status: 'Removed', nextActionDate: null, currentSequenceStep: 2 });
+  });
+});
+
+describe('the audience sync runs after the save, in short batches (M41)', () => {
+  const SIZE = COHORT_SYNC_BATCH + 1;
+
+  /** SIZE Valid leads outside group g1, each with a never-emailed Active enrollment, and SIZE new members of g1. */
+  beforeEach(() => {
+    for (let i = 0; i < SIZE; i++) {
+      leads.push(lead(`leaving-${i}`, 'Valid'), lead(`joining-${i}`, 'Valid', ['g1']));
+      enrollments.push(enrollment(`leaving-${i}`, 'Active', 1));
+    }
+  });
+
+  const enrolledTimes = (leadId: string) => enrollments.filter((e) => e.leadId === leadId && e.campaignId === 'cmp-1').length;
+
+  it('commits the save in a transaction with no enrollment work, then syncs one batch per transaction', async () => {
+    const res = await pageSave({ name: 'Launch v2', audienceCohort: 'g1' });
+
+    expect(res.status).toBe(200);
+    const [saveTx, ...syncTxs] = transactions;
+    expect(saveTx).toContain('campaign.updateMany');
+    expect(saveTx.filter((call) => !/^(campaign|campaignStep|campaignSenderAccount)\./.test(call))).toEqual([]);
+    // The audience is stored with the version check, naming this save as the sync's request.
+    const saved = fake.campaign.updateMany.mock.calls[0][0].data;
+    expect(saved).toMatchObject({ name: 'Launch v2', audienceCohort: 'g1', cohortSyncRequestedAt: saved.updatedAt });
+
+    // Two batches of leavers, two of joiners and the one that clears the request,
+    // each locking the campaign row first.
+    expect(syncTxs).toHaveLength(5);
+    for (const tx of syncTxs) expect(tx[0]).toBe('$queryRaw');
+    expect(fake.$queryRaw.mock.calls[0][0].text).toMatch(/FROM "Campaign" WHERE "id" = \$1 FOR NO KEY UPDATE/);
+    for (const [{ data }] of fake.campaignEnrollment.createMany.mock.calls) expect(data.length).toBeLessThanOrEqual(COHORT_SYNC_BATCH);
+    for (const [{ where }] of fake.campaignEnrollment.deleteMany.mock.calls) expect(where.id.in.length).toBeLessThanOrEqual(COHORT_SYNC_BATCH);
+
+    for (let i = 0; i < SIZE; i++) {
+      expect(enrollmentOf(`leaving-${i}`)).toBeUndefined();
+      expect(enrollmentOf(`joining-${i}`)).toMatchObject({ status: 'Active', currentSequenceStep: 1 });
+    }
+    expect(enrollmentOf('mid-sequence')).toMatchObject({ status: 'Removed', nextActionDate: null });
+    // Done: the request is cleared and the version the page reloads is the save's.
+    expect(campaign.cohortSyncRequestedAt).toBeNull();
+    expect(campaign.updatedAt).toEqual(saved.updatedAt);
+  });
+
+  it('keeps the save when the sync fails part way, and the next save finishes it', async () => {
+    const createMany = fake.campaignEnrollment.createMany.getMockImplementation()!;
+    fake.campaignEnrollment.createMany
+      .mockImplementationOnce(createMany)
+      .mockImplementationOnce(async () => { throw new Error('connection reset'); });
+
+    const failed = await pageSave({ name: 'Launch v2', audienceCohort: 'g1' });
+
+    expect(failed.status).toBe(500);
+    expect(await failed.json()).toMatchObject({ saved: true, error: expect.stringContaining('connection reset') });
+    expect(campaign).toMatchObject({ name: 'Launch v2', audienceCohort: 'g1' });
+    expect(campaign.cohortSyncRequestedAt).toEqual(campaign.updatedAt);
+    const joined = () => Array.from({ length: SIZE }, (_, i) => enrolledTimes(`joining-${i}`)).filter(Boolean).length;
+    expect(joined()).toBeGreaterThan(0);
+    expect(joined()).toBeLessThan(SIZE);
+
+    // The page reloads the saved version; saving it again, audience unchanged, runs the sync again.
+    const retried = await pageSave({ name: 'Launch v2' });
+
+    expect(retried.status).toBe(200);
+    for (let i = 0; i < SIZE; i++) {
+      expect(enrolledTimes(`joining-${i}`)).toBe(1);
+      expect(enrollmentOf(`leaving-${i}`)).toBeUndefined();
+    }
+    expect(enrollmentOf('new-g1')).toMatchObject({ status: 'Active', currentSequenceStep: 1 });
+    expect(campaign.cohortSyncRequestedAt).toBeNull();
+  });
+
+  it('stops writing once a later save takes the sync over', async () => {
+    const later = new Date('2026-09-30T12:00:00.000Z');
+    const createMany = fake.campaignEnrollment.createMany.getMockImplementation()!;
+    fake.campaignEnrollment.createMany.mockImplementationOnce(async (args: any) => {
+      const result = await createMany(args);
+      // Another save changes the audience once this batch commits.
+      campaign = { ...campaign, audienceCohort: 'g2', cohortSyncRequestedAt: later };
+      return result;
+    });
+
+    const res = await pageSave({ audienceCohort: 'g1' });
+
+    expect(res.status).toBe(200);
+    expect(fake.campaignEnrollment.createMany).toHaveBeenCalledTimes(1);
+    // The later save's request stands, for its own sync to clear.
+    expect(campaign.cohortSyncRequestedAt).toEqual(later);
+  });
+
+  it('a save that keeps the audience of an enrolled campaign runs no sync', async () => {
+    const res = await pageSave({ name: 'Launch v2' });
+
+    expect(res.status).toBe(200);
+    expect(transactions).toHaveLength(1);
+    expect(fake.$queryRaw).not.toHaveBeenCalled();
+    expect(fake.lead.findMany).not.toHaveBeenCalled();
+    expect(fake.campaign.updateMany.mock.calls[0][0].data).not.toHaveProperty('cohortSyncRequestedAt');
   });
 });

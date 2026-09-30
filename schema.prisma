@@ -159,6 +159,12 @@ model Campaign {
   trackOpens      Boolean              @default(true)
   trackClicks     Boolean              @default(true)
   audienceCohort  String               @default("Valid") // Valid, Unverified, etc.
+  // The version (updatedAt) of the save whose audience the enrollments are
+  // still being synced to; null once they match audienceCohort. PUT
+  // /api/campaigns/[id] sets it with the audience and syncs after that save
+  // commits (lib/campaignCohort), so a sync that stopped part way leaves it
+  // set and the next save runs the sync again.
+  cohortSyncRequestedAt DateTime?
   
   steps           CampaignStep[]
   enrollments     CampaignEnrollment[]

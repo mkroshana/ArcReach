@@ -1,7 +1,14 @@
 import { parseLeadEmail } from './leadEmail';
 
+// A cell starting with one of these is read as a formula by Excel, Sheets and LibreOffice
+const FORMULA_START = /^[=+\-@\t\r]/;
+
 /**
  * Escapes a cell value according to RFC-4180 CSV specifications.
+ * Text starting with =, +, -, @, a tab or a carriage return gets a leading single quote,
+ * so a spreadsheet shows it as text instead of running it as a formula (a reply body or
+ * lead field starting =HYPERLINK(...) would otherwise leak neighbouring cells); a number
+ * is left as it is, since it can't be a formula.
  * If the value contains double-quotes, commas, newlines (\n), or carriage returns (\r),
  * it will be wrapped in double quotes and any internal double quotes will be doubled.
  */
@@ -19,6 +26,10 @@ function escapeCell(val: any): string {
     str = JSON.stringify(val);
   } else {
     str = String(val);
+  }
+
+  if (typeof val !== 'number' && FORMULA_START.test(str)) {
+    str = `'${str}`;
   }
 
   const needsQuotes = /["\n\r,]/.test(str);

@@ -5,7 +5,7 @@ import { useState, useEffect, Fragment } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
-  Plus, PlayCircle, Search, Layers, Filter, FileSpreadsheet, RefreshCw,
+  Plus, PlayCircle, Search, Layers, RefreshCw,
   Mail, User, ChevronRight, ChevronDown, Sparkles, Inbox, Trash2, Play, Pause, Send, Check, Clock, TimerOff,
 } from 'lucide-react';
 import {
@@ -224,10 +224,6 @@ export default function CampaignsPage() {
             value={search} onChange={e => setSearch(e.target.value)}
             slotProps={{ input: { startAdornment: <InputAdornment position="start"><Search size={14} /></InputAdornment> } }}
           />
-          <Stack direction="row" spacing={1}>
-            <Button size="small" variant="outlined" color="inherit" startIcon={<Filter size={14} />} onClick={() => showToast('Campaign criteria filters loaded')} sx={{ borderColor: 'divider', color: 'text.secondary' }}>Filter</Button>
-            <Button size="small" variant="outlined" color="inherit" startIcon={<FileSpreadsheet size={14} />} onClick={() => showToast('Campaign stats CSV report ready for download')} sx={{ borderColor: 'divider', color: 'text.secondary' }}>Export CSV</Button>
-          </Stack>
         </Stack>
 
         {loading ? (

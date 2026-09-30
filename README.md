@@ -96,11 +96,19 @@ Each outbound email writes an `EmailDispatch` row. To keep the campaign metrics
   queues leads that are due or that the campaign has not emailed yet, never a
   follow-up before its wait days pass; Send Step queues every lead at its step.
 - `deliveredAt` is stamped by the Azure delivery webhook for the "Delivered" metric.
-  The webhook records every ACS delivery status in `deliveryStatus`. Bounced and
-  Suppressed, and a Failed whose reason names a bad address (5.1.x, "user
-  unknown"), are hard bounces: `bounceType` `hard` with `bouncedAt`, and the
-  address goes on the suppression list. Any other Failed is a soft bounce that
-  leaves the lead mailable. The Bounced metrics on the dashboard, campaign and
+  The webhook records every ACS delivery status in `deliveryStatus`. A hard
+  bounce sets `bounceType` `hard` with `bouncedAt` and puts the address on the
+  suppression list; a soft bounce sets `bounceType` `soft` and leaves the lead
+  mailable. Suppressed is always hard. A Failed is hard only when its reason
+  names a bad address (5.1.x, "user unknown"). A Bounced is soft when its
+  reason shows the refusal was temporary or about the sender rather than the
+  address: a 4xx or 4.x.x code, a 5.7.x code, a full mailbox (5.2.2, "mailbox
+  full", "over quota", "out of storage"), or spam, junk, phishing, content
+  filter, block list ("listed at", DNSBL, RBL), reputation, policy, rate-limit
+  or authentication (SPF, DKIM, DMARC) wording. Any other Bounced is hard,
+  including one with no reason, and a bad-address code (5.1.x) keeps it hard
+  whatever the wording. An IP address quoted in a reason is never read as a
+  status code. The Bounced metrics on the dashboard, campaign and
   Accounts pages count hard-bounced dispatches. The webhook answers 500 when an
   event fails so Event Grid redelivers it, and 200 for a message it has no
   dispatch for.

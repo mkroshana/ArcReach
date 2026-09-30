@@ -19,7 +19,7 @@ const fake = vi.hoisted(() => ({
 vi.mock('../../lib/db', () => ({ prisma: fake }));
 
 import { POST } from '../../app/api/webhook/route';
-import { classifyDeliveryFailure, parseDeliveryStatus } from '../../lib/deliveryReport';
+import { classifyDeliveryFailure, deliveryOutcome, parseDeliveryStatus } from '../../lib/deliveryReport';
 
 function makeReq(body: any, headers: Record<string, string> = {}): NextRequest {
   return new NextRequest('http://localhost/api/webhook', {
@@ -294,6 +294,42 @@ describe('webhook delivery reports map every ACS status (H20)', () => {
     expectHardBounce('d-1', status);
   });
 
+  it.each([
+    ['a bad-address code', '550 5.1.1 The email account that you tried to reach does not exist; user unknown.'],
+    ['no reason at all', undefined],
+    ['a reason it does not recognise', '554 5.4.4 Unable to route the message.'],
+    ['a bad-address code after a quoted IP address', '[10.2.1.1] 550 5.1.1 user unknown'],
+  ])('Bounced with %s stays a hard bounce that suppresses the lead', async (_label, statusMessage) => {
+    addDispatch({ id: 'd-1' });
+
+    const res = await post([report('op-d-1', 'Bounced', statusMessage)]);
+
+    expect(res.status).toBe(200);
+    expectHardBounce('d-1', 'Bounced');
+  });
+
+  it.each([
+    ['a suspected spam refusal', '550 5.7.1 [203.0.113.7] Gmail has detected that this message is likely suspected spam.'],
+    ['an authentication refusal', '550-5.7.26 This mail has been blocked because the sender is unauthenticated.'],
+    ['a transient rate limit', '421 4.7.28 Our system has detected an unusual rate of mail from your IP; rate limited.'],
+    ['spam wording without a code', 'Message rejected as unsolicited mail.'],
+    ['a spam refusal after a quoted IP address', '[5.1.1.4] 550 5.7.1 suspected spam'],
+    ['a full mailbox', "552-5.2.2 The recipient's inbox is out of storage space."],
+    ['a content filter refusal', '554 Denied by content filter'],
+    ['a block list refusal', '550 Client host rejected: listed at dnsbl.example.net'],
+  ])('Bounced with %s is a soft bounce that suppresses nobody and leaves the lead mailable', async (_label, statusMessage) => {
+    addDispatch({ id: 'd-1' });
+
+    const res = await post([report('op-d-1', 'Bounced', statusMessage)]);
+
+    expect(res.status).toBe(200);
+    expect(dispatch('d-1')).toMatchObject({ deliveryStatus: 'Bounced', bounceType: 'soft', bouncedAt: new Date(ATTEMPTED_AT) });
+    expectLeadUntouched();
+    expect(fake.suppressedEmail.createMany).not.toHaveBeenCalled();
+    expect(fake.lead.update).not.toHaveBeenCalled();
+    expect(events).toEqual([]);
+  });
+
   it.each(['Quarantined', 'FilteredSpam'])('%s is recorded on the dispatch without bouncing it or touching the lead', async (status) => {
     addDispatch({ id: 'd-1' });
 
@@ -464,6 +500,120 @@ describe('classifyDeliveryFailure (H20)', () => {
     [undefined, 'soft'],
   ])('%j is %s', (statusMessage, expected) => {
     expect(classifyDeliveryFailure(statusMessage)).toBe(expected);
+    expect(deliveryOutcome('Failed', statusMessage)).toBe(expected);
+  });
+});
+
+describe('deliveryOutcome for Bounced and Suppressed (H20)', () => {
+  it.each([
+    ['550 5.7.1 Message rejected: suspected spam', 'soft'],
+    ['550-5.7.26 Unauthenticated email from example.com is not accepted due to its DMARC policy', 'soft'],
+    ['421 4.7.28 rate limited', 'soft'],
+    ['452 4.2.2 The email account that you tried to reach is over quota.', 'soft'],
+    ['451 Temporary local problem, try again later', 'soft'],
+    ['554 Your IP address is listed on a blocklist', 'soft'],
+    ['550 Sender reputation too low', 'soft'],
+    ['550 SPF check failed', 'soft'],
+    ['550 Message failed DKIM verification', 'soft'],
+    ['550 Too many messages from your IP address', 'soft'],
+    ['550 Mailbox unavailable: client host blocked', 'soft'],
+    ['550 5.1.1 The email account that you tried to reach does not exist.', 'hard'],
+    ['550 5.1.10 RESOLVER.ADR.RecipientNotFound; Recipient not found by SMTP address lookup', 'hard'],
+    ['550 5.1.1 Recipient rejected by policy: user unknown', 'hard'],
+    ['Recipient address does not exist.', 'hard'],
+    ['554 5.4.4 Unable to route: no MX record for the domain', 'hard'],
+    ['552 5.2.2 Mailbox full', 'soft'],
+    ['552 5.2.2 Requested mail action aborted: mailbox unavailable', 'soft'],
+    ['', 'hard'],
+    [null, 'hard'],
+    [undefined, 'hard'],
+  ])('Bounced %j is %s', (statusMessage, expected) => {
+    expect(deliveryOutcome('Bounced', statusMessage)).toBe(expected);
+  });
+
+  it.each(['550 5.7.1 Message rejected: suspected spam', '421 4.7.28 rate limited', null])(
+    'Suppressed %j is hard whatever its reason',
+    (statusMessage) => {
+      expect(deliveryOutcome('Suppressed', statusMessage)).toBe('hard');
+    }
+  );
+
+  it.each([
+    'Message rejected as junk',
+    '550 Message identified as phishing',
+    '554 Denied by content filter',
+    '550 Rejected by our content filter',
+    '550 Message filtered',
+    '550 Your server is listed at bl.example.net',
+    '554 Sending host found on a DNSBL',
+    '550 Client host rejected by RBL',
+    '550 Sender IP is on our blocklist',
+    '550 Message content not accepted',
+    '554 Content rejected',
+  ])('Bounced %j over spam, a content filter or a block list is soft', (statusMessage) => {
+    expect(deliveryOutcome('Bounced', statusMessage)).toBe('soft');
+  });
+
+  it.each([
+    "552-5.2.2 The recipient's inbox is out of storage space.",
+    '452 4.2.2 The email account that you tried to reach is over quota.',
+    '550 Mailbox full',
+    'Recipient mailbox is full',
+    '550 User over quota',
+    '552 Insufficient storage',
+    '552 The recipient is out of storage',
+  ])('Bounced %j over a full mailbox is soft, as it is for Failed', (statusMessage) => {
+    expect(deliveryOutcome('Bounced', statusMessage)).toBe('soft');
+    expect(deliveryOutcome('Failed', statusMessage)).toBe('soft');
+  });
+
+  it.each([
+    '550 5.1.1 user unknown',
+    '550-5.1.1 The email account that you tried to reach does not exist.',
+    '550 5.1.2 Host unknown: domain not found',
+    '553 5.1.3 Invalid recipient address syntax',
+    '550 5.1.1 user unknown; message filtered by content filter',
+    '550 5.1.1 mailbox full',
+    'No such user here',
+    'Recipient address does not exist.',
+  ])('Bounced %j naming a bad address, and no refusal of the sender without a code, stays hard', (statusMessage) => {
+    expect(deliveryOutcome('Bounced', statusMessage)).toBe('hard');
+  });
+});
+
+describe('enhanced status code parsing (H20)', () => {
+  // Each of these used to be read by the first x.y.z in the message, which
+  // was part of an IP address or a version number, not the server's code.
+  it.each([
+    ['[5.1.1.4] 550 5.7.1 suspected spam', 'soft', 'soft'],
+    ['[5.1.1.4] 550 5.7.1 Message refused', 'soft', 'soft'],
+    ['[192.5.1.1] 550-5.7.1 Message refused', 'soft', 'soft'],
+    ['Remote host [192.5.1.1] said: 5.7.1 Message refused', 'soft', 'soft'],
+    ['[10.2.1.1] 550 5.1.1 user unknown', 'hard', 'hard'],
+    ['Remote host [4.4.7.9] said: 5.1.1 user unknown', 'hard', 'hard'],
+    ['Postfix 2.10.1: 550 5.1.1 user unknown', 'hard', 'hard'],
+  ])('never reads a dotted IP address or other number in %j as its code (Bounced %s, Failed %s)', (statusMessage, bounced, failed) => {
+    expect(deliveryOutcome('Bounced', statusMessage)).toBe(bounced);
+    expect(deliveryOutcome('Failed', statusMessage)).toBe(failed);
+    expect(classifyDeliveryFailure(statusMessage)).toBe(failed);
+  });
+
+  // Codes that were read correctly before keep the same outcome for Failed.
+  it.each([
+    ['550 5.7.1 [203.0.113.7] Message refused', 'soft'],
+    ['550-5.1.1 <jane@example.com> user unknown [198.51.100.25]', 'hard'],
+    ['421-4.7.0 [40.107.22.5 15] Try again later', 'soft'],
+    ['#550 5.1.1 RESOLVER.ADR.RecipNotFound; not found ##', 'hard'],
+    ['5.1.1 user unknown', 'hard'],
+    ['smtp;550 5.1.10 RecipientNotFound', 'hard'],
+    ['550 5.2.1 Mailbox disabled', 'soft'],
+    ['550 5.1.8 Bad sender address [192.0.2.44]', 'soft'],
+    ['554 5.4.4 [10.0.0.12] Unable to route: domain not found', 'hard'],
+    ['450 4.2.0 [2001:db8::1] Mailbox busy', 'soft'],
+    ['Delivery failed after 5.5 hours', 'soft'],
+  ])('Failed %j keeps its outcome (%s)', (statusMessage, expected) => {
+    expect(classifyDeliveryFailure(statusMessage)).toBe(expected);
+    expect(deliveryOutcome('Failed', statusMessage)).toBe(expected);
   });
 });
 

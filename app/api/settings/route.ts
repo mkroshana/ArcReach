@@ -53,12 +53,9 @@ export async function GET() {
     // Settings are admin-only. Non-admins get their profile but no settings block.
     let settingsPayload: any = null;
     if (session.role === 'ADMIN') {
+      // Nothing is configured on first load: SMTP and IMAP stay null.
       const settings = await ensureGlobalSettings({
         activeProvider: 'DISABLED',
-        smtpHost: 'smtp.mailgun.org',
-        smtpPort: 587,
-        smtpUser: 'postmaster@sandbox.arcreach.com',
-        smtpPass: '•••••••••••••••••••••••••••••',
         rateLimitMinute: 60,
         rateLimitHour: 1000
       });

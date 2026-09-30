@@ -221,3 +221,17 @@ describe('/api/settings uses the single settings row (M9)', () => {
     expect(rows).toEqual([expect.objectContaining({ id: GLOBAL_SETTINGS_ID, activeProvider: 'AZURE', azureConnString: 'enc:conn' })]);
   });
 });
+
+describe('first GET /api/settings seeds no fake SMTP settings (M17)', () => {
+  it('creates the row with sending disabled and every SMTP field unset', async () => {
+    const res = await getSettings();
+
+    expect(res.status).toBe(200);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ id: GLOBAL_SETTINGS_ID, activeProvider: 'DISABLED', rateLimitMinute: 60, rateLimitHour: 1000 });
+    for (const field of ['smtpHost', 'smtpPort', 'smtpUser', 'smtpPass']) {
+      expect(rows[0][field] ?? null).toBeNull();
+    }
+    expect((await res.json()).settings).toMatchObject({ activeProvider: 'DISABLED' });
+  });
+});

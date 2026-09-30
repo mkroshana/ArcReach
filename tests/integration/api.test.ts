@@ -90,13 +90,17 @@ describe('ArcReach Live API Integration Tests', () => {
       
       const data = await res.json();
       expect(data).toHaveProperty('database');
+      expect(data).toHaveProperty('azureStatus');
+      expect(data).toHaveProperty('workerStatus');
       expect(data).toHaveProperty('deliveryStatus');
-      expect(data).toHaveProperty('smtpConfigured');
+      expect(data).toHaveProperty('setupPausedCampaigns');
       expect(data).toHaveProperty('accountsCount');
       expect(data).toHaveProperty('activeCampaignsCount');
       expect(data).toHaveProperty('leadsCount');
-      
-      expect(['OPERATIONAL', 'STANDBY', 'INACTIVE']).toContain(data.deliveryStatus);
+      expect(data).not.toHaveProperty('smtpConfigured');
+
+      expect(['CONFIGURED', 'UNCONFIGURED', 'DISABLED']).toContain(data.azureStatus);
+      expect(['RUNNING', 'STALLED', 'FAILING', 'NOT_RUNNING', 'DISABLED']).toContain(data.deliveryStatus);
     });
   });
 

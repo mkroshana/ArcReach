@@ -979,6 +979,9 @@ export async function processDueEmails() {
 
   } catch (error) {
     console.error('[SendEngine] Error during processing cycle:', error);
+    // Rethrown so the worker records the failed cycle in its heartbeat
+    // (WorkerLease.lastError), which the system status shows.
+    throw error;
   }
 }
 

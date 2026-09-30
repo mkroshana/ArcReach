@@ -124,6 +124,33 @@ export function sendingDisabledReason(settings: ProviderSettings | null | undefi
   return null;
 }
 
+/**
+ * Why the saved settings cannot send through ACS, checked without calling
+ * Azure: sendingDisabledReason, then whether the connection string decrypts
+ * and the SDK accepts its format. Null means the settings are complete, not
+ * that Azure accepts the access key; only a send shows that.
+ */
+export function azureSettingsProblem(settings: ProviderSettings | null | undefined): string | null {
+  const disabled = sendingDisabledReason(settings);
+  if (disabled) return disabled;
+
+  let connString: string | null | undefined;
+  try {
+    connString = decryptSecret(settings!.azureConnString);
+  } catch {
+    return 'The saved Azure Communication Services connection string could not be decrypted. SECRETS_KEY may have changed since it was saved; an admin must save it again in Settings.';
+  }
+  const invalid = 'The saved Azure Communication Services connection string is not valid; an admin must save it again in Settings.';
+  if (!connString) return invalid;
+  try {
+    getAzureClient(connString);
+  } catch {
+    // The SDK's error echoes the string, access key included, so it is not kept.
+    return invalid;
+  }
+  return null;
+}
+
 export async function sendMessage(
   input: MessageInput,
   settings: ProviderSettings | null | undefined

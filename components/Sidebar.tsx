@@ -9,9 +9,11 @@ import {
 } from 'lucide-react';
 import { useTheme } from '@/components/ThemeProvider';
 import {
-  Box, Stack, Typography, Avatar, Chip, Button, List, ListItemButton, ListItemIcon, ListItemText,
+  Box, Stack, Typography, Avatar, Chip, Button, List, ListItemButton, ListItemIcon, ListItemText, Tooltip,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
+import { autoResumeNote } from '@/lib/campaignPause';
+import { workerStatusText } from '@/lib/systemStatus';
 
 const defaultNavItems = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
@@ -22,8 +24,31 @@ const defaultNavItems = [
   { name: 'Templates', href: '/templates', icon: FileText },
 ];
 
-function StatusRow({ label, color, text }: { label: string; color: string; text: string }) {
-  return (
+const STATUS_OK = '#10b981';
+const STATUS_WARN = '#f59e0b';
+const STATUS_BAD = '#f43f5e';
+const STATUS_IDLE = '#94a3b8';
+
+/** Azure settings, from /api/system-status's azureStatus. Nothing calls Azure, so none of these says it is online. */
+const AZURE_STATUS: Record<string, { color: string; text: string }> = {
+  CONFIGURED: { color: STATUS_OK, text: 'Configured' },
+  UNCONFIGURED: { color: STATUS_WARN, text: 'Not Configured' },
+  DISABLED: { color: STATUS_WARN, text: 'Disabled' },
+};
+
+/** The send worker, from /api/system-status's workerStatus (its heartbeat). */
+const WORKER_STATUS: Record<string, { color: string; text: string }> = {
+  RUNNING: { color: STATUS_OK, text: 'Running' },
+  STALLED: { color: STATUS_WARN, text: 'Stalled' },
+  FAILING: { color: STATUS_BAD, text: 'Failing' },
+  NOT_RUNNING: { color: STATUS_BAD, text: 'Not Running' },
+};
+
+/** How often the status panel re-reads /api/system-status while the tab is visible. */
+const STATUS_REFRESH_MS = 60_000;
+
+function StatusRow({ label, color, text, detail }: { label: string; color: string; text: string; detail?: string | null }) {
+  const row = (
     <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
       <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 500 }}>{label}</Typography>
       <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
@@ -32,6 +57,7 @@ function StatusRow({ label, color, text }: { label: string; color: string; text:
       </Stack>
     </Stack>
   );
+  return detail ? <Tooltip title={detail} placement="right">{row}</Tooltip> : row;
 }
 
 export function Sidebar() {
@@ -48,7 +74,16 @@ export function Sidebar() {
       if (res.status === 401) { window.location.href = '/login'; return null; }
       return res.json();
     }).then(data => setSessionState(data)).catch(() => {});
-    fetch('/api/system-status').then(res => res.json()).then(data => setSystemStatus(data)).catch(() => {});
+    const loadStatus = () => {
+      // A 401 (session ended) is left to the session check; it says nothing about the system.
+      fetch('/api/system-status').then(res => (res.status === 401 ? null : res.json())).then(data => { if (data) setSystemStatus(data); }).catch(() => {});
+    };
+    loadStatus();
+    // The worker status comes from its heartbeat, so it is re-read rather than kept from page load.
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') loadStatus();
+    }, STATUS_REFRESH_MS);
+    return () => clearInterval(interval);
   }, []);
 
   const handleLogout = async () => {
@@ -63,20 +98,25 @@ export function Sidebar() {
   const navItems = [...defaultNavItems];
   if (session?.role === 'ADMIN') navItems.push({ name: 'Users Admin', href: '/admin/users', icon: ShieldCheck });
 
-  // System status colors/labels (preserves prior logic)
+  // System status colors/labels
   const dbOk = systemStatus?.database === 'OPERATIONAL';
-  const dbColor = dbOk ? '#10b981' : systemStatus ? '#f43f5e' : '#94a3b8';
+  const dbColor = dbOk ? STATUS_OK : systemStatus ? STATUS_BAD : STATUS_IDLE;
   const dbText = systemStatus ? (dbOk ? 'Online' : 'Offline') : 'Loading';
 
-  let azureColor = '#94a3b8';
-  let azureText = 'Loading';
-  if (systemStatus) {
-    if (systemStatus.activeProvider === 'AZURE') {
-      if (systemStatus.azureStatus === 'OPERATIONAL') { azureColor = '#10b981'; azureText = 'Online'; }
-      else if (systemStatus.azureStatus === 'UNCONFIGURED') { azureColor = '#f59e0b'; azureText = 'Not Setup'; }
-      else { azureColor = '#f43f5e'; azureText = 'Offline'; }
-    } else { azureColor = '#f59e0b'; azureText = 'Disabled'; }
-  }
+  const unknown = { color: STATUS_IDLE, text: systemStatus ? 'Unknown' : 'Loading' };
+  const azure = AZURE_STATUS[systemStatus?.azureStatus] ?? unknown;
+  const azureDetail = systemStatus?.azureStatus === 'CONFIGURED'
+    ? 'The connection string decrypts and a verified sender domain is saved. Azure accepts or refuses the access key only when an email is sent.'
+    : systemStatus?.sendingProblem;
+  const worker = WORKER_STATUS[systemStatus?.workerStatus] ?? unknown;
+  const workerDetail = WORKER_STATUS[systemStatus?.workerStatus]
+    ? workerStatusText(systemStatus.workerStatus, systemStatus.workerHeartbeat)
+    : null;
+
+  // Campaigns the send engine paused until their setup is fixed.
+  const setupPaused: Array<{ id: string; name: string; status: string; pauseReason: string | null; pausedUntil: string | null }> =
+    systemStatus?.setupPausedCampaigns ?? [];
+  const setupPausedMore = (systemStatus?.setupPausedCount ?? 0) - setupPaused.length;
 
   return (
     <Box
@@ -166,8 +206,32 @@ export function Sidebar() {
           <Typography sx={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', color: 'text.secondary', textTransform: 'uppercase', mb: 1 }}>System Status</Typography>
           <Stack spacing={1}>
             <StatusRow label="Database" color={dbColor} text={dbText} />
-            <StatusRow label="Azure API" color={azureColor} text={azureText} />
+            <StatusRow label="Azure Settings" color={azure.color} text={azure.text} detail={azureDetail} />
+            <StatusRow label="Send Worker" color={worker.color} text={worker.text} detail={workerDetail} />
           </Stack>
+          {setupPaused.length > 0 && (
+            <Box sx={{ mt: 1.25, pt: 1, borderTop: 1, borderColor: 'divider' }}>
+              <Typography sx={{ fontSize: 10, fontWeight: 700, color: STATUS_WARN, mb: 0.5 }}>
+                Paused by Setup Problems ({systemStatus.setupPausedCount})
+              </Typography>
+              <Stack spacing={0.25}>
+                {setupPaused.map((c) => (
+                  <Tooltip key={c.id} title={autoResumeNote(c) ?? ''} placement="right">
+                    <Typography component={Link as any} href={`/campaigns/${c.id}`} noWrap
+                      sx={{ fontSize: 11, color: 'text.primary', textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}>
+                      {c.name}
+                    </Typography>
+                  </Tooltip>
+                ))}
+                {setupPausedMore > 0 && (
+                  <Typography component={Link as any} href="/campaigns"
+                    sx={{ fontSize: 11, color: 'text.secondary', textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}>
+                    {setupPausedMore} more
+                  </Typography>
+                )}
+              </Stack>
+            </Box>
+          )}
         </Box>
       </Stack>
     </Box>

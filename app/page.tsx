@@ -14,6 +14,16 @@ import {
 } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
 import { useTheme as useAppTheme } from '@/components/ThemeProvider';
+import { deliveryStatusText } from '@/lib/systemStatus';
+
+/** The outbox chip for each /api/system-status deliveryStatus. */
+const DELIVERY_CHIP: Record<string, { label: string; color: string }> = {
+  RUNNING: { label: 'Outbox Running', color: 'success.main' },
+  STALLED: { label: 'Outbox Stalled', color: 'warning.main' },
+  FAILING: { label: 'Outbox Failing', color: 'error.main' },
+  NOT_RUNNING: { label: 'Outbox Not Running', color: 'error.main' },
+  DISABLED: { label: 'Sending Disabled', color: 'warning.main' },
+};
 
 const gridSx = (cols: number) => ({
   display: 'grid',
@@ -149,13 +159,18 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, [range]);
 
-  const deliveryOperational = systemStatus?.deliveryStatus === 'OPERATIONAL';
+  // Whether campaign email goes out, from the Azure settings and the send worker's heartbeat.
+  const delivery = DELIVERY_CHIP[systemStatus?.deliveryStatus]
+    ?? { label: !systemStatus && loading ? 'Checking Outbox' : 'Outbox Status Unknown', color: 'text.disabled' };
+  const deliveryDetail = DELIVERY_CHIP[systemStatus?.deliveryStatus]
+    ? deliveryStatusText(systemStatus.deliveryStatus, systemStatus.sendingProblem, systemStatus.workerHeartbeat)
+    : !systemStatus && loading ? '' : 'The system status could not be read.';
   const needsSetup = systemStatus && (systemStatus.accountsCount === 0 || systemStatus.leadsCount === 0 || systemStatus.activeCampaignsCount === 0);
 
   const setupSteps = systemStatus ? [
     { done: systemStatus.accountsCount > 0, title: '1. Connect Mailbox', todo: 'No mailboxes connected. Outbound paused.', done_text: `${systemStatus.accountsCount} active mailbox(es) online.`, href: '/accounts', cta: 'Connect Senders' },
     { done: systemStatus.leadsCount > 0, title: '2. Import Leads', todo: 'No CRM leads. Outbox has no targets.', done_text: `${systemStatus.leadsCount} CRM contact(s) imported.`, href: '/leads', cta: 'Upload Leads' },
-    { done: systemStatus.activeCampaignsCount > 0, title: '3. Start Campaign', todo: 'All campaigns are idle.', done_text: `${systemStatus.activeCampaignsCount} campaign(s) actively sending.`, href: '/campaigns', cta: 'Manage Campaigns' },
+    { done: systemStatus.activeCampaignsCount > 0, title: '3. Start Campaign', todo: 'All campaigns are idle.', done_text: `${systemStatus.activeCampaignsCount} Active campaign(s).`, href: '/campaigns', cta: 'Manage Campaigns' },
   ] : [];
 
   return (
@@ -173,12 +188,14 @@ export default function Dashboard() {
               <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
             </IconButton>
           </MuiTooltip>
-          <Chip
-            size="small"
-            label={deliveryOperational ? 'Live Outbox' : 'Outbox Inactive'}
-            sx={{ fontFamily: 'monospace', fontWeight: 700 }}
-            icon={<Box component="span" sx={{ width: 8, height: 8, borderRadius: '50%', ml: 1, bgcolor: deliveryOperational ? 'success.main' : systemStatus?.deliveryStatus === 'STANDBY' ? 'warning.main' : 'text.disabled' }} />}
-          />
+          <MuiTooltip title={deliveryDetail}>
+            <Chip
+              size="small"
+              label={delivery.label}
+              sx={{ fontFamily: 'monospace', fontWeight: 700 }}
+              icon={<Box component="span" sx={{ width: 8, height: 8, borderRadius: '50%', ml: 1, bgcolor: delivery.color }} />}
+            />
+          </MuiTooltip>
         </Stack>
       </Stack>
 

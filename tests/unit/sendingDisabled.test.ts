@@ -144,6 +144,19 @@ describe('processDueEmails refuses to send unless Azure is configured (H1)', () 
   });
 });
 
+describe('processDueEmails lets a failed cycle reach the worker heartbeat (M17)', () => {
+  it('rethrows an error that stops the cycle, so the worker records it as lastError', async () => {
+    useSettings(AZURE_SETTINGS);
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockedPrisma.campaignEnrollment.findMany.mockRejectedValue(new Error('The column `CampaignEnrollment.claimToken` does not exist'));
+
+    await expect(processDueEmails()).rejects.toThrow('claimToken');
+
+    expect(error).toHaveBeenCalledWith('[SendEngine] Error during processing cycle:', expect.any(Error));
+    expectNothingRecorded();
+  });
+});
+
 describe('send routes return 409 unless Azure is configured (H1)', () => {
   const run = () => postRun(makeReq('/api/campaigns/cmp-1/run', {}), { params: Promise.resolve({ id: 'cmp-1' }) });
   const reply = () => postUniboxReply(makeReq('/api/unibox/reply', { responseId: 'in-1', body: 'Thanks!', senderAccountId: 'mb-1' }));

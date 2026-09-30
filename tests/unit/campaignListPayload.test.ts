@@ -60,8 +60,8 @@ function storedCampaigns() {
       senderAccount: MAILBOX,
       senders: [{ campaignId: 'cmp-1', senderAccountId: 'acc-1', senderAccount: MAILBOX }],
       steps: [
-        { id: 'step-1', campaignId: 'cmp-1', stepOrder: 1, waitDays: 0, subject: 'Hi {{firstName}}', body: BODY, isABTest: false },
-        { id: 'step-2', campaignId: 'cmp-1', stepOrder: 2, waitDays: 3, subject: 'Following up', body: BODY, isABTest: false },
+        { id: 'step-1', campaignId: 'cmp-1', stepOrder: 1, waitDays: 0, subject: 'Hi {{firstName}}', body: BODY },
+        { id: 'step-2', campaignId: 'cmp-1', stepOrder: 2, waitDays: 3, subject: 'Following up', body: BODY },
       ],
     },
     {

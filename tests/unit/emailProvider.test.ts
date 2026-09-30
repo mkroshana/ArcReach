@@ -2,11 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { sendMessage, sendingDisabledReason, EmailConfigError, EmailSendError } from '../../lib/emailProvider';
 import { encryptSecret } from '../../lib/secrets';
 
-const sendMail = vi.fn();
-vi.mock('nodemailer', () => ({
-  default: { createTransport: () => ({ sendMail: (...args: any[]) => sendMail(...args) }) },
-}));
-
 const beginSend = vi.fn();
 vi.mock('@azure/communication-email', () => ({
   EmailClient: class { beginSend(...a: any[]) { return beginSend(...a); } },
@@ -19,7 +14,6 @@ const sender = {
 };
 
 beforeEach(() => {
-  sendMail.mockReset();
   beginSend.mockReset();
 });
 
@@ -48,14 +42,13 @@ describe('sendingDisabledReason (H1)', () => {
 });
 
 describe('sendMessage', () => {
-  it('never reports success without sending: no settings, DISABLED and MOCK throw EmailConfigError and call no transport', async () => {
+  it('never reports success without sending: no settings, DISABLED, MOCK and the retired SMTP, GOOGLE and MICROSOFT values throw EmailConfigError and call no transport', async () => {
     const credentials = { azureConnString: encryptSecret('endpoint=https://x;accesskey=y'), azureSenderDomains: ['thejobshelpers.com'] };
-    for (const settings of [null, { ...credentials, activeProvider: 'DISABLED' }, { ...credentials, activeProvider: 'MOCK' }]) {
-      await expect(
-        sendMessage({ to: 'lead@x.com', subject: 's', body: 'b', isHtml: false, sender }, settings)
-      ).rejects.toBeInstanceOf(EmailConfigError);
+    for (const settings of [null, ...['DISABLED', 'MOCK', 'SMTP', 'GOOGLE', 'MICROSOFT'].map((activeProvider) => ({ ...credentials, activeProvider }))]) {
+      const err = await sendMessage({ to: 'lead@x.com', subject: 's', body: 'b', isHtml: false, sender }, settings).catch((e) => e);
+      expect(err).toBeInstanceOf(EmailConfigError);
+      expect(err.message).toMatch(/^Sending is disabled\./);
     }
-    expect(sendMail).not.toHaveBeenCalled();
     expect(beginSend).not.toHaveBeenCalled();
   });
 
@@ -140,79 +133,6 @@ describe('sendMessage', () => {
           activeProvider: 'AZURE',
           azureConnString: encryptSecret('endpoint=x;accesskey=y'),
           azureSenderDomains: ['thejobshelpers.com'],
-        }
-      )
-    ).rejects.toBeInstanceOf(EmailSendError);
-  });
-
-  it('SMTP path uses per-sender credentials when present', async () => {
-    sendMail.mockResolvedValue({ messageId: '<smtp-msg-1>' });
-    const result = await sendMessage(
-      {
-        to: 'lead@x.com', subject: 's', body: 'b', isHtml: false,
-        sender: {
-          ...sender,
-          smtpHost: 'smtp.sender.com', smtpPort: 587,
-          smtpUser: 'override@sender.com', smtpPass: encryptSecret('secret'),
-        },
-      },
-      { activeProvider: 'SMTP' }
-    );
-    expect(result.providerMessageId).toBe('<smtp-msg-1>');
-    const call = sendMail.mock.calls[0][0];
-    expect(call.from).toContain('override@sender.com');
-    expect(call.to).toBe('lead@x.com');
-  });
-
-  it('SMTP omits replyTo when the sender has none configured', async () => {
-    sendMail.mockResolvedValue({ messageId: '<smtp-msg-2>' });
-    await sendMessage(
-      { to: 'lead@x.com', subject: 's', body: 'b', isHtml: false, sender },
-      {
-        activeProvider: 'SMTP',
-        smtpHost: 'smtp.global.com', smtpPort: 587,
-        smtpUser: 'global@x.com', smtpPass: encryptSecret('secret'),
-      }
-    );
-    const call = sendMail.mock.calls[0][0];
-    expect(call.replyTo).toBeUndefined();
-  });
-
-  it('SMTP includes replyTo only when explicitly set', async () => {
-    sendMail.mockResolvedValue({ messageId: '<smtp-msg-3>' });
-    await sendMessage(
-      {
-        to: 'lead@x.com', subject: 's', body: 'b', isHtml: false,
-        sender: { ...sender, replyTo: 'inbox@x.com' },
-      },
-      {
-        activeProvider: 'SMTP',
-        smtpHost: 'smtp.global.com', smtpPort: 587,
-        smtpUser: 'global@x.com', smtpPass: encryptSecret('secret'),
-      }
-    );
-    const call = sendMail.mock.calls[0][0];
-    expect(call.replyTo).toBe('inbox@x.com');
-  });
-
-  it('SMTP without any credentials throws EmailConfigError', async () => {
-    await expect(
-      sendMessage(
-        { to: 'lead@x.com', subject: 's', body: 'b', isHtml: false, sender },
-        { activeProvider: 'SMTP' }
-      )
-    ).rejects.toBeInstanceOf(EmailConfigError);
-  });
-
-  it('SMTP transport rejection surfaces as EmailSendError', async () => {
-    sendMail.mockRejectedValue(new Error('mailbox unavailable'));
-    await expect(
-      sendMessage(
-        { to: 'lead@x.com', subject: 's', body: 'b', isHtml: false, sender },
-        {
-          activeProvider: 'SMTP',
-          smtpHost: 'smtp.global.com', smtpPort: 587,
-          smtpUser: 'global@x.com', smtpPass: encryptSecret('secret'),
         }
       )
     ).rejects.toBeInstanceOf(EmailSendError);

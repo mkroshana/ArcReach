@@ -1,7 +1,7 @@
 /**
- * Single entry point for outbound email delivery. Owns the AZURE / SMTP
- * branching that was previously duplicated across the send engine, campaign
- * run route, manual send, send-test, and unibox-reply routes.
+ * Single entry point for outbound email delivery, used by the send engine,
+ * send-test and unibox-reply routes. Azure Communication Services is the only
+ * provider; any other activeProvider sends nothing.
  *
  * Throws:
  *   EmailConfigError — missing/invalid configuration, including an Azure
@@ -9,12 +9,11 @@
  *                      (callers map to 4xx).
  *   EmailSendError   — the provider refused the message, never answered the
  *                      send, or reported it Failed (Azure status "Failed",
- *                      SMTP transport error, etc.). An Azure send ACS accepted
- *                      is never reported as an EmailSendError just because its
- *                      status could not be read afterwards.
+ *                      etc.). An Azure send ACS accepted is never reported as
+ *                      an EmailSendError just because its status could not be
+ *                      read afterwards.
  */
 import { randomUUID } from 'crypto';
-import nodemailer from 'nodemailer';
 import { EmailClient, type EmailMessage, type EmailSendOptionalParams } from '@azure/communication-email';
 import { getVerifiedDomains, resolveAzureFromAddress } from './azureDomains';
 import { decryptSecret } from './secrets';
@@ -63,23 +62,14 @@ export interface ProviderSettings {
   azureConnString?: string | null;
   azureSenderDomain?: string | null;
   azureSenderDomains?: unknown;
-  smtpHost?: string | null;
-  smtpPort?: number | null;
-  smtpUser?: string | null;
-  smtpPass?: string | null;
 }
 
-/** Subset of SenderAccount we actually need; works with both Prisma rows and ad-hoc objects. */
+/** Subset of SenderAccount we actually need; works with both Prisma rows and ad-hoc objects.
+ *  ACS takes the From name from the sender username configured in Azure, so the
+ *  mailbox's internal label (name) is not sent. */
 export interface SenderInput {
   emailAddress: string;
   replyTo?: string | null;
-  /** Internal label. Only the SMTP path uses it as the From name; ACS takes the
-   *  From name from the sender username configured in Azure. */
-  name?: string | null;
-  smtpHost?: string | null;
-  smtpPort?: number | null;
-  smtpUser?: string | null;
-  smtpPass?: string | null;
 }
 
 export interface MessageInput {
@@ -89,8 +79,6 @@ export interface MessageInput {
   body: string;
   isHtml: boolean;
   sender: SenderInput;
-  /** Overrides the SMTP "From" display name (Azure ignores this field). */
-  fromName?: string;
   /**
    * ACS Operation-Id (a UUID) to send under. Callers that record a dispatch
    * store it there before sending; one is generated when omitted.
@@ -162,13 +150,8 @@ export async function sendMessage(
     return sendViaAzure({ to, subject, body, isHtml, sender, headers, operationId: input.operationId }, settings!);
   }
 
-  // SMTP / GOOGLE / MICROSOFT all use nodemailer with the same shape.
-  if (provider === 'SMTP' || provider === 'GOOGLE' || provider === 'MICROSOFT') {
-    return sendViaSmtp({ to, subject, body, isHtml, sender, headers, fromName: input.fromName }, settings!);
-  }
-
-  // No settings row, DISABLED, or the retired MOCK value: nothing is sent, so
-  // never report success.
+  // No settings row, DISABLED, or a retired value (MOCK, SMTP, GOOGLE,
+  // MICROSOFT): nothing is sent, so never report success.
   throw new EmailConfigError(SENDING_DISABLED_MESSAGE);
 }
 
@@ -343,62 +326,4 @@ export async function getAzureSendStatus(
     throw new Error(`Azure Communication Services reported an unrecognised send status: ${result?.status}.`);
   }
   return { status, error: result.error };
-}
-
-async function sendViaSmtp(
-  input: {
-    to: string; subject: string; body: string; isHtml: boolean; sender: SenderInput; headers?: Record<string, string>; fromName?: string;
-  },
-  settings: ProviderSettings
-): Promise<SendResult> {
-  // Prefer per-sender SMTP credentials; fall back to global.
-  let smtpHost = settings.smtpHost;
-  let smtpPort = settings.smtpPort || 587;
-  let smtpUser = settings.smtpUser;
-  let smtpPass = decryptSecret(settings.smtpPass);
-
-  const s = input.sender;
-  if (s.smtpHost && s.smtpUser && s.smtpPass) {
-    smtpHost = s.smtpHost;
-    smtpPort = s.smtpPort || 587;
-    smtpUser = s.smtpUser;
-    smtpPass = decryptSecret(s.smtpPass);
-  }
-
-  if (!smtpHost || !smtpUser || !smtpPass) {
-    throw new EmailConfigError('SMTP credentials are missing.');
-  }
-
-  const portNum = Number(smtpPort) || 587;
-  const transport = nodemailer.createTransport({
-    host: smtpHost,
-    port: portNum,
-    secure: portNum === 465,
-    auth: { user: smtpUser, pass: smtpPass },
-  });
-
-  const fromName = input.fromName || s.name || 'ArcReach Sender';
-  const mailOptions: any = {
-    from: `"${fromName}" <${smtpUser}>`,
-    to: input.to,
-    subject: input.subject,
-  };
-  // Only set Reply-To when one is explicitly configured; otherwise omit it so
-  // replies go to the From address by default.
-  const replyTo = s.replyTo?.trim();
-  if (replyTo) mailOptions.replyTo = replyTo;
-  if (input.headers) mailOptions.headers = input.headers;
-  if (input.isHtml) mailOptions.html = input.body;
-  else mailOptions.text = input.body;
-
-  let info: any;
-  try {
-    info = await transport.sendMail(mailOptions);
-  } catch (err: any) {
-    throw new EmailSendError(err?.message || 'SMTP transport failed to send email.');
-  }
-
-  const providerMessageId: string | null = info?.messageId || null;
-  console.log(`[EmailProvider/SMTP Success] Message ID: ${providerMessageId} | From: ${smtpUser} → To: ${input.to}`);
-  return { providerMessageId };
 }

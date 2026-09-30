@@ -10,7 +10,7 @@ import { globalRateLimitError } from '@/lib/rateLimitPolicy';
 
 /** Fields that are never returned in plaintext and must be skipped on PUT when
  * the client echoes back the mask. */
-const SECRET_FIELDS = ['azureConnString', 'smtpPass', 'imapPass'] as const;
+const SECRET_FIELDS = ['azureConnString'] as const;
 
 /** Settings fields that require ADMIN to read or write. Profile/password live
  * outside this set and remain accessible to the owning user. */
@@ -19,8 +19,6 @@ const ADMIN_ONLY_SETTINGS_FIELDS = [
   'azureConnString',
   'azureSenderDomain',
   'azureSenderDomains',
-  'smtpHost', 'smtpPort', 'smtpUser', 'smtpPass',
-  'imapHost', 'imapPort', 'imapUser', 'imapPass',
   'rateLimitMinute', 'rateLimitHour',
 ] as const;
 
@@ -54,7 +52,7 @@ export async function GET() {
     // Settings are admin-only. Non-admins get their profile but no settings block.
     let settingsPayload: any = null;
     if (session.role === 'ADMIN') {
-      // Nothing is configured on first load: SMTP and IMAP stay null.
+      // Nothing is configured on first load: sending stays disabled.
       const settings = await ensureGlobalSettings({
         activeProvider: 'DISABLED',
         rateLimitMinute: 60,
@@ -82,7 +80,7 @@ export async function PUT(req: NextRequest) {
   try {
     const session = await getSession();
     const body = await req.json();
-    const { name, organization, activeProvider, azureConnString, azureSenderDomain, azureSenderDomains, smtpHost, smtpPort, smtpUser, smtpPass, imapHost, imapPort, imapUser, imapPass, rateLimitMinute, rateLimitHour, currentPassword, newPassword } = body;
+    const { name, organization, activeProvider, azureConnString, azureSenderDomain, azureSenderDomains, rateLimitMinute, rateLimitHour, currentPassword, newPassword } = body;
 
     // Block non-admins from touching any admin-only settings field.
     const touchesAdminField = ADMIN_ONLY_SETTINGS_FIELDS.some((f) => body[f] !== undefined);
@@ -91,7 +89,7 @@ export async function PUT(req: NextRequest) {
     }
 
     // 1. Update user profile details in the DB
-    // User.timezone is not written: nothing reads it, so the profile no longer offers it.
+    // A timezone sent here is ignored: User has no timezone column, since nothing read it.
     if (name !== undefined || organization !== undefined) {
       const dataToUpdate: any = {};
       if (name !== undefined) dataToUpdate.name = name;
@@ -167,19 +165,9 @@ export async function PUT(req: NextRequest) {
     const encrypted = (v: string | null | undefined) => (v ? encryptSecret(v) : v ?? null);
 
     const liveAzureConn = liveSecret(azureConnString);
-    const liveSmtpPass = liveSecret(smtpPass);
-    const liveImapPass = liveSecret(imapPass);
     if (liveAzureConn !== undefined) settingsData.azureConnString = encrypted(liveAzureConn);
     if (azureSenderDomain !== undefined) settingsData.azureSenderDomain = azureSenderDomain;
     if (azureSenderDomains !== undefined) settingsData.azureSenderDomains = normalizeDomains(azureSenderDomains);
-    if (smtpHost !== undefined) settingsData.smtpHost = smtpHost;
-    if (smtpPort !== undefined) settingsData.smtpPort = Number(smtpPort) || null;
-    if (smtpUser !== undefined) settingsData.smtpUser = smtpUser;
-    if (liveSmtpPass !== undefined) settingsData.smtpPass = encrypted(liveSmtpPass);
-    if (imapHost !== undefined) settingsData.imapHost = imapHost;
-    if (imapPort !== undefined) settingsData.imapPort = Number(imapPort) || null;
-    if (imapUser !== undefined) settingsData.imapUser = imapUser;
-    if (liveImapPass !== undefined) settingsData.imapPass = encrypted(liveImapPass);
     if (rateLimitMinute !== undefined) settingsData.rateLimitMinute = rateLimitMinute;
     if (rateLimitHour !== undefined) settingsData.rateLimitHour = rateLimitHour;
 
@@ -188,14 +176,6 @@ export async function PUT(req: NextRequest) {
       azureConnString: encrypted(liveAzureConn),
       azureSenderDomain: azureSenderDomain || null,
       azureSenderDomains: azureSenderDomains !== undefined ? normalizeDomains(azureSenderDomains) : undefined,
-      smtpHost: smtpHost || null,
-      smtpPort: Number(smtpPort) || null,
-      smtpUser: smtpUser || null,
-      smtpPass: encrypted(liveSmtpPass),
-      imapHost: imapHost || null,
-      imapPort: Number(imapPort) || null,
-      imapUser: imapUser || null,
-      imapPass: encrypted(liveImapPass),
       rateLimitMinute: rateLimitMinute === undefined ? 60 : rateLimitMinute,
       rateLimitHour: rateLimitHour === undefined ? 1000 : rateLimitHour
     });

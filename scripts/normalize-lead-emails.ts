@@ -55,7 +55,6 @@ async function main() {
       status: true,
       validationStatus: true,
       isArchived: true,
-      customVariables: true,
       _count: { select: { enrollments: true, dispatches: true, replies: true } },
     },
   });

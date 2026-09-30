@@ -100,7 +100,7 @@ async function dashboard(range: number | string = 7) {
 
 async function mailbox(id = 'mb-1') {
   vi.mocked(db.getAccounts).mockResolvedValue([
-    { id, dailyLimit: 50, warmupEnabled: false, warmupStartedAt: null, warmupLimit: 10, warmupRamp: 2, smtpPass: null, imapPass: null },
+    { id, dailyLimit: 50, warmupEnabled: false, warmupStartedAt: null, warmupLimit: 10, warmupRamp: 2, imapPass: null },
   ] as any);
   const res = await getAccounts();
   expect(res.status).toBe(200);

@@ -51,15 +51,12 @@ const mockedSession = vi.mocked(getSession);
 
 const USER = { id: 'user-1', name: 'User', email: 'user@example.com', role: 'USER' as const };
 
-/** A mailbox saved before encryption: both passwords are stored as plaintext. */
+/** A mailbox saved before encryption: its IMAP password is stored as plaintext. */
 const MAILBOX = {
   id: 'acc-1',
   userId: 'user-1',
   emailAddress: 'sender@example.com',
   provider: 'AZURE',
-  smtpHost: 'smtp.example.com',
-  smtpUser: 'sender@example.com',
-  smtpPass: 'legacy-smtp-password',
   imapHost: 'imap.example.com',
   imapUser: 'sender@example.com',
   imapPass: 'legacy-imap-password',
@@ -146,9 +143,7 @@ async function expectNoMailboxSecrets(res: Response) {
   expect(res.status).toBe(200);
   const text = JSON.stringify(await res.json());
   expect(text).toContain(MAILBOX.emailAddress);
-  expect(text).not.toContain('smtpPass');
   expect(text).not.toContain('imapPass');
-  expect(text).not.toContain(MAILBOX.smtpPass);
   expect(text).not.toContain(MAILBOX.imapPass);
 }
 

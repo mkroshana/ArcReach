@@ -211,7 +211,7 @@ describe('PUT /api/accounts', () => {
       { id: 'acc-1', dailyLimit: null },
       { id: 'acc-1', dailyLimit: '500' },
       { id: 'acc-1', warmupEnabled: 'yes' },
-      { id: 'acc-1', smtpPort: '587' },
+      { id: 'acc-1', imapPort: '993' },
     ]) {
       const res = await putAccount(makeReq('/api/accounts', body));
       expect(res.status).toBe(400);
@@ -257,21 +257,42 @@ describe('PUT /api/accounts', () => {
     expect(mockedDb.updateAccount).toHaveBeenLastCalledWith('acc-1', { warmupEnabled: false });
   });
 
-  it('accepts the credentials form payload, skipping masked secrets and encrypting new ones', async () => {
+  it('accepts the credentials form payload, skipping a masked secret and encrypting a new one', async () => {
+    const masked = await putAccount(makeReq('/api/accounts', {
+      id: 'acc-1', replyTo: null, imapHost: 'imap.example.com', imapPort: 993, imapUser: 'u', imapPass: MASKED_SECRET,
+    }));
+    expect(masked.status).toBe(200);
+    const [id, kept] = mockedDb.updateAccount.mock.calls[0];
+    expect(id).toBe('acc-1');
+    expect(kept).not.toHaveProperty('imapPass');
+    expect(kept.imapPort).toBe(993);
+
     const res = await putAccount(makeReq('/api/accounts', {
-      id: 'acc-1', replyTo: null,
-      smtpHost: 'smtp.example.com', smtpPort: 587, smtpUser: 'u', smtpPass: MASKED_SECRET,
-      imapHost: null, imapPort: null, imapUser: null, imapPass: 'new-imap-pass',
+      id: 'acc-1', replyTo: null, imapHost: null, imapPort: null, imapUser: null, imapPass: 'new-imap-pass',
     }));
     expect(res.status).toBe(200);
-    const [id, data] = mockedDb.updateAccount.mock.calls[0];
-    expect(id).toBe('acc-1');
-    expect(data).not.toHaveProperty('smtpPass');
-    expect(data.smtpPort).toBe(587);
+    const [, data] = mockedDb.updateAccount.mock.calls[1];
     expect(data.imapPort).toBeNull();
     expect(data.imapPass).not.toBe('new-imap-pass');
     expect(decryptSecret(data.imapPass)).toBe('new-imap-pass');
-    expect((await res.json()).imapPass).toBe(MASKED_SECRET);
+    const body = await res.json();
+    expect(body.imapPass).toBe(MASKED_SECRET);
+    expect(body).not.toHaveProperty('smtpPass');
+  });
+
+  it('refuses SMTP details, since Azure sends every email (L45)', async () => {
+    for (const body of [
+      { id: 'acc-1', smtpHost: 'smtp.example.com' },
+      { id: 'acc-1', smtpPort: 587 },
+      { id: 'acc-1', smtpUser: 'u' },
+      { id: 'acc-1', smtpPass: 'secret' },
+      { id: 'acc-1', imapHost: 'imap.example.com', smtpPass: MASKED_SECRET },
+    ]) {
+      const res = await putAccount(makeReq('/api/accounts', body));
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toMatch(/^Unknown field\(s\): smtp(Host|Port|User|Pass)/);
+    }
+    expect(mockedDb.updateAccount).not.toHaveBeenCalled();
   });
 
   it('resets the IMAP reply-sync checkpoint only when the IMAP host or login changes (H32)', async () => {

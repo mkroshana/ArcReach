@@ -10,10 +10,11 @@ import { getEffectiveDailyCap, senderCapDispatchWhere } from '@/lib/sendEngine';
 import { type MetricsScope, countHardBounces, countReplies, percent, sendSummary } from '@/lib/engagementMetrics';
 import { type FieldRule, fieldRules, isPlainObject, pickUpdateFields } from '@/lib/updateAllowList';
 
-/** Scalar columns the mailbox PUT may write: the daily limit, warmup and credential
+/** Scalar columns the mailbox PUT may write: the daily limit, warmup and IMAP credential
  *  controls on the Accounts page plus the internal label. Counters, reputation and
  *  warmupStartedAt are server-managed. Per-minute and per-hour limits are global
- *  (Settings), so the unused minuteLimit and hourlyLimit columns are refused. */
+ *  (Settings), so a minuteLimit or hourlyLimit is refused, and Azure sends every
+ *  email, so SMTP details are too. */
 const ACCOUNT_UPDATE_FIELDS: Record<string, FieldRule> = {
   name: fieldRules.nullableString,
   replyTo: fieldRules.nullableString,
@@ -21,10 +22,6 @@ const ACCOUNT_UPDATE_FIELDS: Record<string, FieldRule> = {
   warmupEnabled: fieldRules.boolean,
   warmupLimit: fieldRules.nonNegativeInt,
   warmupRamp: fieldRules.nonNegativeInt,
-  smtpHost: fieldRules.nullableString,
-  smtpPort: fieldRules.port,
-  smtpUser: fieldRules.nullableString,
-  smtpPass: fieldRules.nullableString,
   imapHost: fieldRules.nullableString,
   imapPort: fieldRules.port,
   imapUser: fieldRules.nullableString,
@@ -36,7 +33,7 @@ const ACCOUNT_UPDATE_FIELDS: Record<string, FieldRule> = {
 /** Redact stored secrets in API responses; UI sends the mask back unchanged
  *  for unedited fields, and PUT skips them so the real secret stays intact. */
 function redactAccount<T extends Record<string, any>>(acc: T): T {
-  return { ...acc, smtpPass: acc.smtpPass ? MASKED_SECRET : null, imapPass: acc.imapPass ? MASKED_SECRET : null };
+  return { ...acc, imapPass: acc.imapPass ? MASKED_SECRET : null };
 }
 
 /** Encrypt a plaintext secret, or pass null/empty through. */
@@ -126,10 +123,6 @@ export async function POST(req: NextRequest) {
       warmupEnabled,
       warmupLimit,
       warmupRamp,
-      smtpHost,
-      smtpPort,
-      smtpUser,
-      smtpPass,
       imapHost,
       imapPort,
       imapUser,
@@ -160,16 +153,11 @@ export async function POST(req: NextRequest) {
       provider,
       status: status || 'Active',
       dailyLimit: Number(dailyLimit) || 500,
-      dailyMax: Number(dailyLimit) || 500,
       userId: targetUserId,
       warmupEnabled: !!warmupEnabled,
       warmupStartedAt: warmupEnabled ? new Date() : null,
       warmupLimit: Number(warmupLimit) || 50,
       warmupRamp: Number(warmupRamp) || 2,
-      smtpHost: smtpHost || null,
-      smtpPort: smtpPort ? Number(smtpPort) : null,
-      smtpUser: smtpUser || null,
-      smtpPass: encryptedOrNull(smtpPass),
       imapHost: imapHost || null,
       imapPort: imapPort ? Number(imapPort) : null,
       imapUser: imapUser || null,
@@ -225,13 +213,11 @@ export async function PUT(req: NextRequest) {
       }
     }
 
-    // Secrets: drop if echoed mask (don't overwrite real value); else encrypt.
-    for (const f of ['smtpPass', 'imapPass'] as const) {
-      if (updates[f] === MASKED_SECRET) {
-        delete updates[f];
-      } else if (updates[f] !== undefined) {
-        updates[f] = encryptedOrNull(updates[f] as string | null);
-      }
+    // Secret: drop if echoed mask (don't overwrite real value); else encrypt.
+    if (updates.imapPass === MASKED_SECRET) {
+      delete updates.imapPass;
+    } else if (updates.imapPass !== undefined) {
+      updates.imapPass = encryptedOrNull(updates.imapPass as string | null);
     }
 
     // Turning warmup on, first time or again, starts the ramp over at Day 1: days

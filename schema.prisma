@@ -20,7 +20,6 @@ model User {
   email          String          @unique
   name           String?
   organization   String?
-  timezone       String?
   passwordHash   String
   role           Role            @default(USER)
   createdAt      DateTime        @default(now())
@@ -42,14 +41,6 @@ model GlobalSettings {
   azureConnString   String?
   azureSenderDomain String?  // deprecated — read-only fallback for migration to azureSenderDomains
   azureSenderDomains Json?   // string[] of verified sender domains
-  smtpHost          String?
-  smtpPort          Int?
-  smtpUser          String?
-  smtpPass          String?
-  imapHost          String?
-  imapPort          Int?
-  imapUser          String?
-  imapPass          String?
   rateLimitMinute   Int?     @default(60)
   rateLimitHour     Int?     @default(1000)
   updatedAt         DateTime @updatedAt
@@ -71,12 +62,9 @@ model SenderAccount {
   // Restrict: deleting a user must never take their mailboxes with them.
   user            User              @relation(fields: [userId], references: [id], onDelete: Restrict)
   
-  // Granular Sending Frequency & Limits
-  minuteLimit     Int               @default(2)
-  hourlyLimit     Int               @default(40)
+  // Daily Sending Limit (per-minute and per-hour limits are global, in GlobalSettings)
   dailyLimit      Int               @default(500)
-  dailyMax        Int               @default(500)     // Matches dailyMax target in UI
-  
+
   // Warmup & Deliverability Telemetry
   warmupEnabled   Boolean           @default(false)
   warmupStartedAt DateTime?
@@ -93,11 +81,7 @@ model SenderAccount {
   inboundReplies  InboundResponse[]
   dispatches      EmailDispatch[]
 
-  // Individual Mailbox Credentials
-  smtpHost        String?
-  smtpPort        Int?
-  smtpUser        String?
-  smtpPass        String?
+  // Individual Mailbox IMAP Credentials, used only to read replies (Azure sends every email)
   imapHost        String?
   imapPort        Int?
   imapUser        String?
@@ -190,7 +174,6 @@ model CampaignStep {
   waitDays   Int      @default(0)
   subject    String
   body       String   @db.Text
-  isABTest   Boolean  @default(false) // Matches AB variation trigger in UI
 }
 
 // ------------------------------------------------------
@@ -221,8 +204,7 @@ model Lead {
   jobTitle         String?              // Job title of the lead
   status           LeadStatus           @default(Neutral) // Global CRM status values
   validationStatus LeadValidationStatus @default(Unverified) // Matches bulk verification categories
-  customVariables  Json?                // Holds extra CSV metadata cols
-  isArchived       Boolean              @default(false)   // Is the lead archived?
+  isArchived      Boolean              @default(false)   // Is the lead archived?
   // When the lead was added. Leads that predate this column keep null only when the
   // column is created with no default before `prisma db push`: a push that adds it
   // with DEFAULT CURRENT_TIMESTAMP gives every existing lead the push time instead.

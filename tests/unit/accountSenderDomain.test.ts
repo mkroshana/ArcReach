@@ -12,6 +12,7 @@ vi.mock('../../lib/session', () => ({
 
 import { db, prisma } from '../../lib/db';
 import { getSession } from '../../lib/session';
+import { MASKED_SECRET, decryptSecret } from '../../lib/secrets';
 import { POST as postAccount } from '../../app/api/accounts/route';
 
 const mockedDb = db as any;
@@ -105,5 +106,32 @@ describe('POST /api/accounts saves no per-mailbox minute or hour limit (M13)', (
     expect(saved).not.toHaveProperty('minuteLimit');
     expect(saved).not.toHaveProperty('hourlyLimit');
     expect(saved.dailyLimit).toBe(300);
+  });
+});
+
+describe('POST /api/accounts saves no SMTP details, since Azure sends every email (L45)', () => {
+  it('ignores SMTP fields, saves the IMAP details with the password encrypted and returns it masked', async () => {
+    const res = await postAccount(
+      new NextRequest('http://localhost/api/accounts', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          emailAddress: 'sales@acme.test', provider: 'Google Workspace', name: 'Sales', dailyLimit: 300,
+          smtpHost: 'smtp.acme.test', smtpPort: 587, smtpUser: 'sales@acme.test', smtpPass: 'smtp-secret',
+          imapHost: 'imap.acme.test', imapPort: 993, imapUser: 'sales@acme.test', imapPass: 'imap-secret',
+        }),
+      })
+    );
+
+    expect(res.status).toBe(200);
+    const saved = mockedDb.createAccount.mock.calls[0][0];
+    for (const field of ['smtpHost', 'smtpPort', 'smtpUser', 'smtpPass', 'dailyMax']) expect(saved).not.toHaveProperty(field);
+    expect(saved).toMatchObject({ dailyLimit: 300, imapHost: 'imap.acme.test', imapPort: 993, imapUser: 'sales@acme.test' });
+    expect(decryptSecret(saved.imapPass)).toBe('imap-secret');
+
+    const body = await res.json();
+    expect(body).not.toHaveProperty('smtpPass');
+    expect(body.imapPass).toBe(MASKED_SECRET);
+    expect(JSON.stringify(body)).not.toContain('secret');
   });
 });

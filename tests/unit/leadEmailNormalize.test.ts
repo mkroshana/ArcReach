@@ -151,14 +151,14 @@ function makeReq(path: string, body: unknown): NextRequest {
 function leadRow(fields: Partial<LeadEmailRow> & { id: string; email: string }): LeadEmailRow {
   return {
     name: null, company: null, jobTitle: null, status: 'Neutral', validationStatus: 'Unverified',
-    isArchived: false, customVariables: null, history: 0, ...fields,
+    isArchived: false, history: 0, ...fields,
   };
 }
 
 function storedLead(fields: Record<string, any>) {
   return {
     name: null, company: null, jobTitle: null, status: 'Neutral', validationStatus: 'Unverified',
-    isArchived: false, customVariables: null, ...fields,
+    isArchived: false, ...fields,
   };
 }
 
@@ -262,7 +262,7 @@ describe('merge rules', () => {
       leadRow({ id: 'c', email: 'Solo@Example.com' }),
       leadRow({ id: 'd', email: 'ok@example.com' }),
       leadRow({ id: 'e', email: '   ' }),
-      leadRow({ id: 'f', email: 'Bob@X.com', history: 1, customVariables: { tier: 'gold' } }),
+      leadRow({ id: 'f', email: 'Bob@X.com', history: 1, company: 'Bob Co' }),
       leadRow({ id: 'g', email: ' BOB@x.com', history: 4, validationStatus: 'Risky', isArchived: true }),
       leadRow({ id: 'h', email: 'bob@X.COM', history: 4, isArchived: true }),
     ]);
@@ -282,7 +282,7 @@ describe('merge rules', () => {
     });
     expect(plans[1].data).toMatchObject({ email: 'solo@example.com', status: 'Neutral' });
     expect(plans[2].data).toMatchObject({
-      email: 'bob@x.com', validationStatus: 'Risky', isArchived: false, customVariables: { tier: 'gold' },
+      email: 'bob@x.com', validationStatus: 'Risky', isArchived: false, company: 'Bob Co',
     });
   });
 

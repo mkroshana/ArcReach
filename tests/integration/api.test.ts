@@ -220,7 +220,7 @@ describe('ArcReach Live API Integration Tests', () => {
     // Right away, so the server does not keep sending with the provider and rate limits set below
     afterAll(restoreSettings);
 
-    it('should retrieve and update global SMTP settings successfully', async () => {
+    it('should retrieve and update global settings successfully', async () => {
       // 1. Get settings
       const getRes = await testFetch(`${BASE_URL}/api/settings`);
       expect(getRes.status).toBe(200);
@@ -233,10 +233,6 @@ describe('ArcReach Live API Integration Tests', () => {
       // 2. Update settings
       const payload = {
         name: 'Standard Marketer',
-        smtpHost: 'smtp.sendgrid.net',
-        smtpPort: 587,
-        smtpUser: 'apikey',
-        smtpPass: 'SG.placeholder',
         rateLimitMinute: 120,
         rateLimitHour: 2500
       };

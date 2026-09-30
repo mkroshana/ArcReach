@@ -33,7 +33,7 @@ const NOW = new Date('2026-09-30T12:00:00Z');
 const row = (overrides: Record<string, unknown> = {}) => ({
   id: 'mb-1', emailAddress: 'sales@example.com', userId: 'user-1',
   dailyLimit: 500, warmupEnabled: false, warmupStartedAt: null as Date | null, warmupLimit: 50, warmupRamp: 2, warmupSent: 0,
-  smtpPass: null, imapPass: 'encrypted', ...overrides,
+  imapPass: 'encrypted', ...overrides,
 });
 
 function putReq(body: unknown): NextRequest {

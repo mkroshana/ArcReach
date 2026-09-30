@@ -239,6 +239,25 @@ describe('first GET /api/settings seeds no fake SMTP settings (M17)', () => {
   });
 });
 
+describe('PUT /api/settings stores no SMTP or IMAP settings (L45)', () => {
+  it('ignores global SMTP and IMAP fields, which nothing sends or reads with, when creating and updating the row', async () => {
+    const legacy = {
+      smtpHost: 'smtp.acme.test', smtpPort: 587, smtpUser: 'u', smtpPass: 'smtp-secret',
+      imapHost: 'imap.acme.test', imapPort: 993, imapUser: 'u', imapPass: 'imap-secret',
+    };
+
+    for (const rateLimitMinute of [30, 40]) {
+      const res = await putSettings(makeReq('PUT', { ...legacy, rateLimitMinute }));
+
+      expect(res.status).toBe(200);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].rateLimitMinute).toBe(rateLimitMinute);
+      for (const field of Object.keys(legacy)) expect(rows[0]).not.toHaveProperty(field);
+      expect(JSON.stringify(await res.json())).not.toContain('secret');
+    }
+  });
+});
+
 describe('global rate limits show and save only real values (M65)', () => {
   it('accepts null (No Limit) and whole numbers from 1, and rejects empty, zero, negative, fractional, string and oversized values', () => {
     for (const ok of [null, 1, 60, MAX_GLOBAL_RATE_LIMIT]) expect(globalRateLimitError(ok, 'minute')).toBeNull();

@@ -132,7 +132,6 @@ describe('GET /api/leads pages a table (M42)', () => {
     // Only the page's leads are read, with only the columns the tables show
     expect(mockedPrisma.lead.findMany).toHaveBeenCalledTimes(1);
     expect(mockedPrisma.lead.findMany).toHaveBeenCalledWith({ where: { id: { in: ['b'] } }, select: LEAD_ROW_SELECT });
-    expect(LEAD_ROW_SELECT).not.toHaveProperty('customVariables');
     expect(LEAD_ROW_SELECT.groups).toEqual({ select: { groupId: true, group: { select: { id: true, name: true } } } });
   });
 

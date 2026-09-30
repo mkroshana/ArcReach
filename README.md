@@ -336,7 +336,7 @@ These bring data written by older versions in line with the current code. Each o
 | `clear-lead-placeholders.ts` | Clears the stand-in names (the email's local part) and companies (`Unknown`, `Self Employed`, `External Node`) that older imports and Add Lead stored | `--apply` | Run before `normalize-lead-emails.ts` |
 | `normalize-lead-emails.ts` | Trims and lowercases lead emails and merges leads that differ only in case | `--apply` | The `LeadAlias` table (db push) and the send worker stopped (`SEND_WORKER_ENABLED=false` on the App Service meanwhile); run again once the release that normalises emails is live |
 | `backfill-suppression.ts` | Puts leads already Unsubscribed, Bounced or Invalid on the suppression list and pauses their Active enrollments | `--apply` | The `SuppressedEmail` table (db push) |
-| `encrypt-mailbox-secrets.ts` | Encrypts mailbox passwords stored in plaintext | `--write` | `SECRETS_KEY` set to the App Service's value |
+| `encrypt-mailbox-secrets.ts` | Encrypts mailbox IMAP passwords stored in plaintext | `--write` | `SECRETS_KEY` set to the App Service's value |
 | `audit-dispatches.ts` | Backfills `stepOrder` and deletes duplicate `Sent` dispatches (see Dispatch Metrics & Duplicate Cleanup) | `--backfill`, `--fix` | The schema pushed (db push) |
 
 #### Schema Check

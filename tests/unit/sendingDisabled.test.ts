@@ -231,11 +231,11 @@ describe('POST /api/send-email/test body under Azure (M7)', () => {
     useSettings(AZURE_SETTINGS);
 
     expect((await test()).status).toBe(200);
-    const { body, fromName } = sentMessage();
+    const { body } = sentMessage();
     expect(body).not.toMatch(/Display Name/);
     expect(body).toContain('Internal Label: One');
     expect(body).toContain('The From name on this email comes from the sender username configured in Azure Communication Services.');
-    expect(fromName).toBeUndefined();
+    expect(sentMessage()).not.toHaveProperty('fromName');
   });
 
   it('says no label is set when the mailbox has no name', async () => {

@@ -1,5 +1,5 @@
 /**
- * Encrypt legacy plaintext mailbox passwords (SenderAccount.smtpPass / imapPass).
+ * Encrypt legacy plaintext mailbox IMAP passwords (SenderAccount.imapPass).
  *
  * Background: mailboxes saved before lib/secrets existed store their passwords
  * as plaintext. decryptSecret passes such values through, so they keep working,
@@ -21,7 +21,7 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 const DO_WRITE = process.argv.slice(2).includes('--write');
-const FIELDS = ['smtpPass', 'imapPass'] as const;
+const FIELDS = ['imapPass'] as const;
 
 async function main() {
   if (!process.env.SECRETS_KEY) {
@@ -33,8 +33,8 @@ async function main() {
   console.log(`[Mailbox Secrets] Mode: ${DO_WRITE ? 'WRITE' : 'DRY-RUN (no changes)'}`);
 
   const rows = await prisma.senderAccount.findMany({
-    where: { OR: [{ smtpPass: { not: null } }, { imapPass: { not: null } }] },
-    select: { id: true, emailAddress: true, smtpPass: true, imapPass: true },
+    where: { imapPass: { not: null } },
+    select: { id: true, emailAddress: true, imapPass: true },
   });
 
   const pending: { row: (typeof rows)[number]; fields: (typeof FIELDS)[number][] }[] = [];
@@ -79,7 +79,7 @@ async function main() {
   let updated = 0;
   let skipped = 0;
   for (const { row, fields } of pending) {
-    const data: { smtpPass?: string; imapPass?: string } = {};
+    const data: { imapPass?: string } = {};
     for (const field of fields) {
       const plain = row[field] as string;
       const ciphertext = encryptSecret(plain);
@@ -90,7 +90,7 @@ async function main() {
     }
     // Match the values read above so a password changed in the meantime is not overwritten.
     const res = await prisma.senderAccount.updateMany({
-      where: { id: row.id, smtpPass: row.smtpPass, imapPass: row.imapPass },
+      where: { id: row.id, imapPass: row.imapPass },
       data,
     });
     if (res.count === 1) {

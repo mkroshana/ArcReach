@@ -118,7 +118,7 @@ describe('Bounced metrics come from the dispatches the webhook marked hard-bounc
 
   it('counts a mailbox\'s hard bounces on the sends it made, pooled campaigns included', async () => {
     vi.mocked(db.getAccounts).mockResolvedValue([
-      { id: 'mb-1', dailyLimit: 50, warmupEnabled: false, warmupStartedAt: null, warmupLimit: 10, warmupRamp: 2, smtpPass: null, imapPass: null },
+      { id: 'mb-1', dailyLimit: 50, warmupEnabled: false, warmupStartedAt: null, warmupLimit: 10, warmupRamp: 2, imapPass: null },
     ] as any);
     addDispatch({ id: 'd-1', bounceType: 'hard', bouncedAt: daysAgo(1) });
     // Sent by mb-1 from a pool on a campaign whose own sender is mb-2.

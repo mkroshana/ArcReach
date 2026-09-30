@@ -46,7 +46,7 @@ beforeEach(() => {
   dispatches = [];
   vi.mocked(getSession).mockResolvedValue({ id: 'admin-1', name: 'Admin', email: 'admin@example.com', role: 'ADMIN' } as any);
   mockedDb.getAccounts.mockResolvedValue([
-    { id: 'mb-1', dailyLimit: 50, warmupEnabled: false, warmupStartedAt: null, warmupLimit: 10, warmupRamp: 2, smtpPass: null, imapPass: null },
+    { id: 'mb-1', dailyLimit: 50, warmupEnabled: false, warmupStartedAt: null, warmupLimit: 10, warmupRamp: 2, imapPass: null },
   ]);
   mockedPrisma.campaign.findMany.mockResolvedValue([]);
   mockedPrisma.inboundResponse.count.mockResolvedValue(0);
@@ -87,7 +87,7 @@ describe('Accounts capacity figures use the caps the send engine enforces (L28)'
   const DAY = 24 * HOUR;
   // Both mailboxes allow 500 a day, but warmup holds them to 5 plus 10 a day since it started.
   const warming = (id: string, startedAgo: number) => ({
-    id, dailyLimit: 500, warmupEnabled: true, warmupStartedAt: ago(startedAgo), warmupLimit: 5, warmupRamp: 10, smtpPass: null, imapPass: null,
+    id, dailyLimit: 500, warmupEnabled: true, warmupStartedAt: ago(startedAgo), warmupLimit: 5, warmupRamp: 10, imapPass: null,
   });
 
   it('reports each mailbox\'s warmup cap, and adds up what each has left of it', async () => {

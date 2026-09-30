@@ -41,7 +41,6 @@ export interface LeadEmailRow {
   status: LeadStatus;
   validationStatus: LeadValidationStatus;
   isArchived: boolean;
-  customVariables: Prisma.JsonValue | null;
   /** Enrollments, dispatches and replies on the row. */
   history: number;
 }
@@ -54,7 +53,6 @@ export interface LeadEmailData {
   name: string | null;
   company: string | null;
   jobTitle: string | null;
-  customVariables?: Prisma.InputJsonValue;
 }
 
 export interface LeadEmailPlan {
@@ -83,13 +81,13 @@ function keepOrder(email: string) {
  * The kept lead's columns after a merge: the normalised email, the most
  * restrictive status and validation in the group, archived only when every
  * row was (an archived variant is usually the copy someone set aside), and
- * name, company, job title and custom variables from the kept row, filled
- * from a duplicate where the kept row has none.
+ * name, company and job title from the kept row, filled from a duplicate
+ * where the kept row has none.
  */
 export function mergedLeadData(email: string, keep: LeadEmailRow, duplicates: LeadEmailRow[]): LeadEmailData {
   const all = [keep, ...duplicates];
   const firstSet = (pick: (row: LeadEmailRow) => string | null) => all.map(pick).find((v) => !!v) ?? null;
-  const data: LeadEmailData = {
+  return {
     email,
     status: mostRestrictive(LEAD_STATUS_ORDER, all.map((r) => r.status)),
     validationStatus: mostRestrictive(VALIDATION_STATUS_ORDER, all.map((r) => r.validationStatus)),
@@ -98,11 +96,6 @@ export function mergedLeadData(email: string, keep: LeadEmailRow, duplicates: Le
     company: firstSet((r) => r.company),
     jobTitle: firstSet((r) => r.jobTitle),
   };
-  if (keep.customVariables == null) {
-    const vars = duplicates.find((r) => r.customVariables != null)?.customVariables;
-    if (vars != null) data.customVariables = vars as Prisma.InputJsonValue;
-  }
-  return data;
 }
 
 /**
@@ -197,8 +190,7 @@ function unchangedSincePlanned(planned: LeadEmailRow | undefined, row: Omit<Lead
     planned.isArchived === row.isArchived &&
     planned.name === row.name &&
     planned.company === row.company &&
-    planned.jobTitle === row.jobTitle &&
-    JSON.stringify(planned.customVariables) === JSON.stringify(row.customVariables)
+    planned.jobTitle === row.jobTitle
   );
 }
 
@@ -230,7 +222,7 @@ export async function mergeLeadGroup(
     where: { OR: [{ id: { in: ids } }, leadEmailIn([plan.email])] },
     select: {
       id: true, email: true, name: true, company: true, jobTitle: true,
-      status: true, validationStatus: true, isArchived: true, customVariables: true,
+      status: true, validationStatus: true, isArchived: true,
     },
   });
   if (current.length !== planned.size || current.some((r) => !unchangedSincePlanned(planned.get(r.id), r))) {

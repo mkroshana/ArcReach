@@ -15,8 +15,8 @@ import { enrollGroupJoiners, pauseGroupLeavers } from '@/lib/campaignCohort';
 import { parseLeadListQuery } from '@/lib/leadView';
 import { loadLeadPage } from '@/lib/leadList';
 
-/** Scalar columns the lead PUT may write, in single and bulk updates. Email and
- *  customVariables are not editable here; group membership goes through groupIds
+/** Scalar columns the lead PUT may write, in single and bulk updates. Email is
+ *  not editable here; group membership goes through groupIds
  *  on a single-lead update. The status is CRM sentiment only: Bounced and
  *  Unsubscribed come with a suppression, never from an edit. */
 const LEAD_UPDATE_FIELDS: Record<string, FieldRule> = {

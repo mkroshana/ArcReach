@@ -33,7 +33,7 @@ import { matchesWhere } from './helpers/prismaWhere';
 
 const USER = { id: 'user-1', name: 'User', email: 'user@example.com', role: 'USER' as const };
 
-type StepRow = { id: string; campaignId: string; stepOrder: number; waitDays: number; subject: string; body: string; isABTest: boolean };
+type StepRow = { id: string; campaignId: string; stepOrder: number; waitDays: number; subject: string; body: string };
 
 let campaign: Record<string, unknown>;
 let stepRows: StepRow[];
@@ -42,7 +42,7 @@ let dispatches: { campaignId: string }[];
 let nextStepId = 0;
 
 function step(id: string, stepOrder: number, subject: string): StepRow {
-  return { id, campaignId: 'cmp-1', stepOrder, waitDays: stepOrder === 1 ? 0 : 3, subject, body: `${subject} body`, isABTest: false };
+  return { id, campaignId: 'cmp-1', stepOrder, waitDays: stepOrder === 1 ? 0 : 3, subject, body: `${subject} body` };
 }
 
 /** Steps as the campaign page holds them: loaded from GET, so with their ids. */
@@ -281,7 +281,7 @@ describe('PUT /api/campaigns/[id] has no A/B test flag (M14)', () => {
     for (const [{ data }] of fake.campaignStep.update.mock.calls) expect(data).not.toHaveProperty('isABTest');
     expect(fake.campaignStep.createMany).toHaveBeenCalledTimes(1);
     for (const row of fake.campaignStep.createMany.mock.calls[0][0].data) expect(row).not.toHaveProperty('isABTest');
-    expect(stepRows.some((s) => s.isABTest)).toBe(false);
+    expect(stepRows.some((s) => 'isABTest' in s)).toBe(false);
   });
 });
 

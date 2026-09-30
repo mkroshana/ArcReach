@@ -37,16 +37,16 @@ const LONG_REPLY = `Happy to talk pricing. ${'More detail. '.repeat(300)}`;
 
 const TABLES: Record<string, any[]> = {
   mailbox: [
-    { id: 'mb-1', userId: 'user-1', emailAddress: 'one@acme.test', smtpPass: 'smtp-secret', imapPass: 'imap-secret' },
-    { id: 'mb-2', userId: 'user-2', emailAddress: 'two@acme.test', smtpPass: 'smtp-secret-2', imapPass: 'imap-secret-2' },
+    { id: 'mb-1', userId: 'user-1', emailAddress: 'one@acme.test', imapPass: 'imap-secret' },
+    { id: 'mb-2', userId: 'user-2', emailAddress: 'two@acme.test', imapPass: 'imap-secret-2' },
   ],
   campaign: [
     { id: 'cmp-1', userId: 'user-1', name: 'Launch', status: 'Active' },
   ],
   lead: [
-    { id: L1, email: 'ana@example.com', name: 'Ana', company: 'Acme', status: 'Interested', validationStatus: 'Valid', customVariables: { tier: 'gold' } },
-    { id: L2, email: 'ben@example.com', name: 'Ben', company: 'Beta', status: 'Neutral', validationStatus: 'Valid', customVariables: null },
-    { id: L3, email: 'cy@example.com', name: 'Cy', company: 'Gamma', status: 'Neutral', validationStatus: 'Valid', customVariables: null },
+    { id: L1, email: 'ana@example.com', name: 'Ana', company: 'Acme', status: 'Interested', validationStatus: 'Valid' },
+    { id: L2, email: 'ben@example.com', name: 'Ben', company: 'Beta', status: 'Neutral', validationStatus: 'Valid' },
+    { id: L3, email: 'cy@example.com', name: 'Cy', company: 'Gamma', status: 'Neutral', validationStatus: 'Valid' },
   ],
   enrollment: [
     { id: 'e-1', leadId: L1, campaignId: 'cmp-1', status: 'Paused', claimToken: 'token', lastError: 'boom' },

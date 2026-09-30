@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { UnauthorizedError, unauthorizedResponse } from '@/lib/sessionError';
@@ -30,18 +31,31 @@ function parseIds(ids: unknown): string[] | null {
   return Array.from(new Set(ids as string[]));
 }
 
+/** The leads `{ all: true }` checks: never checked, or checked without a certain answer. */
+const UNCHECKED_WHERE: Prisma.LeadWhereInput = { validationStatus: { in: ['Unverified', 'Risky'] } };
+
 /**
- * Runs the domain MX check on one batch of leads (`ids`, at most
- * DOMAIN_CHECK_BATCH_SIZE) and answers how many it set Valid, Risky and
- * Invalid. An Invalid domain puts the address on the suppression list; the
- * lead's enrollments are left as they are, since the send engine never sends
- * to an Invalid or suppressed lead.
+ * Runs the domain MX check on one batch of leads and answers how many it set
+ * Valid, Risky and Invalid. The batch is `ids` (at most
+ * DOMAIN_CHECK_BATCH_SIZE), or with `{ all: true, after }` the next
+ * DOMAIN_CHECK_BATCH_SIZE Unverified and Risky leads in address order after
+ * `after`, so the leads page never sends every lead's id; that answer adds
+ * `next`, the `after` of the following batch (null when none is left), and how
+ * many such leads come after it (`remaining`). Stepping by address checks each
+ * lead once, even one the check leaves Risky. An Invalid domain puts the
+ * address on the suppression list; the lead's enrollments are left as they
+ * are, since the send engine never sends to an Invalid or suppressed lead.
  */
 export async function POST(req: NextRequest) {
   try {
     await getSession();
     const body = await req.json().catch(() => ({}));
-    const ids = parseIds(body?.ids);
+    const all = body?.all === true;
+    const after: unknown = body?.after ?? null;
+    if (all && after !== null && (typeof after !== 'string' || after === '')) {
+      return NextResponse.json({ error: 'after must be the address the previous batch answered as next.' }, { status: 400 });
+    }
+    const ids = all ? [] : parseIds(body?.ids);
     if (!ids) {
       return NextResponse.json(
         { error: `ids must be an array of 1 to ${DOMAIN_CHECK_BATCH_SIZE} lead ids.` },
@@ -50,7 +64,8 @@ export async function POST(req: NextRequest) {
     }
 
     const targetLeads = await prisma.lead.findMany({
-      where: { id: { in: ids } },
+      where: all ? { ...UNCHECKED_WHERE, ...(after !== null ? { email: { gt: after as string } } : {}) } : { id: { in: ids } },
+      ...(all ? { orderBy: { email: 'asc' as const }, take: DOMAIN_CHECK_BATCH_SIZE } : {}),
       select: { id: true, email: true },
     });
 
@@ -126,11 +141,15 @@ export async function POST(req: NextRequest) {
       risky: idsWith('Risky').length,
       invalid: idsWith('Invalid').length,
     };
+    // A full batch of { all: true } may have more after it
+    const last = all && targetLeads.length === DOMAIN_CHECK_BATCH_SIZE ? targetLeads[targetLeads.length - 1].email : null;
+    const remaining = last === null ? 0 : await prisma.lead.count({ where: { ...UNCHECKED_WHERE, email: { gt: last } } });
     return NextResponse.json({
       success: true,
       checked: results.length,
       counts,
       results: results.map(({ id, validationStatus }) => ({ id, validationStatus })),
+      ...(all ? { next: remaining > 0 ? last : null, remaining } : {}),
     });
   } catch (error: any) {
     if (error instanceof UnauthorizedError) return unauthorizedResponse();

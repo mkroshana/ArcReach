@@ -1,29 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { selectedInView, clampPage, groupMembers } from '../../lib/leadView';
-
-type Lead = { id: string; isArchived?: boolean; groups?: { groupId: string }[]; status?: string };
-
-const lead = (id: string, extra: Partial<Lead> = {}): Lead => ({ id, isArchived: false, groups: [], ...extra });
-
-describe('selectedInView (M64)', () => {
-  const view = [lead('a'), lead('b'), lead('c')];
-
-  it('acts only on the selected leads the current view shows, in view order', () => {
-    // 'x' was selected on another tab, or before a search hid it
-    expect(selectedInView(view, ['c', 'x', 'a']).map((l) => l.id)).toEqual(['a', 'c']);
-  });
-
-  it('acts on nothing when every selected lead is hidden', () => {
-    // Twenty leads selected in Archived, then Delete on the Leads tab
-    expect(selectedInView(view, ['archived-1', 'archived-2'])).toEqual([]);
-    expect(selectedInView(view, [])).toEqual([]);
-  });
-
-  it('keeps a selected lead on another page of the same view', () => {
-    const many = Array.from({ length: 25 }, (_, i) => lead(`l${i}`));
-    expect(selectedInView(many, ['l2', 'l24']).map((l) => l.id)).toEqual(['l2', 'l24']);
-  });
-});
+import {
+  clampPage,
+  leadListParams,
+  parseLeadListQuery,
+  LEAD_PAGE_MAX,
+  LEAD_PAGE_SIZE,
+  type LeadListQuery,
+} from '../../lib/leadView';
 
 describe('clampPage (L33)', () => {
   it('moves back to the new last page when the last one empties', () => {
@@ -42,21 +25,46 @@ describe('clampPage (L33)', () => {
   });
 });
 
-describe('groupMembers (L36)', () => {
-  const leads = [
-    lead('bounced', { groups: [{ groupId: 'g-1' }], status: 'Bounced' }),
-    lead('neutral', { groups: [{ groupId: 'g-1' }, { groupId: 'g-2' }], status: 'Neutral' }),
-    lead('archived', { groups: [{ groupId: 'g-1' }], isArchived: true }),
-    lead('other', { groups: [{ groupId: 'g-2' }] }),
-    { id: 'no-groups', isArchived: false },
-  ];
+/** The list page a GET /api/leads query string names, as the route reads it. */
+const parse = (search: string) => parseLeadListQuery(new URLSearchParams(search));
 
-  it('lists every unarchived member whatever its status', () => {
-    expect(groupMembers(leads, 'g-1').map((l) => l.id)).toEqual(['bounced', 'neutral']);
-    expect(groupMembers(leads, 'g-2').map((l) => l.id)).toEqual(['neutral', 'other']);
+describe('the leads list query (M42)', () => {
+  const query = (fields: Partial<LeadListQuery> = {}): LeadListQuery => ({
+    view: 'leads', search: '', status: 'All', groupIds: [], page: 1, pageSize: LEAD_PAGE_SIZE, ...fields,
   });
 
-  it('lists nobody for a group with no members', () => {
-    expect(groupMembers(leads, 'g-3')).toEqual([]);
+  it.each([
+    ['the Leads tab', query()],
+    ['a searched and filtered page of the Suppressed tab', query({ view: 'suppressed', search: 'acme & co_50%', status: 'Bounced', page: 3 })],
+    ['a group', query({ view: 'group', groupIds: ['g-1'], page: 2 })],
+    ['overlaps between two groups', query({ view: 'overlaps', groupIds: ['g-1', 'g-2'] })],
+    ['an export page', query({ view: 'archived', status: 'Unverified', pageSize: LEAD_PAGE_MAX })],
+  ])('reads back what the page asks for: %s', (_label, asked) => {
+    expect(parse(leadListParams(asked).toString())).toEqual({ ok: true, query: asked });
+  });
+
+  it('asks for the first page of the Leads tab when nothing is named', () => {
+    expect(parse('')).toEqual({ ok: true, query: query() });
+  });
+
+  it('never serves more than LEAD_PAGE_MAX rows a page, and falls back to page 1 for a malformed page', () => {
+    expect(parse('pageSize=100000')).toMatchObject({ ok: true, query: { pageSize: LEAD_PAGE_MAX } });
+    expect(parse('page=0&pageSize=-5')).toMatchObject({ ok: true, query: { page: 1, pageSize: LEAD_PAGE_SIZE } });
+    expect(parse('page=two')).toMatchObject({ ok: true, query: { page: 1 } });
+  });
+
+  it('trims the search and drops repeated or blank group ids', () => {
+    expect(parse('q=%20%20jane%20&view=overlaps&groupId=g-1&groupId=&groupId=g-1&groupId=g-2')).toMatchObject({
+      ok: true, query: { search: 'jane', groupIds: ['g-1', 'g-2'] },
+    });
+  });
+
+  it.each([
+    ['an unknown view', 'view=everything', 'view must be one of leads, archived, suppressed, group, overlaps.'],
+    ['an unknown status', 'status=Deleted', 'status must be one of All, Valid, Risky, Invalid, Unverified, Bounced, Unsubscribed.'],
+    ['a group view without a group', 'view=group', 'The group view needs one groupId.'],
+    ['a group view with two groups', 'view=group&groupId=g-1&groupId=g-2', 'The group view needs one groupId.'],
+  ])('refuses %s', (_label, search, error) => {
+    expect(parse(search)).toEqual({ ok: false, error });
   });
 });

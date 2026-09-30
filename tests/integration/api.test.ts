@@ -387,8 +387,9 @@ describe('ArcReach Live API Integration Tests', () => {
       expect(duplicateResult.outcomes).toEqual(['existing', 'existing']);
 
       // 3. Clean up created leads
-      const getLeadsRes = await testFetch(`${BASE_URL}/api/leads`);
-      const leads = await getLeadsRes.json();
+      // The list comes a page at a time: search for this test's leads
+      const getLeadsRes = await testFetch(`${BASE_URL}/api/leads?q=${encodeURIComponent(`-${uniqueSuffix}@gmail.com`)}`);
+      const { leads } = await getLeadsRes.json();
       const createdLeads = leads.filter((l: any) => l.email.includes(`-${uniqueSuffix}@gmail.com`));
       expect(createdLeads.length).toBe(2);
 

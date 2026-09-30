@@ -12,6 +12,8 @@ import {
 } from '@/lib/suppression';
 import { deleteLeads } from '@/lib/leadDelete';
 import { enrollGroupJoiners, pauseGroupLeavers } from '@/lib/campaignCohort';
+import { parseLeadListQuery } from '@/lib/leadView';
+import { loadLeadPage } from '@/lib/leadList';
 
 /** Scalar columns the lead PUT may write, in single and bulk updates. Email and
  *  customVariables are not editable here; group membership goes through groupIds
@@ -82,6 +84,12 @@ async function reactivateEnrollments(leadIds: string[]): Promise<void> {
   });
 }
 
+/**
+ * GET /api/leads?id=<id> returns one lead with the caller's dispatches and
+ * replies to it. Without an id it returns one page of a leads table as
+ * parseLeadListQuery reads it (view, q, status, groupId, page, pageSize):
+ * { leads, total, page, pageSize, leadCount } (see loadLeadPage).
+ */
 export async function GET(req: NextRequest) {
   try {
     const session = await getSession();
@@ -126,19 +134,13 @@ export async function GET(req: NextRequest) {
       return NextResponse.json(withEntry);
     }
     
-    // In a corporate campaign tool, leads are shared across the CRM.
-    const leads = await prisma.lead.findMany({
-      include: {
-        groups: {
-          include: {
-            group: true
-          }
-        }
-      },
-      orderBy: { email: 'asc' }
-    });
-    
-    return NextResponse.json(await withSuppression(prisma, leads));
+    // In a corporate campaign tool, leads are shared across the CRM. The leads page
+    // asks for one page of one table at a time, filtered and counted in the database.
+    const parsed = parseLeadListQuery(searchParams);
+    if (!parsed.ok) {
+      return NextResponse.json({ error: parsed.error }, { status: 400 });
+    }
+    return NextResponse.json(await loadLeadPage(prisma, parsed.query));
   } catch (error: any) {
     if (error instanceof UnauthorizedError) return unauthorizedResponse();
     return NextResponse.json({ error: error.message }, { status: 500 });

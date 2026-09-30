@@ -30,6 +30,7 @@ const db = vi.hoisted(() => {
     const fold = (v: any) => (cond.mode === 'insensitive' && typeof v === 'string' ? v.toLowerCase() : v);
     if ('in' in cond) return cond.in.map(fold).includes(fold(value));
     if ('notIn' in cond) return !cond.notIn.includes(value);
+    if ('gt' in cond) return value > cond.gt;
     throw new Error(`Unmodelled filter: ${JSON.stringify(cond)}`);
   }
 
@@ -76,10 +77,20 @@ const db = vi.hoisted(() => {
     return row;
   }
 
+  /** `rows` in the order of a one-column `orderBy`, else as stored. */
+  function ordered(rows: Row[], orderBy: Record<string, 'asc' | 'desc'> | undefined): Row[] {
+    if (!orderBy) return rows;
+    const [[key, direction]] = Object.entries(orderBy);
+    const sign = direction === 'desc' ? -1 : 1;
+    return [...rows].sort((a, b) => (a[key] < b[key] ? -sign : a[key] > b[key] ? sign : 0));
+  }
+
   function model(table: string) {
     const find = (where: Row | undefined) => tables[table].filter((r) => matches(table, r, where));
     return {
-      findMany: async (args: any = {}) => find(args.where).slice(0, args.take).map((r) => withRelations(table, r, args.select)),
+      findMany: async (args: any = {}) =>
+        ordered(find(args.where), args.orderBy).slice(0, args.take).map((r) => withRelations(table, r, args.select)),
+      count: async (args: any = {}) => find(args.where).length,
       findFirst: async (args: any = {}) => {
         const row = find(args.where)[0];
         return row ? withRelations(table, row, args.select) : null;
@@ -431,9 +442,7 @@ describe('a lead update cannot lift a suppression (H18, H17)', () => {
     expect(db.tables.suppressedEmail.map((row) => row.email)).toContain('opted-out@acme.com');
     expect(db.tables.campaignEnrollment.find((e) => e.leadId === 'opted-out')).toMatchObject({ status: 'Failed' });
 
-    const leads = await (await getLeads(makeReq('GET', '/api/leads'))).json();
-    expect(leads.find((l: any) => l.id === 'opted-out')).toMatchObject({ status: 'Not_Interested', suppression: { reason: 'Unsubscribed' } });
-    expect(leads.find((l: any) => l.id === 'marked').suppression).toBeNull();
+    // The list pages in SQL and shows the same entry (tests/unit/leadList.test.ts)
     const detail = await (await getLeads(makeReq('GET', '/api/leads?id=opted-out'))).json();
     expect(detail.suppression).toMatchObject({ reason: 'Unsubscribed', source: 'unsubscribe-link' });
   });
@@ -643,6 +652,55 @@ describe('domain MX check (H36)', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ checked: DOMAIN_CHECK_BATCH_SIZE, counts: { valid: DOMAIN_CHECK_BATCH_SIZE, risky: 0, invalid: 0 } });
     expect(dnsAnswers.state.lookups).toEqual(['mx acme.com']);
+  });
+
+  it('checks every Unverified and Risky lead once, a batch at a time in address order, when the page names none (M42)', async () => {
+    const pending = Array.from({ length: DOMAIN_CHECK_BATCH_SIZE + 2 }, (_, i) => `lead-${String(i).padStart(3, '0')}`);
+    pending.forEach((id) => addLead(id, `${id}@acme.com`));
+    // Stays Risky after its check, so it is still Unverified-or-Risky when the next batch is picked
+    leadById('lead-001')!.email = 'lead-001@etimeout.test';
+    leadById('lead-002')!.validationStatus = 'Risky';
+    addLead('valid', 'aaa-valid@acme.com', { validationStatus: 'Valid' });
+    addLead('invalid', 'aaa-invalid@acme.com', { validationStatus: 'Invalid' });
+
+    const first = await postVerify(makeReq('POST', '/api/leads/verify', { all: true }));
+
+    expect(first.status).toBe(200);
+    expect(await first.json()).toMatchObject({
+      checked: DOMAIN_CHECK_BATCH_SIZE,
+      counts: { valid: DOMAIN_CHECK_BATCH_SIZE - 1, risky: 1, invalid: 0 },
+      next: `lead-${String(DOMAIN_CHECK_BATCH_SIZE - 1).padStart(3, '0')}@acme.com`,
+      remaining: 2,
+    });
+    const timeoutLookups = () => dnsAnswers.state.lookups.filter((l) => l.includes('etimeout.test')).length;
+    const lookedUpOnce = timeoutLookups();
+
+    const last = await postVerify(makeReq('POST', '/api/leads/verify', {
+      all: true, after: `lead-${String(DOMAIN_CHECK_BATCH_SIZE - 1).padStart(3, '0')}@acme.com`,
+    }));
+
+    expect(await last.json()).toMatchObject({ checked: 2, counts: { valid: 2, risky: 0, invalid: 0 }, next: null, remaining: 0 });
+    expect(timeoutLookups()).toBe(lookedUpOnce);
+    expect(Object.fromEntries(db.tables.lead.map((l) => [l.id, l.validationStatus]))).toEqual({
+      ...Object.fromEntries(pending.map((id) => [id, 'Valid'])),
+      'lead-001': 'Risky',
+      valid: 'Valid',
+      invalid: 'Invalid',
+    });
+  });
+
+  it.each([
+    ['a number', 5],
+    ['an empty address', ''],
+  ])('refuses %s as the address to continue after with a 400, checking nothing', async (_label, after) => {
+    addLead('fine', 'fine@acme.com');
+
+    const res = await postVerify(makeReq('POST', '/api/leads/verify', { all: true, after }));
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'after must be the address the previous batch answered as next.' });
+    expect(dnsAnswers.state.lookups).toEqual([]);
+    expect(leadById('fine')!.validationStatus).toBe('Unverified');
   });
 });
 

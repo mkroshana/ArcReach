@@ -64,7 +64,14 @@ import {
 } from '@/lib/leadImport';
 import { SUPPRESSION_LABELS } from '@/lib/suppression';
 import { DOMAIN_CHECK_BATCH_SIZE, type DomainCheckCounts } from '@/lib/domainCheck';
-import { selectedInView, clampPage, groupMembers } from '@/lib/leadView';
+import {
+  LEAD_PAGE_MAX,
+  LEAD_PAGE_SIZE,
+  LEAD_STATUS_FILTERS,
+  leadListParams,
+  type LeadListQuery,
+  type LeadStatusFilter
+} from '@/lib/leadView';
 import type { SuppressionReason } from '@prisma/client';
 
 /** A lead's suppression-list entry, as /api/leads returns it on each lead. */
@@ -150,6 +157,11 @@ function describeDomainCheck(counts: DomainCheckCounts): string {
   return found.length > 0 ? `${found.join(', ')}.` : 'No leads were checked.';
 }
 
+/** How many leads a domain MX check has checked, of how many once that is known. */
+function checkedOf(progress: { checked: number; total: number | null }): string {
+  return progress.total === null ? `${progress.checked}` : `${progress.checked} of ${progress.total}`;
+}
+
 /** Invalid emails the CSV mapping step quotes; any beyond this are only counted. */
 const MAX_QUOTED_EMAILS = 3;
 /** Longest invalid email cell the mapping step quotes in full. */
@@ -172,8 +184,17 @@ function describeCsvSkips(plan: CsvImportPlan): string {
 }
 
 export default function LeadsPage() {
+  // The page of leads the open table shows, loaded from the server (GET /api/leads)
   const [leads, setLeads] = useState<any[]>([]);
+  // Leads the open table's list holds on all its pages, and in the whole CRM
+  const [leadTotal, setLeadTotal] = useState(0);
+  const [leadCount, setLeadCount] = useState(0);
+  // The page could not be loaded, so the table says so instead of showing no matches
+  const [listError, setListError] = useState(false);
+  // Bumped to load the open table's page again after a change
+  const [listVersion, setListVersion] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const { toast: showToast } = useToast();
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -187,14 +208,15 @@ export default function LeadsPage() {
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
-  // Search and Filter states
+  // Search and Filter states; the search is sent once typing pauses
   const [search, setSearch] = useState('');
-  const [filterStatus, setFilterStatus] = useState('All');
+  const [appliedSearch, setAppliedSearch] = useState('');
+  const [filterStatus, setFilterStatus] = useState<LeadStatusFilter>('All');
   const [currentPage, setCurrentPage] = useState(1);
-  
-  // Domain MX check progress: leads checked so far, by result, out of the leads sent
+
+  // Domain MX check progress: leads checked so far, by result, out of the leads to check (null until the server says how many)
   const [isVerifying, setIsVerifying] = useState(false);
-  const [verifyProgress, setVerifyProgress] = useState<DomainCheckCounts & { checked: number; total: number } | null>(null);
+  const [verifyProgress, setVerifyProgress] = useState<DomainCheckCounts & { checked: number; total: number | null } | null>(null);
 
   // New Lead form state
   const [showAddLead, setShowAddLead] = useState(false);
@@ -239,8 +261,8 @@ export default function LeadsPage() {
   // The rows the import will send and skip under the current Email mapping
   const csvPlan = useMemo(() => planCsvImport(csvRows, mappings), [csvRows, mappings]);
 
-  // Bulk Actions & disposal states
-  const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
+  // Bulk Actions & disposal states. The selected leads' rows as last loaded, kept across the pages of one view
+  const [selectedLeads, setSelectedLeads] = useState<any[]>([]);
   const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState<boolean>(false);
   const [deleteAllConfirmText, setDeleteAllConfirmText] = useState<string>('');
   const [groupToDelete, setGroupToDelete] = useState<any | null>(null);
@@ -312,23 +334,13 @@ export default function LeadsPage() {
     }
   };
 
-  const fetchLeads = async () => {
-    try {
-      setLoading(true);
-      const res = await fetch('/api/leads');
-      if (res.ok) {
-        const data = await res.json();
-        setLeads(data);
-      }
-    } catch (error) {
-      console.error('Failed to load leads:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Loads the open table's page again, after a change to leads it may show
+  const reloadLeads = () => setListVersion(version => version + 1);
+
+  // Deselects a lead after a change that may move it out of the open tab, search or filter
+  const deselectLead = (id: string) => setSelectedLeads(prev => prev.filter(l => l.id !== id));
 
   useEffect(() => {
-    fetchLeads();
     fetchGroups();
     fetch('/api/session')
       .then((res) => (res.ok ? res.json() : null))
@@ -339,30 +351,33 @@ export default function LeadsPage() {
   const handleBulkVerify = async () => {
     if (isVerifying) return;
     
-    const targets = selectedLeads.length > 0
-      ? selectedLeads.filter(l => l.validationStatus === 'Unverified' || l.validationStatus === 'Risky')
-      : leads.filter(l => l.validationStatus === 'Unverified' || l.validationStatus === 'Risky');
+    // The selected leads are sent by id; with none selected the server takes every Unverified or Risky lead
+    const selection = selectedLeads.length > 0;
+    const ids = selectedLeads.filter(l => l.validationStatus === 'Unverified' || l.validationStatus === 'Risky').map(l => l.id);
 
-    if (targets.length === 0) {
-      showToast(selectedLeads.length > 0 ? 'None of the selected leads is Unverified or Risky.' : 'No leads are Unverified or Risky.');
+    if (selection && ids.length === 0) {
+      showToast('None of the selected leads is Unverified or Risky.');
       return;
     }
 
     // One request per batch, one after another, so each stays well inside the request timeout
-    const ids = targets.map(l => l.id);
-    const progress = { checked: 0, total: ids.length, valid: 0, risky: 0, invalid: 0 };
+    const progress: DomainCheckCounts & { checked: number; total: number | null } =
+      { checked: 0, total: selection ? ids.length : null, valid: 0, risky: 0, invalid: 0 };
     setIsVerifying(true);
     setVerifyProgress({ ...progress });
     let failure: string | null = null;
+    // The next batch of selected ids, or the address the server's next batch of every lead starts after
+    let offset = 0;
+    let after: string | null = null;
 
     try {
-      for (let i = 0; i < ids.length; i += DOMAIN_CHECK_BATCH_SIZE) {
-        const res = await fetch('/api/leads/verify', {
+      do {
+        const res: Response = await fetch('/api/leads/verify', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ids: ids.slice(i, i + DOMAIN_CHECK_BATCH_SIZE) })
+          body: JSON.stringify(selection ? { ids: ids.slice(offset, offset + DOMAIN_CHECK_BATCH_SIZE) } : { all: true, after })
         });
-        const data = await res.json().catch(() => ({}));
+        const data: any = await res.json().catch(() => ({}));
         if (!res.ok) {
           failure = data.error || `the server answered ${res.status}`;
           break;
@@ -371,8 +386,13 @@ export default function LeadsPage() {
         progress.valid += data.counts.valid;
         progress.risky += data.counts.risky;
         progress.invalid += data.counts.invalid;
+        offset += DOMAIN_CHECK_BATCH_SIZE;
+        if (!selection) {
+          after = data.next;
+          progress.total = progress.checked + data.remaining;
+        }
         setVerifyProgress({ ...progress });
-      }
+      } while (selection ? offset < ids.length : after !== null);
     } catch (err) {
       failure = 'the request failed';
       console.error(err);
@@ -382,11 +402,17 @@ export default function LeadsPage() {
     }
 
     if (failure) {
-      showToast(`Domain MX check stopped after ${progress.checked} of ${progress.total} leads because ${failure}. ${describeDomainCheck(progress)}`, 'error');
+      showToast(`Domain MX check stopped after ${checkedOf(progress)} leads because ${failure}. ${describeDomainCheck(progress)}`, 'error');
+    } else if (!selection && progress.checked === 0) {
+      showToast('No leads are Unverified or Risky.');
     } else {
-      showToast(`Domain MX check finished for ${progress.checked} of ${progress.total} leads: ${describeDomainCheck(progress)}`, progress.risky > 0 ? 'warning' : 'success');
+      showToast(`Domain MX check finished for ${checkedOf(progress)} leads: ${describeDomainCheck(progress)}`, progress.risky > 0 ? 'warning' : 'success');
     }
-    if (progress.checked > 0) await fetchLeads();
+    if (progress.checked > 0) {
+      // A checked lead may have left the status filter, and the page cannot tell which ones on other pages did
+      if (selection) setSelectedLeads([]);
+      reloadLeads();
+    }
   };
 
   const handleDeleteLead = (id: string) => {
@@ -403,7 +429,8 @@ export default function LeadsPage() {
             method: 'DELETE'
           });
           if (res.ok) {
-            setLeads(leads.filter(l => l.id !== id));
+            deselectLead(id);
+            reloadLeads();
             showToast('Lead record deleted successfully.');
           } else {
             showToast('Failed to delete lead.');
@@ -466,43 +493,9 @@ export default function LeadsPage() {
       });
 
       if (res.ok) {
-        // Reflect deletion locally
+        // Reflect deletion locally; each leads table loads its leads from the server when opened
         setGroups(groups.filter(g => g.id !== groupToDelete.id));
-
-        if (leadDisposalAction === 'DELETE') {
-          // Find leads associated with this group
-          const leadsToDelete = leads
-            .filter(l => (l.groups || []).some((g: any) => g.groupId === groupToDelete.id))
-            .map(l => l.id);
-          setLeads(leads.filter(l => !leadsToDelete.includes(l.id)));
-        } else if (leadDisposalAction === 'MOVE') {
-          // Update local leads' memberships
-          const updatedLeads = leads.map(l => {
-            const hasMembership = (l.groups || []).some((g: any) => g.groupId === groupToDelete.id);
-            if (hasMembership) {
-              const targetGroup = groups.find(g => g.id === disposalTargetGroupId);
-              const otherMemberships = (l.groups || []).filter((g: any) => g.groupId !== groupToDelete.id);
-              const alreadyHasTarget = otherMemberships.some((g: any) => g.groupId === disposalTargetGroupId);
-              
-              if (!alreadyHasTarget && targetGroup) {
-                otherMemberships.push({
-                  groupId: disposalTargetGroupId,
-                  group: { id: disposalTargetGroupId, name: targetGroup.name }
-                });
-              }
-              return { ...l, groups: otherMemberships };
-            }
-            return l;
-          });
-          setLeads(updatedLeads);
-        } else {
-          // KEEP: just remove association
-          const updatedLeads = leads.map(l => ({
-            ...l,
-            groups: (l.groups || []).filter((g: any) => g.groupId !== groupToDelete.id)
-          }));
-          setLeads(updatedLeads);
-        }
+        reloadLeads();
 
         setGroupToDelete(null);
         setLeadDisposalAction('KEEP');
@@ -520,7 +513,7 @@ export default function LeadsPage() {
   };
 
   const handleBulkDeleteLeads = () => {
-    // Only the selected leads this tab, search and filter show, as counted in the bulk bar
+    // Only the selected leads this tab, search and filter show (a view change clears the selection), as counted in the bulk bar
     const ids = selectedLeads.map(l => l.id);
     if (ids.length === 0) return;
     setConfirmDialog({
@@ -539,8 +532,8 @@ export default function LeadsPage() {
           });
 
           if (res.ok) {
-            setLeads(leads.filter(l => !ids.includes(l.id)));
-            setSelectedLeadIds([]);
+            setSelectedLeads([]);
+            reloadLeads();
             showToast('Selected leads deleted successfully.');
           } else {
             const err = await res.json().catch(() => ({}));
@@ -577,8 +570,8 @@ export default function LeadsPage() {
 
           if (res.ok) {
             const result = await res.json();
-            setSelectedLeadIds([]);
-            await fetchLeads();
+            setSelectedLeads([]);
+            reloadLeads();
             showToast(describeReactivation(result), result.reactivated > 0 ? 'success' : 'warning');
           } else {
             const err = await res.json().catch(() => ({}));
@@ -620,7 +613,8 @@ export default function LeadsPage() {
           const data = await res.json().catch(() => ({}));
           if (res.ok) {
             if (data.lead) {
-              setLeads(prev => prev.map(l => l.id === data.lead.id ? data.lead : l));
+              deselectLead(data.lead.id);
+              reloadLeads();
               setLeadDetails((prev: any) => prev && prev.id === data.lead.id ? { ...prev, ...data.lead } : prev);
             }
             showToast(`${lead.email} removed from the suppression list.`);
@@ -646,14 +640,8 @@ export default function LeadsPage() {
       });
 
       if (res.ok) {
-        const updatedLeads = leads.map(l => {
-          if (ids.includes(l.id)) {
-            return { ...l, isArchived: archiveState };
-          }
-          return l;
-        });
-        setLeads(updatedLeads);
-        setSelectedLeadIds([]);
+        setSelectedLeads([]);
+        reloadLeads();
         showToast(archiveState ? 'Selected leads archived.' : 'Selected leads unarchived.');
       } else {
         const err = await res.json().catch(() => ({}));
@@ -675,8 +663,8 @@ export default function LeadsPage() {
         method: 'DELETE'
       });
       if (res.ok) {
-        setLeads([]);
-        setSelectedLeadIds([]);
+        setSelectedLeads([]);
+        reloadLeads();
         setShowDeleteAllConfirm(false);
         setDeleteAllConfirmText('');
         showToast('All CRM leads deleted successfully.');
@@ -707,18 +695,7 @@ export default function LeadsPage() {
           });
 
           if (res.ok) {
-            // Find which lead IDs are members of this group
-            const groupMemberships = leads
-              .filter(l => (l.groups || []).some((g: any) => g.groupId === groupId))
-              .map(l => l.id);
-            
-            const updatedLeads = leads.map(l => {
-              if (groupMemberships.includes(l.id)) {
-                return { ...l, isArchived: archiveState };
-              }
-              return l;
-            });
-            setLeads(updatedLeads);
+            reloadLeads();
             showToast(`All leads in group ${archiveState ? 'archived' : 'unarchived'} successfully.`);
           } else {
             showToast('Failed to archive group leads.');
@@ -737,16 +714,7 @@ export default function LeadsPage() {
         method: 'DELETE'
       });
       if (res.ok) {
-        const updatedLeads = leads.map(l => {
-          if (l.id === leadId) {
-            return {
-              ...l,
-              groups: (l.groups || []).filter((g: any) => g.groupId !== groupId)
-            };
-          }
-          return l;
-        });
-        setLeads(updatedLeads);
+        reloadLeads();
         await fetchGroups();
         showToast('Lead removed from group.');
       } else {
@@ -790,7 +758,7 @@ export default function LeadsPage() {
 
       if (res.ok) {
         const created = await res.json();
-        setLeads([created, ...leads]);
+        reloadLeads();
         setNewLead({ name: '', email: '', company: '', jobTitle: '' });
         setSelectedGroupForAdd('');
         setShowAddLead(false);
@@ -810,8 +778,35 @@ export default function LeadsPage() {
     }
   };
 
-  const handleExportCSV = () => {
-    const exportLeads = selectedLeads.length > 0 ? selectedLeads : filteredLeads;
+  const handleExportCSV = async () => {
+    if (exporting || !listQuery) return;
+    // The selected leads in the table's address order, else every lead this tab, search and filter show,
+    // loaded from the server a page at a time
+    let exportLeads = [...selectedLeads].sort((a, b) => (a.email < b.email ? -1 : a.email > b.email ? 1 : 0));
+    if (exportLeads.length === 0) {
+      setExporting(true);
+      try {
+        const exported = new Map<string, any>();
+        for (let page = 1; ; page++) {
+          const res = await fetch(`/api/leads?${leadListParams({ ...listQuery, page, pageSize: LEAD_PAGE_MAX })}`);
+          if (!res.ok) {
+            showToast('Failed to export leads.', 'error');
+            return;
+          }
+          const data = await res.json();
+          for (const lead of data.leads) exported.set(lead.id, lead);
+          // The server answers its last page for a page past the end
+          if (data.page < page || data.page * LEAD_PAGE_MAX >= data.total) break;
+        }
+        exportLeads = Array.from(exported.values());
+      } catch (err) {
+        console.error(err);
+        showToast('Failed to export leads.', 'error');
+        return;
+      } finally {
+        setExporting(false);
+      }
+    }
 
     if (exportLeads.length === 0) {
       showToast('No leads to export.');
@@ -985,7 +980,7 @@ export default function LeadsPage() {
     const added = totals.created + totals.suppressed;
     const skipped = totals.suppressed + totals.invalid + totals.blank + totals.duplicate > 0;
     showToast(summary, totals.failed > 0 ? 'error' : skipped || added === 0 ? 'warning' : 'success');
-    fetchLeads();
+    reloadLeads();
   };
 
   const handleCancelImport = () => {
@@ -1014,69 +1009,150 @@ export default function LeadsPage() {
     }
   };
 
-  const getOverlappingLeads = () => {
-    return leads.filter(lead => {
-      if (lead.isArchived) return false;
-      const memberGroupIds = (lead.groups || []).map((g: any) => g.groupId);
-      if (selectedGroupsForCrossCheck.length > 0) {
-        const intersection = memberGroupIds.filter((id: string) => selectedGroupsForCrossCheck.includes(id));
-        return intersection.length > 1;
-      } else {
-        return memberGroupIds.length > 1;
-      }
-    });
-  };
+  // The list the open table shows, one page at a time from the server: the Leads, Archived or Suppressed
+  // tab under its search and status filter, an opened group's members by membership alone, whatever those
+  // say, or the Cross-Check tab's leads in more than one group. The groups grid shows none.
+  const listQuery: LeadListQuery | null =
+    activeTab === 'groups'
+      ? selectedGroupIdForView
+        ? { view: 'group', search: '', status: 'All', groupIds: [selectedGroupIdForView], page: currentPage, pageSize: LEAD_PAGE_SIZE }
+        : null
+      : activeTab === 'overlaps'
+        ? { view: 'overlaps', search: '', status: 'All', groupIds: selectedGroupsForCrossCheck, page: currentPage, pageSize: LEAD_PAGE_SIZE }
+        : { view: activeTab, search: appliedSearch, status: filterStatus, groupIds: [], page: currentPage, pageSize: LEAD_PAGE_SIZE };
+  const listUrl = listQuery ? `/api/leads?${leadListParams(listQuery)}` : null;
 
-  const filteredLeads = leads.filter(lead => {
-    if (activeTab === 'archived') {
-      if (!lead.isArchived) return false;
-    } else {
-      if (lead.isArchived) return false;
-    }
+  // Searches on the server once typing pauses
+  useEffect(() => {
+    const timer = setTimeout(() => setAppliedSearch(search.trim()), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
 
-    if (activeTab === 'suppressed') {
-      const isSuppressed = !!lead.suppression || lead.status === 'Bounced' || lead.status === 'Unsubscribed' || lead.validationStatus === 'Invalid';
-      if (!isSuppressed) return false;
-    }
-
-    const nameStr = lead.name || '';
-    const emailStr = lead.email || '';
-    const companyStr = lead.company || '';
-    const matchesSearch = nameStr.toLowerCase().includes(search.toLowerCase()) || 
-                          emailStr.toLowerCase().includes(search.toLowerCase()) ||
-                          companyStr.toLowerCase().includes(search.toLowerCase());
-    const matchesStatus = filterStatus === 'All' 
-      || (filterStatus === 'Bounced' && suppressionLabel(lead) === 'Bounced')
-      || (filterStatus === 'Unsubscribed' && suppressionLabel(lead) === 'Unsubscribed')
-      || (!['Bounced', 'Unsubscribed'].includes(filterStatus) && lead.validationStatus === filterStatus);
-    return matchesSearch && matchesStatus;
-  });
-
-  // Bulk actions, the bulk bar and Export reach only the selected leads this tab, search and filter show;
-  // the other tabs have no checkboxes, so nothing is selected there
-  const selectedLeads = activeTab === 'leads' || activeTab === 'archived' || activeTab === 'suppressed'
-    ? selectedInView(filteredLeads, selectedLeadIds)
-    : [];
-
-  // The group drill-down lists members by membership, whatever the Leads tab's search and status filter say
-  const viewedGroupMembers = selectedGroupIdForView ? groupMembers(leads, selectedGroupIdForView) : [];
-
+  // A new list starts on its first page
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, filterStatus, activeTab, selectedGroupIdForView]);
+  }, [appliedSearch, filterStatus, activeTab, selectedGroupIdForView, selectedGroupsForCrossCheck]);
 
-  const itemsPerPage = 10;
-  const totalPages = Math.ceil(filteredLeads.length / itemsPerPage);
-
-  // A delete or archive that empties the last page moves back to the new last page
+  // A search or filter change clears the selection, as a tab change does: the page holds one page of the
+  // new view, so it cannot tell which selected leads on other pages that view still shows
   useEffect(() => {
-    setCurrentPage(page => clampPage(page, totalPages));
-  }, [totalPages]);
+    setSelectedLeads(prev => (prev.length === 0 ? prev : []));
+  }, [appliedSearch, filterStatus]);
 
-  const paginatedLeads = filteredLeads.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
-  const totalLeads = filteredLeads.length;
-  const startIndex = totalLeads === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1;
-  const endIndex = Math.min(currentPage * itemsPerPage, totalLeads);
+  // Loads the open table's page. A newer request aborts an older one, so a slow answer never replaces a newer page.
+  useEffect(() => {
+    if (!listUrl) {
+      setLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    setLoading(true);
+    fetch(listUrl, { signal: controller.signal })
+      .then(async res => {
+        if (!res.ok) throw new Error(`The server answered ${res.status}.`);
+        const data = await res.json();
+        if (controller.signal.aborted) return;
+        setLeads(data.leads);
+        setLeadTotal(data.total);
+        setLeadCount(data.leadCount);
+        setListError(false);
+        // A page past the end, after a delete or archive emptied the last one, is answered with the new last page
+        setCurrentPage(data.page);
+        // Selected leads on this page keep their latest values for Export and Check Domain MX
+        const loaded = new Map<string, any>(data.leads.map((lead: any) => [lead.id, lead]));
+        setSelectedLeads(prev => (prev.some(l => loaded.has(l.id)) ? prev.map(l => loaded.get(l.id) ?? l) : prev));
+      })
+      .catch(err => {
+        if (controller.signal.aborted) return;
+        console.error('Failed to load leads:', err);
+        setLeads([]);
+        setLeadTotal(0);
+        setListError(true);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [listUrl, listVersion]);
+
+  const totalPages = Math.ceil(leadTotal / LEAD_PAGE_SIZE);
+  const startIndex = leadTotal === 0 ? 0 : (currentPage - 1) * LEAD_PAGE_SIZE + 1;
+  const endIndex = Math.min(currentPage * LEAD_PAGE_SIZE, leadTotal);
+  const isSelected = (id: string) => selectedLeads.some(l => l.id === id);
+
+  // The open table's page buttons: every leads table pages through its list on the server
+  const paginationControls = leadTotal > 0 && (
+    <div className="px-5 py-4 border-t border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row justify-between items-center gap-4 bg-slate-50/20 dark:bg-slate-950/10">
+      <div className="text-xs text-slate-500 dark:text-slate-400">
+        Showing <span className="font-semibold text-slate-700 dark:text-white">{startIndex}</span> to{' '}
+        <span className="font-semibold text-slate-700 dark:text-white">{endIndex}</span> of{' '}
+        <span className="font-semibold text-slate-700 dark:text-white">{leadTotal}</span> leads
+      </div>
+      <div className="flex items-center gap-1.5">
+        <button
+          disabled={currentPage === 1}
+          onClick={() => setCurrentPage(1)}
+          className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+          title="First Page"
+        >
+          <ChevronsLeft className="w-3.5 h-3.5" />
+        </button>
+        <button
+          disabled={currentPage === 1}
+          onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+          className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+          title="Previous Page"
+        >
+          <ChevronLeft className="w-3.5 h-3.5" />
+        </button>
+
+        {/* Page numbers */}
+        {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+          let pageNum = currentPage;
+          if (currentPage <= 3) {
+            pageNum = i + 1;
+          } else if (currentPage >= totalPages - 2) {
+            pageNum = totalPages - 4 + i;
+          } else {
+            pageNum = currentPage - 2 + i;
+          }
+          if (pageNum < 1 || pageNum > totalPages) return null;
+          return (
+            <button
+              key={pageNum}
+              onClick={() => setCurrentPage(pageNum)}
+              className={`px-3 py-1 rounded-md text-xs font-semibold border transition-all cursor-pointer ${
+                currentPage === pageNum
+                  ? 'bg-blue-600 border-blue-600 text-white shadow-xs'
+                  : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
+              }`}
+            >
+              {pageNum}
+            </button>
+          );
+        })}
+
+        <button
+          disabled={currentPage === totalPages}
+          onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+          className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+          title="Next Page"
+        >
+          <ChevronRight className="w-3.5 h-3.5" />
+        </button>
+        <button
+          disabled={currentPage === totalPages}
+          onClick={() => setCurrentPage(totalPages)}
+          className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+          title="Last Page"
+        >
+          <ChevronsRight className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+  // What an empty table says: no match, or that its page could not be loaded
+  const emptyListMessage = (noMatch: string) => (listError ? 'Leads could not be loaded. Use Refresh to try again.' : noMatch);
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 max-w-5xl mx-auto">
@@ -1087,8 +1163,8 @@ export default function LeadsPage() {
           <p className="text-slate-500 dark:text-slate-400 text-xs">Import contacts, check their email domains for mail servers, and organize your prospect lists.</p>
         </div>
         <div className="flex gap-2.5">
-          <button 
-            onClick={fetchLeads}
+          <button
+            onClick={reloadLeads}
             className="p-2 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xs"
             title="Refresh Leads Catalog"
           >
@@ -1108,7 +1184,7 @@ export default function LeadsPage() {
             className="bg-blue-600 hover:bg-blue-500 disabled:bg-blue-700 text-white px-4 py-2 rounded-lg font-semibold flex items-center gap-2 transition-colors text-xs shadow-sm"
           >
             <Globe className="w-3.5 h-3.5" />
-            {isVerifying && verifyProgress ? `Checking ${verifyProgress.checked} of ${verifyProgress.total}` : 'Check Domain MX'}
+            {isVerifying && verifyProgress ? `Checking ${checkedOf(verifyProgress)}` : 'Check Domain MX'}
           </button>
           
           {isAdmin && (
@@ -1117,7 +1193,7 @@ export default function LeadsPage() {
                 setDeleteAllConfirmText('');
                 setShowDeleteAllConfirm(true);
               }}
-              disabled={loading || leads.length === 0}
+              disabled={loading || leadCount === 0}
               className="bg-rose-600 hover:bg-rose-500 disabled:bg-rose-800/40 text-white px-3.5 py-1.8 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
             >
               <Trash2 className="w-3.5 h-3.5" />
@@ -1138,7 +1214,7 @@ export default function LeadsPage() {
             </div>
           </div>
           <div className="w-full md:w-64 font-sans text-[11px] font-bold space-y-1">
-            <p className="text-blue-600 dark:text-blue-400">Checked {verifyProgress.checked} of {verifyProgress.total} leads</p>
+            <p className="text-blue-600 dark:text-blue-400">Checked {checkedOf(verifyProgress)} leads</p>
             <p className="text-slate-500 dark:text-slate-400">{verifyProgress.valid} Valid, {verifyProgress.risky} Risky, {verifyProgress.invalid} Invalid</p>
           </div>
         </div>
@@ -1488,7 +1564,7 @@ export default function LeadsPage() {
                 setActiveTab(tab.id as any);
                 setSelectedGroupIdForView(null);
                 // Each tab has its own bulk actions, so a selection never carries over
-                setSelectedLeadIds([]);
+                setSelectedLeads([]);
               }}
               className={`pb-3 text-xs font-bold uppercase tracking-wider border-b-2 flex items-center gap-2 transition-all cursor-pointer ${
                 activeTab === tab.id
@@ -1524,7 +1600,7 @@ export default function LeadsPage() {
                 </div>
                 
                 <div className="flex items-center gap-1 p-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xs">
-                  {['All', 'Valid', 'Risky', 'Invalid', 'Unverified', 'Bounced', 'Unsubscribed'].map(statusOption => (
+                  {LEAD_STATUS_FILTERS.map(statusOption => (
                     <button
                       key={statusOption}
                       onClick={() => setFilterStatus(statusOption)}
@@ -1542,12 +1618,13 @@ export default function LeadsPage() {
                 </div>
               </div>
               
-              <button 
+              <button
                 onClick={handleExportCSV}
+                disabled={exporting}
                 className="flex items-center gap-1.5 bg-white hover:bg-slate-50 dark:bg-slate-950 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-xs px-3.5 py-2 rounded-lg font-bold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors shadow-xs cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5" />
-                {selectedLeads.length > 0 ? `Export selected (${selectedLeads.length})` : 'Export CSV'}
+                {exporting ? 'Exporting...' : selectedLeads.length > 0 ? `Export selected (${selectedLeads.length})` : 'Export CSV'}
               </button>
             </div>
 
@@ -1565,14 +1642,14 @@ export default function LeadsPage() {
                       <th className="px-5 py-3 w-10">
                         <input
                           type="checkbox"
-                          checked={paginatedLeads.length > 0 && paginatedLeads.every(l => selectedLeadIds.includes(l.id))}
+                          checked={leads.length > 0 && leads.every(l => isSelected(l.id))}
                           onChange={(e) => {
+                            // Selects or deselects this page's leads, keeping those selected on the view's other pages
                             if (e.target.checked) {
-                              const newSelections = Array.from(new Set([...selectedLeadIds, ...paginatedLeads.map(l => l.id)]));
-                              setSelectedLeadIds(newSelections);
+                              setSelectedLeads([...selectedLeads, ...leads.filter(l => !isSelected(l.id))]);
                             } else {
-                              const paginatedIds = paginatedLeads.map(l => l.id);
-                              setSelectedLeadIds(selectedLeadIds.filter(id => !paginatedIds.includes(id)));
+                              const pageIds = leads.map(l => l.id);
+                              setSelectedLeads(selectedLeads.filter(l => !pageIds.includes(l.id)));
                             }
                           }}
                           onClick={(e) => e.stopPropagation()}
@@ -1589,26 +1666,26 @@ export default function LeadsPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50 text-slate-700 dark:text-slate-400">
-                    {paginatedLeads.map((lead) => (
-                      <tr 
-                        key={lead.id} 
+                    {leads.map((lead) => (
+                      <tr
+                        key={lead.id}
                         onClick={() => {
                           setSelectedLeadId(lead.id);
                           fetchLeadDetails(lead.id);
                         }}
                         className={`hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-all group cursor-pointer ${
-                          selectedLeadIds.includes(lead.id) ? 'bg-blue-50/20 dark:bg-blue-950/10' : ''
+                          isSelected(lead.id) ? 'bg-blue-50/20 dark:bg-blue-950/10' : ''
                         }`}
                       >
                         <td className="px-5 py-3.5 w-10" onClick={(e) => e.stopPropagation()}>
                           <input
                             type="checkbox"
-                            checked={selectedLeadIds.includes(lead.id)}
+                            checked={isSelected(lead.id)}
                             onChange={() => {
-                              if (selectedLeadIds.includes(lead.id)) {
-                                setSelectedLeadIds(selectedLeadIds.filter(id => id !== lead.id));
+                              if (isSelected(lead.id)) {
+                                deselectLead(lead.id);
                               } else {
-                                setSelectedLeadIds([...selectedLeadIds, lead.id]);
+                                setSelectedLeads([...selectedLeads, lead]);
                               }
                             }}
                             className="w-3.5 h-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500/40 cursor-pointer"
@@ -1667,7 +1744,9 @@ export default function LeadsPage() {
                                   });
                                   if (res.ok) {
                                     const updatedLead = await res.json();
-                                    setLeads(leads.map(l => l.id === lead.id ? updatedLead : l));
+                                    // It moves to the other tab
+                                    deselectLead(lead.id);
+                                    reloadLeads();
                                     showToast(updatedLead.isArchived ? 'Prospect archived.' : 'Prospect unarchived.');
                                   }
                                 } catch (err) {
@@ -1698,10 +1777,10 @@ export default function LeadsPage() {
                         </td>
                       </tr>
                     ))}
-                    {filteredLeads.length === 0 && (
+                    {leads.length === 0 && (
                       <tr>
                         <td colSpan={(activeTab === 'leads' || activeTab === 'suppressed') ? 7 : 6} className="text-center py-10 text-slate-400 dark:text-slate-500 text-xs">
-                          No lead records match your search filters.
+                          {emptyListMessage('No lead records match your search filters.')}
                         </td>
                       </tr>
                     )}
@@ -1710,76 +1789,7 @@ export default function LeadsPage() {
               </div>
 
               {/* Pagination Controls */}
-              {totalLeads > 0 && (
-                <div className="px-5 py-4 border-t border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row justify-between items-center gap-4 bg-slate-50/20 dark:bg-slate-950/10">
-                  <div className="text-xs text-slate-500 dark:text-slate-400">
-                    Showing <span className="font-semibold text-slate-700 dark:text-white">{startIndex}</span> to{' '}
-                    <span className="font-semibold text-slate-700 dark:text-white">{endIndex}</span> of{' '}
-                    <span className="font-semibold text-slate-700 dark:text-white">{totalLeads}</span> leads
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      disabled={currentPage === 1}
-                      onClick={() => setCurrentPage(1)}
-                      className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
-                      title="First Page"
-                    >
-                      <ChevronsLeft className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      disabled={currentPage === 1}
-                      onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                      className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
-                      title="Previous Page"
-                    >
-                      <ChevronLeft className="w-3.5 h-3.5" />
-                    </button>
-                    
-                    {/* Page numbers */}
-                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                      let pageNum = currentPage;
-                      if (currentPage <= 3) {
-                        pageNum = i + 1;
-                      } else if (currentPage >= totalPages - 2) {
-                        pageNum = totalPages - 4 + i;
-                      } else {
-                        pageNum = currentPage - 2 + i;
-                      }
-                      if (pageNum < 1 || pageNum > totalPages) return null;
-                      return (
-                        <button
-                          key={pageNum}
-                          onClick={() => setCurrentPage(pageNum)}
-                          className={`px-3 py-1 rounded-md text-xs font-semibold border transition-all cursor-pointer ${
-                            currentPage === pageNum
-                              ? 'bg-blue-600 border-blue-600 text-white shadow-xs'
-                              : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
-                          }`}
-                        >
-                          {pageNum}
-                        </button>
-                      );
-                    })}
-
-                    <button
-                      disabled={currentPage === totalPages}
-                      onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                      className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
-                      title="Next Page"
-                    >
-                      <ChevronRight className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      disabled={currentPage === totalPages}
-                      onClick={() => setCurrentPage(totalPages)}
-                      className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
-                      title="Last Page"
-                    >
-                      <ChevronsRight className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              )}
+              {paginationControls}
             </>
           )}
           </>
@@ -1818,6 +1828,12 @@ export default function LeadsPage() {
                 </div>
 
                 <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900">
+                  {loading && !isVerifying ? (
+                    <div className="p-6">
+                      <TableSkeleton rows={5} cols={4} />
+                    </div>
+                  ) : (
+                  <>
                   <table className="w-full text-left border-collapse">
                     <thead>
                       <tr className="border-b border-slate-200 dark:border-slate-800/80 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest bg-slate-50/20 dark:bg-slate-950/10">
@@ -1828,7 +1844,7 @@ export default function LeadsPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50 text-slate-700 dark:text-slate-300">
-                      {viewedGroupMembers.map(lead => (
+                      {leads.map(lead => (
                         <tr 
                           key={lead.id} 
                           onClick={() => {
@@ -1866,15 +1882,18 @@ export default function LeadsPage() {
                           </td>
                         </tr>
                       ))}
-                      {viewedGroupMembers.length === 0 && (
+                      {leads.length === 0 && (
                         <tr>
                           <td colSpan={4} className="text-center py-10 text-slate-400 dark:text-slate-500 text-xs">
-                            No active prospects associated with this group.
+                            {emptyListMessage('No active prospects associated with this group.')}
                           </td>
                         </tr>
                       )}
                     </tbody>
                   </table>
+                  {paginationControls}
+                  </>
+                  )}
                 </div>
               </div>
             ) : (
@@ -2027,6 +2046,12 @@ export default function LeadsPage() {
             </div>
 
             <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900">
+              {loading && !isVerifying ? (
+                <div className="p-6">
+                  <TableSkeleton rows={5} cols={4} />
+                </div>
+              ) : (
+              <>
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="border-b border-slate-200 dark:border-slate-800/80 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest bg-slate-50/20 dark:bg-slate-950/10">
@@ -2037,7 +2062,7 @@ export default function LeadsPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50 text-slate-700 dark:text-slate-400">
-                  {getOverlappingLeads().map(lead => (
+                  {leads.map(lead => (
                     <tr 
                       key={lead.id}
                       onClick={() => {
@@ -2084,8 +2109,7 @@ export default function LeadsPage() {
                                   body: JSON.stringify({ id: lead.id, isArchived: true })
                                 });
                                 if (res.ok) {
-                                  const updatedLead = await res.json();
-                                  setLeads(leads.map(l => l.id === lead.id ? updatedLead : l));
+                                  reloadLeads();
                                   showToast('Prospect archived to resolve overlaps.');
                                 }
                               } catch (err) {
@@ -2108,15 +2132,18 @@ export default function LeadsPage() {
                       </td>
                     </tr>
                   ))}
-                  {getOverlappingLeads().length === 0 && (
+                  {leads.length === 0 && (
                     <tr>
                       <td colSpan={4} className="text-center py-10 text-slate-400 dark:text-slate-500 text-xs">
-                        No overlapping prospects found with the current cross-check filters.
+                        {emptyListMessage('No overlapping prospects found with the current cross-check filters.')}
                       </td>
                     </tr>
                   )}
                 </tbody>
               </table>
+              {paginationControls}
+              </>
+              )}
             </div>
           </div>
         )}
@@ -2248,7 +2275,7 @@ export default function LeadsPage() {
                                       const updatedLead = await res.json();
                                       // The PUT answer has no dispatches or replies, so the timeline is kept
                                       setLeadDetails((prev: any) => prev && prev.id === updatedLead.id ? { ...prev, ...updatedLead } : prev);
-                                      setLeads(leads.map(l => l.id === leadDetails.id ? updatedLead : l));
+                                      reloadLeads();
                                       await fetchGroups();
                                       showToast('Group memberships updated.');
                                     } else {
@@ -2290,7 +2317,9 @@ export default function LeadsPage() {
                                 const updatedLead = await res.json();
                                 // The PUT answer has no dispatches or replies, so the timeline is kept
                                 setLeadDetails((prev: any) => prev && prev.id === updatedLead.id ? { ...prev, ...updatedLead } : prev);
-                                setLeads(leads.map(l => l.id === leadDetails.id ? updatedLead : l));
+                                // It moves to the other tab
+                                deselectLead(updatedLead.id);
+                                reloadLeads();
                                 showToast(updatedLead.isArchived ? 'Prospect archived.' : 'Prospect unarchived.');
                                 if (updatedLead.isArchived) {
                                   setSelectedLeadId(null);
@@ -2501,7 +2530,7 @@ export default function LeadsPage() {
               )}
             </div>
             <button
-              onClick={() => setSelectedLeadIds([])}
+              onClick={() => setSelectedLeads([])}
               className="text-slate-400 hover:text-white transition-colors text-xs font-semibold pl-1"
             >
               Clear

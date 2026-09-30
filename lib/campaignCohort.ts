@@ -167,8 +167,12 @@ export async function syncCohortEnrollments(
 }
 
 /**
- * Enroll `leadIds`, which just joined `groupIds`, in the Active and Draft
- * campaigns whose audience is one of those groups. Those of them in the
+ * Enroll `leadIds`, which just joined `groupIds`, in every campaign whose
+ * audience is one of those groups, whatever its status, as pauseGroupLeavers
+ * follows the leads that leave. Resuming a campaign, by hand or by the send
+ * engine's auto-resume, never syncs its audience, so a Paused campaign skipped
+ * here would never enroll them; like a Draft's, its new enrollments wait until
+ * it is Active, the only status the send engine sends. Those of them in the
  * campaign's group that may be enrolled (findEnrollableLeadIds) start Active
  * at step 1, as syncCohortEnrollments enrolls a new member. A lead already
  * enrolled keeps its enrollment as it is, so one paused when it left the group,
@@ -181,7 +185,7 @@ export async function enrollGroupJoiners(
 ): Promise<void> {
   if (leadIds.length === 0 || groupIds.length === 0) return;
   const campaigns = await tx.campaign.findMany({
-    where: { audienceCohort: { in: groupCohorts(groupIds) }, status: { in: ['Active', 'Draft'] } },
+    where: { audienceCohort: { in: groupCohorts(groupIds) } },
     select: { id: true, audienceCohort: true },
   });
   for (const campaign of campaigns) {

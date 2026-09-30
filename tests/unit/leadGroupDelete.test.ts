@@ -19,6 +19,7 @@ vi.mock('../../lib/session', () => ({
 import { prisma } from '../../lib/db';
 import { getSession } from '../../lib/session';
 import { DELETE as deleteGroup } from '../../app/api/leads/groups/route';
+import { matchesWhere } from './helpers/prismaWhere';
 
 const mockedPrisma = prisma as any;
 const mockedSession = vi.mocked(getSession);
@@ -56,11 +57,11 @@ beforeEach(() => {
   mockedPrisma.suppressedEmail.findMany.mockResolvedValue([]);
   mockedPrisma.campaignEnrollment.createMany.mockResolvedValue({ count: 2 });
   mockedPrisma.campaign.findMany.mockImplementation(async ({ where, select, orderBy }: any) => {
-    // The Active and Draft campaigns that enroll the leads moved into the target group
-    if (where.status) {
+    // The campaigns that enroll the leads moved into the target group
+    if (select.id) {
       expect(select).toEqual({ id: true, audienceCohort: true });
       return campaigns
-        .filter((c) => where.audienceCohort.in.includes(c.audienceCohort) && where.status.in.includes(c.status))
+        .filter((c) => matchesWhere(c, where))
         .map(({ id, audienceCohort }) => ({ id, audienceCohort }));
     }
     expect(select).toEqual({ name: true, userId: true });
@@ -151,16 +152,22 @@ describe('DELETE /api/leads/groups in-use guard (H29)', () => {
       data: [{ leadId: 'lead-1', groupId: 'group-2' }, { leadId: 'lead-2', groupId: 'group-2' }],
       skipDuplicates: true,
     });
-    // The moved leads join the Active campaign targeting the target group (M25)
-    expect(mockedPrisma.lead.findMany).toHaveBeenCalledTimes(1);
-    expect(mockedPrisma.lead.findMany.mock.calls[0][0].where.AND[0]).toEqual({
-      AND: [{ isArchived: false, groups: { some: { groupId: 'group-2' } } }, { id: { in: ['lead-1', 'lead-2'] } }],
+    // The moved leads join every campaign targeting the target group, the paused one too (M25)
+    expect(mockedPrisma.lead.findMany).toHaveBeenCalledTimes(2);
+    for (const [{ where }] of mockedPrisma.lead.findMany.mock.calls) {
+      expect(where.AND[0]).toEqual({
+        AND: [{ isArchived: false, groups: { some: { groupId: 'group-2' } } }, { id: { in: ['lead-1', 'lead-2'] } }],
+      });
+    }
+    expect(mockedPrisma.campaignEnrollment.createMany).toHaveBeenCalledTimes(2);
+    const enrolled = mockedPrisma.campaignEnrollment.createMany.mock.calls.flatMap(([{ data, skipDuplicates }]: any) => {
+      expect(skipDuplicates).toBe(true);
+      return data.map((e: any) => [e.leadId, e.campaignId, e.status, e.currentSequenceStep]);
     });
-    expect(mockedPrisma.campaignEnrollment.createMany).toHaveBeenCalledTimes(1);
-    const [{ data, skipDuplicates }] = mockedPrisma.campaignEnrollment.createMany.mock.calls[0];
-    expect(skipDuplicates).toBe(true);
-    expect(data.map((e: any) => [e.leadId, e.campaignId, e.status, e.currentSequenceStep]))
-      .toEqual([['lead-1', 'cmp-other', 'Active', 1], ['lead-2', 'cmp-other', 'Active', 1]]);
+    expect(enrolled).toEqual([
+      ['lead-1', 'cmp-other', 'Active', 1], ['lead-2', 'cmp-other', 'Active', 1],
+      ['lead-1', 'cmp-paused', 'Active', 1], ['lead-2', 'cmp-paused', 'Active', 1],
+    ]);
     expect(mockedPrisma.leadGroup.delete).toHaveBeenCalledWith({ where: { id: 'group-1' } });
   });
 

@@ -13,6 +13,7 @@ vi.mock('../../lib/db', () => ({
     senderAccount: { findUnique: vi.fn(), findMany: vi.fn() },
     lead: { update: vi.fn(), updateMany: vi.fn(), findMany: vi.fn() },
     leadGroupMembership: { findMany: vi.fn() },
+    leadGroup: { findMany: vi.fn() },
     campaignEnrollment: { updateMany: vi.fn() },
     suppressedEmail: { findMany: vi.fn() },
   },
@@ -332,6 +333,9 @@ describe('PUT /api/leads', () => {
     mockedPrisma.lead.update.mockImplementation(async ({ where, data }: any) => ({ id: where.id, ...data }));
     mockedPrisma.lead.updateMany.mockResolvedValue({ count: 2 });
     mockedPrisma.leadGroupMembership.findMany.mockResolvedValue([{ leadId: 'lead-1' }, { leadId: 'lead-2' }]);
+    // Groups g-1 and g-2 exist.
+    mockedPrisma.leadGroup.findMany.mockImplementation(async ({ where }: any) =>
+      where.id.in.filter((id: string) => ['g-1', 'g-2'].includes(id)).map((id: string) => ({ id })));
     mockedPrisma.campaignEnrollment.updateMany.mockResolvedValue({ count: 0 });
     // Neither lead is on the suppression list, and both may be emailed.
     mockedPrisma.lead.findMany.mockResolvedValue([{ id: 'lead-1', email: 'one@example.com' }, { id: 'lead-2', email: 'two@example.com' }]);
@@ -440,6 +444,32 @@ describe('PUT /api/leads', () => {
     expect(res.status).toBe(200);
     const [{ data }] = mockedPrisma.lead.update.mock.calls[0];
     expect(data).toEqual({ groups: { deleteMany: {}, create: [{ groupId: 'g-1' }, { groupId: 'g-2' }] } });
+  });
+
+  it('refuses groupIds naming a group that does not exist with a 400 instead of failing the write', async () => {
+    const res = await putLead(makeReq('/api/leads', { id: 'lead-1', groupIds: ['g-1', 'deleted-group', 'ghost'] }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe('Unknown lead group ID(s): deleted-group, ghost.');
+    expect(mockedPrisma.leadGroup.findMany).toHaveBeenCalledWith({
+      where: { id: { in: ['g-1', 'deleted-group', 'ghost'] } },
+      select: { id: true },
+    });
+    expectNoWrites();
+  });
+
+  it('writes a group named twice in groupIds once', async () => {
+    const res = await putLead(makeReq('/api/leads', { id: 'lead-1', groupIds: ['g-1', 'g-2', 'g-1'] }));
+    expect(res.status).toBe(200);
+    const [{ data }] = mockedPrisma.lead.update.mock.calls[0];
+    expect(data.groups.create).toEqual([{ groupId: 'g-1' }, { groupId: 'g-2' }]);
+  });
+
+  it('clears every membership for an empty groupIds without looking groups up', async () => {
+    const res = await putLead(makeReq('/api/leads', { id: 'lead-1', groupIds: [] }));
+    expect(res.status).toBe(200);
+    expect(mockedPrisma.leadGroup.findMany).not.toHaveBeenCalled();
+    const [{ data }] = mockedPrisma.lead.update.mock.calls[0];
+    expect(data).toEqual({ groups: { deleteMany: {}, create: [] } });
   });
 
   it('keeps bulk re-activation resetting bounced and failed enrollments', async () => {

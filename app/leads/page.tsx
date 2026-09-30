@@ -64,6 +64,7 @@ import {
 } from '@/lib/leadImport';
 import { SUPPRESSION_LABELS } from '@/lib/suppression';
 import { DOMAIN_CHECK_BATCH_SIZE, type DomainCheckCounts } from '@/lib/domainCheck';
+import { selectedInView, clampPage, groupMembers } from '@/lib/leadView';
 import type { SuppressionReason } from '@prisma/client';
 
 /** A lead's suppression-list entry, as /api/leads returns it on each lead. */
@@ -338,12 +339,12 @@ export default function LeadsPage() {
   const handleBulkVerify = async () => {
     if (isVerifying) return;
     
-    const targets = selectedLeadIds.length > 0
-      ? leads.filter(l => selectedLeadIds.includes(l.id) && (l.validationStatus === 'Unverified' || l.validationStatus === 'Risky'))
+    const targets = selectedLeads.length > 0
+      ? selectedLeads.filter(l => l.validationStatus === 'Unverified' || l.validationStatus === 'Risky')
       : leads.filter(l => l.validationStatus === 'Unverified' || l.validationStatus === 'Risky');
 
     if (targets.length === 0) {
-      showToast(selectedLeadIds.length > 0 ? 'None of the selected leads is Unverified or Risky.' : 'No leads are Unverified or Risky.');
+      showToast(selectedLeads.length > 0 ? 'None of the selected leads is Unverified or Risky.' : 'No leads are Unverified or Risky.');
       return;
     }
 
@@ -519,11 +520,13 @@ export default function LeadsPage() {
   };
 
   const handleBulkDeleteLeads = () => {
-    if (selectedLeadIds.length === 0) return;
+    // Only the selected leads this tab, search and filter show, as counted in the bulk bar
+    const ids = selectedLeads.map(l => l.id);
+    if (ids.length === 0) return;
     setConfirmDialog({
       isOpen: true,
       title: 'Delete Selected Leads',
-      message: `Are you sure you want to delete the ${selectedLeadIds.length} selected leads? This action cannot be undone.`,
+      message: `Are you sure you want to delete the ${ids.length} selected leads? This action cannot be undone.`,
       confirmLabel: 'Delete',
       isDestructive: true,
       onConfirm: async () => {
@@ -532,15 +535,16 @@ export default function LeadsPage() {
           const res = await fetch('/api/leads', {
             method: 'DELETE',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ids: selectedLeadIds })
+            body: JSON.stringify({ ids })
           });
 
           if (res.ok) {
-            setLeads(leads.filter(l => !selectedLeadIds.includes(l.id)));
+            setLeads(leads.filter(l => !ids.includes(l.id)));
             setSelectedLeadIds([]);
             showToast('Selected leads deleted successfully.');
           } else {
-            showToast('Failed to delete selected leads.');
+            const err = await res.json().catch(() => ({}));
+            showToast(err.error || 'Failed to delete selected leads.', 'error');
           }
         } catch (err) {
           console.error(err);
@@ -551,11 +555,12 @@ export default function LeadsPage() {
   };
 
   const handleBulkReactivateLeads = () => {
-    if (selectedLeadIds.length === 0) return;
+    const ids = selectedLeads.map(l => l.id);
+    if (ids.length === 0) return;
     setConfirmDialog({
       isOpen: true,
       title: 'Re-activate Leads',
-      message: `Re-activate the ${selectedLeadIds.length} selected leads? Bounced and invalid leads go back to Unverified so they can be verified again; ` +
+      message: `Re-activate the ${ids.length} selected leads? Bounced and invalid leads go back to Unverified so they can be verified again; ` +
         'none is set Valid and no campaign sequence is restarted. Unsubscribed leads are skipped, and so are addresses on the suppression list ' +
         'after a hard bounce or failed verification: only an admin can remove those, one at a time from the lead\'s details.',
       confirmLabel: 'Re-activate',
@@ -567,7 +572,7 @@ export default function LeadsPage() {
           const res = await fetch('/api/leads/reactivate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ids: selectedLeadIds })
+            body: JSON.stringify({ ids })
           });
 
           if (res.ok) {
@@ -631,17 +636,18 @@ export default function LeadsPage() {
   };
 
   const handleBulkArchiveLeads = async (archiveState: boolean) => {
-    if (selectedLeadIds.length === 0) return;
+    const ids = selectedLeads.map(l => l.id);
+    if (ids.length === 0) return;
     try {
       const res = await fetch('/api/leads', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: selectedLeadIds, isArchived: archiveState })
+        body: JSON.stringify({ ids, isArchived: archiveState })
       });
 
       if (res.ok) {
         const updatedLeads = leads.map(l => {
-          if (selectedLeadIds.includes(l.id)) {
+          if (ids.includes(l.id)) {
             return { ...l, isArchived: archiveState };
           }
           return l;
@@ -650,7 +656,8 @@ export default function LeadsPage() {
         setSelectedLeadIds([]);
         showToast(archiveState ? 'Selected leads archived.' : 'Selected leads unarchived.');
       } else {
-        showToast('Failed to update selected leads.');
+        const err = await res.json().catch(() => ({}));
+        showToast(err.error || 'Failed to update selected leads.', 'error');
       }
     } catch (err) {
       console.error(err);
@@ -804,9 +811,7 @@ export default function LeadsPage() {
   };
 
   const handleExportCSV = () => {
-    const exportLeads = selectedLeadIds.length > 0
-      ? leads.filter(l => selectedLeadIds.includes(l.id))
-      : filteredLeads;
+    const exportLeads = selectedLeads.length > 0 ? selectedLeads : filteredLeads;
 
     if (exportLeads.length === 0) {
       showToast('No leads to export.');
@@ -1034,11 +1039,6 @@ export default function LeadsPage() {
       if (!isSuppressed) return false;
     }
 
-    if (activeTab === 'groups' && selectedGroupIdForView) {
-      const isMember = (lead.groups || []).some((g: any) => g.groupId === selectedGroupIdForView);
-      if (!isMember) return false;
-    }
-
     const nameStr = lead.name || '';
     const emailStr = lead.email || '';
     const companyStr = lead.company || '';
@@ -1052,12 +1052,27 @@ export default function LeadsPage() {
     return matchesSearch && matchesStatus;
   });
 
+  // Bulk actions, the bulk bar and Export reach only the selected leads this tab, search and filter show;
+  // the other tabs have no checkboxes, so nothing is selected there
+  const selectedLeads = activeTab === 'leads' || activeTab === 'archived' || activeTab === 'suppressed'
+    ? selectedInView(filteredLeads, selectedLeadIds)
+    : [];
+
+  // The group drill-down lists members by membership, whatever the Leads tab's search and status filter say
+  const viewedGroupMembers = selectedGroupIdForView ? groupMembers(leads, selectedGroupIdForView) : [];
+
   useEffect(() => {
     setCurrentPage(1);
   }, [search, filterStatus, activeTab, selectedGroupIdForView]);
 
   const itemsPerPage = 10;
   const totalPages = Math.ceil(filteredLeads.length / itemsPerPage);
+
+  // A delete or archive that empties the last page moves back to the new last page
+  useEffect(() => {
+    setCurrentPage(page => clampPage(page, totalPages));
+  }, [totalPages]);
+
   const paginatedLeads = filteredLeads.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
   const totalLeads = filteredLeads.length;
   const startIndex = totalLeads === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1;
@@ -1472,6 +1487,8 @@ export default function LeadsPage() {
               onClick={() => {
                 setActiveTab(tab.id as any);
                 setSelectedGroupIdForView(null);
+                // Each tab has its own bulk actions, so a selection never carries over
+                setSelectedLeadIds([]);
               }}
               className={`pb-3 text-xs font-bold uppercase tracking-wider border-b-2 flex items-center gap-2 transition-all cursor-pointer ${
                 activeTab === tab.id
@@ -1530,7 +1547,7 @@ export default function LeadsPage() {
                 className="flex items-center gap-1.5 bg-white hover:bg-slate-50 dark:bg-slate-950 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-xs px-3.5 py-2 rounded-lg font-bold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors shadow-xs cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5" />
-                {selectedLeadIds.length > 0 ? `Export selected (${selectedLeadIds.length})` : 'Export CSV'}
+                {selectedLeads.length > 0 ? `Export selected (${selectedLeads.length})` : 'Export CSV'}
               </button>
             </div>
 
@@ -1811,7 +1828,7 @@ export default function LeadsPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50 text-slate-700 dark:text-slate-300">
-                      {filteredLeads.map(lead => (
+                      {viewedGroupMembers.map(lead => (
                         <tr 
                           key={lead.id} 
                           onClick={() => {
@@ -1849,7 +1866,7 @@ export default function LeadsPage() {
                           </td>
                         </tr>
                       ))}
-                      {filteredLeads.length === 0 && (
+                      {viewedGroupMembers.length === 0 && (
                         <tr>
                           <td colSpan={4} className="text-center py-10 text-slate-400 dark:text-slate-500 text-xs">
                             No active prospects associated with this group.
@@ -2229,10 +2246,14 @@ export default function LeadsPage() {
                                     });
                                     if (res.ok) {
                                       const updatedLead = await res.json();
-                                      setLeadDetails(updatedLead);
+                                      // The PUT answer has no dispatches or replies, so the timeline is kept
+                                      setLeadDetails((prev: any) => prev && prev.id === updatedLead.id ? { ...prev, ...updatedLead } : prev);
                                       setLeads(leads.map(l => l.id === leadDetails.id ? updatedLead : l));
                                       await fetchGroups();
                                       showToast('Group memberships updated.');
+                                    } else {
+                                      const err = await res.json().catch(() => ({}));
+                                      showToast(err.error || 'Failed to update group memberships.', 'error');
                                     }
                                   } catch (err) {
                                     console.error(err);
@@ -2267,12 +2288,16 @@ export default function LeadsPage() {
                               });
                               if (res.ok) {
                                 const updatedLead = await res.json();
-                                setLeadDetails(updatedLead);
+                                // The PUT answer has no dispatches or replies, so the timeline is kept
+                                setLeadDetails((prev: any) => prev && prev.id === updatedLead.id ? { ...prev, ...updatedLead } : prev);
                                 setLeads(leads.map(l => l.id === leadDetails.id ? updatedLead : l));
                                 showToast(updatedLead.isArchived ? 'Prospect archived.' : 'Prospect unarchived.');
                                 if (updatedLead.isArchived) {
                                   setSelectedLeadId(null);
                                 }
+                              } else {
+                                const err = await res.json().catch(() => ({}));
+                                showToast(err.error || 'Failed to update the lead.', 'error');
                               }
                             } catch (err) {
                               console.error(err);
@@ -2429,7 +2454,7 @@ export default function LeadsPage() {
 
       {/* Floating Bulk Actions Bar */}
       <AnimatePresence>
-        {selectedLeadIds.length > 0 && (
+        {selectedLeads.length > 0 && (
           <motion.div
             initial={{ opacity: 0, y: 50, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -2437,7 +2462,7 @@ export default function LeadsPage() {
             className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 dark:bg-slate-950 border border-slate-800 text-white px-5 py-3 rounded-full shadow-2xl flex items-center gap-4.5 z-45 max-w-lg w-auto"
           >
             <span className="text-xs font-bold text-slate-300 pr-3 border-r border-slate-800">
-              {selectedLeadIds.length} selected
+              {selectedLeads.length} selected
             </span>
             <div className="flex items-center gap-2">
               {activeTab === 'suppressed' ? (

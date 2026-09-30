@@ -322,9 +322,19 @@ export async function PUT(req: NextRequest) {
       if (!isIdArray(groupIds)) {
         return NextResponse.json({ error: 'groupIds must be an array of lead group IDs.' }, { status: 400 });
       }
+      // A missing group would fail the membership write, and a repeated one its primary key
+      const targetGroupIds = Array.from(new Set(groupIds));
+      if (targetGroupIds.length > 0) {
+        const found = await prisma.leadGroup.findMany({ where: { id: { in: targetGroupIds } }, select: { id: true } });
+        const foundIds = new Set(found.map((g) => g.id));
+        const unknown = targetGroupIds.filter((gId) => !foundIds.has(gId));
+        if (unknown.length > 0) {
+          return NextResponse.json({ error: `Unknown lead group ID(s): ${unknown.join(', ')}.` }, { status: 400 });
+        }
+      }
       dataObj.groups = {
         deleteMany: {},
-        create: groupIds.map((gId: string) => ({ groupId: gId }))
+        create: targetGroupIds.map((gId) => ({ groupId: gId }))
       };
     }
 

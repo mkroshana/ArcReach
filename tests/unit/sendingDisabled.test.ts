@@ -110,7 +110,7 @@ beforeEach(() => {
   mockedPrisma.emailDispatch.create.mockImplementation(async ({ data }: any) => ({ id: 'dispatch-1', ...data }));
   mockedPrisma.senderAccount.findUnique.mockResolvedValue(SENDER);
   mockedPrisma.lead.findUnique.mockResolvedValue({ id: 'lead-1', email: 'lead@prospect.test', name: 'Lead' });
-  mockedPrisma.inboundResponse.findFirst.mockResolvedValue({ id: 'in-1', campaignId: 'cmp-1' });
+  mockedPrisma.inboundResponse.findFirst.mockResolvedValue({ leadId: 'lead-1', campaignId: 'cmp-1', subject: 'Hello', messageId: null, references: null, lead: { email: 'lead@prospect.test' } });
 });
 
 afterEach(() => {
@@ -146,7 +146,7 @@ describe('processDueEmails refuses to send unless Azure is configured (H1)', () 
 
 describe('send routes return 409 unless Azure is configured (H1)', () => {
   const run = () => postRun(makeReq('/api/campaigns/cmp-1/run', {}), { params: Promise.resolve({ id: 'cmp-1' }) });
-  const reply = () => postUniboxReply(makeReq('/api/unibox/reply', { leadId: 'lead-1', subject: 'Re: Hello', body: 'Thanks!', senderAccountId: 'mb-1' }));
+  const reply = () => postUniboxReply(makeReq('/api/unibox/reply', { responseId: 'in-1', body: 'Thanks!', senderAccountId: 'mb-1' }));
   const test = () => postTestEmail(makeReq('/api/send-email/test', { senderAccountId: 'mb-1' }));
 
   it.each(DISABLED_SETTINGS)('with %s every route refuses before recording anything', async (_label, settings) => {

@@ -148,6 +148,8 @@ export default function UniboxPage() {
   const [toastMessage, setToastMessage] = useState('');
   const [sentRepliesLocal, setSentRepliesLocal] = useState<Record<string, Array<{ body: string; sentAt: string }>>>({});
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  // A reply is being sent: Send Reply stays disabled until it resolves, so a second click never sends it twice
+  const [sendingReply, setSendingReply] = useState(false);
 
   const showToast = (message: string) => {
     setToastMessage(message);
@@ -269,6 +271,8 @@ export default function UniboxPage() {
   const selectedEmail = replies.find(e => e.id === selectedId);
   const selectedMessages: any[] | undefined = selectedId ? threadMessages[selectedId] : undefined;
   const selectedSuppression = leadSuppression(selectedEmail?.lead);
+  // The conversation's latest message from the lead: a reply answers it, from the mailbox it reached
+  const answeredReply = [...(selectedMessages || [])].reverse().find((m: any) => m.type === 'inbound');
   const currentReplyText = selectedEmail ? (drafts[selectedEmail.id] || '') : '';
   const setReplyText = (newText: string) => {
     if (!selectedEmail) return;
@@ -382,18 +386,16 @@ export default function UniboxPage() {
   };
 
   const handleDispatchReply = async () => {
-    if (!selectedEmail || !currentReplyText.trim()) return;
+    if (!selectedEmail || !answeredReply || !currentReplyText.trim() || sendingReply) return;
+    setSendingReply(true);
     try {
+      // The server titles it "Re: " and the answered reply's subject and threads it under that reply
       const res = await fetch('/api/unibox/reply', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          leadId: selectedEmail.lead.id,
-          subject: (() => {
-            const decoded = decodeMimeHeader(selectedEmail.subject).trim();
-            return /^re:/i.test(decoded) ? decoded : `Re: ${decoded}`;
-          })(),
+          responseId: answeredReply.id,
           body: currentReplyText,
-          senderAccountId: selectedEmail.senderAccountId,
+          senderAccountId: answeredReply.senderAccountId,
         }),
       });
       if (res.ok) {
@@ -406,6 +408,7 @@ export default function UniboxPage() {
         showToast(data.error || 'Failed to dispatch reply.');
       }
     } catch (err) { console.error(err); showToast('Error occurred dispatching reply.'); }
+    finally { setSendingReply(false); }
   };
 
   return (
@@ -646,7 +649,14 @@ export default function UniboxPage() {
                       </MenuItem>
                     ))}
                   </Menu>
-                  <Button variant="contained" size="small" startIcon={<Send size={14} />} onClick={handleDispatchReply}>Send Reply</Button>
+                  <Button
+                    variant="contained" size="small"
+                    startIcon={sendingReply ? <CircularProgress size={14} color="inherit" /> : <Send size={14} />}
+                    onClick={handleDispatchReply}
+                    disabled={sendingReply || !answeredReply}
+                  >
+                    Send Reply
+                  </Button>
                 </Stack>
               </Card>
             </Box>

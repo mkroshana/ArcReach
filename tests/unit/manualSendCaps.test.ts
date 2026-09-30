@@ -62,7 +62,7 @@ function makeReq(path: string, body: unknown): NextRequest {
 }
 
 const reply = () => postUniboxReply(makeReq('/api/unibox/reply', {
-  leadId: 'lead-1', subject: 'Re: Hello', body: 'Thanks!', senderAccountId: 'mb-1',
+  responseId: 'in-1', body: 'Thanks!', senderAccountId: 'mb-1',
 }));
 const test = () => postTestEmail(makeReq('/api/send-email/test', { senderAccountId: 'mb-1' }));
 
@@ -81,7 +81,7 @@ beforeEach(() => {
   mockedSend.mockResolvedValue({ providerMessageId: 'provider-msg-1' });
   mockedPrisma.globalSettings.findUnique.mockResolvedValue(AZURE_SETTINGS);
   mockedPrisma.lead.findUnique.mockResolvedValue({ id: 'lead-1', email: 'lead@prospect.test', name: 'Lead' });
-  mockedPrisma.inboundResponse.findFirst.mockResolvedValue({ id: 'in-1', campaignId: 'cmp-1' });
+  mockedPrisma.inboundResponse.findFirst.mockResolvedValue({ leadId: 'lead-1', campaignId: 'cmp-1', subject: 'Hello', messageId: null, references: null, lead: { email: 'lead@prospect.test' } });
   mockedPrisma.emailDispatch.create.mockImplementation(async ({ data }: any) => ({ id: 'dispatch-1', ...data }));
   mockedPrisma.emailDispatch.count.mockImplementation(async ({ where }: any) =>
     where.senderAccountId ? (mailboxSent[where.senderAccountId] ?? 0) : globalSent,

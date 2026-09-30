@@ -336,6 +336,7 @@ describe('IMAP reply sync end to end (H33, M55, L16)', () => {
         campaignId: 'cmp-1',
         senderAccountId: 'mbx_1',
         messageId: '<AM9PR07MB7777@AM9PR07MB7777.eurprd07.prod.outlook.test>',
+        references: '<cmp-1.lead-1.step-0@arcreach.test> <cmp-1.lead-1.step-1@arcreach.test>',
         subject: 'Re: Save the Date: March 5 – Q3 pipeline review',
         body: 'That’s great, let’s talk Thursday at 2pm.\n\nBest,\nJürgen',
         receivedAt: new Date('2026-09-29T14:05:31.000Z'),

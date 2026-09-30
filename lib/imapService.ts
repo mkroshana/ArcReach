@@ -6,6 +6,7 @@ import { decodeCharset, decodeMimeHeader } from './mime';
 import { decryptSecret } from './secrets';
 import { leadEmailIn, normalizeEmail } from './leadEmail';
 import { MICROSOFT_IMAP_NOTE, isMicrosoftImapHost } from './imapSyncStatus';
+import { threadReferences } from './replyThreading';
 
 interface ImapMessage {
   from: string;
@@ -630,6 +631,8 @@ export async function syncMailboxReplies(mailboxId: string) {
               campaignId,
               senderAccountId: mailbox.id,
               messageId: msg.messageId,
+              // What a Unibox reply to it names in References, before its Message-ID
+              references: threadReferences(msg.inReplyTo, msg.references),
               subject: msg.subject || 'No Subject',
               body: msg.body || '',
               receivedAt: msg.date,

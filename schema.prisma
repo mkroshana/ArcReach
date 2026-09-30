@@ -401,6 +401,11 @@ model InboundResponse {
   // INBOX UIDVALIDITY and UID when it has none), unique per mailbox so a message read by two
   // syncs at once, or read again, is recorded once. Null on replies recorded before it was stored.
   messageId       String?
+  // The message ids the reply's thread refers to, space-separated, which a Unibox reply
+  // to it repeats in References before its Message-ID: its References, else the single id
+  // of its In-Reply-To, at most 20 (lib/replyThreading). Null when it names none, and on
+  // replies recorded before it was stored.
+  references      String?        @db.Text
   subject         String
   body            String         @db.Text
   receivedAt      DateTime       @default(now())

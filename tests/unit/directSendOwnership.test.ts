@@ -44,10 +44,10 @@ const MAILBOXES = [
 
 /** Inbound replies: lead-1 wrote to both users' mailboxes, lead-2 only to user-2's. */
 const INBOUND = [
-  { id: 'in-1', leadId: 'lead-1', senderAccountId: 'mb-user1', campaignId: 'cmp-old', receivedAt: new Date('2026-09-01') },
-  { id: 'in-2', leadId: 'lead-1', senderAccountId: 'mb-user1', campaignId: 'cmp-1', receivedAt: new Date('2026-09-10') },
-  { id: 'in-3', leadId: 'lead-1', senderAccountId: 'mb-user2', campaignId: 'cmp-2', receivedAt: new Date('2026-09-05') },
-  { id: 'in-4', leadId: 'lead-2', senderAccountId: 'mb-user2', campaignId: 'cmp-2', receivedAt: new Date('2026-09-05') },
+  { id: 'in-1', leadId: 'lead-1', senderAccountId: 'mb-user1', campaignId: 'cmp-old', subject: 'Re: Hello', messageId: null, references: null },
+  { id: 'in-2', leadId: 'lead-1', senderAccountId: 'mb-user1', campaignId: 'cmp-1', subject: 'Re: Hello', messageId: null, references: null },
+  { id: 'in-3', leadId: 'lead-1', senderAccountId: 'mb-user2', campaignId: 'cmp-2', subject: 'Re: Hello', messageId: null, references: null },
+  { id: 'in-4', leadId: 'lead-2', senderAccountId: 'mb-user2', campaignId: 'cmp-2', subject: 'Re: Hello', messageId: null, references: null },
 ];
 
 /** Azure selected and configured, so the sending guard lets these routes through. */
@@ -68,14 +68,13 @@ beforeEach(() => {
   mockedPrisma.senderAccount.findUnique.mockImplementation(async ({ where }: any) =>
     MAILBOXES.find((m) => m.id === where.id) ?? null,
   );
+  // The answered reply by id, limited to the caller's mailboxes when the route scopes it
   mockedPrisma.inboundResponse.findFirst.mockImplementation(async ({ where }: any) => {
-    const rows = INBOUND
-      .filter((r) => r.leadId === where.leadId)
-      .filter((r) => where.senderAccountId === undefined || r.senderAccountId === where.senderAccountId)
-      .filter((r) => where.senderAccount === undefined
-        || MAILBOXES.find((m) => m.id === r.senderAccountId)?.userId === where.senderAccount.userId)
-      .sort((a, b) => b.receivedAt.getTime() - a.receivedAt.getTime());
-    return rows[0] ?? null;
+    const row = INBOUND
+      .filter((r) => r.id === where.id)
+      .find((r) => where.senderAccount === undefined
+        || MAILBOXES.find((m) => m.id === r.senderAccountId)?.userId === where.senderAccount.userId);
+    return row ? { ...row, lead: { email: `${row.leadId}@prospect.test` } } : null;
   });
   mockedPrisma.emailDispatch.create.mockImplementation(async ({ data }: any) => ({ id: 'dispatch-1', ...data }));
   mockedPrisma.emailDispatch.count.mockResolvedValue(0);
@@ -84,33 +83,32 @@ beforeEach(() => {
 describe('POST /api/unibox/reply mailbox ownership (H25)', () => {
   beforeEach(() => {
     mockedPrisma.globalSettings.findUnique.mockResolvedValue(AZURE_SETTINGS);
-    mockedPrisma.lead.findUnique.mockImplementation(async ({ where }: any) =>
-      ({ id: where.id, email: `${where.id}@prospect.test`, name: 'Prospect' }),
-    );
   });
 
   const reply = (body: Record<string, unknown>) =>
-    postUniboxReply(makeReq('/api/unibox/reply', { subject: 'Re: Hello', body: 'Thanks!', ...body }));
+    postUniboxReply(makeReq('/api/unibox/reply', { body: 'Thanks!', ...body }));
 
-  it('sends from the caller\'s own mailbox and records the mailbox and campaign on the dispatch', async () => {
-    const res = await reply({ leadId: 'lead-1', senderAccountId: 'mb-user1' });
+  it('sends from the caller\'s own mailbox and records the mailbox and the answered reply\'s campaign', async () => {
+    const res = await reply({ responseId: 'in-1', senderAccountId: 'mb-user1' });
     expect(res.status).toBe(200);
 
     expect(mockedSend).toHaveBeenCalledTimes(1);
     expect(mockedSend.mock.calls[0][0].sender.emailAddress).toBe('one@acme.test');
+    expect(mockedSend.mock.calls[0][0].to).toBe('lead-1@prospect.test');
     expect(mockedPrisma.emailDispatch.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         leadId: 'lead-1',
         senderAccountId: 'mb-user1',
-        campaignId: 'cmp-1',
+        // in-1's campaign, not that of the lead's later reply in-2
+        campaignId: 'cmp-old',
         messageId: 'provider-msg-1',
         status: 'Sent',
       }),
     });
   });
 
-  it('rejects another user\'s mailbox even when the lead replied to the caller', async () => {
-    const res = await reply({ leadId: 'lead-1', senderAccountId: 'mb-user2' });
+  it('rejects another user\'s mailbox even when the reply reached the caller', async () => {
+    const res = await reply({ responseId: 'in-2', senderAccountId: 'mb-user2' });
     expect(res.status).toBe(403);
     expect((await res.json()).error).toBe('Sender mailbox does not belong to you.');
     expect(mockedSend).not.toHaveBeenCalled();
@@ -118,28 +116,42 @@ describe('POST /api/unibox/reply mailbox ownership (H25)', () => {
   });
 
   it('rejects unknown mailbox IDs the same way', async () => {
-    const res = await reply({ leadId: 'lead-1', senderAccountId: 'mb-missing' });
+    const res = await reply({ responseId: 'in-2', senderAccountId: 'mb-missing' });
     expect(res.status).toBe(403);
     expect(mockedSend).not.toHaveBeenCalled();
   });
 
-  it('rejects leads that never replied to one of the caller\'s mailboxes', async () => {
-    for (const body of [{ leadId: 'lead-2', senderAccountId: 'mb-user1' }, { leadId: 'lead-2' }]) {
-      const res = await reply(body);
-      expect(res.status).toBe(403);
-      expect((await res.json()).error).toBe('This lead has not replied to any of your mailboxes.');
+  it('refuses a reply with no mailbox instead of sending from the caller\'s login address', async () => {
+    for (const senderAccountId of [undefined, null, '']) {
+      const res = await reply({ responseId: 'in-2', senderAccountId });
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toBe('senderAccountId is required: name the mailbox the reply is sent from.');
     }
     expect(mockedSend).not.toHaveBeenCalled();
     expect(mockedPrisma.emailDispatch.create).not.toHaveBeenCalled();
   });
 
-  it('lets an ADMIN reply from any mailbox to any lead', async () => {
+  it('answers replies that reached another user\'s mailbox like unknown ones', async () => {
+    for (const responseId of ['in-3', 'in-4', 'in-missing']) {
+      const res = await reply({ responseId, senderAccountId: 'mb-user1' });
+      expect(res.status).toBe(404);
+      expect((await res.json()).error).toBe('Reply not found.');
+    }
+    expect(mockedPrisma.inboundResponse.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'in-4', senderAccount: { userId: 'user-1' } } }),
+    );
+    expect(mockedSend).not.toHaveBeenCalled();
+    expect(mockedPrisma.emailDispatch.create).not.toHaveBeenCalled();
+  });
+
+  it('lets an ADMIN reply from any mailbox to any reply', async () => {
     mockedSession.mockResolvedValue(ADMIN);
 
-    const res = await reply({ leadId: 'lead-2', senderAccountId: 'mb-user2' });
+    const res = await reply({ responseId: 'in-4', senderAccountId: 'mb-user2' });
     expect(res.status).toBe(200);
     expect(mockedSend.mock.calls[0][0].sender.emailAddress).toBe('two@acme.test');
     expect(mockedPrisma.emailDispatch.create.mock.calls[0][0].data).toMatchObject({
+      leadId: 'lead-2',
       senderAccountId: 'mb-user2',
       campaignId: 'cmp-2',
     });
@@ -147,17 +159,17 @@ describe('POST /api/unibox/reply mailbox ownership (H25)', () => {
 
   it('returns 404 to an ADMIN naming an unknown mailbox', async () => {
     mockedSession.mockResolvedValue(ADMIN);
-    const res = await reply({ leadId: 'lead-1', senderAccountId: 'mb-missing' });
+    const res = await reply({ responseId: 'in-1', senderAccountId: 'mb-missing' });
     expect(res.status).toBe(404);
     expect(mockedSend).not.toHaveBeenCalled();
   });
 
-  it('rejects non-string lead and mailbox IDs before sending', async () => {
-    const badLead = await reply({ leadId: { not: 'x' }, senderAccountId: 'mb-user1' });
-    expect(badLead.status).toBe(400);
+  it('rejects non-string reply and mailbox IDs before sending', async () => {
+    const badReply = await reply({ responseId: { not: 'x' }, senderAccountId: 'mb-user1' });
+    expect(badReply.status).toBe(400);
     expect(mockedPrisma.inboundResponse.findFirst).not.toHaveBeenCalled();
 
-    const badMailbox = await reply({ leadId: 'lead-1', senderAccountId: { not: 'x' } });
+    const badMailbox = await reply({ responseId: 'in-1', senderAccountId: { not: 'x' } });
     expect(badMailbox.status).toBe(400);
     expect(mockedPrisma.senderAccount.findUnique).not.toHaveBeenCalled();
     expect(mockedSend).not.toHaveBeenCalled();

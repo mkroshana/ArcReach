@@ -23,6 +23,7 @@ vi.mock('@azure/communication-email', async (importOriginal) => {
 
 import { sendMessage, getAzureSendStatus, EmailSendError } from '../../lib/emailProvider';
 import { encryptSecret } from '../../lib/secrets';
+import { replyThreadingHeaders } from '../../lib/replyThreading';
 
 const OPERATION_ID = '5b0e7a52-3c1d-4d8e-9f10-2a3b4c5d6e7f';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -202,6 +203,23 @@ describe('Azure send: message headers (H15, H16)', () => {
     await sendMessage({ ...message, operationId: OPERATION_ID }, settings());
 
     expect(JSON.parse(bodies[0])).not.toHaveProperty('headers');
+  });
+
+  it('sends the In-Reply-To and References a Unibox reply gives it, and none for an empty set (M58)', async () => {
+    reply = (method) => (method === 'POST' ? accepted : status('Succeeded'));
+    const headers = replyThreadingHeaders({ messageId: '<amy-2@acme.test>', references: '<acs-1@mail.test> <amy-1@acme.test>' });
+
+    await sendMessage({ ...message, operationId: OPERATION_ID, headers }, settings());
+    await sendMessage({ ...message, operationId: OPERATION_ID, headers: replyThreadingHeaders({ messageId: null, references: null }) }, settings());
+
+    // The two POSTed messages; the status polls between them carry no body
+    const posted = bodies.filter(Boolean).map((b) => JSON.parse(b));
+    expect(posted).toHaveLength(2);
+    expect(posted[0].headers).toEqual({
+      'In-Reply-To': '<amy-2@acme.test>',
+      References: '<acs-1@mail.test> <amy-1@acme.test> <amy-2@acme.test>',
+    });
+    expect(posted[1]).not.toHaveProperty('headers');
   });
 });
 

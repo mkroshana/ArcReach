@@ -41,6 +41,7 @@ import { decodeMimeHeader } from '@/lib/mime';
 import { emailBodyToText } from '@/lib/emailText';
 import { useToast } from '@/components/Toast';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { loadErrorMessage, readJsonList, readJsonObject } from '@/lib/apiResponse';
 import {
   toCsv,
   downloadCsv,
@@ -226,12 +227,15 @@ export default function LeadsPage() {
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [leadDetails, setLeadDetails] = useState<any | null>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
+  const [leadDetailsError, setLeadDetailsError] = useState('');
   const [expandedEmailId, setExpandedEmailId] = useState<string | null>(null);
 
   // Lead Groups and Archiving states
   const [activeTab, setActiveTab] = useState<'leads' | 'groups' | 'overlaps' | 'archived' | 'suppressed'>('leads');
   const [groups, setGroups] = useState<any[]>([]);
   const [loadingGroups, setLoadingGroups] = useState(false);
+  // Why the lead groups could not be loaded; group lists and pickers then say so instead of showing none
+  const [groupsError, setGroupsError] = useState('');
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [newGroup, setNewGroup] = useState({ name: '', description: '' });
   
@@ -275,13 +279,13 @@ export default function LeadsPage() {
     try {
       setLoadingDetails(true);
       setExpandedEmailId(null);
-      const res = await fetch(`/api/leads?id=${id}`);
-      if (res.ok) {
-        const data = await res.json();
-        setLeadDetails(data);
-      }
+      // Cleared first, so a failed load never leaves the previously opened lead's timeline on screen
+      setLeadDetails(null);
+      setLeadDetailsError('');
+      setLeadDetails(await readJsonObject(await fetch(`/api/leads?id=${id}`), 'This lead'));
     } catch (err) {
       console.error('Failed to load lead details:', err);
+      setLeadDetailsError(loadErrorMessage(err, 'This lead'));
     } finally {
       setLoadingDetails(false);
     }
@@ -322,13 +326,11 @@ export default function LeadsPage() {
   const fetchGroups = async () => {
     try {
       setLoadingGroups(true);
-      const res = await fetch('/api/leads/groups');
-      if (res.ok) {
-        const data = await res.json();
-        setGroups(data);
-      }
+      setGroups(await readJsonList(await fetch('/api/leads/groups'), 'Lead groups'));
+      setGroupsError('');
     } catch (err) {
       console.error('Failed to load groups:', err);
+      setGroupsError(loadErrorMessage(err, 'Lead groups'));
     } finally {
       setLoadingGroups(false);
     }
@@ -1203,6 +1205,26 @@ export default function LeadsPage() {
         </div>
       </header>
 
+      {/* The groups feed the Groups tab and every group picker here, so a failed load is shown above them all */}
+      {groupsError && !loadingGroups && (
+        <div className="bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/30 p-4 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-start gap-2.5">
+            <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-px" />
+            <div>
+              <p className="text-xs font-bold text-rose-700 dark:text-rose-400">Lead Groups Could Not Be Loaded</p>
+              <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">{groupsError} Group lists and group choices on this page may be missing groups until they load.</p>
+            </div>
+          </div>
+          <button
+            onClick={fetchGroups}
+            className="self-start sm:self-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-white px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 shrink-0 cursor-pointer"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Domain MX check progress: real counts from the batches finished so far */}
       {isVerifying && verifyProgress && (
         <div className="bg-blue-50 dark:bg-blue-950/25 border border-blue-100 dark:border-blue-500/10 p-4 rounded-xl flex flex-col md:flex-row items-center justify-between gap-4">
@@ -1998,7 +2020,7 @@ export default function LeadsPage() {
                     ))}
                     {groups.length === 0 && (
                       <div className="col-span-full py-12 text-center text-slate-400 dark:text-slate-500 text-xs">
-                        No segments created yet. Create a group to organize prospects.
+                        {groupsError ? 'Lead groups could not be loaded. Use Retry above.' : 'No segments created yet. Create a group to organize prospects.'}
                       </div>
                     )}
                   </div>
@@ -2040,7 +2062,7 @@ export default function LeadsPage() {
                   );
                 })}
                 {groups.length === 0 && (
-                  <span className="text-xs text-slate-400 dark:text-slate-500 italic">No segments created yet.</span>
+                  <span className="text-xs text-slate-400 dark:text-slate-500 italic">{groupsError ? 'Lead groups could not be loaded.' : 'No segments created yet.'}</span>
                 )}
               </div>
             </div>
@@ -2297,7 +2319,7 @@ export default function LeadsPage() {
                             );
                           })}
                           {groups.length === 0 && (
-                            <span className="text-[10px] text-slate-400 dark:text-slate-500 italic">No lead groups created yet.</span>
+                            <span className="text-[10px] text-slate-400 dark:text-slate-500 italic">{groupsError ? 'Lead groups could not be loaded.' : 'No lead groups created yet.'}</span>
                           )}
                         </div>
                       </div>
@@ -2473,7 +2495,18 @@ export default function LeadsPage() {
                     </div>
                   </>
                 ) : (
-                  <p className="text-center text-slate-400 py-10 text-xs">Error loading lead data.</p>
+                  <div className="text-center py-10 text-xs space-y-3">
+                    <p className="text-rose-600 dark:text-rose-400 font-medium">{leadDetailsError || 'This lead could not be loaded.'}</p>
+                    {selectedLeadId && (
+                      <button
+                        onClick={() => fetchLeadDetails(selectedLeadId)}
+                        className="inline-flex items-center gap-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-white px-3 py-1.5 rounded-lg font-semibold cursor-pointer"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        Retry
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
             </motion.div>

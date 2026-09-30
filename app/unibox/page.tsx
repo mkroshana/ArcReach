@@ -5,9 +5,10 @@ import { Search, CornerUpLeft, Send, MailOpen, Pause, Play, ChevronDown, Refresh
 import { useState, useEffect, useRef } from 'react';
 import { toCsv, downloadCsv } from '@/lib/csv';
 import { decodeMimeHeader } from '@/lib/mime';
+import { LoadError, loadErrorMessage, readJsonObject } from '@/lib/apiResponse';
 import {
   Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
-  Snackbar, Alert, InputAdornment, CircularProgress, Avatar, Menu, MenuItem,
+  Snackbar, Alert, AlertTitle, InputAdornment, CircularProgress, Avatar, Menu, MenuItem,
   Tooltip as MuiTooltip,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
@@ -141,6 +142,13 @@ function sanitizeEmailBody(body: string): string {
   return cleaned.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+/** A page of the thread list. Throws a LoadError when the request failed or the answer holds no thread list. */
+async function readThreadPage(res: Response) {
+  const data = await readJsonObject(res, 'Conversations');
+  if (!Array.isArray(data.threads)) throw new LoadError('Conversations could not be loaded: the server did not send a list.');
+  return data;
+}
+
 export default function UniboxPage() {
   // Threads loaded so far (pages of the list), each with only what the list shows
   const [replies, setReplies] = useState<any[]>([]);
@@ -156,6 +164,12 @@ export default function UniboxPage() {
   const [exporting, setExporting] = useState(false);
   const listRequest = useRef(0);
   const [loading, setLoading] = useState(true);
+  // Why the thread list could not be loaded, refreshed or searched. Threads already listed stay,
+  // and the list says so instead of showing no conversations.
+  const [listError, setListError] = useState('');
+  const [listLoaded, setListLoaded] = useState(false);
+  // Bumped by Retry to run a failed search again
+  const [searchAttempt, setSearchAttempt] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusMenuAnchor, setStatusMenuAnchor] = useState<HTMLElement | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -212,26 +226,39 @@ export default function UniboxPage() {
       if (query) params.set('q', query);
       if (!initial && query === appliedQuery && replies.length > THREAD_PAGE_SIZE) params.set('limit', String(replies.length));
       const res = await fetch(`/api/unibox${params.toString() ? `?${params}` : ''}`);
-      if (res.ok && request === listRequest.current) {
-        const data = await res.json();
-        setReplies(data.threads);
-        setTotalThreads(data.total);
-        setUnreadCount(data.unreadCount);
-        setNextOffset(data.nextOffset);
-        setAppliedQuery(query);
-        if (initial && data.threads.length > 0 && !selectedId) {
-          setSelectedId(data.threads[0].id);
-          markAsRead(data.threads[0]);
-          loadThreadMessages(data.threads[0].id);
-        }
-        setSentRepliesLocal({});
-        if (!initial) {
-          setThreadMessages({});
-          if (selectedId) loadThreadMessages(selectedId);
-        }
+      if (request !== listRequest.current) return;
+      const data = await readThreadPage(res);
+      if (request !== listRequest.current) return;
+      setReplies(data.threads);
+      setTotalThreads(data.total);
+      setUnreadCount(data.unreadCount);
+      setNextOffset(data.nextOffset);
+      setAppliedQuery(query);
+      setListLoaded(true);
+      setListError('');
+      if (initial && data.threads.length > 0 && !selectedId) {
+        setSelectedId(data.threads[0].id);
+        markAsRead(data.threads[0]);
+        loadThreadMessages(data.threads[0].id);
       }
-    } catch (e) { console.error(e); }
+      setSentRepliesLocal({});
+      if (!initial) {
+        setThreadMessages({});
+        if (selectedId) loadThreadMessages(selectedId);
+      }
+    } catch (e) {
+      console.error(e);
+      if (request === listRequest.current) setListError(loadErrorMessage(e, 'Conversations'));
+    }
     finally { if (initial) setLoading(false); }
+  };
+
+  // Loads the list again after a failure: the first load, a failed search again (without
+  // syncing the mailboxes), else a refresh
+  const retryList = () => {
+    const query = searchQuery.trim();
+    if (listLoaded && query !== appliedQuery) setSearchAttempt(n => n + 1);
+    else fetchReplies(!listLoaded, query);
   };
 
   const loadMoreThreads = async () => {
@@ -242,17 +269,15 @@ export default function UniboxPage() {
       const params = new URLSearchParams({ offset: String(nextOffset) });
       if (appliedQuery) params.set('q', appliedQuery);
       const res = await fetch(`/api/unibox?${params}`);
+      const data = await readThreadPage(res);
       // Dropped when the list was reloaded meanwhile
-      if (res.ok && request === listRequest.current) {
-        const data = await res.json();
+      if (request === listRequest.current) {
         setReplies(prev => [...prev, ...data.threads.filter((t: any) => !prev.some(p => p.id === t.id))]);
         setTotalThreads(data.total);
         setUnreadCount(data.unreadCount);
         setNextOffset(data.nextOffset);
-      } else if (!res.ok) {
-        showToast('Failed to load more conversations.');
       }
-    } catch (e) { console.error(e); showToast('Failed to load more conversations.'); }
+    } catch (e) { console.error(e); showToast(loadErrorMessage(e, 'More conversations')); }
     finally { setLoadingMore(false); }
   };
 
@@ -268,18 +293,27 @@ export default function UniboxPage() {
       if (query) params.set('q', query);
       fetch(`/api/unibox${params.toString() ? `?${params}` : ''}`)
         .then(async res => {
-          if (!res.ok || request !== listRequest.current) return;
-          const data = await res.json();
+          if (request !== listRequest.current) return;
+          const data = await readThreadPage(res);
+          if (request !== listRequest.current) return;
           setReplies(data.threads);
           setTotalThreads(data.total);
           setUnreadCount(data.unreadCount);
           setNextOffset(data.nextOffset);
           setAppliedQuery(query);
+          setListLoaded(true);
+          setListError('');
         })
-        .catch(e => console.error(e));
+        .catch(e => {
+          console.error(e);
+          // A list that loaded keeps the conversations from before this search, so it says they do not match it
+          if (request === listRequest.current) {
+            setListError(`${loadErrorMessage(e, 'Search results')}${listLoaded ? ' The list shows the conversations from before this search.' : ''}`);
+          }
+        });
     }, 300);
     return () => clearTimeout(timer);
-  }, [searchQuery, appliedQuery]);
+  }, [searchQuery, appliedQuery, listLoaded, searchAttempt]);
 
   const selectedEmail = replies.find(e => e.id === selectedId);
   const selectedMessages: any[] | undefined = selectedId ? threadMessages[selectedId] : undefined;
@@ -435,7 +469,7 @@ export default function UniboxPage() {
           <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
             <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
               <Typography variant="overline" sx={{ fontWeight: 700, letterSpacing: '0.1em' }}>Unified Inbox</Typography>
-              <Chip size="small" label={`${unreadCount} NEW`} color="primary" sx={{ height: 18, fontSize: 10, fontFamily: 'monospace', fontWeight: 700 }} />
+              {listLoaded && <Chip size="small" label={`${unreadCount} NEW`} color="primary" sx={{ height: 18, fontSize: 10, fontFamily: 'monospace', fontWeight: 700 }} />}
             </Stack>
             <Stack direction="row" spacing={0.5}>
               <MuiTooltip title="Export to CSV"><span><IconButton aria-label="Export to CSV" size="small" onClick={handleExportCSV} disabled={exporting}>{exporting ? <CircularProgress size={14} /> : <Download size={14} />}</IconButton></span></MuiTooltip>
@@ -456,6 +490,15 @@ export default function UniboxPage() {
           </Stack>
         ) : (
           <Box sx={{ flex: 1, overflowY: 'auto', p: 1, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+            {listError && (
+              <Alert severity={listLoaded ? 'warning' : 'error'} sx={{ mb: 0.5, flexShrink: 0 }}>
+                <AlertTitle>{listLoaded ? 'Conversations Could Not Be Refreshed' : 'Conversations Could Not Be Loaded'}</AlertTitle>
+                {listError}
+                <Box>
+                  <Button color="inherit" size="small" startIcon={<RefreshCw size={12} />} onClick={retryList} sx={{ mt: 1, ml: -0.5 }}>Retry</Button>
+                </Box>
+              </Alert>
+            )}
             {replies.map(item => {
               const leadPaused = item.lead?.enrollments?.some((e: any) => e.status === 'Paused');
               const suppressed = leadSuppression(item.lead);
@@ -500,7 +543,7 @@ export default function UniboxPage() {
                 </Box>
               );
             })}
-            {replies.length === 0 && (
+            {replies.length === 0 && !listError && (
               <Typography variant="caption" sx={{ color: 'text.secondary', textAlign: 'center', py: 5 }}>No matching records.</Typography>
             )}
             {nextOffset !== null && (

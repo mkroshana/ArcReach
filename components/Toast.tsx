@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { CheckCircle2, XCircle, AlertTriangle, X } from 'lucide-react';
+import { toastDuration } from '@/lib/toastDuration';
 
 type ToastType = 'success' | 'warning' | 'error';
 
@@ -32,9 +33,12 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const toast = (message: string, type: ToastType = 'success') => {
     const id = Math.random().toString(36).substring(2, 9);
     setToasts((prev) => [...prev, { id, message, type }]);
+    // A long error stays until dismissed, so it is not gone before it is read.
+    const duration = toastDuration(message, type);
+    if (duration === null) return;
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 4000);
+    }, duration);
   };
 
   const removeToast = (id: string) => {
@@ -69,6 +73,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               )}
               <div className="flex-1 text-xs font-semibold leading-relaxed pt-0.5">{t.message}</div>
               <button
+                aria-label="Dismiss"
                 onClick={() => removeToast(t.id)}
                 className="p-0.5 hover:bg-slate-200/50 dark:hover:bg-slate-800/50 rounded transition-colors text-slate-400 dark:text-slate-500 cursor-pointer"
               >

@@ -6,17 +6,18 @@ import Link from 'next/link';
 import {
   Plus, CheckCircle2, AlertCircle, Mail, Flame, ArrowLeft, Sliders,
   ChevronRight, Gauge, User, Activity, Save, Send, Loader2, Trash2, Eye, EyeOff, ShieldAlert,
-  MailCheck, MailWarning, MailX, Clock, Settings,
+  MailCheck, MailWarning, MailX, Clock, Settings, RefreshCw,
 } from 'lucide-react';
 import { TableSkeleton } from '@/components/Skeleton';
 import { IMAP_SYNC_LABELS, MICROSOFT_IMAP_NOTE, imapSyncState, isMicrosoftImapHost } from '@/lib/imapSyncStatus';
 import { useToast } from '@/components/Toast';
+import { LoadError, loadErrorMessage, readJsonList, readJsonObject, responseErrorMessage } from '@/lib/apiResponse';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import {
   Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
   Dialog, DialogTitle, DialogContent, DialogActions, Table, TableHead, TableBody, TableRow, TableCell,
   InputAdornment, Select, MenuItem, FormControl, InputLabel, Switch, Avatar, LinearProgress,
-  Tooltip as MuiTooltip, FormControlLabel,
+  Tooltip as MuiTooltip, FormControlLabel, Alert, AlertTitle,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 
@@ -119,8 +120,12 @@ function ReplySyncChip({ account, withTooltip = true }: { account: any; withTool
 export default function AccountsPage() {
   const [accounts, setAccounts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  // A failed load shows an error with Retry: the empty list and zero totals would read as no mailboxes.
+  const [loadError, setLoadError] = useState('');
   const [session, setSession] = useState<any>(null);
   const [users, setUsers] = useState<any[]>([]);
+  // Why the team list (admins only) could not be loaded; owners then show as Unknown Team Member.
+  const [usersError, setUsersError] = useState('');
   const [selectedWarmupAccount, setSelectedWarmupAccount] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<'accounts' | 'warmup'>('accounts');
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -185,13 +190,13 @@ export default function AccountsPage() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const sessRes = await fetch('/api/session');
-      const sessData = await sessRes.json();
+      setLoadError('');
+      setUsersError('');
+      const sessData = await readJsonObject(await fetch('/api/session'), 'Your session');
+      if (!sessData.id) throw new LoadError('Your session could not be loaded. Sign in again.');
       setSession(sessData);
       setAssignedUserId(sessData.id);
-      const accRes = await fetch('/api/accounts');
-      const accData = await accRes.json();
-      setAccounts(accData);
+      setAccounts(await readJsonList(await fetch('/api/accounts'), 'Mailboxes'));
       const settingsRes = await fetch('/api/settings');
       if (settingsRes.ok) {
         const settingsData = await settingsRes.json();
@@ -201,10 +206,12 @@ export default function AccountsPage() {
         }
       }
       if (sessData.role === 'ADMIN') {
-        const usersRes = await fetch('/api/users');
-        if (usersRes.ok) setUsers(await usersRes.json());
+        // Owner names and the owner picker come from this list, so the page says when it did not load.
+        try {
+          setUsers(await readJsonList(await fetch('/api/users'), 'Team members'));
+        } catch (err) { console.error(err); setUsersError(loadErrorMessage(err, 'Team members')); }
       }
-    } catch (err) { console.error(err); }
+    } catch (err) { console.error(err); setLoadError(loadErrorMessage(err, 'Mailboxes')); }
     finally { setLoading(false); }
   };
 
@@ -226,14 +233,15 @@ export default function AccountsPage() {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: selectedWarmupAccount.id, [field]: value }),
       });
-      if (!res.ok) throw new Error();
+      if (!res.ok) throw new LoadError(await responseErrorMessage(res, 'Autopilot values failed to save.'));
       const synced = await res.json();
       setSelectedWarmupAccount(synced);
       setAccounts(prev => prev.map(acc => acc.id === selectedWarmupAccount.id ? synced : acc));
-    } catch {
+    } catch (err) {
       setSelectedWarmupAccount(previous);
       setAccounts(prev => prev.map(acc => acc.id === selectedWarmupAccount.id ? previous : acc));
-      showToast('Autopilot values failed to save', 'error');
+      // The server's reason when it answered one, else the generic message (not the browser's "Failed to fetch")
+      showToast(err instanceof LoadError ? err.message : 'Autopilot values failed to save.', 'error');
     }
   };
 
@@ -276,7 +284,7 @@ export default function AccountsPage() {
           imapAllowSelfSigned: editImapAllowSelfSigned,
         }),
       });
-      if (!res.ok) throw new Error('Failed to update credentials.');
+      if (!res.ok) throw new Error(await responseErrorMessage(res, 'Failed to update credentials.'));
       const updated = await res.json();
       setAccounts(prev => prev.map(acc => acc.id === selectedWarmupAccount.id ? updated : acc));
       setSelectedWarmupAccount(updated);
@@ -325,6 +333,10 @@ export default function AccountsPage() {
 
   const currentActiveTab = selectedWarmupAccount ? activeTab : 'accounts';
 
+  const retryButton = (
+    <Button color="inherit" size="small" startIcon={<RefreshCw size={14} />} onClick={() => loadData()}>Retry</Button>
+  );
+
   return (
     <Box sx={{ maxWidth: 1100, mx: 'auto', pb: 6 }}>
       {currentActiveTab === 'accounts' ? (
@@ -338,11 +350,26 @@ export default function AccountsPage() {
             <Button variant="contained" startIcon={<Plus size={16} />} onClick={handleOpenAddModal}>Add Sender Mailbox</Button>
           </Stack>
 
+          {loadError && !loading && (
+            <Alert severity="error" action={retryButton}>
+              <AlertTitle>Mailboxes Could Not Be Loaded</AlertTitle>
+              {loadError}
+            </Alert>
+          )}
+
+          {usersError && !loadError && !loading && (
+            <Alert severity="warning" action={retryButton}>
+              <AlertTitle>Team Members Could Not Be Loaded</AlertTitle>
+              Mailboxes owned by others show Unknown Team Member, and the owner picker lists no one until the list loads. {usersError}
+            </Alert>
+          )}
+
           {/* KPIs */}
+          {!loadError && (
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, 1fr)' }, gap: 2 }}>
             {[
               { label: 'Total Senders', value: loading ? '…' : `${accounts.length} Senders`, color: undefined },
-              { label: 'Combined Daily Limit', value: `${accounts.reduce((sum, a) => sum + (a.dailyLimit || 0), 0).toLocaleString()} Emails`, color: '#2563EB' },
+              { label: 'Combined Daily Limit', value: loading ? '…' : `${totalDailyLimit.toLocaleString()} Emails`, color: '#2563EB' },
             ].map((kpi, i) => (
               <Card key={i}>
                 <CardContent>
@@ -354,11 +381,12 @@ export default function AccountsPage() {
               </Card>
             ))}
           </Box>
+          )}
 
           {/* Table */}
           {loading ? (
             <Card><CardContent><TableSkeleton rows={4} cols={5} /></CardContent></Card>
-          ) : (
+          ) : loadError ? null : (
             <Card>
               <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', p: 2, borderBottom: 1, borderColor: 'divider' }}>
                 <Typography variant="overline" sx={{ fontWeight: 700, letterSpacing: '0.1em' }}>Connected Outreach Senders</Typography>

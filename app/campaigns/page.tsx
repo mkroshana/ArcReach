@@ -11,13 +11,15 @@ import {
 import {
   Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
   Dialog, DialogTitle, DialogContent, DialogActions, Table, TableHead, TableBody, TableRow, TableCell,
-  Snackbar, Alert, InputAdornment, CircularProgress, Tooltip as MuiTooltip, Select, MenuItem,
+  Snackbar, Alert, AlertTitle, InputAdornment, CircularProgress, Tooltip as MuiTooltip, Select, MenuItem,
   Checkbox, FormControlLabel,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { queuedLeadsMessage } from '@/lib/campaignSteps';
 import { autoResumeNote } from '@/lib/campaignPause';
+import { LoadError, loadErrorMessage, readJsonList, readJsonObject } from '@/lib/apiResponse';
+import { toastDuration } from '@/lib/toastDuration';
 
 interface DbCampaign {
   id: string;
@@ -45,6 +47,12 @@ export default function CampaignsPage() {
   const [accounts, setAccounts] = useState<any[]>([]);
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  // Set when a load or refresh fails. The list shows only once loaded, so a failure is never shown as no sequences.
+  const [loadError, setLoadError] = useState('');
+  const [campaignsLoaded, setCampaignsLoaded] = useState(false);
+  const [accountsLoaded, setAccountsLoaded] = useState(false);
+  // Why the mailboxes could not be loaded. Only Create Sequence needs them.
+  const [accountsError, setAccountsError] = useState('');
   const [search, setSearch] = useState('');
   const [expandedCampaignId, setExpandedCampaignId] = useState<string | null>(null);
   const [executingId, setExecutingId] = useState<string | null>(null);
@@ -55,11 +63,13 @@ export default function CampaignsPage() {
   const [selectedPoolIds, setSelectedPoolIds] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error'; duration: number | null } | null>(null);
   const [confirmState, setConfirmState] = useState<{ title: string; message: string; confirmLabel: string; onConfirm: () => void } | null>(null);
+  // A long error, such as the server's reason a sequence was not created, stays until dismissed.
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3050);
+    const next = { message, type, duration: toastDuration(message, type, 3000) };
+    setToast(next);
+    if (next.duration !== null) setTimeout(() => setToast(current => (current === next ? null : current)), next.duration + 50);
   };
 
   const handleToggleStatus = async (id: string, currentStatus: string, e: React.MouseEvent) => {
@@ -111,29 +121,42 @@ export default function CampaignsPage() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const sessRes = await fetch('/api/session');
-      const sessData = await sessRes.json();
+      setLoadError('');
+      const sessData = await readJsonObject(await fetch('/api/session'), 'Your session');
+      if (!sessData.id) throw new LoadError('Your session could not be loaded. Sign in again.');
       setSession(sessData);
-      const accRes = await fetch('/api/accounts');
-      if (accRes.ok) {
+      // The mailboxes load on their own: a failure there blocks only Create Sequence,
+      // never the list, where running sequences are paused and resumed.
+      try {
         // A new campaign belongs to the signed-in user and only sends from its
         // owner's mailboxes, so an admin picks among their own, not every user's.
-        const accData = (await accRes.json()).filter((acc: any) => acc.userId === sessData?.id);
+        const accData = (await readJsonList(await fetch('/api/accounts'), 'Your mailboxes')).filter((acc: any) => acc.userId === sessData.id);
         setAccounts(accData);
+        setAccountsLoaded(true);
+        setAccountsError('');
         if (accData.length > 0) setSelectedMailboxId(accData[0].id);
-      }
-      const cmpRes = await fetch(`/api/campaigns?t=${Date.now()}`);
-      if (cmpRes.ok) setCampaigns(await cmpRes.json());
-    } catch { showToast('Error syncing sequences', 'error'); }
+      } catch (err) { console.error(err); setAccountsError(loadErrorMessage(err, 'Your mailboxes')); }
+      setCampaigns(await readJsonList(await fetch(`/api/campaigns?t=${Date.now()}`), 'Sequences'));
+      setCampaignsLoaded(true);
+    } catch (err) { console.error(err); setLoadError(loadErrorMessage(err, 'Sequences')); }
     finally { setLoading(false); }
   };
 
+  // A failed refresh keeps the last list on screen and says it may be out of date.
   const refreshCampaigns = async () => {
     try {
-      const cmpRes = await fetch(`/api/campaigns?t=${Date.now()}`);
-      if (cmpRes.ok) setCampaigns(await cmpRes.json());
-    } catch (err) { console.error('Failed to auto-refresh campaigns:', err); }
+      setCampaigns(await readJsonList(await fetch(`/api/campaigns?t=${Date.now()}`), 'Sequences'));
+      setCampaignsLoaded(true);
+      setLoadError('');
+    } catch (err) {
+      console.error('Failed to auto-refresh campaigns:', err);
+      setLoadError(loadErrorMessage(err, 'Sequences'));
+    }
   };
+
+  const retryButton = (
+    <Button color="inherit" size="small" startIcon={<RefreshCw size={14} />} onClick={() => loadData()}>Retry</Button>
+  );
 
   useEffect(() => { loadData(); }, []);
 
@@ -197,8 +220,8 @@ export default function CampaignsPage() {
 
   return (
     <Box sx={{ maxWidth: 1100, mx: 'auto', pb: 4, display: 'flex', flexDirection: 'column', gap: 3 }}>
-      <Snackbar open={!!toast} anchorOrigin={{ vertical: 'top', horizontal: 'right' }} autoHideDuration={3000} onClose={() => setToast(null)}>
-        {toast ? <Alert severity={toast.type} variant="filled" sx={{ borderRadius: '12px' }}>{toast.message}</Alert> : undefined}
+      <Snackbar open={!!toast} anchorOrigin={{ vertical: 'top', horizontal: 'right' }} autoHideDuration={toast?.duration ?? null} onClose={(_, reason) => { if (reason !== 'clickaway') setToast(null); }}>
+        {toast ? <Alert severity={toast.type} variant="filled" onClose={() => setToast(null)} sx={{ borderRadius: '12px' }}>{toast.message}</Alert> : undefined}
       </Snackbar>
 
       {/* Header */}
@@ -210,11 +233,26 @@ export default function CampaignsPage() {
         <Button
           variant="contained" startIcon={<Plus size={16} />}
           onClick={() => {
+            if (!accountsLoaded) { showToast('Your mailboxes could not be loaded, so a sequence cannot be created yet. Use Retry to load them.', 'error'); return; }
             if (accounts.length === 0) { showToast('Please first connect at least one Mailbox of your own in the Senders view before starting a campaign.', 'error'); return; }
             setIsAddOpen(true);
           }}
         >Create Sequence</Button>
       </Stack>
+
+      {loadError && campaignsLoaded && !loading && (
+        <Alert severity="warning" action={retryButton}>
+          <AlertTitle>Sequences Could Not Be Refreshed</AlertTitle>
+          This list may be out of date. {loadError}
+        </Alert>
+      )}
+
+      {accountsError && !accountsLoaded && !loading && (
+        <Alert severity="warning" action={retryButton}>
+          <AlertTitle>Mailboxes Could Not Be Loaded</AlertTitle>
+          A sequence cannot be created until your mailboxes load. {accountsError}
+        </Alert>
+      )}
 
       <Card>
         {/* Toolbar */}
@@ -231,6 +269,13 @@ export default function CampaignsPage() {
             <CircularProgress size={24} />
             <Typography variant="caption" sx={{ color: 'text.secondary' }}>Loading campaigns…</Typography>
           </Stack>
+        ) : !campaignsLoaded ? (
+          <Box sx={{ p: 2 }}>
+            <Alert severity="error" action={retryButton}>
+              <AlertTitle>Sequences Could Not Be Loaded</AlertTitle>
+              {loadError || 'Sequences could not be loaded.'}
+            </Alert>
+          </Box>
         ) : (
           <Box sx={{ overflowX: 'auto' }}>
             <Table size="small">

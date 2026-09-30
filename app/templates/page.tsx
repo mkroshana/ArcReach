@@ -2,13 +2,14 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { FileText, Search, Plus, Eye, Sparkles, Copy, Check, Trash2, ArrowRight, X } from 'lucide-react';
+import { FileText, Search, Plus, Eye, Sparkles, Copy, Check, Trash2, ArrowRight, X, RefreshCw } from 'lucide-react';
 import VariableToolbar from '@/components/VariableToolbar';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { personalizePreview, previewEmailBody } from '@/lib/personalize';
+import { loadErrorMessage, readJsonList } from '@/lib/apiResponse';
 import {
   Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
-  ToggleButtonGroup, ToggleButton, Snackbar, Alert, InputAdornment, CircularProgress,
+  ToggleButtonGroup, ToggleButton, Snackbar, Alert, AlertTitle, InputAdornment, CircularProgress,
   Tooltip as MuiTooltip,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
@@ -16,6 +17,8 @@ import { alpha } from '@mui/material/styles';
 export default function TemplatesPage() {
   const [templates, setTemplates] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  // A failed load shows an error with Retry, never the empty library.
+  const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [editingTemplate, setEditingTemplate] = useState<any>(null);
@@ -46,15 +49,13 @@ export default function TemplatesPage() {
   const fetchTemplates = async () => {
     try {
       setLoading(true);
-      const res = await fetch('/api/templates');
-      if (res.ok) {
-        const data = await res.json();
-        setTemplates(data);
-        if (data.length > 0) selectTemplate(data[0]);
-      }
+      setLoadError('');
+      const data = await readJsonList(await fetch('/api/templates'), 'Templates');
+      setTemplates(data);
+      if (data.length > 0) selectTemplate(data[0]);
     } catch (e) {
       console.error('Failed to fetch templates:', e);
-      showToast('Error loading templates');
+      setLoadError(loadErrorMessage(e, 'Templates'));
     } finally {
       setLoading(false);
     }
@@ -200,9 +201,18 @@ export default function TemplatesPage() {
           <Typography variant="h4" sx={{ fontWeight: 700 }}>Copy Library</Typography>
           <Typography variant="body2" sx={{ color: 'text.secondary' }}>Write and manage reusable email templates with personalization variables and Spintax.</Typography>
         </Box>
-        <Button variant="contained" startIcon={<Plus size={16} />} onClick={createNewTemplate}>Create Template</Button>
+        <Button variant="contained" startIcon={<Plus size={16} />} onClick={createNewTemplate} disabled={!!loadError}>Create Template</Button>
       </Stack>
 
+      {loadError ? (
+        <Alert
+          severity="error"
+          action={<Button color="inherit" size="small" startIcon={<RefreshCw size={14} />} onClick={() => fetchTemplates()}>Retry</Button>}
+        >
+          <AlertTitle>Templates Could Not Be Loaded</AlertTitle>
+          {loadError}
+        </Alert>
+      ) : (
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1fr 2fr' }, gap: 3 }}>
         {/* Left: list */}
         <Stack spacing={2}>
@@ -436,6 +446,7 @@ export default function TemplatesPage() {
           )}
         </Box>
       </Box>
+      )}
 
       <ConfirmDialog
         isOpen={!!confirmState}

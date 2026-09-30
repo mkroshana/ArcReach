@@ -4,7 +4,7 @@
 import {
   ArrowLeft, Save, Send, Settings, Users, AlignLeft, Clock, ToggleLeft, Plus, Trash2,
   Mail, CheckCircle2, MousePointerClick, Reply, SendHorizontal,
-  Sparkles, Play, Loader2, XCircle, AlertTriangle, UserMinus, TimerOff, Lock,
+  Sparkles, Play, Loader2, XCircle, AlertTriangle, UserMinus, TimerOff, Lock, RefreshCw,
 } from 'lucide-react';
 import Link from 'next/link';
 import { use, useState, useEffect } from 'react';
@@ -22,10 +22,11 @@ import { sameCampaignVersion } from '@/lib/campaignVersion';
 import { sendScheduleError, timezoneError } from '@/lib/sendSchedule';
 import { personalizePreview, previewEmailBody } from '@/lib/personalize';
 import { IMAP_SYNC_LABELS, imapSyncState, stopOnReplyWarning } from '@/lib/imapSyncStatus';
+import { loadErrorMessage, readJsonList, responseErrorMessage } from '@/lib/apiResponse';
 import {
   Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
   Select, MenuItem, FormControl, InputLabel, Switch, Skeleton, ToggleButtonGroup, ToggleButton,
-  Table, TableHead, TableBody, TableRow, TableCell, Checkbox, FormControlLabel,
+  Table, TableHead, TableBody, TableRow, TableCell, Checkbox, FormControlLabel, Alert, AlertTitle,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 
@@ -37,6 +38,10 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
 
   const [campaign, setCampaign] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  // Why the campaign could not be loaded; with no campaign the page shows it instead of an empty form.
+  const [loadError, setLoadError] = useState('');
+  // Why the templates, lead groups or mailboxes lists could not be loaded, by list ('' once loaded).
+  const [listErrors, setListErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState('Sequence');
   const [templates, setTemplates] = useState<any[]>([]);
@@ -68,9 +73,19 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
   const [endTime, setEndTime] = useState('');
   const [savedWindowNote, setSavedWindowNote] = useState<string | null>(null);
 
-  const loadTemplates = async () => { try { const r = await fetch('/api/templates'); if (r.ok) setTemplates(await r.json()); } catch (e) { console.error(e); } };
-  const loadGroups = async () => { try { const r = await fetch('/api/leads/groups'); if (r.ok) setGroups(await r.json()); } catch (e) { console.error(e); } };
-  const loadMailboxes = async () => { try { const r = await fetch('/api/accounts'); if (r.ok) setAvailableMailboxes(await r.json()); } catch (e) { console.error(e); } };
+  // A list that fails to load is named in a warning, so its empty picker is not taken for none.
+  // (The error is recorded after the try: a state update in the catch stops the React Compiler lint rules checking this page.)
+  const loadList = async (key: string, url: string, what: string, set: (rows: any[]) => void) => {
+    let error = '';
+    try { set(await readJsonList(await fetch(url), what)); }
+    catch (e) { console.error(e); error = loadErrorMessage(e, what); }
+    setListErrors(prev => ({ ...prev, [key]: error }));
+  };
+  const loadTemplates = () => loadList('templates', '/api/templates', 'Templates', setTemplates);
+  const loadGroups = () => loadList('groups', '/api/leads/groups', 'Lead groups', setGroups);
+  const loadMailboxes = () => loadList('mailboxes', '/api/accounts', 'Mailboxes', setAvailableMailboxes);
+  const listLoaders: Record<string, () => Promise<void>> = { templates: loadTemplates, groups: loadGroups, mailboxes: loadMailboxes };
+  const failedListMessages = Object.values(listErrors).filter(Boolean);
 
   const applyTemplate = (templateId: string) => {
     if (!templateId) return;
@@ -91,6 +106,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
   const loadCampaign = async () => {
     try {
       setLoading(true);
+      setLoadError('');
       const res = await fetch(`/api/campaigns/${campaignId}?t=${Date.now()}`);
       if (res.ok) {
         const data = await res.json();
@@ -118,8 +134,18 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
         if (data.sendSchedule == null) setSavedWindowNote('No sending window is saved, so this campaign sends at any hour. Choose days and times, then save.');
         else if (sendScheduleError(sched) || timezoneError(data.timezone)) setSavedWindowNote('The saved sending window is incomplete or its timezone is unknown, so this campaign sends nothing until you fix it and save.');
         else setSavedWindowNote(null);
-      } else showToast('Failed to load campaign details.', 'error');
-    } catch (err) { console.error(err); showToast('Error loading campaign.', 'error'); }
+      } else {
+        const message = await responseErrorMessage(res, `The campaign could not be loaded (the server answered ${res.status}).`);
+        setLoadError(message);
+        // Before the first load the page shows the error itself; after it, the form stays and a toast says so.
+        if (campaign) showToast(message, 'error');
+      }
+    } catch (err) {
+      console.error(err);
+      const message = loadErrorMessage(err, 'The campaign');
+      setLoadError(message);
+      if (campaign) showToast(message, 'error');
+    }
     finally { setLoading(false); }
   };
 
@@ -278,6 +304,24 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
     );
   }
 
+  // Never loaded: an empty form would show defaults as the campaign's settings, and Save could write them.
+  if (!campaign) {
+    return (
+      <Box sx={{ maxWidth: 1100, mx: 'auto', py: 8, display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <Alert
+          severity="error"
+          action={<Button color="inherit" size="small" startIcon={<RefreshCw size={14} />} onClick={() => loadCampaign()}>Retry</Button>}
+        >
+          <AlertTitle>Campaign Could Not Be Loaded</AlertTitle>
+          {loadError || 'The campaign could not be loaded.'}
+        </Alert>
+        <Button component={Link as any} href="/campaigns" color="inherit" startIcon={<ArrowLeft size={14} />} sx={{ alignSelf: 'flex-start', color: 'text.secondary' }}>
+          Back to Campaigns
+        </Button>
+      </Box>
+    );
+  }
+
   const metrics = [
     { title: 'Total Sent Requests', value: campaign?.telemetry?.sentRequests, icon: SendHorizontal, color: '#64748b', sub: 'Includes retries & failures' },
     { title: 'Emails Sent', value: campaign?.telemetry?.sent, icon: Send, color: '#2563EB', sub: 'Accepted by provider' },
@@ -358,6 +402,16 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
           <Button variant="contained" disabled={saving} startIcon={<Send size={14} />} onClick={() => handleSaveCampaign(true)}>Publish Sequence</Button>
         </Stack>
       </Stack>
+
+      {failedListMessages.length > 0 && (
+        <Alert
+          severity="warning"
+          action={<Button color="inherit" size="small" startIcon={<RefreshCw size={14} />} onClick={() => Object.keys(listErrors).forEach(key => { if (listErrors[key]) listLoaders[key](); })}>Retry</Button>}
+        >
+          <AlertTitle>Some Choices Could Not Be Loaded</AlertTitle>
+          {failedListMessages.join(' ')} Use Template, Target CRM List and the Senders tab may be missing entries until they load.
+        </Alert>
+      )}
 
       {/* Metrics */}
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', lg: 'repeat(3, 1fr)' }, gap: 2 }}>
@@ -737,8 +791,10 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                     );
                   })}
                   {ownerMailboxes.length === 0 && (
-                    <Typography variant="caption" sx={{ color: 'text.secondary', textAlign: 'center', py: 4, display: 'block' }}>
-                      No sender accounts owned by the campaign owner. Create mailboxes in the Accounts page first.
+                    <Typography variant="caption" sx={{ color: listErrors.mailboxes ? 'error.main' : 'text.secondary', textAlign: 'center', py: 4, display: 'block' }}>
+                      {listErrors.mailboxes
+                        ? 'Mailboxes could not be loaded, so the sender pool is not shown. Use Retry above.'
+                        : 'No sender accounts owned by the campaign owner. Create mailboxes in the Accounts page first.'}
                     </Typography>
                   )}
                 </Stack>

@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -10,11 +10,12 @@ import {
 import { Mail, MousePointerClick, Reply, SendHorizontal, RefreshCw, XCircle, AlertTriangle, UserMinus, Plus } from 'lucide-react';
 import {
   Box, Card, CardContent, Typography, Button, IconButton, Chip, Stack,
-  Skeleton, Select, MenuItem, FormControl, Tooltip as MuiTooltip,
+  Skeleton, Select, MenuItem, FormControl, Tooltip as MuiTooltip, Alert, AlertTitle,
 } from '@mui/material';
 import { alpha, useTheme } from '@mui/material/styles';
 import { useTheme as useAppTheme } from '@/components/ThemeProvider';
 import { deliveryStatusText } from '@/lib/systemStatus';
+import { LoadError, loadErrorMessage, readJsonObject } from '@/lib/apiResponse';
 
 /** The outbox chip for each /api/system-status deliveryStatus. */
 const DELIVERY_CHIP: Record<string, { label: string; color: string }> = {
@@ -113,51 +114,73 @@ export default function Dashboard() {
     color: schemePalette.text.primary,
   };
   const [range, setRange] = useState('7');
-  const [stats, setStats] = useState<any>({
-    totalSent: 0, totalReplies: 0, averageOpenRate: 0, averageClickRate: 0,
-    failed: 0, bounced: 0, unsubscribed: 0,
-    deltas: { sent: 0, openRate: 0, clickRate: 0, replies: 0 },
-  });
+  // Null until a load succeeds, so a failed first load shows an error, never zeros.
+  const [stats, setStats] = useState<any>(null);
+  // The range and time of the numbers on screen, which stay while a refresh or another range loads.
+  const [statsRange, setStatsRange] = useState(range);
+  const [loadedAt, setLoadedAt] = useState<Date | null>(null);
   const [trends, setTrends] = useState<any[]>([]);
   const [funnel, setFunnel] = useState<any[]>([]);
   const [sentiment, setSentiment] = useState<any[]>([]);
+  // A load is in flight. Skeletons show only until the first numbers arrive.
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [systemStatus, setSystemStatus] = useState<any>(null);
+  // The load in flight. A newer load aborts it, so a late answer for another range is never shown.
+  const inFlight = useRef<AbortController | null>(null);
 
-  const fetchStats = async (selectedRange = range) => {
+  const fetchStats = async (selectedRange: string) => {
+    inFlight.current?.abort();
+    const controller = new AbortController();
+    inFlight.current = controller;
+    setLoading(true);
     try {
-      setLoading(true);
       const [statsRes, statusRes] = await Promise.all([
-        fetch(`/api/dashboard-stats?range=${selectedRange}`),
-        fetch('/api/system-status'),
+        fetch(`/api/dashboard-stats?range=${selectedRange}`, { signal: controller.signal }),
+        fetch('/api/system-status', { signal: controller.signal }),
       ]);
-      if (statsRes.ok) {
-        const data = await statsRes.json();
-        setStats(data.stats);
-        setTrends(data.trends);
-        setFunnel(data.funnel || []);
-        setSentiment(data.sentiment || []);
-      }
-      if (statusRes.ok) setSystemStatus(await statusRes.json());
+      // A status that cannot be read shows as unknown, not as the last one read.
+      const status = statusRes.ok ? await statusRes.json().catch(() => null) : null;
+      if (controller.signal.aborted) return;
+      setSystemStatus(status);
+      const data = await readJsonObject(statsRes, 'Analytics');
+      if (controller.signal.aborted) return;
+      if (!data.stats || typeof data.stats !== 'object') throw new LoadError('Analytics could not be loaded: the server sent no totals.');
+      setStats(data.stats);
+      setTrends(Array.isArray(data.trends) ? data.trends : []);
+      setFunnel(Array.isArray(data.funnel) ? data.funnel : []);
+      setSentiment(Array.isArray(data.sentiment) ? data.sentiment : []);
+      setStatsRange(selectedRange);
+      setLoadedAt(new Date());
+      setLoadError('');
     } catch (error) {
+      if (controller.signal.aborted) return;
       console.error('Failed to load stats:', error);
+      setLoadError(loadErrorMessage(error, 'Analytics'));
     } finally {
-      setLoading(false);
+      if (inFlight.current === controller) {
+        inFlight.current = null;
+        setLoading(false);
+      }
     }
   };
 
-  const handleRangeChange = (newRange: string) => {
-    setRange(newRange);
-    fetchStats(newRange);
-  };
-
+  // Loads on open and on a range change, then every 30s while the tab is visible,
+  // skipping a poll while a load is still in flight.
   useEffect(() => {
-    fetchStats();
+    fetchStats(range);
     const interval = setInterval(() => {
-      if (document.visibilityState === 'visible') fetchStats();
+      if (document.visibilityState === 'visible' && !inFlight.current) fetchStats(range);
     }, 30000);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      inFlight.current?.abort();
+    };
   }, [range]);
+
+  const retryButton = (
+    <Button color="inherit" size="small" startIcon={<RefreshCw size={14} />} onClick={() => fetchStats(range)}>Retry</Button>
+  );
 
   // Whether campaign email goes out, from the Azure settings and the send worker's heartbeat.
   const delivery = DELIVERY_CHIP[systemStatus?.deliveryStatus]
@@ -184,7 +207,7 @@ export default function Dashboard() {
         <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
           <Button component={Link as any} href="/campaigns" variant="contained" startIcon={<Plus size={16} />}>Create Campaign</Button>
           <MuiTooltip title="Refresh">
-            <IconButton aria-label="Refresh analytics" onClick={() => fetchStats()} sx={{ border: 1, borderColor: 'divider' }}>
+            <IconButton aria-label="Refresh analytics" onClick={() => fetchStats(range)} sx={{ border: 1, borderColor: 'divider' }}>
               <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
             </IconButton>
           </MuiTooltip>
@@ -226,16 +249,28 @@ export default function Dashboard() {
         </Card>
       )}
 
-      {loading ? (
+      {/* After a failed first load the error stays up while a poll or Retry tries again */}
+      {!stats && loading && !loadError ? (
         <Stack sx={{ gap: 3 }}>
           <Box sx={gridSx(4)}>{[0, 1, 2, 3].map((i) => <Skeleton key={i} variant="rounded" height={140} sx={{ borderRadius: '24px' }} />)}</Box>
           <Box sx={gridSx(3)}>{[0, 1, 2].map((i) => <Skeleton key={i} variant="rounded" height={120} sx={{ borderRadius: '24px' }} />)}</Box>
           <Skeleton variant="rounded" height={420} sx={{ borderRadius: '24px' }} />
         </Stack>
+      ) : !stats ? (
+        <Alert severity="error" action={retryButton}>
+          <AlertTitle>Analytics Could Not Be Loaded</AlertTitle>
+          {loadError || 'Analytics could not be loaded.'}{loading ? ' Trying again…' : ''}
+        </Alert>
       ) : (
         <>
+          {loadError && (
+            <Alert severity="warning" action={retryButton}>
+              <AlertTitle>Analytics Could Not Be Refreshed</AlertTitle>
+              Showing the last {statsRange} days as loaded at {loadedAt?.toLocaleTimeString()}. {loadError}
+            </Alert>
+          )}
           <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-            Showing the last {range} days · deltas compare against the prior {range}-day window.
+            Showing the last {statsRange} days · deltas compare against the prior {statsRange}-day window.{loading ? ' Refreshing…' : ''}
           </Typography>
 
           {/* Engagement metrics */}
@@ -260,7 +295,7 @@ export default function Dashboard() {
             height={350}
             action={
               <FormControl size="small">
-                <Select value={range} onChange={(e) => handleRangeChange(e.target.value)} sx={{ minWidth: 140 }}>
+                <Select value={range} onChange={(e) => setRange(e.target.value)} sx={{ minWidth: 140 }}>
                   <MenuItem value="7">Last 7 Days</MenuItem>
                   <MenuItem value="30">Last 30 Days</MenuItem>
                   <MenuItem value="90">Last 90 Days</MenuItem>

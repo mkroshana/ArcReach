@@ -3,7 +3,8 @@
  * HH:MM start and end in the campaign's timezone. A window whose start is later
  * than its end runs past midnight into the next day. The send engine keeps a
  * missing or incomplete window closed, so the PUT route and the campaign page
- * refuse to save one, and a campaign may only be Active with a complete one.
+ * refuse to save an incomplete one, a campaign that is not Active may be saved
+ * with none, and a campaign may only be Active with a complete one.
  * Pure string work so the campaign page runs the same checks.
  */
 

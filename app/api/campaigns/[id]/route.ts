@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { UnauthorizedError, unauthorizedResponse } from '@/lib/sessionError';
@@ -289,8 +290,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     }
 
     // The send engine keeps an incomplete window or unknown timezone closed, so neither is saved.
+    // A campaign that is not Active and not being made Active may be saved with no
+    // schedule (null); it then sends nothing and can't be made Active until one is set.
+    const clearsSchedule = sendSchedule === null && (status ?? campaign.status) !== 'Active';
     const windowError = (timezone !== undefined ? timezoneError(timezone) : null)
-      ?? (sendSchedule !== undefined ? sendScheduleError(sendSchedule) : null);
+      ?? (sendSchedule !== undefined && !clearsSchedule ? sendScheduleError(sendSchedule) : null);
     if (windowError) {
       return NextResponse.json({ error: windowError }, { status: 400 });
     }
@@ -351,7 +355,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     if (status !== undefined && status !== campaign.status) Object.assign(updates, userStatusPause(status));
     if (senderAccountId !== undefined) updates.senderAccountId = senderAccountId;
     if (timezone !== undefined) updates.timezone = timezone;
-    if (sendSchedule !== undefined) updates.sendSchedule = parseSendSchedule(sendSchedule);
+    if (sendSchedule !== undefined) updates.sendSchedule = clearsSchedule ? Prisma.DbNull : parseSendSchedule(sendSchedule);
     if (stopOnReply !== undefined) updates.stopOnReply = !!stopOnReply;
     if (trackOpens !== undefined) updates.trackOpens = !!trackOpens;
     if (trackClicks !== undefined) updates.trackClicks = !!trackClicks;

@@ -205,7 +205,12 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
       }
     }
     // The send engine never sends on an incomplete window, so only a complete one is saved.
-    const windowError = timezoneError(timezone) ?? sendScheduleError({ days: selectedDays, window: { start: startTime, end: endTime } });
+    // A Save that isn't publishing may leave the schedule entirely empty (no days, no
+    // times) unless the campaign is Active: it saves none, and the campaign sends
+    // nothing and can't be published until one is set.
+    const schedule = { days: selectedDays, window: { start: startTime, end: endTime } };
+    const clearSchedule = !publish && status !== 'Active' && selectedDays.length === 0 && !startTime && !endTime;
+    const windowError = timezoneError(timezone) ?? (clearSchedule ? null : sendScheduleError(schedule));
     if (windowError) {
       setActiveTab('Schedule');
       showToast(windowError, 'error');
@@ -217,7 +222,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: campaignName, timezone,
-          sendSchedule: { days: selectedDays, window: { start: startTime, end: endTime } },
+          sendSchedule: clearSchedule ? null : schedule,
           stopOnReply, trackOpens, trackClicks, audienceCohort, steps,
           senderAccountId: primarySenderId, senderAccountIds: poolIds,
           updatedAt: editorVersion,
@@ -225,7 +230,8 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
         }),
       });
       if (res.ok) {
-        showToast('Outbound sequence configuration successfully saved!');
+        if (clearSchedule) showToast(`Saved without a sending window, so this campaign sends nothing and ${status === 'Draft' ? 'stays Draft' : "can't be made Active"} until you set one on the Schedule tab.`, 'warning');
+        else showToast('Outbound sequence configuration successfully saved!');
         await loadCampaign();
       } else {
         const data = await res.json().catch(() => null);

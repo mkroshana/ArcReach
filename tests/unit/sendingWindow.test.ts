@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
+import { Prisma } from '@prisma/client';
 
 const fake = vi.hoisted(() => ({
   campaign: { findUnique: vi.fn(), updateMany: vi.fn() },
@@ -245,7 +246,9 @@ describe('PUT /api/campaigns/[id] saves only complete sending windows (M4)', () 
     ['no days', { days: [], window: { start: '09:00', end: '17:00' } }, 'Choose at least one sending day.'],
     ['a cleared start time', { days: WEEKDAYS, window: { start: '', end: '17:00' } }, 'Set the sending window start and end as 24-hour HH:MM times.'],
     ['an unpadded time', { days: WEEKDAYS, window: { start: '9:00', end: '17:00' } }, 'Set the sending window start and end as 24-hour HH:MM times.'],
-    ['null', null, 'The sending schedule needs sending days and a start and end time.'],
+    ['days but no times', { days: WEEKDAYS, window: { start: '', end: '' } }, 'Set the sending window start and end as 24-hour HH:MM times.'],
+    ['a start time but no days or end time', { days: [], window: { start: '09:00', end: '' } }, 'Choose at least one sending day.'],
+    ['an empty object', {}, 'Choose at least one sending day.'],
   ])('rejects a schedule with %s and saves nothing', async (_label, sendSchedule, error) => {
     const res = await save({ name: 'Renamed', sendSchedule });
 
@@ -274,6 +277,38 @@ describe('PUT /api/campaigns/[id] saves only complete sending windows (M4)', () 
     expect(res.status).toBe(200);
     expect(campaign.timezone).toBe('Europe/London');
     expect(campaign.sendSchedule).toEqual(MONDAY_NIGHT);
+  });
+
+  it.each(['Draft', 'Paused'])('saves a %s campaign with no schedule (null) as SQL NULL, with the rest of the save (owner decision)', async (status) => {
+    campaign.status = status;
+
+    const res = await save({ name: 'Renamed', timezone: 'Europe/London', sendSchedule: null });
+
+    expect(res.status).toBe(200);
+    expect(fake.campaign.updateMany.mock.calls[0][0].data.sendSchedule).toBe(Prisma.DbNull);
+    expect(campaign).toMatchObject({ name: 'Renamed', status, timezone: 'Europe/London' });
+  });
+
+  it('still checks the timezone of a save with no schedule', async () => {
+    const res = await save({ timezone: 'America/NewYork', sendSchedule: null });
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe('Choose a valid timezone for the sending window.');
+    expect(fake.campaign.updateMany).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['making a Draft Active', 'Draft', { status: 'Active' }],
+    ['saving an Active campaign', 'Active', { name: 'Renamed' }],
+  ])('refuses no schedule (null) when %s, and saves nothing (owner decision)', async (_label, status, body) => {
+    campaign.status = status;
+
+    const res = await save({ ...body, sendSchedule: null });
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe('The sending schedule needs sending days and a start and end time.');
+    expect(fake.campaign.updateMany).not.toHaveBeenCalled();
+    expect(campaign).toMatchObject({ name: 'Launch', status, sendSchedule: OFFICE_HOURS });
   });
 
   it('leaves the saved window alone when the body does not send one', async () => {

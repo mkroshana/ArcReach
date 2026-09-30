@@ -12,13 +12,12 @@ const tx = vi.hoisted(() => ({
 vi.mock('../../lib/db', () => ({
   db: {
     createCampaign: vi.fn(),
-    getCampaigns: vi.fn(),
     updateCampaign: vi.fn(),
   },
   prisma: {
     senderAccount: { findMany: vi.fn() },
     user: { findUnique: vi.fn() },
-    campaign: { findUnique: vi.fn() },
+    campaign: { findUnique: vi.fn(), findFirst: vi.fn() },
     lead: { findMany: vi.fn() },
     campaignEnrollment: { createMany: vi.fn() },
     $transaction: vi.fn(),
@@ -230,7 +229,7 @@ describe('PUT /api/campaigns/[id] sender ownership (H24)', () => {
 describe('reassigning a campaign keeps its senders with its owner (H24)', () => {
   const USERS = ['user-1', 'user-2', 'admin-1'];
   const mailbox = (id: string) => ({ id, emailAddress: `${id}@acme.test` });
-  /** A campaign row as db.getCampaigns returns it: owner user-1, sending from user-1's mailboxes. */
+  /** A campaign row as PUT /api/campaigns loads it: owner user-1, sending from user-1's mailboxes. */
   let campaign: any;
 
   beforeEach(() => {
@@ -243,7 +242,7 @@ describe('reassigning a campaign keeps its senders with its owner (H24)', () => 
         { senderAccountId: 'mb-user1-b', senderAccount: mailbox('mb-user1-b') },
       ],
     };
-    mockedDb.getCampaigns.mockImplementation(async () => [campaign]);
+    mockedPrisma.campaign.findFirst.mockImplementation(async () => campaign);
     mockedDb.updateCampaign.mockImplementation(async (id: string, data: any) => ({ ...campaign, ...data }));
     mockedPrisma.user.findUnique.mockImplementation(async ({ where }: any) =>
       USERS.includes(where.id) ? { id: where.id } : null,

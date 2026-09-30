@@ -96,6 +96,25 @@ function campaignRow(include?: any) {
   return row;
 }
 
+/** Only the `select`ed columns of `row`, relations by their own select, as Prisma loads them. */
+function selectFrom(row: any, select: Record<string, any>): any {
+  if (Array.isArray(row)) return row.map((item) => selectFrom(item, select));
+  if (row == null) return row;
+  return Object.fromEntries(Object.entries(select).filter(([, on]) => on).map(([key, on]) => [key, on === true ? row[key] : selectFrom(row[key], on.select)]));
+}
+
+/** The campaigns list row as its findMany `select` loads it, from a row that has every mailbox column. */
+function listedCampaign(select: any) {
+  return selectFrom({
+    ...campaignRow(),
+    createdAt: UPDATED_AT,
+    user: { id: 'user-1', name: 'User', email: 'user@example.com' },
+    steps: [],
+    senderAccount: MAILBOX,
+    senders: [{ campaignId: 'cmp-1', senderAccountId: 'acc-1', senderAccount: MAILBOX }],
+  }, select);
+}
+
 const LEAD_ID = '11111111-2222-3333-4444-555555555555';
 
 /** A reply loaded with `include` or `select`; its mailbox comes only when asked for. */
@@ -146,19 +165,16 @@ describe('mailbox secrets in API responses', () => {
       m.groupBy?.mockResolvedValue([]);
       m.findMany?.mockResolvedValue([]);
     }
-    fake.campaign.findMany.mockImplementation(async (args: any) => [campaignRow(args.include)]);
+    fake.campaign.findMany.mockImplementation(async (args: any) => [listedCampaign(args.select)]);
     fake.campaign.findUnique.mockImplementation(async (args: any) => campaignRow(args.include));
     fake.$transaction.mockImplementation(async (fn: (tx: typeof fake) => unknown) => fn(fake));
     fake.$queryRaw.mockResolvedValue([]);
   });
 
-  it('db.getCampaigns leaves the passwords off the primary and pool mailboxes', async () => {
+  it('db.getCampaigns loads only the primary mailbox address, and no pool mailboxes', async () => {
     const [campaign] = (await db.getCampaigns('user-1', 'USER')) as any[];
-    expect(campaign.senderAccount.emailAddress).toBe(MAILBOX.emailAddress);
-    expect(campaign.senderAccount).not.toHaveProperty('smtpPass');
-    expect(campaign.senderAccount).not.toHaveProperty('imapPass');
-    expect(campaign.senders[0].senderAccount).not.toHaveProperty('smtpPass');
-    expect(campaign.senders[0].senderAccount).not.toHaveProperty('imapPass');
+    expect(campaign.senderAccount).toEqual({ emailAddress: MAILBOX.emailAddress });
+    expect(campaign).not.toHaveProperty('senders');
   });
 
   it('GET /api/campaigns returns no mailbox passwords', async () => {

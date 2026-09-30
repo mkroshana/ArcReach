@@ -3,7 +3,6 @@ import { NextRequest } from 'next/server';
 
 vi.mock('../../lib/db', () => ({
   db: {
-    getCampaigns: vi.fn(),
     updateCampaign: vi.fn(),
     getAccounts: vi.fn(),
     updateAccount: vi.fn(),
@@ -14,7 +13,7 @@ vi.mock('../../lib/db', () => ({
     lead: { update: vi.fn(), updateMany: vi.fn(), findMany: vi.fn() },
     leadGroupMembership: { findMany: vi.fn() },
     leadGroup: { findMany: vi.fn() },
-    campaign: { findMany: vi.fn() },
+    campaign: { findMany: vi.fn(), findFirst: vi.fn() },
     campaignEnrollment: { updateMany: vi.fn() },
     suppressedEmail: { findMany: vi.fn() },
     $transaction: vi.fn(),
@@ -33,6 +32,7 @@ import { PUT as putCampaign } from '../../app/api/campaigns/route';
 import { PUT as putAccount } from '../../app/api/accounts/route';
 import { PUT as putLead } from '../../app/api/leads/route';
 import { getEffectiveDailyCap } from '../../lib/sendEngine';
+import { matchesWhere } from './helpers/prismaWhere';
 
 const mockedDb = db as any;
 const mockedPrisma = prisma as any;
@@ -85,9 +85,9 @@ describe('PUT /api/campaigns', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockedSession.mockResolvedValue(USER);
-    mockedDb.getCampaigns.mockResolvedValue([
-      { id: 'cmp-1', userId: 'user-1', senderAccountId: 'mb-1', senders: [], steps: [{ stepOrder: 1, subject: 'Hi', body: 'Hello' }] },
-    ]);
+    // user-1's campaign; the route's where names the caller unless they are an ADMIN.
+    const campaign = { id: 'cmp-1', userId: 'user-1', senderAccountId: 'mb-1', senders: [], steps: [{ stepOrder: 1, subject: 'Hi', body: 'Hello' }] };
+    mockedPrisma.campaign.findFirst.mockImplementation(async ({ where }: any) => (matchesWhere(campaign, where) ? campaign : null));
     mockedDb.updateCampaign.mockImplementation(async (id: string, data: any) => ({ id, ...data }));
   });
 

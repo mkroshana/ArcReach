@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
 const fake = vi.hoisted(() => ({
-  campaign: { findUnique: vi.fn(), updateMany: vi.fn() },
+  campaign: { findUnique: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn() },
   campaignStep: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
   campaignSenderAccount: { deleteMany: vi.fn(), createMany: vi.fn() },
   campaignEnrollment: { count: vi.fn(), findMany: vi.fn(), update: vi.fn() },
@@ -14,7 +14,7 @@ const fake = vi.hoisted(() => ({
 }));
 
 vi.mock('../../lib/db', () => ({
-  db: { getCampaigns: vi.fn(), updateCampaign: vi.fn(), createCampaign: vi.fn() },
+  db: { updateCampaign: vi.fn(), createCampaign: vi.fn() },
   prisma: fake,
 }));
 
@@ -200,7 +200,7 @@ describe('PUT /api/campaigns refuses to activate a campaign with incomplete step
     ['no steps', [], 'Add at least one step with a subject and body before activating this campaign.'],
     ['a placeholder step', PLACEHOLDER_STEPS, 'Step 2 has no subject or body. Complete every step before activating this campaign.'],
   ])('rejects Active with %s', async (_label, steps, error) => {
-    mockedDb.getCampaigns.mockResolvedValue([{ id: 'cmp-1', steps }]);
+    fake.campaign.findFirst.mockResolvedValue({ userId: 'user-1', steps });
 
     const res = await toggle('Active');
 
@@ -210,11 +210,11 @@ describe('PUT /api/campaigns refuses to activate a campaign with incomplete step
   });
 
   it('activates a campaign whose steps are complete, and pauses one whose steps are not', async () => {
-    mockedDb.getCampaigns.mockResolvedValue([{ id: 'cmp-1', steps: COMPLETE_STEPS }]);
+    fake.campaign.findFirst.mockResolvedValue({ userId: 'user-1', steps: COMPLETE_STEPS });
     expect((await toggle('Active')).status).toBe(200);
     expect(mockedDb.updateCampaign).toHaveBeenLastCalledWith('cmp-1', { status: 'Active', pausedUntil: null, pauseReason: null });
 
-    mockedDb.getCampaigns.mockResolvedValue([{ id: 'cmp-1', steps: [] }]);
+    fake.campaign.findFirst.mockResolvedValue({ userId: 'user-1', steps: [] });
     expect((await toggle('Paused')).status).toBe(200);
     expect(mockedDb.updateCampaign).toHaveBeenLastCalledWith('cmp-1', { status: 'Paused', pausedUntil: null, pauseReason: 'user' });
   });

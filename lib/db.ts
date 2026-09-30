@@ -1,6 +1,5 @@
 import { PrismaClient, type Prisma } from '@prisma/client';
 import { hashPassword } from '@/lib/auth';
-import { MAILBOX_SECRET_OMIT } from '@/lib/mailboxSecrets';
 import { stepMetrics } from '@/lib/engagementMetrics';
 
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient | undefined };
@@ -100,16 +99,24 @@ export const db = {
    * those payloads OOM'd the server (Prisma JSON.parse of a multi-MB engine
    * response per request). Four groupBy queries total, regardless of volume.
    * Step sends count as on the campaign page (lib/engagementMetrics).
+   * Selects only what the campaigns list shows: step bodies, the sender pool
+   * and mailbox rows stay with the campaign page, which loads one campaign.
    */
   async getCampaigns(userId: string, role: string) {
     await ensureInit();
     const campaigns = await prisma.campaign.findMany({
       where: role === 'ADMIN' ? undefined : { userId },
-      include: {
-        senderAccount: { omit: MAILBOX_SECRET_OMIT },
-        senders: { include: { senderAccount: { omit: MAILBOX_SECRET_OMIT } } },
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        pausedUntil: true,
+        pauseReason: true,
+        userId: true,
+        createdAt: true,
+        senderAccount: { select: { emailAddress: true } },
         user: { select: { id: true, name: true, email: true } },
-        steps: { orderBy: { stepOrder: 'asc' } },
+        steps: { orderBy: { stepOrder: 'asc' }, select: { id: true, stepOrder: true, waitDays: true, subject: true } },
       },
       orderBy: { createdAt: 'desc' },
     });

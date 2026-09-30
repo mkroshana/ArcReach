@@ -126,9 +126,19 @@ export async function PUT(req: NextRequest) {
     }
     const updates = picked.data;
 
-    // Verify ownership
-    const campaignsList = await db.getCampaigns(session.id, session.role);
-    const target = campaignsList.find(cmp => cmp.id === id);
+    // Verify ownership (admins may modify any campaign), loading only what the
+    // checks below read rather than the whole campaigns list with its stats.
+    const target = await prisma.campaign.findFirst({
+      where: session.role === 'ADMIN' ? { id } : { id, userId: session.id },
+      select: {
+        userId: true,
+        updatedAt: true,
+        senderAccountId: true,
+        senderAccount: { select: { emailAddress: true } },
+        senders: { select: { senderAccountId: true, senderAccount: { select: { emailAddress: true } } } },
+        steps: { orderBy: { stepOrder: 'asc' }, select: { subject: true, body: true } },
+      },
+    });
 
     if (!target) {
       return NextResponse.json({ error: 'Unauthorized to modify this campaign.' }, { status: 403 });
@@ -188,11 +198,13 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Campaign ID is required.' }, { status: 400 });
     }
 
-    // Verify ownership
-    const campaignsList = await db.getCampaigns(session.id, session.role);
-    const hasAccess = campaignsList.some(cmp => cmp.id === id);
+    // Verify ownership (admins may delete any campaign)
+    const target = await prisma.campaign.findFirst({
+      where: session.role === 'ADMIN' ? { id } : { id, userId: session.id },
+      select: { id: true },
+    });
 
-    if (!hasAccess) {
+    if (!target) {
       return NextResponse.json({ error: 'Unauthorized to delete this campaign.' }, { status: 403 });
     }
 

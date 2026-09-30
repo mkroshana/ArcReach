@@ -8,7 +8,7 @@ import { NextRequest } from 'next/server';
  * status change, a save and the auto-resume really leave behind.
  */
 const fake = vi.hoisted(() => ({
-  campaign: { findUnique: vi.fn(), updateMany: vi.fn() },
+  campaign: { findUnique: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn() },
   campaignStep: { findMany: vi.fn(), update: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
   campaignSenderAccount: { deleteMany: vi.fn(), createMany: vi.fn() },
   campaignEnrollment: { count: vi.fn(), update: vi.fn() },
@@ -17,7 +17,7 @@ const fake = vi.hoisted(() => ({
 }));
 
 vi.mock('../../lib/db', () => ({
-  db: { getCampaigns: vi.fn(), updateCampaign: vi.fn() },
+  db: { updateCampaign: vi.fn() },
   prisma: fake,
 }));
 
@@ -104,7 +104,7 @@ beforeEach(() => {
   fake.campaignEnrollment.count.mockResolvedValue(1);
   fake.campaignEnrollment.update.mockImplementation(async ({ data }: any) => Object.assign(enrollment, data));
   fake.$transaction.mockImplementation(async (arg: any) => (typeof arg === 'function' ? arg(fake) : Promise.all(arg)));
-  mockedDb.getCampaigns.mockImplementation(async () => [{ ...campaign, steps: STEPS }]);
+  fake.campaign.findFirst.mockImplementation(async () => ({ ...campaign, steps: STEPS }));
   mockedDb.updateCampaign.mockImplementation(async (_id: string, data: any) => ({ ...writeCampaign(data) }));
 });
 

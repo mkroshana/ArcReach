@@ -27,12 +27,12 @@ interface DbCampaign {
   status: 'Active' | 'Draft' | 'Paused';
   pausedUntil?: string | null;
   pauseReason?: string | null;
-  senderAccountId: string;
   senderAccount?: { emailAddress: string };
   userId: string | null;
   user?: { id: string; name: string | null; email: string } | null;
   createdAt: string;
-  steps?: { id: string; stepOrder: number; waitDays: number; subject: string; body: string }[];
+  // Step metadata only: bodies load with a single campaign on its page.
+  steps?: { id: string; stepOrder: number; waitDays: number; subject: string }[];
   // Server-side aggregates — raw enrollment/dispatch rows are never shipped
   // (payloads at scale OOM'd the server).
   stepStats?: { stepOrder: number; active: number; sent: number; delivered: number; failed: number }[];
@@ -163,9 +163,10 @@ export default function CampaignsPage() {
   const anyCampaignActive = campaigns.some(c => c.status === 'Active');
   const isRunning = executingId !== null;
 
+  // Refreshes every 30s while a sequence is Active or queuing, and only while the tab is visible.
   useEffect(() => {
     if (!anyCampaignActive && !isRunning) return;
-    const interval = setInterval(() => refreshCampaigns(), 2000);
+    const interval = setInterval(() => { if (document.visibilityState === 'visible') refreshCampaigns(); }, 30000);
     return () => clearInterval(interval);
   }, [anyCampaignActive, isRunning]);
 

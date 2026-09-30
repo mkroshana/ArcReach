@@ -3,6 +3,23 @@ import type { NextRequest } from 'next/server';
 import { jwtVerify } from 'jose';
 import { sessionSecretKey as secretKey } from './lib/sessionSecret';
 import { unauthorizedResponse } from './lib/sessionError';
+import { buildContentSecurityPolicy } from './lib/contentSecurityPolicy';
+
+/**
+ * Lets a page request through with a fresh script nonce: the Content-Security-Policy built on it
+ * goes on the response and on the forwarded request, where Next reads the nonce for its own
+ * scripts and app/layout.tsx reads it from x-nonce. Overwrites any x-nonce the client sent.
+ */
+function nextPage(request: NextRequest): NextResponse {
+  const nonce = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))));
+  const policy = buildContentSecurityPolicy(nonce, process.env.NODE_ENV === 'development');
+  const headers = new Headers(request.headers);
+  headers.set('x-nonce', nonce);
+  headers.set('content-security-policy', policy);
+  const response = NextResponse.next({ request: { headers } });
+  response.headers.set('content-security-policy', policy);
+  return response;
+}
 
 /**
  * Checks only the session cookie's signature: the Edge runtime has no Prisma. It redirects pages
@@ -28,7 +45,7 @@ export async function middleware(request: NextRequest) {
   // 2. Redirect unauthenticated users to /login (allow /login itself to render); API calls get a 401
   if (!sessionCookie || !sessionCookie.value) {
     if (pathname === '/login') {
-      return NextResponse.next();
+      return nextPage(request);
     }
     if (isApi) {
       return unauthorizedResponse();
@@ -45,7 +62,7 @@ export async function middleware(request: NextRequest) {
   } catch {
     // Malformed or expired session cookie
     if (pathname === '/login') {
-      const response = NextResponse.next();
+      const response = nextPage(request);
       response.cookies.delete('user_session');
       return response;
     }
@@ -71,7 +88,7 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  return NextResponse.next();
+  return isApi ? NextResponse.next() : nextPage(request);
 }
 
 export const config = {

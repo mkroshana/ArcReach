@@ -6,27 +6,27 @@
  */
 
 /** An enrollment status the Analytics tab shows, with what puts a lead there. */
-export type EnrollmentState = { status: string; label: string; description: string; color: string };
+export type EnrollmentState = { status: string; label: string; description: string };
 
-/** Enrollment statuses in the order the Sequence Progress bar shows them. */
+/** Enrollment statuses in the order the Lead Progress card lists them. */
 export const ENROLLMENT_STATES: EnrollmentState[] = [
-  { status: 'Active', label: 'In Sequence', description: 'Still to get a step', color: '#2563EB' },
-  { status: 'Completed', label: 'Completed', description: 'Got every step', color: '#059669' },
+  { status: 'Active', label: 'In Sequence', description: 'Still to get a step.' },
+  { status: 'Completed', label: 'Completed', description: 'Got every step.' },
   {
-    status: 'Paused', label: 'Paused', color: '#D97706',
-    description: 'Replied, unsubscribed, went on the suppression list, left the audience group or was paused in Unibox',
+    status: 'Paused', label: 'Paused',
+    description: 'Replied, unsubscribed, went on the suppression list, left the audience group or was paused in Unibox.',
   },
-  { status: 'Bounced', label: 'Bounced', description: 'A delivery report said the address does not exist', color: '#DC2626' },
-  { status: 'Failed', label: 'Failed', description: 'Sending failed after every retry, or the address bounced when sent', color: '#9F1239' },
-  { status: 'Removed', label: 'Removed', description: 'Left the audience after the campaign had emailed them', color: '#64748B' },
+  { status: 'Bounced', label: 'Bounced', description: 'A delivery report said the address does not exist.' },
+  { status: 'Failed', label: 'Failed', description: 'Sending failed after every retry, or the address bounced when sent.' },
+  { status: 'Removed', label: 'Removed', description: 'Left the audience after the campaign had emailed them.' },
 ];
 
 /**
- * The Active state as a stopped campaign shows it: its Active leads send
- * nothing until a restart, which continues each from its step.
+ * The Active state as a stopped campaign shows it: its Active leads get nothing
+ * until a restart, which continues each from its step.
  */
 export const STOPPED_ACTIVE_STATE: EnrollmentState = {
-  status: 'Active', label: 'Stopped', description: 'Still to get a step; the campaign continues them from it on restart', color: '#94A3B8',
+  status: 'Active', label: 'Stopped', description: 'Still to get a step. A restart continues each from the step it was on.',
 };
 
 /**

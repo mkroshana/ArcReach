@@ -150,7 +150,8 @@ describe("each step's stats use the campaign's definitions", () => {
 
     expect(stepStats[0]).toMatchObject({
       stepOrder: 1, sent: 4, failed: 1, leads: 4,
-      delivered: 1, deliveryRate: 25,
+      // Reports arrived for d1, d2 and d5; none yet for d4.
+      delivered: 1, deliveryRate: 25, reported: 3,
       // Reached: d1 (delivered) and d4 (no report); d2 and d5 bounced.
       opened: 1, openRate: 50, clicked: 0,
       // Hard bounces d2 and d3, over the 4 sent and the 1 bounced at send time.
@@ -159,7 +160,7 @@ describe("each step's stats use the campaign's definitions", () => {
       replied: 1, replyRate: 25,
     });
     expect(stepStats[1]).toMatchObject({
-      stepOrder: 2, sent: 3, leads: 2, opened: 1, clicked: 1, openRate: 33.3, clickRate: 33.3,
+      stepOrder: 2, sent: 3, leads: 2, reported: 0, opened: 1, clicked: 1, openRate: 33.3, clickRate: 33.3,
       bounced: 0, unsubscribed: 0, replied: 0, replyRate: 0,
     });
     expect(stepStats[2]).toMatchObject({ stepOrder: 3, sent: 0, leads: 0, replied: 0, replyRate: 0 });

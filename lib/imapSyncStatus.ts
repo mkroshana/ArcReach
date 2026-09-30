@@ -47,6 +47,30 @@ export const MICROSOFT_IMAP_NOTE =
   'Microsoft 365 and Outlook.com no longer accept password sign-in over IMAP, so reply sync cannot log in to them.';
 
 /**
+ * The reply-sync states of the mailboxes that receive a campaign's replies: the sender
+ * pool's mailboxes, and for one with a Reply-To, the mailbox (among `mailboxes`) with
+ * that address.
+ */
+function replyReceiverStates(pool: ImapSyncFields[], mailboxes: ImapSyncFields[]): ImapSyncState[] {
+  const receivers = pool.flatMap((mailbox) => {
+    const replyTo = mailbox.replyTo?.trim().toLowerCase();
+    const target = replyTo ? mailboxes.find((m) => m.emailAddress?.trim().toLowerCase() === replyTo) : undefined;
+    return target ? [mailbox, target] : [mailbox];
+  });
+  return receivers.map(imapSyncState);
+}
+
+/**
+ * Whether a campaign's replies are read: 'ok' when a mailbox that receives them has a
+ * working reply sync, else the best of the others ('waiting', then 'failing'), or 'off'
+ * when none has IMAP set up or the campaign has no sender.
+ */
+export function replySyncState(pool: ImapSyncFields[], mailboxes: ImapSyncFields[] = pool): ImapSyncState {
+  const states = replyReceiverStates(pool, mailboxes);
+  return (['ok', 'waiting', 'failing'] as const).find((state) => states.includes(state)) ?? 'off';
+}
+
+/**
  * Why a campaign that pauses leads on reply would never pause anyone: no mailbox that
  * receives its replies has a working reply sync, so no reply is ever read. Replies go
  * to the sender pool's mailboxes, and for one with a Reply-To, to the mailbox (among
@@ -55,12 +79,7 @@ export const MICROSOFT_IMAP_NOTE =
  */
 export function stopOnReplyWarning(stopOnReply: boolean, pool: ImapSyncFields[], mailboxes: ImapSyncFields[] = pool): string | null {
   if (!stopOnReply || pool.length === 0) return null;
-  const receivers = pool.flatMap((mailbox) => {
-    const replyTo = mailbox.replyTo?.trim().toLowerCase();
-    const target = replyTo ? mailboxes.find((m) => m.emailAddress?.trim().toLowerCase() === replyTo) : undefined;
-    return target ? [mailbox, target] : [mailbox];
-  });
-  const states = receivers.map(imapSyncState);
+  const states = replyReceiverStates(pool, mailboxes);
   if (states.includes('ok')) return null;
   const effect = 'so replies are not read and Pause Sequence on Reply cannot pause anyone';
   if (states.includes('failing')) {

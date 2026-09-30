@@ -223,6 +223,8 @@ export type StepMetrics = {
   unsubscribed: number;
   bounceRate: number;
   unsubscribeRate: number;
+  /** Sent emails any delivery report arrived for. With none, `delivered` and its rate say nothing yet. */
+  reported: number;
   /** The leads the sent emails went to, each once however many times it was sent the email. */
   leads: number;
   /** The leads who replied after it (repliedLeadsBy), as a share of `leads`. */
@@ -234,7 +236,7 @@ export type StepMetrics = {
 export type SendMetricsOptions = {
   /** Opens and clicks. */
   engagement?: boolean;
-  /** Hard bounces and unsubscribes. */
+  /** Hard bounces, unsubscribes and how many emails a delivery report arrived for. */
   health?: boolean;
   /** Leads emailed, counted once each. */
   leads?: boolean;
@@ -244,12 +246,12 @@ export type SendMetricsOptions = {
 
 type SendCounts = {
   sent: number; delivered: number; failed: number; reached: number; opened: number; clicked: number;
-  bounced: number; bounceBase: number; unsubscribed: number; leads: number; replied: number;
+  bounced: number; bounceBase: number; unsubscribed: number; reported: number; leads: number; replied: number;
 };
 
 const NO_SENDS: SendCounts = {
   sent: 0, delivered: 0, failed: 0, reached: 0, opened: 0, clicked: 0,
-  bounced: 0, bounceBase: 0, unsubscribed: 0, leads: 0, replied: 0,
+  bounced: 0, bounceBase: 0, unsubscribed: 0, reported: 0, leads: 0, replied: 0,
 };
 
 /** The column a campaign's sends break down by: the step they were, or the mailbox that sent them. */
@@ -326,7 +328,7 @@ async function sendCountsBy(
   const countIf = (wanted: boolean | undefined, where: Prisma.EmailDispatchWhereInput) =>
     wanted ? countBy(where) : Promise.resolve([]);
 
-  const [byStatus, delivered, reached, opened, clicked, bounced, bounceBase, unsubscribed, leads, replied] = await Promise.all([
+  const [byStatus, delivered, reached, opened, clicked, bounced, bounceBase, unsubscribed, reported, leads, replied] = await Promise.all([
     client.emailDispatch.groupBy({ by: ['campaignId', group, 'status'], where: sends, _count: { id: true } }),
     countBy({ AND: [sent, DELIVERED] }),
     countIf(options.engagement, { AND: [sent, REACHED] }),
@@ -336,6 +338,7 @@ async function sendCountsBy(
     countIf(options.health, { AND: [sends, hardBounceWhere()] }),
     countIf(options.health, { AND: [sends, { OR: [SENT, hardBounceWhere()] }] }),
     countIf(options.health, { AND: [sends, { events: { some: { eventType: UNSUBSCRIBE_EVENT } } }] }),
+    countIf(options.health, { AND: [sent, { deliveryStatus: { not: null } }] }),
     options.leads ? distinctLeadsBy(client, campaignIds, group) : Promise.resolve([]),
     options.replies ? repliedLeadsBy(client, campaignIds, group) : Promise.resolve([]),
   ]);
@@ -365,6 +368,7 @@ async function sendCountsBy(
   add('bounced', bounced as GroupRow[]);
   add('bounceBase', bounceBase as GroupRow[]);
   add('unsubscribed', unsubscribed as GroupRow[]);
+  add('reported', reported as GroupRow[]);
   for (const row of leads) at(row.campaignId, row.value ?? null).leads += Number(row.leads);
   for (const row of replied) at(row.campaignId, row.value ?? null).replied += Number(row.leads);
   return groups;
@@ -385,6 +389,7 @@ function sendMetrics(c: SendCounts = NO_SENDS): StepMetrics {
     unsubscribed: c.unsubscribed,
     bounceRate: percent(c.bounced, c.bounceBase),
     unsubscribeRate: percent(c.unsubscribed, c.sent),
+    reported: c.reported,
     leads: c.leads,
     replied: c.replied,
     replyRate: percent(c.replied, c.leads),

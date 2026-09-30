@@ -62,7 +62,7 @@ vi.mock('../../lib/db', () => ({
 import { prisma } from '../../lib/db';
 import { encryptSecret } from '../../lib/secrets';
 import { getActiveImapAccounts, imapSyncFailureMessage, syncMailboxReplies } from '../../lib/imapService';
-import { IMAP_SYNC_LABELS, MICROSOFT_IMAP_NOTE, imapSyncState, isMicrosoftImapHost, stopOnReplyWarning } from '../../lib/imapSyncStatus';
+import { IMAP_SYNC_LABELS, MICROSOFT_IMAP_NOTE, imapSyncState, isMicrosoftImapHost, replySyncState, stopOnReplyWarning } from '../../lib/imapSyncStatus';
 
 const mocked = prisma as any;
 
@@ -308,5 +308,25 @@ describe('stopOnReplyWarning (M21)', () => {
     const sender = { ...off, replyTo: 'OK@acme.test ' };
     expect(stopOnReplyWarning(true, [sender], [sender, ok])).toBeNull();
     expect(stopOnReplyWarning(true, [{ ...off, replyTo: 'failing@acme.test' }], [off, failing])).toMatch(/^Reply sync is failing/);
+  });
+});
+
+describe('replySyncState', () => {
+  const imap = { status: 'Active', imapHost: 'imap.example.com', imapPort: 993, imapUser: 'u', imapPass: '********' };
+  const ok = { ...imap, emailAddress: 'ok@acme.test', imapLastSyncAt: '2026-09-30T08:00:00Z' };
+  const failing = { ...imap, emailAddress: 'failing@acme.test', imapLastSyncError: 'Timed out' };
+  const waiting = { ...imap, emailAddress: 'waiting@acme.test' };
+  const off = { emailAddress: 'off@acme.test', status: 'Active' };
+
+  it("is the best state among the mailboxes that receive a campaign's replies", () => {
+    expect(replySyncState([off, failing, ok])).toBe('ok');
+    expect(replySyncState([off, failing, waiting])).toBe('waiting');
+    expect(replySyncState([off, failing])).toBe('failing');
+    expect(replySyncState([off])).toBe('off');
+    expect(replySyncState([])).toBe('off');
+  });
+
+  it('counts the mailbox a sender sets as Reply-To', () => {
+    expect(replySyncState([{ ...off, replyTo: 'ok@acme.test' }], [off, ok])).toBe('ok');
   });
 });

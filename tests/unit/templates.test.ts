@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { personalizeEmail, personalizePreview } from '../../lib/personalize';
+import { isDispatchForStep } from '../../lib/dispatchAudit';
 
 // The template and campaign editors preview a subject with personalizePreview.
 describe('Template Resolver Logic', () => {
@@ -32,39 +33,7 @@ describe('Template Resolver Logic', () => {
   });
 });
 
-function isDispatchForStep(dispatchSubject: string, stepSubject: string) {
-  if (!dispatchSubject || !stepSubject) return false;
-  
-  const cleanStep = stepSubject.trim().toLowerCase();
-  const cleanDispatch = dispatchSubject.trim().toLowerCase();
-  
-  if (cleanDispatch === cleanStep) return true;
-  
-  // Convert step subject to a regex pattern
-  // 1. Escape special regex characters
-  let pattern = cleanStep.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-  
-  // 2. Make spaces flexible (allowing optional spaces only at word boundaries)
-  pattern = pattern.replace(/\s+/g, '(?:\\s+|\\b)');
-  
-  // 3. Replace escaped variable markers `\{\{[^}]+\}\}` with wildcards `.*`
-  pattern = pattern.replace(/\\\{\\\{[^}]+\\\}\\\}/g, '.*');
-  
-  // 4. Replace escaped spintax `\{option1\|option2\}` with regex group `(option1|option2)`
-  pattern = pattern.replace(/\\\{([^{}]+)\\\}/g, (match, optionsEscaped) => {
-    // Unescape the pipe character for the regex group
-    const options = optionsEscaped.replace(/\\\|/g, '|');
-    return `(${options})`;
-  });
-  
-  try {
-    const regex = new RegExp(`^${pattern}\\s*\\.*\\!*\\??$`);
-    return regex.test(cleanDispatch);
-  } catch (e) {
-    return cleanDispatch.includes(cleanStep.replace(/\{\{[^}]+\}\}/g, '').replace(/\{[^}]+\}/g, '').trim());
-  }
-}
-
+// scripts/audit-dispatches.ts infers a legacy dispatch's step with isDispatchForStep.
 describe('isDispatchForStep Heuristic', () => {
   it('should match exact subjects', () => {
     expect(isDispatchForStep('Outreach', 'Outreach')).toBe(true);

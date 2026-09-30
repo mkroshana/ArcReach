@@ -64,7 +64,7 @@ import {
   describeLeadImport,
   type LeadImportTotals
 } from '@/lib/leadImport';
-import { SUPPRESSION_LABELS } from '@/lib/suppression';
+import { OPT_OUT_REASONS, SUPPRESSION_LABELS } from '@/lib/suppression';
 import { DOMAIN_CHECK_BATCH_SIZE, type DomainCheckCounts } from '@/lib/domainCheck';
 import {
   LEAD_PAGE_MAX,
@@ -600,7 +600,7 @@ export default function LeadsPage() {
       title: 'Remove From Suppression List',
       message: `Remove ${lead.email} from the suppression list? ${describeSuppression(entry)} ` +
         (optOut
-          ? 'The lead goes back to Neutral, and campaigns targeting it can enroll and email it again. Only do this if the recipient has asked to hear from you again.'
+          ? 'The lead goes back to Neutral, campaigns targeting it can enroll and email it again, and Unibox replies to it are no longer blocked. Only do this if the recipient has asked to hear from you again.'
           : 'The lead goes back to Neutral and Unverified so it can be verified again, and campaigns targeting it can enroll and email it again.') +
         ' Paused and failed campaign sequences stay as they are.',
       confirmLabel: 'Remove',
@@ -2257,7 +2257,10 @@ export default function LeadsPage() {
                             <SuppressionChip lead={leadDetails} />
                           </div>
                           <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
-                            {describeSuppression(leadDetails.suppression)} Campaigns never enroll or email this address, whatever the lead&apos;s status.
+                            {describeSuppression(leadDetails.suppression)}{' '}
+                            {OPT_OUT_REASONS.includes(leadDetails.suppression.reason)
+                              ? "ArcReach never emails this address: campaigns never enroll it and Unibox replies to it are blocked, whatever the lead's status."
+                              : "Campaigns never enroll or email this address, whatever the lead's status."}
                           </p>
                           {isAdmin ? (
                             <button

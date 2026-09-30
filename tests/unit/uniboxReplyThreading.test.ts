@@ -7,6 +7,7 @@ vi.mock('../../lib/db', () => ({
     inboundResponse: { findFirst: vi.fn() },
     globalSettings: { findUnique: vi.fn(), findFirst: vi.fn() },
     emailDispatch: { create: vi.fn(), count: vi.fn() },
+    suppressedEmail: { findMany: vi.fn() },
   },
 }));
 
@@ -146,6 +147,7 @@ describe('POST /api/unibox/reply threading (M58)', () => {
     mockedPrisma.senderAccount.findUnique.mockResolvedValue(MAILBOX);
     mockedPrisma.inboundResponse.findFirst.mockImplementation(async ({ where }: any) => (where.id === 'in-2' ? answered : null));
     mockedPrisma.emailDispatch.count.mockResolvedValue(0);
+    mockedPrisma.suppressedEmail.findMany.mockResolvedValue([]);
     mockedPrisma.emailDispatch.create.mockImplementation(async ({ data }: any) => ({ id: 'dispatch-1', ...data }));
   });
 

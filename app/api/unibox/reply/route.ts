@@ -8,6 +8,7 @@ import { sendMessage, sendingDisabledReason } from '@/lib/emailProvider';
 import { findDirectSender } from '@/lib/senderOwnership';
 import { senderCapReachedReason } from '@/lib/sendEngine';
 import { normalizeEmail } from '@/lib/leadEmail';
+import { replyBlockedReason, suppressionEntries } from '@/lib/suppression';
 import { replyScope } from '@/lib/leadHistoryScope';
 import { replySubject, replyThreadingHeaders } from '@/lib/replyThreading';
 
@@ -16,7 +17,8 @@ import { replySubject, replyThreadingHeaders } from '@/lib/replyThreading';
  * `body` as plain text, from the mailbox `senderAccountId` names. It goes out
  * under "Re: " and the answered reply's subject, with In-Reply-To and
  * References naming that reply so the lead's mail client threads it, and is
- * recorded against the mailbox and the answered reply's campaign.
+ * recorded against the mailbox and the answered reply's campaign. A lead that
+ * opted out (replyBlockedReason) is refused with 409 and sent nothing.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -45,12 +47,19 @@ export async function POST(req: NextRequest) {
       where: { id: responseId, ...replyScope(session) },
       select: {
         leadId: true, campaignId: true, subject: true, messageId: true, references: true,
-        lead: { select: { email: true } }
+        lead: { select: { email: true, status: true } }
       }
     });
 
     if (!answered) {
       return NextResponse.json({ error: 'Reply not found.' }, { status: 404 });
+    }
+
+    // Nothing goes to a person who unsubscribed or complained, a reply included
+    const suppression = (await suppressionEntries(prisma, [answered.lead.email])).get(normalizeEmail(answered.lead.email)) ?? null;
+    const blocked = replyBlockedReason({ status: answered.lead.status, suppression });
+    if (blocked) {
+      return NextResponse.json({ error: blocked }, { status: 409 });
     }
 
     // Fetch global settings; only Azure Communication Services sends

@@ -39,6 +39,40 @@ export const SUPPRESSION_LABELS: Record<SuppressionReason, { chip: string; cause
   Invalid: { chip: 'Invalid', cause: 'it failed verification' },
 };
 
+/** Reasons that are the recipient's own opt-out (an unsubscribe or a spam complaint): ArcReach sends the address nothing, Unibox replies included. */
+export const OPT_OUT_REASONS: SuppressionReason[] = ['Unsubscribed', 'Complaint'];
+
+/** A date as replyBlockedReason names it unless told otherwise: "Sep 30, 2026", in UTC. */
+function utcDate(date: Date): string {
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+}
+
+/**
+ * Why a reply from Unibox may not be sent to the lead, or null when it may: the
+ * lead opted out. Its suppression-list entry says so (OPT_OUT_REASONS), or its
+ * status Unsubscribed does, which only an opt-out writes (suppressedLeadFields)
+ * and which a lead that unsubscribed before the list was backfilled has with
+ * no entry. A hard bounce or failed verification stops campaigns, not a reply.
+ * It names the entry's date, written by `formatDate`, unless the backfill
+ * recorded the entry, whose date is only the backfill's. POST
+ * /api/unibox/reply refuses a reply with it, and Unibox shows it in place of
+ * the reply composer.
+ */
+export function replyBlockedReason(
+  lead: { status?: string | null; suppression?: { reason: SuppressionReason; source: string; createdAt: Date | string } | null },
+  formatDate: (date: Date) => string = utcDate,
+): string | null {
+  const entry = lead.suppression;
+  if (entry && OPT_OUT_REASONS.includes(entry.reason)) {
+    const on = entry.source === 'backfill' ? '' : ` on ${formatDate(new Date(entry.createdAt))}`;
+    return entry.reason === 'Complaint'
+      ? `This person reported an email as spam${on}, which unsubscribed them. Replies to them are blocked.`
+      : `This person unsubscribed${on}. Replies to them are blocked.`;
+  }
+  if (lead.status === 'Unsubscribed') return 'This person unsubscribed. Replies to them are blocked.';
+  return null;
+}
+
 /**
  * Most addresses one suppression-list read or write names: a large cohort
  * takes few round trips inside its enrollment transaction, and a write of

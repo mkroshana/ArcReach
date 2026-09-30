@@ -8,6 +8,7 @@ vi.mock('../../lib/db', () => ({
     lead: { findUnique: vi.fn() },
     globalSettings: { findUnique: vi.fn(), findFirst: vi.fn() },
     emailDispatch: { create: vi.fn(), count: vi.fn() },
+    suppressedEmail: { findMany: vi.fn() },
   },
 }));
 
@@ -87,6 +88,7 @@ beforeEach(() => {
     where.senderAccountId ? (mailboxSent[where.senderAccountId] ?? 0) : globalSent,
   );
   mockedPrisma.senderAccount.updateMany.mockResolvedValue({ count: 1 });
+  mockedPrisma.suppressedEmail.findMany.mockResolvedValue([]);
   useMailbox(WARMING);
 });
 

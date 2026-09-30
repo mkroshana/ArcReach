@@ -12,7 +12,7 @@ import {
   Tooltip as MuiTooltip,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
-import { CRM_STATUSES, SUPPRESSION_LABELS } from '@/lib/suppression';
+import { CRM_STATUSES, OPT_OUT_REASONS, SUPPRESSION_LABELS, replyBlockedReason } from '@/lib/suppression';
 
 const statusColorMap: Record<string, 'success' | 'error' | 'primary' | 'warning' | 'default' | 'info'> = {
   Interested: 'success',
@@ -41,6 +41,11 @@ const autoReplyLabels: Record<string, string> = {
   'auto-reply': 'Auto-Reply',
 };
 
+/** Whether the lead's suppression is its own opt-out (an unsubscribe or a spam complaint), so replies to it are blocked too. */
+function isOptOut(lead: any): boolean {
+  return !!lead?.suppression && OPT_OUT_REASONS.includes(lead.suppression.reason);
+}
+
 /**
  * The thread lead's suppression, from the suppression list whatever its CRM
  * status says, or null: the chip label and a line on why it is never emailed.
@@ -51,7 +56,7 @@ function leadSuppression(lead: any): { chip: string; color: 'warning' | 'error';
   return {
     chip: label.chip,
     color: label.chip === 'Unsubscribed' ? 'warning' : 'error',
-    detail: `On the suppression list because ${label.cause}. Campaigns never email this address, whatever the lead status.`,
+    detail: `On the suppression list because ${label.cause}. ${isOptOut(lead) ? 'ArcReach never emails this address, campaigns and replies alike' : 'Campaigns never email this address'}, whatever the lead status.`,
   };
 }
 
@@ -318,6 +323,8 @@ export default function UniboxPage() {
   const selectedEmail = replies.find(e => e.id === selectedId);
   const selectedMessages: any[] | undefined = selectedId ? threadMessages[selectedId] : undefined;
   const selectedSuppression = leadSuppression(selectedEmail?.lead);
+  // Why the thread's lead may not be replied to (it opted out), or null; the server refuses such a reply too
+  const replyBlocked = selectedEmail ? replyBlockedReason(selectedEmail.lead ?? {}, date => date.toLocaleDateString()) : null;
   // The thread's enrollments Pause and Resume can change; finished ones (Completed, Bounced, ...) keep their status
   const selectedSequence: any[] = (selectedEmail?.lead?.enrollments || []).filter((e: any) => e.status === 'Active' || e.status === 'Paused');
   const sequencePaused = selectedSequence.some((e: any) => e.status === 'Paused');
@@ -394,7 +401,7 @@ export default function UniboxPage() {
       if (res.ok) {
         setReplies(prev => prev.map(item => item.id === selectedId ? { ...item, lead: { ...item.lead, status: statusKey } } : item));
         showToast(selectedEmail.lead?.suppression
-          ? `Lead status updated to ${readableStatus[statusKey]}. The address stays on the suppression list, so campaigns never email it.`
+          ? `Lead status updated to ${readableStatus[statusKey]}. The address stays on the suppression list, so ${isOptOut(selectedEmail.lead) ? 'ArcReach never emails it, replies included' : 'campaigns never email it'}.`
           : `Lead status updated to ${readableStatus[statusKey]}`);
       } else {
         const data = await res.json().catch(() => ({}));
@@ -432,7 +439,7 @@ export default function UniboxPage() {
   };
 
   const handleDispatchReply = async () => {
-    if (!selectedEmail || !answeredReply || !currentReplyText.trim() || sendingReply) return;
+    if (!selectedEmail || !answeredReply || !currentReplyText.trim() || sendingReply || replyBlocked) return;
     setSendingReply(true);
     try {
       // The server titles it "Re: " and the answered reply's subject and threads it under that reply
@@ -687,20 +694,27 @@ export default function UniboxPage() {
                     Reply to {selectedEmail.lead?.name?.split(' ')[0] || 'Prospect'}
                   </Typography>
                 </Stack>
-                <TextField
-                  multiline minRows={3} fullWidth
-                  value={currentReplyText}
-                  onChange={(e) => setReplyText(e.target.value)}
-                  placeholder="Type your reply here..."
-                  variant="standard"
-                  slotProps={{ input: { disableUnderline: true, sx: { px: 2, py: 1.5, fontFamily: 'monospace', fontSize: 12, lineHeight: 1.6 } } }}
-                />
+                {/* A lead that opted out is never replied to: the composer explains that instead of taking a reply */}
+                {replyBlocked ? (
+                  <Typography variant="caption" sx={{ display: 'block', px: 2, py: 1.5, minHeight: 82, color: 'text.secondary', lineHeight: 1.6 }}>
+                    {replyBlocked}
+                  </Typography>
+                ) : (
+                  <TextField
+                    multiline minRows={3} fullWidth
+                    value={currentReplyText}
+                    onChange={(e) => setReplyText(e.target.value)}
+                    placeholder="Type your reply here..."
+                    variant="standard"
+                    slotProps={{ input: { disableUnderline: true, sx: { px: 2, py: 1.5, fontFamily: 'monospace', fontSize: 12, lineHeight: 1.6 } } }}
+                  />
+                )}
                 <Stack direction="row" sx={{ justifyContent: 'flex-end', alignItems: 'center', px: 1.5, py: 1, borderTop: 1, borderColor: 'divider' }}>
                   <Button
                     variant="contained" size="small"
                     startIcon={sendingReply ? <CircularProgress size={14} color="inherit" /> : <Send size={14} />}
                     onClick={handleDispatchReply}
-                    disabled={sendingReply || !answeredReply}
+                    disabled={sendingReply || !answeredReply || !!replyBlocked}
                   >
                     Send Reply
                   </Button>

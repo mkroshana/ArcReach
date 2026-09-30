@@ -8,6 +8,7 @@ import { MAILBOX_SECRET_OMIT } from '@/lib/mailboxSecrets';
 import { checkAudienceCohort, syncCohortEnrollments } from '@/lib/campaignCohort';
 import { activationBlocker, changesStepStructure, matchStoredSteps, STEP_STRUCTURE_LOCKED_ERROR } from '@/lib/campaignSteps';
 import { CAMPAIGN_OWNER_DISABLED_ERROR, CAMPAIGN_STATUSES, userStatusPause } from '@/lib/campaignPause';
+import { CAMPAIGN_STOPPED_ERROR, isStopped } from '@/lib/campaignStop';
 import { CAMPAIGN_CHANGED_ERROR, nextCampaignVersion, parseCampaignVersion, sameCampaignVersion } from '@/lib/campaignVersion';
 import { SCHEDULE_REQUIRED_ERROR, hasSendingSchedule, parseSendSchedule, sendScheduleError, timezoneError } from '@/lib/sendSchedule';
 import { fieldRules } from '@/lib/updateAllowList';
@@ -244,6 +245,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
     if (session.role !== 'ADMIN' && campaign.userId !== session.id) {
       return NextResponse.json({ error: 'Unauthorized modification attempt.' }, { status: 403 });
+    }
+
+    // A stopped campaign can't be edited until it is restarted (lib/campaignStop).
+    if (isStopped(campaign)) {
+      return NextResponse.json({ error: CAMPAIGN_STOPPED_ERROR }, { status: 409 });
     }
 
     const body = await req.json();

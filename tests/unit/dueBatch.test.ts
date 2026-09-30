@@ -157,13 +157,16 @@ describe('loadDueEnrollments shares each send cycle between campaigns (H10)', ()
     }
   });
 
-  it('leaves out campaigns with no steps, not Active or with a disabled owner, rows not yet due and leads that must not be sent', async () => {
+  it('leaves out campaigns with no steps, not Active (Paused or Stopped) or with a disabled owner, rows not yet due and leads that must not be sent', async () => {
     addCampaign('cmp-stepless', { steps: [] });
     addCampaign('cmp-paused', { status: 'Paused' });
+    // Stopping leaves the campaign's enrollments Active, so only its status keeps them unsent.
+    addCampaign('cmp-stopped', { status: 'Stopped' });
     addCampaign('cmp-owner-disabled', { user: { disabledAt: minutesAgo(10) } });
     addCampaign('cmp-live');
     enroll('cmp-stepless', 200, (i) => 5000 - i);
     enroll('cmp-paused', 200, (i) => 5000 - i);
+    enroll('cmp-stopped', 200, (i) => 5000 - i);
     enroll('cmp-owner-disabled', 200, (i) => 5000 - i);
     enroll('cmp-live', 3, (i) => 30 - i);
     enroll('cmp-live', 2, () => -30); // due in half an hour

@@ -6,16 +6,19 @@ import { checkCampaignSenders, checkReassignedCampaignSenders } from '@/lib/send
 import { checkAudienceCohort, cohortLeadWhere } from '@/lib/campaignCohort';
 import { activationBlocker } from '@/lib/campaignSteps';
 import { CAMPAIGN_OWNER_DISABLED_ERROR, CAMPAIGN_STATUSES, userStatusPause } from '@/lib/campaignPause';
+import { STOPPED_STATUS, stopChangeError, stoppedAtChange } from '@/lib/campaignStop';
 import { SCHEDULE_REQUIRED_ERROR, hasSendingSchedule, isValidTimezone } from '@/lib/sendSchedule';
 import { findEnrollableLeadIds } from '@/lib/sendEligibility';
 import { type FieldRule, fieldRules, isPlainObject, pickUpdateFields } from '@/lib/updateAllowList';
 
 /** Scalar columns the collection PUT may write. Sender mailboxes, audience and
  *  steps are edited through /api/campaigns/[id]; pausedUntil and pauseReason
- *  are set by the send engine and cleared by a status the caller sets. */
+ *  are set by the send engine and cleared by a status the caller sets, and
+ *  stoppedAt is written with a stop or a restart. Only this route stops a
+ *  campaign (status Stopped) or restarts one (Stopped to Active). */
 const CAMPAIGN_UPDATE_FIELDS: Record<string, FieldRule> = {
   name: fieldRules.nonEmptyString,
-  status: fieldRules.oneOf(CAMPAIGN_STATUSES),
+  status: fieldRules.oneOf([...CAMPAIGN_STATUSES, STOPPED_STATUS]),
   // The send engine keeps a window in an unknown timezone closed, as PUT /api/campaigns/[id] checks.
   timezone: { expected: 'a valid timezone such as America/New_York or UTC', valid: isValidTimezone },
   stopOnReply: fieldRules.boolean,
@@ -148,6 +151,13 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized to modify this campaign.' }, { status: 403 });
     }
 
+    // A stopped campaign takes no change but a restart (status Active), and
+    // only an Active or Paused campaign may be stopped (lib/campaignStop).
+    const stopError = stopChangeError(target.status, updates);
+    if (stopError) {
+      return NextResponse.json({ error: stopError }, { status: 409 });
+    }
+
     // An Active campaign mails every step as stored, so it needs complete steps,
     // and sends only inside its sending window, so it needs a complete one.
     if (updates.status === 'Active') {
@@ -162,9 +172,12 @@ export async function PUT(req: NextRequest) {
 
     // Callers send only the fields they change, so a status here is the user's
     // choice and cancels any auto-resume the send engine scheduled. Sending
-    // Paused for a campaign the engine paused is Keep Paused.
+    // Paused for a campaign the engine paused is Keep Paused. A stop records
+    // when it happened, and a restart clears that.
     if (updates.status !== undefined) {
       Object.assign(updates, userStatusPause(updates.status));
+      const stoppedAt = stoppedAtChange(target.status, updates.status);
+      if (stoppedAt !== undefined) updates.stoppedAt = stoppedAt;
     }
 
     let ownerDisabled = !!target.user?.disabledAt;

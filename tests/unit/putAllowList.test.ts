@@ -118,7 +118,7 @@ describe('PUT /api/campaigns', () => {
   it('rejects a status outside the set the app uses', async () => {
     const res = await putCampaign(makeReq('/api/campaigns', { id: 'cmp-1', status: 'Running' }));
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toBe('Field "status" must be one of Draft, Active, Paused.');
+    expect((await res.json()).error).toBe('Field "status" must be one of Draft, Active, Paused, Stopped.');
   });
 
   it('writes exactly the status sent by the campaign list toggle, clearing any auto-resume (H8)', async () => {

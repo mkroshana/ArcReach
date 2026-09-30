@@ -116,6 +116,7 @@ export const db = {
         status: true,
         pausedUntil: true,
         pauseReason: true,
+        stoppedAt: true,
         timezone: true,
         sendSchedule: true,
         userId: true,

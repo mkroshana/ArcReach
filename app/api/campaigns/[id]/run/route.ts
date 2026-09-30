@@ -7,6 +7,7 @@ import { UnauthorizedError, unauthorizedResponse } from '@/lib/sessionError';
 import { sendingDisabledReason } from '@/lib/emailProvider';
 import { sendableEnrollmentWhere, withoutSuppressedLeads } from '@/lib/sendEligibility';
 import { CAMPAIGN_OWNER_DISABLED_ERROR } from '@/lib/campaignPause';
+import { isStopped } from '@/lib/campaignStop';
 import { SCHEDULE_REQUIRED_ERROR, hasSendingSchedule } from '@/lib/sendSchedule';
 
 /** Most enrollments one queueing write names by id. */
@@ -50,7 +51,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (campaign.status !== 'Active') {
       return NextResponse.json({
         success: false,
-        error: 'Campaign is not active. Please publish the sequence before executing a manual run.'
+        error: isStopped(campaign)
+          ? 'This campaign is stopped. Restart it before running it.'
+          : 'Campaign is not active. Please publish the sequence before executing a manual run.'
       }, { status: 409 });
     }
 

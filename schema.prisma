@@ -114,6 +114,8 @@ model SenderAccount {
 model Campaign {
   id              String               @id @default(uuid())
   name            String
+  // Draft, Active, Paused or Stopped. Only Active sends. A user stops an Active
+  // or Paused campaign, and restarting it makes it Active again (lib/campaignStop).
   status          String               @default("Draft")
   
   // Ownership
@@ -137,6 +139,9 @@ model Campaign {
   // engine paused it (with pausedUntil), 'user' when a user did,
   // 'owner_disabled' when its owner was disabled. Null otherwise.
   pauseReason     String?
+  // When a user stopped the campaign; null unless it is Stopped. Any other
+  // status a user sets, a restart included, clears it.
+  stoppedAt       DateTime?
 
   // Advanced scheduling and options (From original schema & UI elements)
   timezone        String               @default("UTC")

@@ -5,13 +5,10 @@ import { UnauthorizedError, unauthorizedResponse } from '@/lib/sessionError';
 import { checkCampaignSenders, checkReassignedCampaignSenders } from '@/lib/senderOwnership';
 import { checkAudienceCohort, cohortLeadWhere } from '@/lib/campaignCohort';
 import { activationBlocker } from '@/lib/campaignSteps';
-import { userStatusPause } from '@/lib/campaignPause';
+import { CAMPAIGN_STATUSES, userStatusPause } from '@/lib/campaignPause';
 import { isValidTimezone } from '@/lib/sendSchedule';
 import { findEnrollableLeadIds } from '@/lib/sendEligibility';
 import { type FieldRule, fieldRules, isPlainObject, pickUpdateFields } from '@/lib/updateAllowList';
-
-/** Campaign statuses the app sets and the UI offers. */
-const CAMPAIGN_STATUSES = ['Draft', 'Active', 'Paused'];
 
 /** Scalar columns the collection PUT may write. Sender mailboxes, audience and
  *  steps are edited through /api/campaigns/[id]; pausedUntil and pauseReason
@@ -50,6 +47,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Name and sender mailbox are required.' }, { status: 400 });
     }
 
+    // A new campaign has no steps, and only one with complete steps may be Active.
+    if (status !== undefined && status !== 'Draft') {
+      return NextResponse.json({ error: 'New campaigns start as Draft. Add complete steps, then publish the campaign.' }, { status: 400 });
+    }
+
     // Standard users can only create campaigns owned by themselves
     const targetUserId = session.role === 'ADMIN' ? (userId || session.id) : session.id;
     if (typeof targetUserId !== 'string') {
@@ -70,7 +72,7 @@ export async function POST(req: NextRequest) {
 
     const newCampaign = await db.createCampaign({
       name,
-      status: status || 'Draft',
+      status: 'Draft',
       senderAccountId,
       userId: targetUserId,
       audienceCohort: selectedCohort,
@@ -166,7 +168,10 @@ export async function PUT(req: NextRequest) {
     }
 
     const updated = await db.updateCampaign(id, updates);
-    return NextResponse.json(updated);
+    // previousUpdatedAt is the version this change replaced: the campaign page
+    // takes on the new version only when that is the one it loaded, so its next
+    // Save still refuses to overwrite a change made elsewhere.
+    return NextResponse.json({ ...updated, previousUpdatedAt: target.updatedAt });
   } catch (error: any) {
     if (error instanceof UnauthorizedError) return unauthorizedResponse();
     return NextResponse.json({ error: error.message }, { status: 500 });

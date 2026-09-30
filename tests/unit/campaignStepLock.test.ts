@@ -7,7 +7,7 @@ import { NextRequest } from 'next/server';
  * tests check the step rows (ids and stepOrder) a save leaves behind.
  */
 const fake = vi.hoisted(() => ({
-  campaign: { findUnique: vi.fn(), update: vi.fn() },
+  campaign: { findUnique: vi.fn(), updateMany: vi.fn() },
   campaignSenderAccount: { deleteMany: vi.fn(), createMany: vi.fn() },
   campaignStep: { findMany: vi.fn(), update: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
   campaignEnrollment: { count: vi.fn(), groupBy: vi.fn() },
@@ -29,6 +29,7 @@ vi.mock('../../lib/session', () => ({
 import { getSession } from '../../lib/session';
 import { changesStepStructure, matchStoredSteps, STEP_STRUCTURE_LOCKED_ERROR } from '../../lib/campaignSteps';
 import { GET as getCampaign, PUT as putCampaign } from '../../app/api/campaigns/[id]/route';
+import { matchesWhere } from './helpers/prismaWhere';
 
 const USER = { id: 'user-1', name: 'User', email: 'user@example.com', role: 'USER' as const };
 
@@ -62,7 +63,11 @@ function makeReq(method: string, body?: unknown): NextRequest {
   });
 }
 
-const saveSteps = (steps: unknown[]) => putCampaign(makeReq('PUT', { steps }), params);
+/** A save naming the version it loaded (the stored one). */
+const save = (body: Record<string, unknown>) =>
+  putCampaign(makeReq('PUT', { updatedAt: (campaign.updatedAt as Date).toISOString(), ...body }), params);
+
+const saveSteps = (steps: unknown[]) => save({ steps });
 
 /** A lead that has moved on to step 2, so the campaign has started. */
 function startWithAdvancedLead() {
@@ -74,7 +79,10 @@ beforeEach(() => {
   vi.mocked(getSession).mockResolvedValue(USER);
   nextStepId = 0;
 
-  campaign = { id: 'cmp-1', userId: 'user-1', name: 'Launch', status: 'Active', audienceCohort: 'Valid', senderAccountId: 'mb-1' };
+  campaign = {
+    id: 'cmp-1', userId: 'user-1', name: 'Launch', status: 'Active', audienceCohort: 'Valid', senderAccountId: 'mb-1',
+    updatedAt: new Date('2026-09-01T10:00:00.000Z'),
+  };
   stepRows = [step('step-a', 1, 'A'), step('step-b', 2, 'B'), step('step-c', 3, 'C')];
   enrollments = [{ campaignId: 'cmp-1', currentSequenceStep: 1 }];
   dispatches = [];
@@ -82,7 +90,11 @@ beforeEach(() => {
   fake.campaign.findUnique.mockImplementation(async ({ include }: any) =>
     include ? { ...campaign, steps: [...stepRows].sort((a, b) => a.stepOrder - b.stepOrder), senders: [] } : { ...campaign },
   );
-  fake.campaign.update.mockImplementation(async ({ data }: any) => Object.assign(campaign, data));
+  fake.campaign.updateMany.mockImplementation(async ({ where, data }: any) => {
+    if (!matchesWhere(campaign, where)) return { count: 0 };
+    Object.assign(campaign, data);
+    return { count: 1 };
+  });
   fake.campaignStep.findMany.mockImplementation(async ({ where, orderBy, select }: any) => {
     expect(orderBy).toEqual({ stepOrder: 'asc' });
     return stepRows
@@ -206,7 +218,7 @@ describe('PUT /api/campaigns/[id] on a campaign that has started sending (H11)',
   it('still saves a status change without steps', async () => {
     startWithAdvancedLead();
 
-    const res = await putCampaign(makeReq('PUT', { status: 'Paused' }), params);
+    const res = await save({ status: 'Paused' });
 
     expect(res.status).toBe(200);
     expect(campaign.status).toBe('Paused');

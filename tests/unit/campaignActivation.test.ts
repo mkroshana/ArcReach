@@ -2,16 +2,19 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
 const fake = vi.hoisted(() => ({
-  campaign: { findUnique: vi.fn(), update: vi.fn() },
+  campaign: { findUnique: vi.fn(), updateMany: vi.fn() },
   campaignStep: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
   campaignSenderAccount: { deleteMany: vi.fn(), createMany: vi.fn() },
   campaignEnrollment: { count: vi.fn(), findMany: vi.fn(), update: vi.fn() },
   emailDispatch: { count: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
+  senderAccount: { findMany: vi.fn() },
+  lead: { findMany: vi.fn() },
+  suppressedEmail: { findMany: vi.fn() },
   $transaction: vi.fn(),
 }));
 
 vi.mock('../../lib/db', () => ({
-  db: { getCampaigns: vi.fn(), updateCampaign: vi.fn() },
+  db: { getCampaigns: vi.fn(), updateCampaign: vi.fn(), createCampaign: vi.fn() },
   prisma: fake,
 }));
 
@@ -38,8 +41,9 @@ import { getGlobalSettings } from '../../lib/settings';
 import { checkGlobalRateLimits } from '../../lib/rateLimits';
 import { sendMessage } from '../../lib/emailProvider';
 import { activationBlocker, findIncompleteSteps } from '../../lib/campaignSteps';
+import { matchesWhere } from './helpers/prismaWhere';
 import { PUT as putCampaign } from '../../app/api/campaigns/[id]/route';
-import { PUT as putCampaignList } from '../../app/api/campaigns/route';
+import { POST as postCampaign, PUT as putCampaignList } from '../../app/api/campaigns/route';
 import { POST as postRun } from '../../app/api/campaigns/[id]/run/route';
 
 const mockedDb = db as any;
@@ -73,11 +77,13 @@ function makeReq(method: string, path: string, body?: unknown): NextRequest {
   });
 }
 
-const save = (body: Record<string, unknown>) => putCampaign(makeReq('PUT', '/api/campaigns/cmp-1', body), params);
+/** A save from the campaign page, naming the version it loaded (the stored one). */
+const save = (body: Record<string, unknown>) =>
+  putCampaign(makeReq('PUT', '/api/campaigns/cmp-1', { updatedAt: (campaign.updatedAt as Date).toISOString(), ...body }), params);
 
 function expectNothingSaved() {
   expect(fake.$transaction).not.toHaveBeenCalled();
-  expect(fake.campaign.update).not.toHaveBeenCalled();
+  expect(fake.campaign.updateMany).not.toHaveBeenCalled();
   expect(fake.campaignStep.deleteMany).not.toHaveBeenCalled();
   expect(fake.campaignStep.createMany).not.toHaveBeenCalled();
 }
@@ -89,11 +95,13 @@ beforeEach(() => {
     id: 'cmp-1', userId: 'user-1', name: 'Launch', status: 'Draft', audienceCohort: 'Valid',
     timezone: 'UTC', sendSchedule: null, trackOpens: false, trackClicks: false,
     senderAccountId: 'mb-1', senderAccount: SENDER, senders: [], steps: [],
+    updatedAt: new Date('2026-09-01T10:00:00.000Z'),
   };
   fake.campaign.findUnique.mockImplementation(async () => ({ ...campaign }));
-  fake.campaign.update.mockImplementation(async ({ data }: any) => {
+  fake.campaign.updateMany.mockImplementation(async ({ where, data }: any) => {
+    if (!matchesWhere(campaign, where)) return { count: 0 };
     campaign = { ...campaign, ...data };
-    return campaign;
+    return { count: 1 };
   });
   fake.campaignStep.findMany.mockResolvedValue([]);
   fake.campaignEnrollment.count.mockResolvedValue(1);
@@ -209,6 +217,33 @@ describe('PUT /api/campaigns refuses to activate a campaign with incomplete step
     mockedDb.getCampaigns.mockResolvedValue([{ id: 'cmp-1', steps: [] }]);
     expect((await toggle('Paused')).status).toBe(200);
     expect(mockedDb.updateCampaign).toHaveBeenLastCalledWith('cmp-1', { status: 'Paused', pausedUntil: null, pauseReason: 'user' });
+  });
+});
+
+describe('POST /api/campaigns creates every campaign as a Draft (H13)', () => {
+  const create = (body: Record<string, unknown>) =>
+    postCampaign(makeReq('POST', '/api/campaigns', { name: 'Launch', senderAccountId: 'mb-1', ...body }));
+
+  it.each([['Active'], ['Paused'], ['Running'], [null]])('refuses the status %j and creates nothing', async (status) => {
+    const res = await create({ status });
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe('New campaigns start as Draft. Add complete steps, then publish the campaign.');
+    expect(mockedDb.createCampaign).not.toHaveBeenCalled();
+  });
+
+  it('creates a Draft when the request names Draft or no status', async () => {
+    fake.senderAccount.findMany.mockResolvedValue([{ id: 'mb-1' }]);
+    fake.lead.findMany.mockResolvedValue([]);
+    fake.suppressedEmail.findMany.mockResolvedValue([]);
+    mockedDb.createCampaign.mockImplementation(async (data: any) => ({ id: 'cmp-new', ...data }));
+
+    for (const body of [{ status: 'Draft' }, {}]) {
+      const res = await create(body);
+      expect(res.status).toBe(200);
+      expect((await res.json()).status).toBe('Draft');
+    }
+    expect(mockedDb.createCampaign).toHaveBeenCalledTimes(2);
   });
 });
 

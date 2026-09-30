@@ -11,6 +11,9 @@
  */
 export type PauseReason = 'quota' | 'systemic' | 'config' | 'user';
 
+/** Campaign statuses the app sets and the UI offers. */
+export const CAMPAIGN_STATUSES = ['Draft', 'Active', 'Paused'];
+
 /**
  * The pause columns written with a status a user sets: the user's choice
  * cancels any auto-resume the send engine scheduled, and a user pause is

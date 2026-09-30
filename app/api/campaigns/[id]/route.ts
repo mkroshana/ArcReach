@@ -6,8 +6,10 @@ import { checkCampaignSenders } from '@/lib/senderOwnership';
 import { MAILBOX_SECRET_OMIT } from '@/lib/mailboxSecrets';
 import { checkAudienceCohort, REMOVED_ENROLLMENT_STATUS, syncCohortEnrollments } from '@/lib/campaignCohort';
 import { activationBlocker, changesStepStructure, matchStoredSteps, STEP_STRUCTURE_LOCKED_ERROR } from '@/lib/campaignSteps';
-import { userStatusPause } from '@/lib/campaignPause';
+import { CAMPAIGN_STATUSES, userStatusPause } from '@/lib/campaignPause';
+import { CAMPAIGN_CHANGED_ERROR, nextCampaignVersion, parseCampaignVersion, sameCampaignVersion } from '@/lib/campaignVersion';
 import { parseSendSchedule, sendScheduleError, timezoneError } from '@/lib/sendSchedule';
+import { fieldRules } from '@/lib/updateAllowList';
 import {
   type MetricsScope,
   countReplies,
@@ -23,6 +25,17 @@ import {
 
 /** Days the campaign page's engagement trend covers, today included. */
 const TREND_DAYS = 7;
+
+/** The statuses a save may set, as the collection PUT allows. */
+const STATUS_RULE = fieldRules.oneOf(CAMPAIGN_STATUSES);
+
+/** Thrown inside the save transaction when another write changed the campaign first. */
+class CampaignChangedError extends Error {}
+
+function campaignChangedResponse() {
+  // `stale` tells the campaign page to offer a reload rather than a plain error.
+  return NextResponse.json({ error: CAMPAIGN_CHANGED_ERROR, stale: true }, { status: 409 });
+}
 
 /**
  * Whether the campaign has started sending: a lead has moved past step 1 or
@@ -242,8 +255,24 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       trackClicks,
       audienceCohort,
       steps,
-      senderAccountIds
+      senderAccountIds,
+      updatedAt
     } = body;
+
+    if (status !== undefined && !STATUS_RULE.valid(status)) {
+      return NextResponse.json({ error: `Field "status" must be ${STATUS_RULE.expected}.` }, { status: 400 });
+    }
+
+    // A save names the version (updatedAt) it edited and is refused once the
+    // campaign has changed since, so it never overwrites a change its editor
+    // has not seen. The write below re-checks it atomically.
+    const loadedVersion = parseCampaignVersion(updatedAt);
+    if (!loadedVersion) {
+      return NextResponse.json({ error: 'updatedAt is required: send the updatedAt of the campaign you edited.' }, { status: 400 });
+    }
+    if (!sameCampaignVersion(campaign.updatedAt, loadedVersion)) {
+      return campaignChangedResponse();
+    }
 
     // Every sender mailbox must belong to the campaign owner (also for admins)
     const senderError = await checkCampaignSenders(campaign.userId, senderAccountId, senderAccountIds);
@@ -299,9 +328,9 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const updates: any = {};
     if (name !== undefined) updates.name = name;
     if (status !== undefined) updates.status = status;
-    // The page resends its status with every save, so only a status other than
-    // the stored one is a user change. Like any, it cancels the send engine's
-    // auto-resume; saving a campaign the engine paused keeps its timer.
+    // The page's Save never sends a status; Publish Sequence sends Active. A
+    // status other than the stored one cancels the send engine's auto-resume,
+    // like any status a user sets.
     if (status !== undefined && status !== campaign.status) Object.assign(updates, userStatusPause(status));
     if (senderAccountId !== undefined) updates.senderAccountId = senderAccountId;
     if (timezone !== undefined) updates.timezone = timezone;
@@ -313,11 +342,13 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
     // Use a transaction to ensure atomic updates of campaign config and sequence steps
     await prisma.$transaction(async (tx) => {
-      // 1. Update the campaign record
-      await tx.campaign.update({
-        where: { id },
-        data: updates
+      // 1. Update the campaign record, only while it is still the version the
+      // save edited: if another write landed since the check above, nothing is saved.
+      const { count } = await tx.campaign.updateMany({
+        where: { id, updatedAt: loadedVersion },
+        data: { ...updates, updatedAt: nextCampaignVersion(loadedVersion) }
       });
+      if (count === 0) throw new CampaignChangedError();
 
       // Sync sender pool
       if (senderAccountIds && Array.isArray(senderAccountIds)) {
@@ -393,6 +424,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     return NextResponse.json(updatedCampaign);
   } catch (error: any) {
     if (error instanceof UnauthorizedError) return unauthorizedResponse();
+    if (error instanceof CampaignChangedError) return campaignChangedResponse();
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

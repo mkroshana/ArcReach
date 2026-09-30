@@ -45,6 +45,7 @@ const ADMIN = { id: 'admin-1', name: 'Admin', email: 'admin@example.com', role: 
 /** Published while group g1 was empty, so it has no enrollments yet. */
 const CAMPAIGN = {
   id: 'cmp-1', name: 'Launch', userId: 'user-1', status: 'Active', audienceCohort: 'group_g1', senderAccountId: 'mb-1', steps: [],
+  updatedAt: new Date('2026-09-01T10:00:00.000Z'),
 };
 
 /** Leads later imported into group g1 for a different campaign. */
@@ -144,7 +145,8 @@ describe('explicit create and save still enroll the cohort (M24)', () => {
 
   it('PUT /api/campaigns/[id] enrolls the cohort on save or publish', async () => {
     fake.campaignStep.findMany.mockResolvedValue([{ stepOrder: 1, waitDays: 0, subject: 'Hi', body: 'Hello' }]);
-    const res = await putCampaign(makeReq('PUT', '/api/campaigns/cmp-1', { status: 'Active' }), params);
+    fake.campaign.updateMany.mockResolvedValue({ count: 1 });
+    const res = await putCampaign(makeReq('PUT', '/api/campaigns/cmp-1', { status: 'Active', updatedAt: CAMPAIGN.updatedAt.toISOString() }), params);
     expect(res.status).toBe(200);
     expectEnrolled(fake.campaignEnrollment.createMany, 'cmp-1');
   });

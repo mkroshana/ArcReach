@@ -551,8 +551,9 @@ describe('ArcReach Live API Integration Tests', () => {
       expect(detail.telemetry.trend[0]).toHaveProperty('opens');
       expect(detail.telemetry.trend[0]).toHaveProperty('clicks');
 
-      // 3. Update campaign details and steps transactionally (PUT)
+      // 3. Update campaign details and steps transactionally (PUT), naming the loaded version
       const updatePayload = {
+        updatedAt: detail.updatedAt,
         name: 'Updated Campaign Name',
         status: 'Active',
         timezone: 'America/New_York',

@@ -10,7 +10,7 @@ const fake = vi.hoisted(() => {
   const model = (...names: string[]) => Object.fromEntries(names.map((n) => [n, vi.fn()]));
   return {
     user: model('findUnique'),
-    campaign: model('findMany', 'findUnique', 'update'),
+    campaign: model('findMany', 'findUnique', 'updateMany'),
     campaignEnrollment: model('count', 'groupBy', 'findMany', 'createMany', 'deleteMany'),
     emailDispatch: model('count', 'groupBy', 'findMany'),
     inboundResponse: model('count', 'findMany'),
@@ -77,9 +77,12 @@ function includedMailbox(sel: true | { omit?: Record<string, boolean>; select?: 
   return row;
 }
 
+const UPDATED_AT = new Date('2026-09-01T10:00:00.000Z');
+
 function campaignRow(include?: any) {
   const row: Record<string, unknown> = {
     id: 'cmp-1', name: 'Launch', userId: 'user-1', status: 'Draft', audienceCohort: 'Valid', senderAccountId: 'acc-1',
+    updatedAt: UPDATED_AT,
   };
   if (include) {
     row.steps = [];
@@ -167,8 +170,12 @@ describe('mailbox secrets in API responses', () => {
   });
 
   it('PUT /api/campaigns/[id] returns the updated campaign without mailbox passwords', async () => {
-    await expectNoMailboxSecrets(await putCampaign(makeReq('/api/campaigns/cmp-1', 'PUT', { name: 'Renamed' }), params));
-    expect(fake.campaign.update).toHaveBeenCalledWith({ where: { id: 'cmp-1' }, data: { name: 'Renamed' } });
+    fake.campaign.updateMany.mockResolvedValue({ count: 1 });
+    await expectNoMailboxSecrets(await putCampaign(makeReq('/api/campaigns/cmp-1', 'PUT', { name: 'Renamed', updatedAt: UPDATED_AT.toISOString() }), params));
+    expect(fake.campaign.updateMany).toHaveBeenCalledWith({
+      where: { id: 'cmp-1', updatedAt: UPDATED_AT },
+      data: { name: 'Renamed', updatedAt: expect.any(Date) },
+    });
   });
 
   it('GET /api/unibox returns threads without mailbox passwords', async () => {

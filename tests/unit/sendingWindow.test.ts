@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
 const fake = vi.hoisted(() => ({
-  campaign: { findUnique: vi.fn(), update: vi.fn() },
+  campaign: { findUnique: vi.fn(), updateMany: vi.fn() },
   campaignEnrollment: { count: vi.fn() },
   $transaction: vi.fn(),
 }));
@@ -19,6 +19,7 @@ import { getSession } from '../../lib/session';
 import { checkSendingWindow, nextWindowOpening } from '../../lib/sendEngine';
 import { parseSendSchedule, sendScheduleError, timezoneError } from '../../lib/sendSchedule';
 import { PUT as putCampaign } from '../../app/api/campaigns/[id]/route';
+import { matchesWhere } from './helpers/prismaWhere';
 
 const mockedSession = vi.mocked(getSession);
 
@@ -198,7 +199,7 @@ describe('PUT /api/campaigns/[id] saves only complete sending windows (M4)', () 
     new NextRequest('http://localhost/api/campaigns/cmp-1', {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ updatedAt: (campaign.updatedAt as Date).toISOString(), ...body }),
     }),
     params,
   );
@@ -209,11 +210,13 @@ describe('PUT /api/campaigns/[id] saves only complete sending windows (M4)', () 
     campaign = {
       id: 'cmp-1', userId: 'user-1', name: 'Launch', status: 'Draft', audienceCohort: 'Valid',
       timezone: 'UTC', sendSchedule: OFFICE_HOURS, steps: [], senders: [],
+      updatedAt: new Date('2026-09-01T10:00:00.000Z'),
     };
     fake.campaign.findUnique.mockImplementation(async () => ({ ...campaign }));
-    fake.campaign.update.mockImplementation(async ({ data }: any) => {
+    fake.campaign.updateMany.mockImplementation(async ({ where, data }: any) => {
+      if (!matchesWhere(campaign, where)) return { count: 0 };
       campaign = { ...campaign, ...data };
-      return campaign;
+      return { count: 1 };
     });
     fake.campaignEnrollment.count.mockResolvedValue(1);
     fake.$transaction.mockImplementation(async (fn: (tx: typeof fake) => unknown) => fn(fake));
@@ -229,7 +232,7 @@ describe('PUT /api/campaigns/[id] saves only complete sending windows (M4)', () 
 
     expect(res.status).toBe(400);
     expect((await res.json()).error).toBe(error);
-    expect(fake.campaign.update).not.toHaveBeenCalled();
+    expect(fake.campaign.updateMany).not.toHaveBeenCalled();
     expect(campaign.sendSchedule).toEqual(OFFICE_HOURS);
     expect(campaign.name).toBe('Launch');
   });
@@ -239,7 +242,7 @@ describe('PUT /api/campaigns/[id] saves only complete sending windows (M4)', () 
 
     expect(res.status).toBe(400);
     expect((await res.json()).error).toBe('Choose a valid timezone for the sending window.');
-    expect(fake.campaign.update).not.toHaveBeenCalled();
+    expect(fake.campaign.updateMany).not.toHaveBeenCalled();
     expect(campaign.timezone).toBe('UTC');
   });
 
@@ -260,6 +263,6 @@ describe('PUT /api/campaigns/[id] saves only complete sending windows (M4)', () 
     expect(res.status).toBe(200);
     expect(campaign.name).toBe('Renamed');
     expect(campaign.sendSchedule).toEqual(OFFICE_HOURS);
-    expect(fake.campaign.update.mock.calls[0][0].data).not.toHaveProperty('sendSchedule');
+    expect(fake.campaign.updateMany.mock.calls[0][0].data).not.toHaveProperty('sendSchedule');
   });
 });

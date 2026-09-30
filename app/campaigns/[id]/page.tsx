@@ -14,9 +14,11 @@ import {
   BarChart, Bar, PieChart, Pie, Cell,
 } from 'recharts';
 import { useToast } from '@/components/Toast';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import VariableToolbar from '@/components/VariableToolbar';
 import { activationBlocker, findIncompleteSteps, queuedLeadsMessage } from '@/lib/campaignSteps';
 import { autoResumeNote } from '@/lib/campaignPause';
+import { sameCampaignVersion } from '@/lib/campaignVersion';
 import { sendScheduleError, timezoneError } from '@/lib/sendSchedule';
 import { personalizePreview, previewEmailBody } from '@/lib/personalize';
 import { IMAP_SYNC_LABELS, imapSyncState, stopOnReplyWarning } from '@/lib/imapSyncStatus';
@@ -46,6 +48,11 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
   const [audienceCohort, setAudienceCohort] = useState('Valid');
   const [runningCampaign, setRunningCampaign] = useState(false);
   const [keepingPaused, setKeepingPaused] = useState(false);
+  const [changingStatus, setChangingStatus] = useState(false);
+  // The updatedAt of the campaign the form was loaded from. Saves send it, and the
+  // server refuses one once the campaign has changed since (showChangedPrompt).
+  const [editorVersion, setEditorVersion] = useState<string | null>(null);
+  const [showChangedPrompt, setShowChangedPrompt] = useState(false);
   const [timezone, setTimezone] = useState('America/New_York');
   const [stopOnReply, setStopOnReply] = useState(true);
   const [trackOpens, setTrackOpens] = useState(true);
@@ -88,6 +95,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
       if (res.ok) {
         const data = await res.json();
         setCampaign(data);
+        setEditorVersion(data.updatedAt ?? null);
         setCampaignName(data.name || '');
         setStatus(data.status || 'Draft');
         setTimezone(data.timezone || 'UTC');
@@ -144,11 +152,20 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
   // Pausing on reply needs a reply read from the pool's mailboxes (or their Reply-To mailbox) over IMAP.
   const poolMailboxes = availableMailboxes.filter(m => m.id === primarySenderId || selectedPoolIds.includes(m.id));
   const replySyncWarning = stopOnReplyWarning(stopOnReply, poolMailboxes, availableMailboxes);
+  // A campaign only sends from its owner's mailboxes, so the Senders tab lists only
+  // those, also for an admin. Pool entries another user owns (saved before senders
+  // were checked) are never sent from and not listed, so a save drops them.
+  const ownerMailboxes = availableMailboxes.filter(m => m.userId === campaign?.userId);
+  const foreignMailboxIds = new Set(availableMailboxes.filter(m => m.userId !== campaign?.userId).map(m => m.id));
+  const poolIds = selectedPoolIds.filter(id => !foreignMailboxIds.has(id));
 
-  const handleSaveCampaign = async (overrideStatus?: string) => {
-    const targetStatus = overrideStatus || status;
+  // Save writes the form only, never the status, so a status this page shows from
+  // before a pause elsewhere can't reactivate the campaign. Publish Sequence saves
+  // the form and makes the campaign Active. Both name the version the form was
+  // loaded from, and the server refuses them once the campaign has changed since.
+  const handleSaveCampaign = async (publish = false) => {
     // Drafts may be saved incomplete; an Active campaign mails every step as written.
-    if (targetStatus === 'Active') {
+    if (publish || status === 'Active') {
       const blocker = activationBlocker(steps);
       if (blocker) {
         const incompleteKeys = findIncompleteSteps(steps).map(s => steps[s.stepNumber - 1].id || s.stepNumber - 1);
@@ -171,22 +188,52 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
       const res = await fetch(`/api/campaigns/${campaignId}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: campaignName, status: targetStatus, timezone,
+          name: campaignName, timezone,
           sendSchedule: { days: selectedDays, window: { start: startTime, end: endTime } },
           stopOnReply, trackOpens, trackClicks, audienceCohort, steps,
-          senderAccountId: primarySenderId, senderAccountIds: selectedPoolIds,
+          senderAccountId: primarySenderId, senderAccountIds: poolIds,
+          updatedAt: editorVersion,
+          ...(publish ? { status: 'Active' } : {}),
         }),
       });
       if (res.ok) {
         showToast('Outbound sequence configuration successfully saved!');
-        if (overrideStatus) setStatus(overrideStatus);
         await loadCampaign();
       } else {
         const data = await res.json().catch(() => null);
-        showToast(data?.error || 'Failed to update campaign configuration.', 'error');
+        if (res.status === 409 && data?.stale) setShowChangedPrompt(true);
+        else showToast(data?.error || 'Failed to update campaign configuration.', 'error');
       }
     } catch (err) { console.error(err); showToast('Error occurred saving sequence configuration.', 'error'); }
     finally { setSaving(false); }
+  };
+
+  // Status changes go through the status route and never save the form, so
+  // unsaved edits stay as they are (and Active sends the saved steps). The form
+  // takes on the new version only when this change was the only one since it
+  // loaded, so Save still refuses to overwrite a change made elsewhere.
+  const changeStatus = async (nextStatus: string): Promise<{ ok: boolean; error?: string }> => {
+    const res = await fetch('/api/campaigns', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: campaignId, status: nextStatus }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data) return { ok: false, error: data?.error };
+    setCampaign((prev: any) => ({ ...prev, status: data.status, pausedUntil: data.pausedUntil, pauseReason: data.pauseReason }));
+    setStatus(data.status);
+    setEditorVersion(prev => (sameCampaignVersion(prev, data.previousUpdatedAt) ? data.updatedAt : prev));
+    return { ok: true };
+  };
+
+  const handleStatusChange = async (nextStatus: string) => {
+    if (nextStatus === status) return;
+    try {
+      setChangingStatus(true);
+      const result = await changeStatus(nextStatus);
+      if (result.ok) showToast(`Campaign status set to ${nextStatus}.`);
+      else showToast(result.error || 'Failed to change the campaign status.', 'error');
+    } catch (err) { console.error(err); showToast('Error changing the campaign status.', 'error'); }
+    finally { setChangingStatus(false); }
   };
 
   const handleRunCampaign = async () => {
@@ -206,16 +253,9 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
   const handleKeepPaused = async () => {
     try {
       setKeepingPaused(true);
-      const res = await fetch('/api/campaigns', {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: campaignId, status: 'Paused' }),
-      });
-      const data = await res.json().catch(() => null);
-      if (res.ok && data) {
-        setCampaign((prev: any) => ({ ...prev, status: data.status, pausedUntil: data.pausedUntil, pauseReason: data.pauseReason }));
-        setStatus(data.status);
-        showToast('Auto-resume cancelled. The campaign stays paused until you activate it.');
-      } else showToast(data?.error || 'Failed to keep the campaign paused.', 'error');
+      const result = await changeStatus('Paused');
+      if (result.ok) showToast('Auto-resume cancelled. The campaign stays paused until you activate it.');
+      else showToast(result.error || 'Failed to keep the campaign paused.', 'error');
     } catch (err) { console.error(err); showToast('Error keeping the campaign paused.', 'error'); }
     finally { setKeepingPaused(false); }
   };
@@ -275,7 +315,8 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
               <FormControl size="small">
                 <Select
                   value={status}
-                  onChange={(e) => handleSaveCampaign(e.target.value)}
+                  disabled={changingStatus}
+                  onChange={(e) => handleStatusChange(e.target.value)}
                   sx={{
                     height: 26, fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
                     bgcolor: (t) => statusColor !== 'default' ? alpha(t.palette[statusColor as 'success' | 'warning'].main, 0.14) : 'action.hover',
@@ -312,9 +353,9 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
             </Button>
           )}
           <Button variant="outlined" color="inherit" disabled={saving} startIcon={<Save size={14} />} onClick={() => handleSaveCampaign()} sx={{ borderColor: 'divider', color: 'text.secondary' }}>
-            {saving ? 'Saving…' : 'Save Draft'}
+            {saving ? 'Saving…' : 'Save'}
           </Button>
-          <Button variant="contained" disabled={saving} startIcon={<Send size={14} />} onClick={() => handleSaveCampaign('Active')}>Publish Sequence</Button>
+          <Button variant="contained" disabled={saving} startIcon={<Send size={14} />} onClick={() => handleSaveCampaign(true)}>Publish Sequence</Button>
         </Stack>
       </Stack>
 
@@ -644,7 +685,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                     <Mail size={16} color="#2563EB" />
                     <Typography variant="overline" sx={{ fontWeight: 700 }}>Campaign Senders Pool & Rotation</Typography>
                   </Stack>
-                  <Chip size="small" label={`${selectedPoolIds.length || 1} Active ${(selectedPoolIds.length || 1) === 1 ? 'Sender' : 'Senders'}`} color="primary" variant="outlined" sx={{ fontWeight: 700 }} />
+                  <Chip size="small" label={`${poolIds.length || 1} Active ${(poolIds.length || 1) === 1 ? 'Sender' : 'Senders'}`} color="primary" variant="outlined" sx={{ fontWeight: 700 }} />
                 </Stack>
                 <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 2, lineHeight: 1.6 }}>
                   Spreading outbound across multiple mailboxes protects sender reputation and circumvents daily provider caps. The send engine routes each dispatch via the least-loaded mailbox.
@@ -656,7 +697,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                   </Stack>
                 )}
                 <Stack spacing={1.5}>
-                  {availableMailboxes.map((mailbox) => {
+                  {ownerMailboxes.map((mailbox) => {
                     const isPrimary = primarySenderId === mailbox.id;
                     const isChecked = selectedPoolIds.includes(mailbox.id) || isPrimary;
                     const toggleCheckbox = () => {
@@ -698,9 +739,9 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                       </Card>
                     );
                   })}
-                  {availableMailboxes.length === 0 && (
+                  {ownerMailboxes.length === 0 && (
                     <Typography variant="caption" sx={{ color: 'text.secondary', textAlign: 'center', py: 4, display: 'block' }}>
-                      No sender accounts. Create mailboxes in the Accounts page first.
+                      No sender accounts owned by the campaign owner. Create mailboxes in the Accounts page first.
                     </Typography>
                   )}
                 </Stack>
@@ -797,6 +838,17 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
           </Card>
         </Stack>
       </Box>
+
+      <ConfirmDialog
+        isOpen={showChangedPrompt}
+        title="Campaign Changed Elsewhere"
+        message="This campaign was saved elsewhere or its status changed after you opened it, so your changes were not saved. Reload to see the latest version, then make your changes again. Reloading discards your unsaved edits: choose Keep Editing to copy them first."
+        confirmLabel="Reload"
+        cancelLabel="Keep Editing"
+        isDestructive
+        onConfirm={() => { setShowChangedPrompt(false); loadCampaign(); }}
+        onCancel={() => setShowChangedPrompt(false)}
+      />
     </Box>
   );
 }

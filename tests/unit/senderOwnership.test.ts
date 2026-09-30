@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
 const tx = vi.hoisted(() => ({
-  campaign: { update: vi.fn() },
+  campaign: { updateMany: vi.fn() },
   campaignSenderAccount: { deleteMany: vi.fn(), createMany: vi.fn() },
   campaignStep: { deleteMany: vi.fn(), createMany: vi.fn() },
   lead: { findMany: vi.fn() },
@@ -143,25 +143,32 @@ describe('POST /api/campaigns sender ownership (H24)', () => {
   });
 });
 
+/** The version a save from the campaign page names: the stored one. */
+const UPDATED_AT = new Date('2026-09-01T10:00:00.000Z');
+
 describe('PUT /api/campaigns/[id] sender ownership (H24)', () => {
-  const CAMPAIGN = { id: 'cmp-1', userId: 'user-1', audienceCohort: 'Valid', senderAccountId: 'mb-user1-a' };
+  const CAMPAIGN = { id: 'cmp-1', userId: 'user-1', audienceCohort: 'Valid', senderAccountId: 'mb-user1-a', updatedAt: UPDATED_AT };
 
   beforeEach(() => {
     mockedSession.mockResolvedValue(USER);
     mockedPrisma.campaign.findUnique.mockResolvedValue(CAMPAIGN);
     mockedPrisma.$transaction.mockImplementation(async (fn: any) => fn(tx));
+    tx.campaign.updateMany.mockResolvedValue({ count: 1 });
     tx.lead.findMany.mockResolvedValue([]);
     tx.campaignEnrollment.count.mockResolvedValue(0);
     tx.campaignEnrollment.findMany.mockResolvedValue([]);
   });
 
   const update = (body: Record<string, unknown>) =>
-    putCampaignDetail(makeReq('PUT', '/api/campaigns/cmp-1', body), { params: Promise.resolve({ id: 'cmp-1' }) });
+    putCampaignDetail(makeReq('PUT', '/api/campaigns/cmp-1', { updatedAt: UPDATED_AT.toISOString(), ...body }), { params: Promise.resolve({ id: 'cmp-1' }) });
 
   it('saves a sender pool made of the owner\'s mailboxes', async () => {
     const res = await update({ senderAccountId: 'mb-user1-b', senderAccountIds: ['mb-user1-a', 'mb-user1-b'] });
     expect(res.status).toBe(200);
-    expect(tx.campaign.update).toHaveBeenCalledWith({ where: { id: 'cmp-1' }, data: { senderAccountId: 'mb-user1-b' } });
+    expect(tx.campaign.updateMany).toHaveBeenCalledWith({
+      where: { id: 'cmp-1', updatedAt: UPDATED_AT },
+      data: { senderAccountId: 'mb-user1-b', updatedAt: expect.any(Date) },
+    });
     expect(tx.campaignSenderAccount.createMany).toHaveBeenCalledWith({
       data: [
         { campaignId: 'cmp-1', senderAccountId: 'mb-user1-a' },
@@ -298,14 +305,21 @@ describe('reassigning a campaign keeps its senders with its owner (H24)', () => 
   });
 
   it('has no owner change through PUT /api/campaigns/[id]', async () => {
-    mockedPrisma.campaign.findUnique.mockResolvedValue({ id: 'cmp-1', userId: 'user-1', audienceCohort: 'Valid', senderAccountId: 'mb-user1-a' });
+    mockedPrisma.campaign.findUnique.mockResolvedValue({
+      id: 'cmp-1', userId: 'user-1', audienceCohort: 'Valid', senderAccountId: 'mb-user1-a', updatedAt: UPDATED_AT,
+    });
     mockedPrisma.$transaction.mockImplementation(async (fn: any) => fn(tx));
+    tx.campaign.updateMany.mockResolvedValue({ count: 1 });
     tx.campaignEnrollment.count.mockResolvedValue(1);
 
-    const res = await putCampaignDetail(makeReq('PUT', '/api/campaigns/cmp-1', { name: 'Renamed', userId: 'user-2' }), {
+    const body = { name: 'Renamed', userId: 'user-2', updatedAt: UPDATED_AT.toISOString() };
+    const res = await putCampaignDetail(makeReq('PUT', '/api/campaigns/cmp-1', body), {
       params: Promise.resolve({ id: 'cmp-1' }),
     });
     expect(res.status).toBe(200);
-    expect(tx.campaign.update).toHaveBeenCalledWith({ where: { id: 'cmp-1' }, data: { name: 'Renamed' } });
+    expect(tx.campaign.updateMany).toHaveBeenCalledWith({
+      where: { id: 'cmp-1', updatedAt: UPDATED_AT },
+      data: { name: 'Renamed', updatedAt: expect.any(Date) },
+    });
   });
 });

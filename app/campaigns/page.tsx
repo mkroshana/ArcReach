@@ -116,7 +116,9 @@ export default function CampaignsPage() {
       setSession(sessData);
       const accRes = await fetch('/api/accounts');
       if (accRes.ok) {
-        const accData = await accRes.json();
+        // A new campaign belongs to the signed-in user and only sends from its
+        // owner's mailboxes, so an admin picks among their own, not every user's.
+        const accData = (await accRes.json()).filter((acc: any) => acc.userId === sessData?.id);
         setAccounts(accData);
         if (accData.length > 0) setSelectedMailboxId(accData[0].id);
       }
@@ -208,7 +210,7 @@ export default function CampaignsPage() {
         <Button
           variant="contained" startIcon={<Plus size={16} />}
           onClick={() => {
-            if (accounts.length === 0) { showToast('Please first connect at least one Mailbox in the Senders view before starting a campaign.', 'error'); return; }
+            if (accounts.length === 0) { showToast('Please first connect at least one Mailbox of your own in the Senders view before starting a campaign.', 'error'); return; }
             setIsAddOpen(true);
           }}
         >Create Sequence</Button>

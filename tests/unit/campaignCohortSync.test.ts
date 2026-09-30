@@ -7,7 +7,7 @@ import { NextRequest } from 'next/server';
  * check the enrollment rows a save leaves behind.
  */
 const fake = vi.hoisted(() => ({
-  campaign: { findUnique: vi.fn(), update: vi.fn() },
+  campaign: { findUnique: vi.fn(), updateMany: vi.fn() },
   campaignSenderAccount: { deleteMany: vi.fn(), createMany: vi.fn() },
   campaignStep: { findMany: vi.fn(), update: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
   campaignEnrollment: { count: vi.fn(), findMany: vi.fn(), deleteMany: vi.fn(), updateMany: vi.fn(), createMany: vi.fn() },
@@ -32,6 +32,7 @@ import { db } from '../../lib/db';
 import { getSession } from '../../lib/session';
 import { POST as postCampaign } from '../../app/api/campaigns/route';
 import { PUT as putCampaign } from '../../app/api/campaigns/[id]/route';
+import { matchesWhere } from './helpers/prismaWhere';
 
 const mockedDb = db as any;
 const mockedSession = vi.mocked(getSession);
@@ -45,7 +46,7 @@ type EnrollmentRow = {
   currentSequenceStep: number; nextActionDate: Date | null;
 };
 
-let campaign: { id: string; userId: string; status: string; audienceCohort: string; senderAccountId: string };
+let campaign: { id: string; userId: string; status: string; audienceCohort: string; senderAccountId: string; updatedAt: Date };
 let leads: LeadRow[];
 let enrollments: EnrollmentRow[];
 let dispatches: { leadId: string; campaignId: string | null }[];
@@ -98,11 +99,13 @@ const STEPS = [
 ];
 
 const params = { params: Promise.resolve({ id: 'cmp-1' }) };
-const save = (body: Record<string, unknown>) => putCampaign(makeReq('PUT', '/api/campaigns/cmp-1', body), params);
+/** A save naming the version it loaded (the stored one). */
+const save = (body: Record<string, unknown>) =>
+  putCampaign(makeReq('PUT', '/api/campaigns/cmp-1', { updatedAt: campaign.updatedAt.toISOString(), ...body }), params);
 
-/** What the campaign page sends on every save: the whole form, including the unchanged audience. */
+/** What the campaign page's Save sends: the whole form, including the unchanged audience, but never the status. */
 const pageSave = (overrides: Record<string, unknown> = {}) => save({
-  name: 'Launch', status: campaign.status, timezone: 'UTC',
+  name: 'Launch', timezone: 'UTC',
   sendSchedule: { days: ['Mon'], window: { start: '09:00', end: '17:00' } },
   stopOnReply: true, trackOpens: true, trackClicks: true,
   audienceCohort: campaign.audienceCohort,
@@ -117,7 +120,10 @@ beforeEach(() => {
   nextEnrollmentId = 0;
   suppressed = [];
 
-  campaign = { id: 'cmp-1', userId: 'user-1', status: 'Active', audienceCohort: 'Valid', senderAccountId: 'mb-1' };
+  campaign = {
+    id: 'cmp-1', userId: 'user-1', status: 'Active', audienceCohort: 'Valid', senderAccountId: 'mb-1',
+    updatedAt: new Date('2026-09-01T10:00:00.000Z'),
+  };
   leads = [
     lead('in-both', 'Valid', ['g1']),           // Active mid-sequence, stays in the audience
     lead('never-emailed', 'Valid'),             // Active, due step 1, never sent anything
@@ -153,9 +159,10 @@ beforeEach(() => {
   ];
 
   fake.campaign.findUnique.mockImplementation(async () => ({ ...campaign }));
-  fake.campaign.update.mockImplementation(async ({ data }: any) => {
+  fake.campaign.updateMany.mockImplementation(async ({ where, data }: any) => {
+    if (!matchesWhere(campaign, where)) return { count: 0 };
     campaign = { ...campaign, ...data };
-    return campaign;
+    return { count: 1 };
   });
   fake.senderAccount.findMany.mockImplementation(async ({ where }: any) => where.id.in.map((id: string) => ({ id })));
   fake.campaignStep.findMany.mockResolvedValue(STEPS);
@@ -199,13 +206,18 @@ beforeEach(() => {
 });
 
 describe('saving a campaign without changing its audience (H12)', () => {
-  it('pausing from the status dropdown keeps Bounced, Failed and Paused enrollments', async () => {
+  it('saving or publishing the form keeps Bounced, Failed and Paused enrollments', async () => {
+    campaign.status = 'Paused';
     const before = structuredClone(enrollments);
 
-    const res = await pageSave({ status: 'Paused' });
-
-    expect(res.status).toBe(200);
+    const saved = await pageSave({ name: 'Launch v2' });
+    expect(saved.status).toBe(200);
     expect(campaign.status).toBe('Paused');
+
+    const published = await pageSave({ status: 'Active' });
+    expect(published.status).toBe(200);
+    expect(campaign.status).toBe('Active');
+
     expect(enrollments).toEqual(before);
     expect(fake.lead.findMany).not.toHaveBeenCalled();
     expect(fake.leadGroup.findUnique).not.toHaveBeenCalled();

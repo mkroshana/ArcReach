@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { LeadValidationStatus, type LeadStatus } from '@prisma/client';
+import { LeadValidationStatus, Prisma, type LeadStatus } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { UnauthorizedError, unauthorizedResponse } from '@/lib/sessionError';
@@ -12,6 +12,7 @@ import {
 } from '@/lib/suppression';
 import { deleteLeads } from '@/lib/leadDelete';
 import { enrollGroupJoiners, pauseGroupLeavers } from '@/lib/campaignCohort';
+import { leadTextField } from '@/lib/leadImport';
 import { parseLeadListQuery } from '@/lib/leadView';
 import { loadLeadPage } from '@/lib/leadList';
 
@@ -30,6 +31,14 @@ const LEAD_UPDATE_FIELDS: Record<string, FieldRule> = {
 
 function isIdArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((v) => typeof v === 'string' && v !== '');
+}
+
+/** Those of `groupIds` naming no lead group, which would fail a membership write. */
+async function unknownGroupIds(groupIds: string[]): Promise<string[]> {
+  if (groupIds.length === 0) return [];
+  const found = await prisma.leadGroup.findMany({ where: { id: { in: groupIds } }, select: { id: true } });
+  const foundIds = new Set(found.map((g) => g.id));
+  return groupIds.filter((gId) => !foundIds.has(gId));
 }
 
 /** Addresses the suppressed-update 409 spells out; any beyond this are only counted, so the toast stays readable. */
@@ -185,6 +194,13 @@ export async function POST(req: NextRequest) {
       status?: LeadStatus | null; validationStatus?: LeadValidationStatus | null; groupIds?: string[] | null;
     };
 
+    // A missing group would fail the membership write, and a repeated one its primary key
+    const targetGroupIds = Array.from(new Set(groupIds || []));
+    const unknownGroups = await unknownGroupIds(targetGroupIds);
+    if (unknownGroups.length > 0) {
+      return NextResponse.json({ error: `Unknown lead group ID(s): ${unknownGroups.join(', ')}.` }, { status: 400 });
+    }
+
     // Check if lead already exists, under any capitalisation
     const existing = await prisma.lead.findFirst({
       where: leadEmailIn([email]),
@@ -201,15 +217,16 @@ export async function POST(req: NextRequest) {
     const created = await prisma.lead.create({
       data: {
         email,
-        name: name || null,
-        company: company || null,
-        jobTitle: jobTitle || null,
+        // Trimmed, and null when blank, as Add Lead sends them
+        name: leadTextField(name),
+        company: leadTextField(company),
+        jobTitle: leadTextField(jobTitle),
         status: status || 'Neutral',
         validationStatus: validationStatus || 'Unverified',
         ...(suppression ? suppressedLeadFields(suppression.reason) : {}),
         isArchived: false,
         groups: {
-          create: (groupIds || []).map((gId: string) => ({ groupId: gId }))
+          create: targetGroupIds.map((gId) => ({ groupId: gId }))
         }
       },
       include: {
@@ -242,7 +259,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Enroll it in the Active and Draft campaigns targeting its groups too, unless it may not be emailed
-    await enrollGroupJoiners(prisma, [created.id], groupIds || []);
+    await enrollGroupJoiners(prisma, [created.id], targetGroupIds);
 
     // suppression tells the leads page the address is on the suppression list
     return NextResponse.json({ ...created, suppression });
@@ -331,13 +348,9 @@ export async function PUT(req: NextRequest) {
       }
       // A missing group would fail the membership write, and a repeated one its primary key
       targetGroupIds = Array.from(new Set(groupIds));
-      if (targetGroupIds.length > 0) {
-        const found = await prisma.leadGroup.findMany({ where: { id: { in: targetGroupIds } }, select: { id: true } });
-        const foundIds = new Set(found.map((g) => g.id));
-        const unknown = targetGroupIds.filter((gId) => !foundIds.has(gId));
-        if (unknown.length > 0) {
-          return NextResponse.json({ error: `Unknown lead group ID(s): ${unknown.join(', ')}.` }, { status: 400 });
-        }
+      const unknown = await unknownGroupIds(targetGroupIds);
+      if (unknown.length > 0) {
+        return NextResponse.json({ error: `Unknown lead group ID(s): ${unknown.join(', ')}.` }, { status: 400 });
       }
       dataObj.groups = {
         deleteMany: {},
@@ -381,6 +394,11 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json(withEntry);
   } catch (error: any) {
     if (error instanceof UnauthorizedError) return unauthorizedResponse();
+    // P2025: the lead named by id does not exist. The ids and groupId updates use
+    // updateMany, which never throws it.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+      return NextResponse.json({ error: 'Lead not found.' }, { status: 404 });
+    }
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

@@ -21,6 +21,16 @@ export const LEAD_IMPORT_OUTCOMES: readonly LeadImportOutcome[] = ['created', 's
 /** How many rows had each outcome. */
 export type LeadImportCounts = Record<LeadImportOutcome, number>;
 
+/**
+ * A lead's name, company or job title as POST /api/leads and POST
+ * /api/leads/bulk store it: trimmed, and null when missing or blank, never a
+ * stand-in value, so templates use their own fallback for it (as Add Lead and
+ * the CSV import send it).
+ */
+export function leadTextField(value: unknown): string | null {
+  return typeof value === 'string' ? value.trim() || null : null;
+}
+
 /** Most rows one POST /api/leads/bulk request takes. The leads page sends larger files in batches of this size. */
 export const LEAD_IMPORT_BATCH_SIZE = 1000;
 

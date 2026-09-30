@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
+import { Prisma } from '@prisma/client';
 
 vi.mock('../../lib/db', () => ({
   db: {
@@ -507,6 +508,34 @@ describe('PUT /api/leads', () => {
     expect(res.status).toBe(200);
     const [{ data }] = mockedPrisma.lead.update.mock.calls[0];
     expect(data.groups.create).toEqual([{ groupId: 'g-1' }, { groupId: 'g-2' }]);
+  });
+
+  it('answers 404 for a lead that does not exist instead of failing the update with a 500', async () => {
+    // Prisma's update throws P2025 when no row matches, as it does for a deleted lead
+    mockedPrisma.lead.update.mockImplementation(async ({ where, data }: any) => {
+      if (where.id !== 'lead-1') {
+        throw new Prisma.PrismaClientKnownRequestError('No record was found for an update.', { code: 'P2025', clientVersion: 'test' });
+      }
+      return { id: where.id, ...data };
+    });
+
+    for (const body of [
+      { id: 'deleted-lead', isArchived: true },
+      { id: 'deleted-lead', validationStatus: 'Valid' },
+      { id: 'deleted-lead', groupIds: ['g-1'] },
+    ]) {
+      const res = await putLead(makeReq('/api/leads', body));
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({ error: 'Lead not found.' });
+    }
+    // Nothing ran after the failed update: no re-activation, no group enrollment or pause
+    expect(mockedPrisma.campaignEnrollment.updateMany).not.toHaveBeenCalled();
+    expect(mockedPrisma.campaign.findMany).not.toHaveBeenCalled();
+
+    // Any other failure is still a 500
+    mockedPrisma.lead.update.mockRejectedValue(new Error('connection reset'));
+    const failed = await putLead(makeReq('/api/leads', { id: 'lead-1', isArchived: true }));
+    expect(failed.status).toBe(500);
   });
 
   it('clears every membership for an empty groupIds without looking groups up', async () => {

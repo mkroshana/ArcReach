@@ -315,6 +315,31 @@ describe('PUT /api/unibox single reply by id (M46)', () => {
   });
 });
 
+describe('PUT /api/unibox leadId', () => {
+  it.each([
+    ['a filter object', { not: L2 }],
+    ['a list of ids', [L1]],
+    ['a number', 42],
+    ['an empty string', ''],
+  ])('refuses %s as the leadId with a 400 and writes nothing', async (_, leadId) => {
+    for (const action of [
+      { normalizedSubject: 'pricing', unread: false },
+      { normalizedSubject: 'pricing', enrollmentStatus: 'Paused' },
+      { leadStatus: 'Interested' },
+    ]) {
+      const res = await put({ leadId, ...action });
+
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toBe(leadId === '' ? 'leadId is required.' : 'leadId must be a lead ID.');
+    }
+    expect(unread()).toEqual({ 'r-pricing': true, 'r-demo': true, 'r-bare-1': true, 'r-bare-2': true, 'r-bare-rival': true });
+    expect(statuses()).toEqual({ 'e-a': 'Active', 'e-b': 'Completed', 'e-c': 'Bounced', 'e-rival': 'Active' });
+    expect(mockedPrisma.inboundResponse.updateMany).not.toHaveBeenCalled();
+    expect(mockedPrisma.campaignEnrollment.updateMany).not.toHaveBeenCalled();
+    expect(mockedPrisma.lead.update).not.toHaveBeenCalled();
+  });
+});
+
 describe('GET /api/unibox threads', () => {
   it("shows a user's thread with the enrollments in their own campaigns (M46)", async () => {
     const { threads } = await (await get('/api/unibox')).json();

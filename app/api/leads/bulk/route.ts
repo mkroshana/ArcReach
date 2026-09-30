@@ -3,7 +3,7 @@ import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { UnauthorizedError, unauthorizedResponse } from '@/lib/sessionError';
 import { leadEmailIn, normalizeEmail, parseLeadEmail } from '@/lib/leadEmail';
-import { LEAD_IMPORT_BATCH_SIZE, type LeadImportOutcome, countLeadImport } from '@/lib/leadImport';
+import { LEAD_IMPORT_BATCH_SIZE, type LeadImportOutcome, countLeadImport, leadTextField } from '@/lib/leadImport';
 import { isPlainObject } from '@/lib/updateAllowList';
 import { findEnrollableLeadIds } from '@/lib/sendEligibility';
 import { suppressedLeadFields, suppressionReasons } from '@/lib/suppression';
@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Emails are stored trimmed and lowercased; the first row for each address wins
+    // Emails are stored trimmed and lowercased, and blank text fields as null; the first row for each address wins
     const outcomes: LeadImportOutcome[] = new Array(leads.length);
     const seenEmails = new Set<string>();
     const incoming: { row: number; email: string; name: string | null; company: string | null; jobTitle: string | null }[] = [];
@@ -70,7 +70,7 @@ export async function POST(req: NextRequest) {
         outcomes[row] = 'duplicate';
       } else {
         seenEmails.add(email);
-        incoming.push({ row, email, name: l.name || null, company: l.company || null, jobTitle: l.jobTitle || null });
+        incoming.push({ row, email, name: leadTextField(l.name), company: leadTextField(l.company), jobTitle: leadTextField(l.jobTitle) });
       }
     });
 

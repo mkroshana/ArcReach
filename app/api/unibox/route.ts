@@ -392,6 +392,10 @@ export async function PUT(req: NextRequest) {
     if (!leadId) {
       return NextResponse.json({ error: 'leadId is required.' }, { status: 400 });
     }
+    // Anything but an id, such as a filter object, would reach Prisma's where clauses
+    if (typeof leadId !== 'string') {
+      return NextResponse.json({ error: 'leadId must be a lead ID.' }, { status: 400 });
+    }
 
     // Read state is set a thread at a time, never on a single reply named by id
     if (unread !== undefined && typeof normalizedSubject !== 'string') {

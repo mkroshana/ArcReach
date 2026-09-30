@@ -313,6 +313,23 @@ describe('POST /api/leads/bulk (M62, M63)', () => {
     expect(db.tables.leadGroupMembership).toHaveLength(0);
   });
 
+  it('stores names, companies and job titles trimmed, and blank ones as null', async () => {
+    const res = await postBulk(makeReq('/api/leads/bulk', {
+      leads: [
+        { email: 'jane@acme.com', name: '  Jane Doe ', company: '\tAcme Corp\n', jobTitle: ' CEO' },
+        { email: 'bob@acme.com', name: '   ', company: '', jobTitle: '\t' },
+        { email: 'ann@acme.com', name: null },
+      ],
+    }));
+
+    expect(res.status).toBe(200);
+    expect(db.tables.lead.map((l) => [l.email, l.name, l.company, l.jobTitle])).toEqual([
+      ['jane@acme.com', 'Jane Doe', 'Acme Corp', 'CEO'],
+      ['bob@acme.com', null, null, null],
+      ['ann@acme.com', null, null, null],
+    ]);
+  });
+
   it(`refuses more than ${LEAD_IMPORT_BATCH_SIZE} rows in one request`, async () => {
     const leads = Array.from({ length: LEAD_IMPORT_BATCH_SIZE + 1 }, (_, i) => ({ email: `lead${i}@acme.com` }));
 
@@ -358,6 +375,35 @@ describe('POST /api/leads (Add Lead)', () => {
     expect((await res.json()).error).toBe(error);
     expect(db.tables.lead).toHaveLength(0);
     expect(db.tables.leadGroupMembership).toHaveLength(0);
+  });
+
+  it('refuses groupIds naming a group that does not exist with a 400 naming them, instead of failing the create', async () => {
+    const res = await postLead(makeReq('/api/leads', {
+      name: 'Jane', email: 'jane@acme.com', groupIds: ['group-1', 'deleted-group', 'ghost', 'ghost'],
+    }));
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe('Unknown lead group ID(s): deleted-group, ghost.');
+    expect(db.tables.lead).toHaveLength(0);
+    expect(db.tables.leadGroupMembership).toHaveLength(0);
+    expect(db.tables.campaignEnrollment).toHaveLength(0);
+  });
+
+  it('puts the lead in a group named twice in groupIds once', async () => {
+    const res = await postLead(makeReq('/api/leads', { name: 'Jane', email: 'jane@acme.com', groupIds: ['group-1', 'group-1'] }));
+
+    expect(res.status).toBe(200);
+    expect(db.tables.leadGroupMembership).toEqual([{ leadId: db.tables.lead[0].id, groupId: 'group-1' }]);
+  });
+
+  it('stores the name, company and job title trimmed, and blank ones as null', async () => {
+    await postLead(makeReq('/api/leads', { email: 'jane@acme.com', name: '  Jane Doe ', company: '\tAcme Corp\n', jobTitle: ' CEO ' }));
+    await postLead(makeReq('/api/leads', { email: 'bob@acme.com', name: '   ', company: '', jobTitle: '\n' }));
+
+    expect(db.tables.lead.map((l) => [l.email, l.name, l.company, l.jobTitle])).toEqual([
+      ['jane@acme.com', 'Jane Doe', 'Acme Corp', 'CEO'],
+      ['bob@acme.com', null, null, null],
+    ]);
   });
 
   it('creates a lead from checked fields, in its group and enrolled', async () => {

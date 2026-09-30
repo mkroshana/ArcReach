@@ -2,10 +2,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import {
-  Plus, CheckCircle2, AlertCircle, Mail, Flame, ArrowLeft, Sparkles, Sliders,
+  Plus, CheckCircle2, AlertCircle, Mail, Flame, ArrowLeft, Sliders,
   ChevronRight, Gauge, User, Activity, Save, Send, Loader2, Trash2, Eye, EyeOff, ShieldAlert,
-  MailCheck, MailWarning, MailX, Clock,
+  MailCheck, MailWarning, MailX, Clock, Settings,
 } from 'lucide-react';
 import { TableSkeleton } from '@/components/Skeleton';
 import { IMAP_SYNC_LABELS, MICROSOFT_IMAP_NOTE, imapSyncState, isMicrosoftImapHost } from '@/lib/imapSyncStatus';
@@ -40,6 +41,36 @@ function AllowSelfSignedSwitch({ checked, onChange }: { checked: boolean; onChan
         </Box>
       }
     />
+  );
+}
+
+/** The workspace-wide caps from Settings; null or 0 is no cap, as the send engine reads them. */
+type GlobalRateLimitValues = { minute: number | null; hour: number | null };
+
+const formatRateLimit = (limit: number | null, unit: string) =>
+  limit && limit > 0 ? `${limit.toLocaleString()} / ${unit}` : 'No limit';
+
+/** The per-minute and per-hour limits, which the send engine applies to all mailboxes together,
+ *  shown read-only. Only admins can read them (null otherwise), and they are edited in Settings. */
+function GlobalRateLimits({ limits }: { limits: GlobalRateLimitValues | null }) {
+  return (
+    <Box sx={{ p: 1.5, borderRadius: '12px', bgcolor: 'action.hover', border: 1, borderColor: 'divider' }}>
+      <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block' }}>Global Rate Limits</Typography>
+      {limits && (
+        <Stack direction="row" spacing={3} sx={{ mt: 0.5 }}>
+          <Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{formatRateLimit(limits.minute, 'minute')}</Typography>
+          <Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{formatRateLimit(limits.hour, 'hour')}</Typography>
+        </Stack>
+      )}
+      <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5 }}>
+        Per-minute and per-hour limits apply to all mailboxes together, not to each one.{limits ? '' : ' An admin sets them in Settings.'}
+      </Typography>
+      {limits && (
+        <Button component={Link as any} href="/settings" size="small" variant="text" startIcon={<Settings size={14} />} sx={{ mt: 0.5, ml: -0.5 }}>
+          Change in Settings
+        </Button>
+      )}
+    </Box>
   );
 }
 
@@ -80,14 +111,11 @@ export default function AccountsPage() {
   const [senderName, setSenderName] = useState('');
   const [provider, setProvider] = useState('Google Workspace');
   const [assignedUserId, setAssignedUserId] = useState('');
-  const [minuteLimit, setMinuteLimit] = useState(5);
-  const [hourlyLimit, setHourlyLimit] = useState(100);
   const [dailyLimit, setDailyLimit] = useState(500);
   const [replyTo, setReplyTo] = useState('');
   const [editReplyTo, setEditReplyTo] = useState('');
   const [globalActiveProvider, setGlobalActiveProvider] = useState('DISABLED');
-  const [globalRateLimitMinute, setGlobalRateLimitMinute] = useState(5);
-  const [globalRateLimitHour, setGlobalRateLimitHour] = useState(100);
+  const [globalRateLimits, setGlobalRateLimits] = useState<GlobalRateLimitValues | null>(null);
 
   const totalSentLast24Hours = accounts.reduce((sum, a) => sum + (a.sentLast24Hours || 0), 0);
   const totalDailyLimit = accounts.reduce((sum, a) => sum + (a.dailyLimit || 0), 0);
@@ -142,7 +170,7 @@ export default function AccountsPage() {
     setProvider('Google Workspace');
     setSmtpHost('smtp.gmail.com'); setSmtpPort('587');
     setImapHost('imap.gmail.com'); setImapPort('993'); setImapAllowSelfSigned(false);
-    setMinuteLimit(globalRateLimitMinute); setHourlyLimit(globalRateLimitHour); setDailyLimit(500);
+    setDailyLimit(500);
   };
 
   const handleProviderChange = (selectedProvider: string) => {
@@ -168,11 +196,9 @@ export default function AccountsPage() {
       if (settingsRes.ok) {
         const settingsData = await settingsRes.json();
         setGlobalActiveProvider(settingsData.settings?.activeProvider || 'DISABLED');
+        // Settings come back for admins only, so other roles see the limits described without values.
         if (settingsData.settings) {
-          const gMin = settingsData.settings.rateLimitMinute ?? 5;
-          const gHour = settingsData.settings.rateLimitHour ?? 100;
-          setGlobalRateLimitMinute(gMin); setGlobalRateLimitHour(gHour);
-          setMinuteLimit(gMin); setHourlyLimit(gHour);
+          setGlobalRateLimits({ minute: settingsData.settings.rateLimitMinute ?? null, hour: settingsData.settings.rateLimitHour ?? null });
         }
       }
       if (sessData.role === 'ADMIN') {
@@ -221,7 +247,7 @@ export default function AccountsPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           emailAddress, name: senderName, replyTo: replyTo || null, provider, userId: assignedUserId,
-          minuteLimit: Number(minuteLimit), hourlyLimit: Number(hourlyLimit), dailyLimit: Number(dailyLimit),
+          dailyLimit: Number(dailyLimit),
           smtpHost: smtpHost || null, smtpPort: smtpPort ? Number(smtpPort) : null, smtpUser: smtpUser || null, smtpPass: smtpPass || null,
           imapHost: imapHost || null, imapPort: imapPort ? Number(imapPort) : null, imapUser: imapUser || null, imapPass: imapPass || null,
           imapAllowSelfSigned,
@@ -231,7 +257,7 @@ export default function AccountsPage() {
       await loadData();
       setIsAddOpen(false);
       setEmailAddress(''); setSenderName(''); setReplyTo(''); setProvider('Google Workspace');
-      setMinuteLimit(5); setHourlyLimit(100); setDailyLimit(500);
+      setDailyLimit(500);
       setSmtpHost(''); setSmtpPort(''); setSmtpUser(''); setSmtpPass('');
       setImapHost(''); setImapPort(''); setImapUser(''); setImapPass('');
       showToast('Mailbox connected successfully');
@@ -401,7 +427,6 @@ export default function AccountsPage() {
                               <Box component="span" sx={{ color: 'text.secondary' }}> / {account.dailyLimit}</Box>
                             </>
                           ) : (<>{account.dailyLimit} daily max</>)}
-                          <Box sx={{ fontSize: 9, color: 'text.secondary', fontFamily: 'sans-serif' }}>Min: {account.minuteLimit}/min • Hour: {account.hourlyLimit}/hr</Box>
                         </TableCell>
                         <TableCell sx={{ color: 'text.secondary' }}>
                           <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}><User size={12} /> {getOwnerName(account.userId)}</Stack>
@@ -439,7 +464,7 @@ export default function AccountsPage() {
                   const daysActive = Math.max(0, Math.floor((new Date().getTime() - startedAt.getTime()) / 86400000));
                   const effectiveCap = selectedWarmupAccount.effectiveDailyCap ?? selectedWarmupAccount.dailyLimit;
                   return <Box component="span" sx={{ color: 'warning.main', fontWeight: 600 }}>Warmup Day {daysActive + 1} · Current Cap: {effectiveCap} / {selectedWarmupAccount.dailyLimit} daily limit</Box>;
-                })() : 'Configure sending rate limits, connection details, and credentials for this mailbox.'}
+                })() : 'Configure the daily sending limit, connection details, and credentials for this mailbox.'}
               </Typography>
             </Box>
             <Stack direction="row" spacing={1}>
@@ -539,26 +564,15 @@ export default function AccountsPage() {
             </Card>
 
             <Stack spacing={2.5}>
-              {/* Throttling */}
+              {/* Sending limits */}
               <Card>
                 <CardContent>
                   <Stack direction="row" spacing={1} sx={{ alignItems: 'center', pb: 1.5, mb: 2, borderBottom: 1, borderColor: 'divider' }}>
                     <Gauge size={16} color="#2563EB" />
-                    <Typography variant="overline" sx={{ fontWeight: 700 }}>Throttling & Sending Frequency</Typography>
+                    <Typography variant="overline" sx={{ fontWeight: 700 }}>Sending Limits</Typography>
                   </Stack>
-                  <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5}>
-                    <TextField fullWidth size="small" label="Per Minute" type="number" value={selectedWarmupAccount.minuteLimit} onChange={(e) => handleUpdateWarmupSettings('minuteLimit', parseInt(e.target.value))} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { min: 1 } }} />
-                    <TextField fullWidth size="small" label="Per Hour" type="number" value={selectedWarmupAccount.hourlyLimit} onChange={(e) => handleUpdateWarmupSettings('hourlyLimit', parseInt(e.target.value))} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { min: 1 } }} />
-                    <TextField fullWidth size="small" label="Per Day" type="number" value={selectedWarmupAccount.dailyLimit} onChange={(e) => handleUpdateWarmupSettings('dailyLimit', parseInt(e.target.value))} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { min: 10 } }} />
-                  </Stack>
-                  <Card sx={{ mt: 2, bgcolor: (t) => alpha(t.palette.primary.main, 0.06), borderColor: (t) => alpha(t.palette.primary.main, 0.2) }}>
-                    <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 }, display: 'flex', gap: 1, alignItems: 'flex-start' }}>
-                      <Sparkles size={14} color="#2563EB" style={{ flexShrink: 0, marginTop: 2 }} />
-                      <Typography variant="caption" sx={{ color: 'primary.main', lineHeight: 1.5 }}>
-                        <strong>Throttling tip:</strong> Spread sends over time to protect sender reputation. A per-minute limit around 5 is recommended for new mailboxes.
-                      </Typography>
-                    </CardContent>
-                  </Card>
+                  <TextField fullWidth size="small" label="Per Day" type="number" value={selectedWarmupAccount.dailyLimit} onChange={(e) => handleUpdateWarmupSettings('dailyLimit', parseInt(e.target.value))} sx={{ maxWidth: 240 }} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { min: 10 } }} />
+                  <Box sx={{ mt: 2 }}><GlobalRateLimits limits={globalRateLimits} /></Box>
                 </CardContent>
               </Card>
 
@@ -690,11 +704,8 @@ export default function AccountsPage() {
                   <Activity size={14} color="#2563EB" />
                   <Typography variant="overline" sx={{ fontWeight: 700, color: 'text.secondary' }}>Sending Limits</Typography>
                 </Stack>
-                <Stack direction="row" spacing={1.5}>
-                  <TextField fullWidth size="small" label="Max / Minute" type="number" value={minuteLimit} onChange={(e) => setMinuteLimit(parseInt(e.target.value) || 1)} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { min: 1 } }} />
-                  <TextField fullWidth size="small" label="Max / Hour" type="number" value={hourlyLimit} onChange={(e) => setHourlyLimit(parseInt(e.target.value) || 1)} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { min: 1 } }} />
-                  <TextField fullWidth size="small" label="Max / Day" type="number" value={dailyLimit} onChange={(e) => setDailyLimit(parseInt(e.target.value) || 10)} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { min: 10 } }} />
-                </Stack>
+                <TextField fullWidth size="small" label="Max / Day" type="number" value={dailyLimit} onChange={(e) => setDailyLimit(parseInt(e.target.value) || 10)} sx={{ maxWidth: 240 }} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { min: 10 } }} />
+                <Box sx={{ mt: 2 }}><GlobalRateLimits limits={globalRateLimits} /></Box>
                 {accounts.length > 0 && (
                   <Box sx={{ mt: 2, pt: 2, borderTop: 1, borderColor: 'divider' }}>
                     <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>

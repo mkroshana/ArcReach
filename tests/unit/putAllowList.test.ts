@@ -189,9 +189,26 @@ describe('PUT /api/accounts', () => {
     expect(mockedDb.updateAccount).not.toHaveBeenCalled();
   });
 
+  it('refuses per-mailbox minute and hour limits, which are global in Settings (M13)', async () => {
+    for (const body of [
+      { id: 'acc-1', minuteLimit: 5 },
+      { id: 'acc-1', hourlyLimit: 100 },
+      { id: 'acc-1', dailyLimit: 300, minuteLimit: 2, hourlyLimit: 40 },
+    ]) {
+      const res = await putAccount(makeReq('/api/accounts', body));
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toMatch(/^Unknown field\(s\): (minuteLimit|hourlyLimit)/);
+    }
+    expect(mockedDb.updateAccount).not.toHaveBeenCalled();
+
+    const res = await putAccount(makeReq('/api/accounts', { id: 'acc-1', dailyLimit: 300 }));
+    expect(res.status).toBe(200);
+    expect(mockedDb.updateAccount).toHaveBeenLastCalledWith('acc-1', { dailyLimit: 300 });
+  });
+
   it('rejects wrong types for limits and ports', async () => {
     for (const body of [
-      { id: 'acc-1', minuteLimit: null },
+      { id: 'acc-1', dailyLimit: null },
       { id: 'acc-1', dailyLimit: '500' },
       { id: 'acc-1', warmupEnabled: 'yes' },
       { id: 'acc-1', smtpPort: '587' },
@@ -306,15 +323,15 @@ describe('PUT /api/accounts', () => {
   });
 
   it('keeps the ownership check', async () => {
-    const res = await putAccount(makeReq('/api/accounts', { id: 'acc-other', minuteLimit: 5 }));
+    const res = await putAccount(makeReq('/api/accounts', { id: 'acc-other', dailyLimit: 5 }));
     expect(res.status).toBe(403);
     expect(mockedDb.updateAccount).not.toHaveBeenCalled();
   });
 
   it('drops userId for a USER and requires an existing user for an ADMIN', async () => {
-    const userRes = await putAccount(makeReq('/api/accounts', { id: 'acc-1', userId: 'user-2', minuteLimit: 5 }));
+    const userRes = await putAccount(makeReq('/api/accounts', { id: 'acc-1', userId: 'user-2', dailyLimit: 5 }));
     expect(userRes.status).toBe(200);
-    expect(mockedDb.updateAccount).toHaveBeenLastCalledWith('acc-1', { minuteLimit: 5 });
+    expect(mockedDb.updateAccount).toHaveBeenLastCalledWith('acc-1', { dailyLimit: 5 });
 
     mockedSession.mockResolvedValue(ADMIN);
     mockedPrisma.user.findUnique.mockResolvedValue(null);

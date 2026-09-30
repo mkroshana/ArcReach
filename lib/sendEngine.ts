@@ -39,30 +39,6 @@ export async function autoResumeQuotaPausedCampaigns(now: Date = new Date()): Pr
 }
 
 /**
- * Custom validation helper to ensure send limits (minuteLimit, hourlyLimit, dailyLimit) are not exceeded
- * before triggering automated outgoing emails.
- */
-export function validateSendingFrequency(senderAccount: {
-  minuteLimit: number;
-  hourlyLimit: number;
-  dailyLimit: number;
-  emailsSentLastMinute: number;
-  emailsSentLastHour: number;
-  emailsSentToday: number;
-}): { allowed: boolean; reason?: string } {
-  if (senderAccount.emailsSentLastMinute >= senderAccount.minuteLimit) {
-    return { allowed: false, reason: `Sending frequency limit reached: Max ${senderAccount.minuteLimit} per minute.` };
-  }
-  if (senderAccount.emailsSentLastHour >= senderAccount.hourlyLimit) {
-    return { allowed: false, reason: `Sending frequency limit reached: Max ${senderAccount.hourlyLimit} per hour.` };
-  }
-  if (senderAccount.emailsSentToday >= senderAccount.dailyLimit) {
-    return { allowed: false, reason: `Sending limit reached: Max ${senderAccount.dailyLimit} per day.` };
-  }
-  return { allowed: true };
-}
-
-/**
  * Calculates the daily limit for a sender based on the warmup volume ramp
  */
 export function getEffectiveDailyCap(

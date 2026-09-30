@@ -89,3 +89,21 @@ describe('POST /api/accounts accepts only a sender address on a verified Azure d
     expect(mockedDb.createAccount.mock.calls[0][0]).toMatchObject({ emailAddress: 'Sales@Outbound.ACME.io', userId: 'user-1' });
   });
 });
+
+describe('POST /api/accounts saves no per-mailbox minute or hour limit (M13)', () => {
+  it('ignores minuteLimit and hourlyLimit, since those limits are global, and keeps the daily limit', async () => {
+    const res = await postAccount(
+      new NextRequest('http://localhost/api/accounts', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ emailAddress: 'sales@acme.test', provider: 'Google Workspace', name: 'Sales', minuteLimit: 2, hourlyLimit: 40, dailyLimit: 300 }),
+      })
+    );
+
+    expect(res.status).toBe(200);
+    const saved = mockedDb.createAccount.mock.calls[0][0];
+    expect(saved).not.toHaveProperty('minuteLimit');
+    expect(saved).not.toHaveProperty('hourlyLimit');
+    expect(saved.dailyLimit).toBe(300);
+  });
+});

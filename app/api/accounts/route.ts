@@ -10,14 +10,13 @@ import { senderCapDispatchWhere } from '@/lib/sendEngine';
 import { type MetricsScope, countHardBounces, countReplies, percent, sendSummary } from '@/lib/engagementMetrics';
 import { type FieldRule, fieldRules, isPlainObject, pickUpdateFields } from '@/lib/updateAllowList';
 
-/** Scalar columns the mailbox PUT may write: the throttle, warmup and credential
+/** Scalar columns the mailbox PUT may write: the daily limit, warmup and credential
  *  controls on the Accounts page plus the internal label. Counters, reputation and
- *  warmupStartedAt are server-managed. */
+ *  warmupStartedAt are server-managed. Per-minute and per-hour limits are global
+ *  (Settings), so the unused minuteLimit and hourlyLimit columns are refused. */
 const ACCOUNT_UPDATE_FIELDS: Record<string, FieldRule> = {
   name: fieldRules.nullableString,
   replyTo: fieldRules.nullableString,
-  minuteLimit: fieldRules.nonNegativeInt,
-  hourlyLimit: fieldRules.nonNegativeInt,
   dailyLimit: fieldRules.nonNegativeInt,
   warmupEnabled: fieldRules.boolean,
   warmupLimit: fieldRules.nonNegativeInt,
@@ -128,8 +127,6 @@ export async function POST(req: NextRequest) {
       replyTo,
       provider, 
       status, 
-      minuteLimit, 
-      hourlyLimit, 
       dailyLimit,
       userId,
       warmupEnabled,
@@ -168,8 +165,6 @@ export async function POST(req: NextRequest) {
       replyTo: replyTo || null,
       provider,
       status: status || 'Active',
-      minuteLimit: Number(minuteLimit) || 1,
-      hourlyLimit: Number(hourlyLimit) || 60,
       dailyLimit: Number(dailyLimit) || 500,
       dailyMax: Number(dailyLimit) || 500,
       userId: targetUserId,

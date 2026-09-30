@@ -26,12 +26,12 @@
    - Personalization variables (`{{firstName}}`, `{{company}}`) and dynamic Spintax template resolution.
    - A/B testing support, custom timezones, and open/click tracking toggles.
 
-3. **Sender Accounts & Throttle Controls** ([app/accounts](file:///d:/Development/ArcReach/app/accounts))
+3. **Sender Accounts & Sending Limits** ([app/accounts](file:///d:/Development/ArcReach/app/accounts))
    - Link multiple sender mailboxes (Microsoft 365, Google Workspace, custom SMTP/IMAP).
    - Per-mailbox deliverability stats: emails sent/opened/clicked, replies, and bounces.
    - Warmup volume ramp (gradually increases a new mailbox's daily cap; enforced by the send engine).
    - *Planned (schema fields present but not yet computed):* reputation score and spam-save / warmup-network telemetry.
-   - Fine-grained throttle configurations (minute limits, hourly limits, and daily caps) evaluated by the sending engine.
+   - A daily cap per mailbox, enforced by the send engine over a rolling 24 hours. Per-minute and per-hour limits are global, set by an admin in Settings, and apply to all mailboxes together.
 
 4. **Lead CRM & Bulk Validation** ([app/leads](file:///d:/Development/ArcReach/app/leads))
    - Structured table listing lead emails, company variables, verification status, and campaign logs.
@@ -54,7 +54,7 @@
 
 The background email dispatch engine is located in [lib/sendEngine.ts](file:///d:/Development/ArcReach/lib/sendEngine.ts). It:
 - Iterates through due leads enrolled in campaign sequences.
-- Evaluates sender-mailbox timezone restrictions and throttle limits using `validateSendingFrequency()`.
+- Checks the global per-minute and per-hour rate limits (`checkGlobalRateLimits()` in [lib/rateLimits.ts](file:///d:/Development/ArcReach/lib/rateLimits.ts)), each campaign's sending window, and each sender mailbox's daily or warmup cap.
 - Resolves templated variables and Spintax formats (e.g., `{Hi|Hello}`).
 - Interfaces with Azure Communication Services (stubbed in development) and logs dispatches.
 

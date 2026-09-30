@@ -256,8 +256,6 @@ describe('ArcReach Live API Integration Tests', () => {
         emailAddress: `test-sender-${Date.now()}@${await verifiedSenderDomain()}`,
         name: 'Test Outbound Sender',
         provider: 'Google Workspace',
-        minuteLimit: 5,
-        hourlyLimit: 100,
         dailyLimit: 500,
         warmupEnabled: false,
         replyTo: 'reply-test@arcreach-test.io'
@@ -280,7 +278,7 @@ describe('ArcReach Live API Integration Tests', () => {
         id: createdAccountId,
         name: 'Updated Test Sender',
         warmupEnabled: true,
-        minuteLimit: 10,
+        dailyLimit: 400,
         replyTo: 'reply-updated@arcreach-test.io'
       };
       const updateRes = await testFetch(`${BASE_URL}/api/accounts`, {
@@ -506,8 +504,6 @@ describe('ArcReach Live API Integration Tests', () => {
         emailAddress: `campaign-sender-${Date.now()}@${await verifiedSenderDomain()}`,
         name: 'Campaign Sender',
         provider: 'Custom SMTP',
-        minuteLimit: 5,
-        hourlyLimit: 50,
         dailyLimit: 200,
         warmupEnabled: false
       };

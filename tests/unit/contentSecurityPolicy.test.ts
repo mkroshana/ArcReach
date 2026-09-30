@@ -108,6 +108,8 @@ describe('middleware Content-Security-Policy (C4)', () => {
 
   it('adds unsafe-eval to the page policy only when NODE_ENV is development', async () => {
     const cookie = await sessionCookie();
+    // Set explicitly: CI runs the unit tests with NODE_ENV=development.
+    vi.stubEnv('NODE_ENV', 'production');
     expect(directives((await middleware(request('/', cookie))).headers.get('content-security-policy')!)['script-src'])
       .not.toContain("'unsafe-eval'");
 

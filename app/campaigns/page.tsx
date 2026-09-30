@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation';
 import {
   Plus, PlayCircle, Search, Layers, RefreshCw, Loader2,
   Mail, User, ChevronRight, ChevronDown, Gauge, Inbox, Trash2, Play, Pause, Send, Check, Clock, TimerOff, UserX,
+  CircleStop, RotateCcw,
 } from 'lucide-react';
 import {
   Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
@@ -18,15 +19,18 @@ import { alpha } from '@mui/material/styles';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { queuedLeadsMessage } from '@/lib/campaignSteps';
 import { autoResumeNote, ownerDisabledNote } from '@/lib/campaignPause';
+import { STOPPABLE_STATUSES, STOPPED_STATUS, restartConfirmMessage, stopConfirmMessage, stoppedNote } from '@/lib/campaignStop';
 import { LoadError, loadErrorMessage, readJsonList, readJsonObject } from '@/lib/apiResponse';
 import { toastDuration } from '@/lib/toastDuration';
 
 interface DbCampaign {
   id: string;
   name: string;
-  status: 'Active' | 'Draft' | 'Paused';
+  status: 'Active' | 'Draft' | 'Paused' | 'Stopped';
   pausedUntil?: string | null;
   pauseReason?: string | null;
+  // When a user stopped it; null unless Stopped.
+  stoppedAt?: string | null;
   // Whether its saved sending window is complete; without one the auto-resume sets it to Draft.
   hasSendingSchedule: boolean;
   senderAccount?: { emailAddress: string };
@@ -37,11 +41,12 @@ interface DbCampaign {
   steps?: { id: string; stepOrder: number; waitDays: number; subject: string }[];
   // Server-side aggregates — raw enrollment/dispatch rows are never shipped
   // (payloads at scale OOM'd the server).
-  stepStats?: { stepOrder: number; active: number; sent: number; delivered: number; failed: number }[];
+  // `leads`: the leads the step's sent emails reached, each once however often it got the step.
+  stepStats?: { stepOrder: number; active: number; sent: number; delivered: number; failed: number; leads: number }[];
   enrollmentSummary?: { total: number; active: number; completed: number };
 }
 
-const statusColorMap = { Active: 'success', Draft: 'default', Paused: 'warning' } as const;
+const statusColorMap = { Active: 'success', Draft: 'default', Paused: 'warning', Stopped: 'error' } as const;
 
 export default function CampaignsPage() {
   const router = useRouter();
@@ -66,7 +71,8 @@ export default function CampaignsPage() {
   const [submitting, setSubmitting] = useState(false);
 
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error'; duration: number | null } | null>(null);
-  const [confirmState, setConfirmState] = useState<{ title: string; message: string; confirmLabel: string; onConfirm: () => void } | null>(null);
+  // `destructive` defaults to true: Delete and Stop confirm in red, Restart does not.
+  const [confirmState, setConfirmState] = useState<{ title: string; message: string; confirmLabel: string; destructive?: boolean; onConfirm: () => void } | null>(null);
   // A long error, such as the server's reason a sequence was not created, stays until dismissed.
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     const next = { message, type, duration: toastDuration(message, type, 3000) };
@@ -104,6 +110,35 @@ export default function CampaignsPage() {
         showToast(data?.error || 'Failed to keep the campaign paused.', 'error');
       }
     } catch { showToast('Error keeping the campaign paused.', 'error'); }
+  };
+
+  // Stop and Restart ask first. Stop ends sending until a restart, which makes the campaign Active again.
+  const confirmStopOrRestart = (campaign: DbCampaign, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const restart = campaign.status === STOPPED_STATUS;
+    const action = restart ? 'restart' : 'stop';
+    setConfirmState({
+      title: restart ? 'Restart Campaign?' : 'Stop Campaign?',
+      message: restart ? restartConfirmMessage(campaign.name) : stopConfirmMessage(campaign.name, campaign.enrollmentSummary?.active || 0),
+      confirmLabel: restart ? 'Restart' : 'Stop Campaign',
+      destructive: !restart,
+      onConfirm: async () => {
+        setConfirmState(null);
+        try {
+          const res = await fetch('/api/campaigns', {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: campaign.id, status: restart ? 'Active' : STOPPED_STATUS }),
+          });
+          if (res.ok) {
+            showToast(restart ? 'Campaign restarted. Sending resumes inside its sending window.' : 'Campaign stopped. It sends nothing until you restart it.');
+            loadData();
+          } else {
+            const data = await res.json().catch(() => null);
+            showToast(data?.error || `Failed to ${action} the campaign.`, 'error');
+          }
+        } catch { showToast(`Error trying to ${action} the campaign.`, 'error'); }
+      },
+    });
   };
 
   const handleRunCampaign = async (id: string, stepOrder?: number) => {
@@ -296,6 +331,8 @@ export default function CampaignsPage() {
                   const isExpanded = expandedCampaignId === campaign.id;
                   const resumeNote = autoResumeNote(campaign);
                   const ownerNote = ownerDisabledNote(campaign);
+                  const stopNote = stoppedNote(campaign);
+                  const stopped = campaign.status === STOPPED_STATUS;
                   return (
                     <Fragment key={campaign.id}>
                       <TableRow hover onClick={() => setExpandedCampaignId(isExpanded ? null : campaign.id)} sx={{ cursor: 'pointer', bgcolor: isExpanded ? 'action.hover' : undefined }}>
@@ -322,7 +359,7 @@ export default function CampaignsPage() {
                         <TableCell>
                           <Chip
                             size="small"
-                            icon={campaign.status === 'Active' ? <PlayCircle size={10} /> : undefined}
+                            icon={campaign.status === 'Active' ? <PlayCircle size={10} /> : stopped ? <CircleStop size={10} /> : undefined}
                             label={campaign.status}
                             color={statusColorMap[campaign.status] as any === 'default' ? undefined : statusColorMap[campaign.status] as any}
                             variant="outlined"
@@ -336,6 +373,11 @@ export default function CampaignsPage() {
                           {ownerNote && (
                             <Typography variant="caption" sx={{ color: 'text.secondary', display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
                               <UserX size={11} style={{ flexShrink: 0 }} /> {ownerNote}
+                            </Typography>
+                          )}
+                          {stopNote && (
+                            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5 }}>
+                              {stopNote}
                             </Typography>
                           )}
                         </TableCell>
@@ -374,14 +416,36 @@ export default function CampaignsPage() {
                                       Keep Paused
                                     </Button>
                                   )}
-                                  <Button
-                                    size="small" variant="outlined" color="inherit"
-                                    startIcon={campaign.status === 'Active' ? <Pause size={12} color="#d97706" /> : <Play size={12} color="#10b981" />}
-                                    onClick={(e) => handleToggleStatus(campaign.id, campaign.status, e)}
-                                    sx={{ borderColor: 'divider' }}
-                                  >
-                                    {campaign.status === 'Active' ? 'Pause' : 'Activate'}
-                                  </Button>
+                                  {stopped ? (
+                                    <Button
+                                      size="small" variant="outlined" color="inherit"
+                                      startIcon={<RotateCcw size={12} />}
+                                      onClick={(e) => confirmStopOrRestart(campaign, e)}
+                                      sx={{ borderColor: 'divider' }}
+                                    >
+                                      Restart
+                                    </Button>
+                                  ) : (
+                                    <>
+                                      <Button
+                                        size="small" variant="outlined" color="inherit"
+                                        startIcon={campaign.status === 'Active' ? <Pause size={12} color="#d97706" /> : <Play size={12} color="#10b981" />}
+                                        onClick={(e) => handleToggleStatus(campaign.id, campaign.status, e)}
+                                        sx={{ borderColor: 'divider' }}
+                                      >
+                                        {campaign.status === 'Active' ? 'Pause' : 'Activate'}
+                                      </Button>
+                                      {STOPPABLE_STATUSES.includes(campaign.status) && (
+                                        <Button
+                                          size="small" variant="outlined" color="error"
+                                          startIcon={<CircleStop size={12} />}
+                                          onClick={(e) => confirmStopOrRestart(campaign, e)}
+                                        >
+                                          Stop
+                                        </Button>
+                                      )}
+                                    </>
+                                  )}
                                   {campaign.status === 'Active' && (
                                     <Button
                                       size="small" variant="contained"
@@ -409,10 +473,12 @@ export default function CampaignsPage() {
                                     const deliveredCount = stats?.delivered || 0;
                                     const failedCount = stats?.failed || 0;
                                     const totalEnrolled = campaign.enrollmentSummary?.total || 0;
-                                    const progressPercent = totalEnrolled > 0 ? Math.round((sentCount / totalEnrolled) * 100) : 0;
+                                    // The share of enrolled leads the step reached: leads, not emails, so a
+                                    // step sent to a lead twice never counts it twice.
+                                    const progressPercent = totalEnrolled > 0 ? Math.round(((stats?.leads || 0) / totalEnrolled) * 100) : 0;
                                     return (
                                       <Stack key={step.id} sx={{ alignItems: 'center', textAlign: 'center', gap: 0.75, position: 'relative', width: 150 }}>
-                                        <Chip size="small" label={`${activeLeadsCount} active`} color={isActiveStep ? 'primary' : 'default'} variant={isActiveStep ? 'filled' : 'outlined'} sx={{ height: 18, fontSize: 9, fontWeight: 800 }} />
+                                        <Chip size="small" label={`${activeLeadsCount} ${stopped ? 'stopped' : 'active'}`} color={isActiveStep ? 'primary' : 'default'} variant={isActiveStep ? 'filled' : 'outlined'} sx={{ height: 18, fontSize: 9, fontWeight: 800 }} />
                                         <Box sx={{ width: 36, height: 36, borderRadius: '50%', display: 'grid', placeItems: 'center', fontFamily: 'monospace', fontWeight: 700, fontSize: 12,
                                           bgcolor: isActiveStep ? 'primary.main' : 'background.paper',
                                           color: isActiveStep ? 'primary.contrastText' : 'text.secondary',
@@ -424,7 +490,7 @@ export default function CampaignsPage() {
                                             <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={step.subject}>{step.subject || '(No Subject)'}</Typography>
                                             {idx > 0 && <Typography sx={{ fontSize: 9, color: 'text.secondary', fontFamily: 'monospace', textTransform: 'uppercase', display: 'block', mb: 0.5 }}>Wait: {step.waitDays}d</Typography>}
                                             <Box sx={{ mt: 0.75, pt: 0.75, borderTop: 1, borderColor: 'divider', display: 'flex', flexDirection: 'column', gap: 0.25 }}>
-                                              <Stack direction="row" sx={{ justifyContent: 'space-between', fontSize: 9 }}><Box component="span" sx={{ color: 'text.secondary' }}>To send:</Box><Box component="span" sx={{ fontWeight: 800, color: activeLeadsCount > 0 ? 'warning.main' : 'text.disabled' }}>{activeLeadsCount}</Box></Stack>
+                                              <Stack direction="row" sx={{ justifyContent: 'space-between', fontSize: 9 }}><Box component="span" sx={{ color: 'text.secondary' }}>{stopped ? 'Stopped here:' : 'To send:'}</Box><Box component="span" sx={{ fontWeight: 800, color: activeLeadsCount > 0 ? 'warning.main' : 'text.disabled' }}>{activeLeadsCount}</Box></Stack>
                                               <Stack direction="row" sx={{ justifyContent: 'space-between', fontSize: 9 }}><Box component="span" sx={{ color: 'text.secondary' }}>Sent:</Box><Box component="span" sx={{ fontWeight: 800 }}>{sentCount}</Box></Stack>
                                               {sentCount > 0 && <Stack direction="row" sx={{ justifyContent: 'space-between', fontSize: 9 }}><Box component="span" sx={{ color: 'text.secondary' }}>Delivered:</Box><Box component="span" sx={{ fontWeight: 800, color: 'success.main' }}>{deliveredCount}</Box></Stack>}
                                               {failedCount > 0 && <Stack direction="row" sx={{ justifyContent: 'space-between', fontSize: 9 }}><Box component="span" sx={{ color: 'text.secondary' }}>Failed:</Box><Box component="span" sx={{ fontWeight: 800, color: 'error.main' }}>{failedCount}</Box></Stack>}
@@ -548,7 +614,7 @@ export default function CampaignsPage() {
         title={confirmState?.title || ''}
         message={confirmState?.message || ''}
         confirmLabel={confirmState?.confirmLabel}
-        isDestructive
+        isDestructive={confirmState?.destructive ?? true}
         onConfirm={() => confirmState?.onConfirm()}
         onCancel={() => setConfirmState(null)}
       />

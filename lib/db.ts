@@ -102,7 +102,8 @@ export const db = {
    * Never ships raw enrollment/dispatch rows — with tens of thousands of rows
    * those payloads OOM'd the server (Prisma JSON.parse of a multi-MB engine
    * response per request). Four groupBy queries total, regardless of volume.
-   * Step sends count as on the campaign page (lib/engagementMetrics).
+   * Step sends count as on the campaign page (lib/engagementMetrics), with
+   * the leads each step reached, which its Progress counts.
    * Selects only what the campaigns list shows: step bodies, the sender pool
    * and mailbox rows stay with the campaign page, which loads one campaign.
    */
@@ -116,6 +117,7 @@ export const db = {
         status: true,
         pausedUntil: true,
         pauseReason: true,
+        stoppedAt: true,
         timezone: true,
         sendSchedule: true,
         userId: true,
@@ -140,15 +142,15 @@ export const db = {
         where: { campaignId: { in: ids }, status: 'Active' },
         _count: { id: true },
       }),
-      stepMetrics(prisma, ids),
+      stepMetrics(prisma, ids, { leads: true }),
     ]);
 
     return campaigns.map(({ timezone, sendSchedule, ...c }) => {
       const enrollments = enrollByStatus.filter((e) => e.campaignId === c.id);
       const stepStats = c.steps.map((s) => {
         const active = activeByStep.find((a) => a.campaignId === c.id && a.currentSequenceStep === s.stepOrder)?._count.id || 0;
-        const { sent, delivered, failed } = stepCounts(c.id, s.stepOrder);
-        return { stepOrder: s.stepOrder, active, sent, delivered, failed };
+        const { sent, delivered, failed, leads } = stepCounts(c.id, s.stepOrder);
+        return { stepOrder: s.stepOrder, active, sent, delivered, failed, leads };
       });
       return {
         ...c,

@@ -2,31 +2,28 @@
 'use client';
 
 import {
-  ArrowLeft, Save, Send, Settings, Users, AlignLeft, Clock, ToggleLeft, Plus, Trash2,
-  Mail, CheckCircle2, MousePointerClick, Reply, SendHorizontal,
-  Eye, Play, Loader2, XCircle, AlertTriangle, UserMinus, TimerOff, Lock, RefreshCw, UserX,
+  ArrowLeft, Save, Send, Settings, Users, AlignLeft, Clock, ToggleLeft, Plus, Trash2, Mail,
+  Eye, Play, Loader2, AlertTriangle, TimerOff, Lock, RefreshCw, UserX, CircleStop, RotateCcw,
 } from 'lucide-react';
 import Link from 'next/link';
-import { use, useState, useEffect } from 'react';
+import { use, useState, useEffect, useRef } from 'react';
 import { useTimezones } from '@/hooks/use-timezones';
-import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  BarChart, Bar, PieChart, Pie, Cell,
-} from 'recharts';
 import { useToast } from '@/components/Toast';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import VariableToolbar from '@/components/VariableToolbar';
+import CampaignAnalytics, { StepStatStrip, analyticsCaveats } from '@/components/CampaignAnalytics';
 import { activationBlocker, findIncompleteSteps, queuedLeadsMessage, sequenceDurationDays } from '@/lib/campaignSteps';
 import { autoResumeNote, noScheduleOutcome, ownerDisabledNote, savedScheduleNote } from '@/lib/campaignPause';
+import { STOPPABLE_STATUSES, STOPPED_STATUS, restartConfirmMessage, stopConfirmMessage, stoppedNote } from '@/lib/campaignStop';
 import { sameCampaignVersion } from '@/lib/campaignVersion';
 import { hasSendingSchedule, sendScheduleError, timezoneError } from '@/lib/sendSchedule';
-import { personalizePreview, previewEmailBody } from '@/lib/personalize';
+import { isHtmlTemplate, personalizePreview, previewEmailBody } from '@/lib/personalize';
 import { IMAP_SYNC_LABELS, imapSyncState, stopOnReplyWarning } from '@/lib/imapSyncStatus';
 import { loadErrorMessage, readJsonList, responseErrorMessage } from '@/lib/apiResponse';
 import {
   Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
   Select, MenuItem, FormControl, InputLabel, Switch, Skeleton, ToggleButtonGroup, ToggleButton,
-  Table, TableHead, TableBody, TableRow, TableCell, Checkbox, FormControlLabel, Alert, AlertTitle,
+  Checkbox, FormControlLabel, Alert, AlertTitle,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 
@@ -44,6 +41,8 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
   const [listErrors, setListErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState('Sequence');
+  // Set once the first load has picked the opening tab, so a reload after a save keeps the current one.
+  const openingTabChosen = useRef(false);
   const [templates, setTemplates] = useState<any[]>([]);
   const [previewSteps, setPreviewSteps] = useState<Record<string, boolean>>({});
   // A step shows its preview unless its key is false (edit mode), so a toggle flips it to or from false.
@@ -55,6 +54,8 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
   const [runningCampaign, setRunningCampaign] = useState(false);
   const [keepingPaused, setKeepingPaused] = useState(false);
   const [changingStatus, setChangingStatus] = useState(false);
+  // The Stop or Restart confirmation on screen, if any.
+  const [confirmAction, setConfirmAction] = useState<'stop' | 'restart' | null>(null);
   // The updatedAt of the campaign the form was loaded from. Saves send it, and the
   // server refuses one once the campaign has changed since (showChangedPrompt).
   const [editorVersion, setEditorVersion] = useState<string | null>(null);
@@ -111,6 +112,11 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
       if (res.ok) {
         const data = await res.json();
         setCampaign(data);
+        if (!openingTabChosen.current) {
+          openingTabChosen.current = true;
+          // Analytics once the campaign has tried to send anything, the Sequence editor before.
+          setActiveTab((data.telemetry?.sentRequests ?? 0) > 0 ? 'Analytics' : 'Sequence');
+        }
         setEditorVersion(data.updatedAt ?? null);
         setCampaignName(data.name || '');
         setStatus(data.status || 'Draft');
@@ -258,7 +264,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
     });
     const data = await res.json().catch(() => null);
     if (!res.ok || !data) return { ok: false, error: data?.error };
-    setCampaign((prev: any) => ({ ...prev, status: data.status, pausedUntil: data.pausedUntil, pauseReason: data.pauseReason }));
+    setCampaign((prev: any) => ({ ...prev, status: data.status, pausedUntil: data.pausedUntil, pauseReason: data.pauseReason, stoppedAt: data.stoppedAt }));
     setStatus(data.status);
     setEditorVersion(prev => (sameCampaignVersion(prev, data.previousUpdatedAt) ? data.updatedAt : prev));
     return { ok: true };
@@ -285,6 +291,24 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
       else showToast(data?.error || 'Failed to queue leads.', 'error');
     } catch (err) { console.error(err); showToast('Failed to queue leads.', 'error'); }
     finally { setRunningCampaign(false); }
+  };
+
+  // Stop and Restart go through the status route like the status menu, so
+  // unsaved edits stay in the form (a stopped campaign can't save them).
+  const handleStopOrRestart = async (action: 'stop' | 'restart') => {
+    setConfirmAction(null);
+    try {
+      setChangingStatus(true);
+      const result = await changeStatus(action === 'stop' ? STOPPED_STATUS : 'Active');
+      if (result.ok) {
+        showToast(action === 'stop'
+          ? 'Campaign stopped. It sends nothing until you restart it.'
+          : 'Campaign restarted. Sending resumes inside its sending window.');
+      } else {
+        showToast(result.error || `Failed to ${action} the campaign.`, 'error');
+      }
+    } catch (err) { console.error(err); showToast(`Error trying to ${action} the campaign.`, 'error'); }
+    finally { setChangingStatus(false); }
   };
 
   // Setting Paused again cancels the auto-resume the send engine scheduled. Only
@@ -335,22 +359,12 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
     );
   }
 
-  const metrics = [
-    { title: 'Total Sent Requests', value: campaign?.telemetry?.sentRequests, icon: SendHorizontal, color: '#64748b', sub: 'Includes retries & failures' },
-    { title: 'Emails Sent', value: campaign?.telemetry?.sent, icon: Send, color: '#2563EB', sub: 'Accepted by provider' },
-    { title: 'Delivered', value: campaign?.telemetry?.delivered, icon: CheckCircle2, color: '#059669', sub: `${campaign?.telemetry?.deliveryRate ?? 0}% delivery rate` },
-    { title: 'Unique Opens', value: campaign?.telemetry?.opens, icon: Mail, color: '#2563EB', sub: `${campaign?.telemetry?.openRate ?? 0}% open rate` },
-    { title: 'Unique Clicks', value: campaign?.telemetry?.clicks, icon: MousePointerClick, color: '#D97706', sub: `${campaign?.telemetry?.clickRate ?? 0}% click rate` },
-    { title: 'Replies', value: campaign?.telemetry?.replies, icon: Reply, color: '#7C3AED', sub: `${campaign?.telemetry?.replyRate ?? 0}% reply rate` },
-  ];
-
-  const healthCards = [
-    { title: 'Failed Sends', value: campaign?.telemetry?.failed, icon: XCircle, color: '#DC2626', sub: 'Delivery errors at send time' },
-    { title: 'Bounced', value: campaign?.telemetry?.bounced, icon: AlertTriangle, color: '#D97706', sub: `${campaign?.telemetry?.bounceRate ?? 0}% bounce rate` },
-    { title: 'Unsubscribed', value: campaign?.telemetry?.unsubscribed, icon: UserMinus, color: '#64748b', sub: 'Opted out of mailings' },
-  ];
-
   const statusColor = status === 'Active' ? 'success' : status === 'Paused' ? 'warning' : 'default';
+  // A stopped campaign is read-only until it is restarted: the form shows its
+  // settings, but nothing in it can be changed or saved.
+  const stopped = status === STOPPED_STATUS;
+  // Which of the campaign's stats depend on something not set up (lib/imapSyncStatus, delivery reports, tracking).
+  const statCaveats = analyticsCaveats(campaign, listErrors.mailboxes ? null : availableMailboxes);
   // Without a complete saved window the auto-resume sets the campaign to Draft, so the note says so.
   const resumeNote = campaign ? autoResumeNote({ ...campaign, hasSendingSchedule: hasSendingSchedule(campaign.timezone, campaign.sendSchedule) }) : null;
   const ownerNote = campaign ? ownerDisabledNote(campaign) : null;
@@ -377,23 +391,30 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
           <Box>
             <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
               <Typography variant="h5" sx={{ fontWeight: 700 }}>{campaignName || 'Sequence Setup'}</Typography>
-              <FormControl size="small">
-                <Select
-                  value={status}
-                  disabled={changingStatus}
-                  onChange={(e) => handleStatusChange(e.target.value)}
-                  sx={{
-                    height: 26, fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
-                    bgcolor: (t) => statusColor !== 'default' ? alpha(t.palette[statusColor as 'success' | 'warning'].main, 0.14) : 'action.hover',
-                    color: statusColor !== 'default' ? `${statusColor}.main` : 'text.secondary',
-                    '& .MuiOutlinedInput-notchedOutline': { borderColor: statusColor !== 'default' ? `${statusColor}.main` : 'divider' },
-                  }}
-                >
-                  <MenuItem value="Draft">Draft</MenuItem>
-                  <MenuItem value="Active">Active</MenuItem>
-                  <MenuItem value="Paused">Paused</MenuItem>
-                </Select>
-              </FormControl>
+              {stopped ? (
+                <Chip
+                  size="small" variant="outlined" color="error" label="Stopped" icon={<CircleStop size={12} />}
+                  sx={{ height: 26, fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}
+                />
+              ) : (
+                <FormControl size="small">
+                  <Select
+                    value={status}
+                    disabled={changingStatus}
+                    onChange={(e) => handleStatusChange(e.target.value)}
+                    sx={{
+                      height: 26, fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
+                      bgcolor: (t) => statusColor !== 'default' ? alpha(t.palette[statusColor as 'success' | 'warning'].main, 0.14) : 'action.hover',
+                      color: statusColor !== 'default' ? `${statusColor}.main` : 'text.secondary',
+                      '& .MuiOutlinedInput-notchedOutline': { borderColor: statusColor !== 'default' ? `${statusColor}.main` : 'divider' },
+                    }}
+                  >
+                    <MenuItem value="Draft">Draft</MenuItem>
+                    <MenuItem value="Active">Active</MenuItem>
+                    <MenuItem value="Paused">Paused</MenuItem>
+                  </Select>
+                </FormControl>
+              )}
             </Stack>
             <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5 }}>
               Primary Mailbox: {campaign?.senderAccount?.emailAddress || 'N/A'}
@@ -423,18 +444,38 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                 {runningCampaign ? 'Running…' : 'Run Campaign'}
               </Button>
             )}
-            <Button variant="outlined" color="inherit" disabled={saving} startIcon={<Save size={14} />} onClick={() => handleSaveCampaign()} sx={{ borderColor: 'divider', color: 'text.secondary' }}>
-              {saving ? 'Saving…' : 'Save'}
-            </Button>
-            <Button variant="contained" disabled={saving || scheduleMissing} startIcon={<Send size={14} />} onClick={() => handleSaveCampaign(true)}>Publish Sequence</Button>
+            {stopped ? (
+              <Button variant="contained" disabled={changingStatus} startIcon={<RotateCcw size={14} />} onClick={() => setConfirmAction('restart')}>
+                Restart
+              </Button>
+            ) : (
+              <>
+                {STOPPABLE_STATUSES.includes(status) && (
+                  <Button variant="outlined" color="error" disabled={changingStatus} startIcon={<CircleStop size={14} />} onClick={() => setConfirmAction('stop')}>
+                    Stop
+                  </Button>
+                )}
+                <Button variant="outlined" color="inherit" disabled={saving} startIcon={<Save size={14} />} onClick={() => handleSaveCampaign()} sx={{ borderColor: 'divider', color: 'text.secondary' }}>
+                  {saving ? 'Saving…' : 'Save'}
+                </Button>
+                <Button variant="contained" disabled={saving || scheduleMissing} startIcon={<Send size={14} />} onClick={() => handleSaveCampaign(true)}>Publish Sequence</Button>
+              </>
+            )}
           </Stack>
-          {scheduleMissing && (
+          {scheduleMissing && !stopped && (
             <Typography variant="caption" sx={{ color: 'text.secondary', display: 'flex', alignItems: 'center', gap: 0.5 }}>
               <Clock size={12} style={{ flexShrink: 0 }} /> Publishing needs a sending schedule: set days, times and a timezone on the Schedule tab.
             </Typography>
           )}
         </Stack>
       </Stack>
+
+      {stopped && (
+        <Alert severity="info" icon={<CircleStop size={20} />}>
+          <AlertTitle>Campaign Stopped</AlertTitle>
+          {stoppedNote(campaign)}. It sends nothing, and can&apos;t be edited, until you restart it. Its leads keep their place in the sequence, and its stats and sent emails are kept.
+        </Alert>
+      )}
 
       {failedListMessages.length > 0 && (
         <Alert
@@ -446,487 +487,349 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
         </Alert>
       )}
 
-      {/* Metrics */}
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', lg: 'repeat(3, 1fr)' }, gap: 2 }}>
-        {metrics.map((m, i) => (
-          <Card key={i}>
-            <CardContent>
-              <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <Typography variant="overline" sx={{ color: 'text.secondary', fontWeight: 700 }}>{m.title}</Typography>
-                <Box sx={{ width: 32, height: 32, borderRadius: '10px', display: 'grid', placeItems: 'center', bgcolor: alpha(m.color, 0.14), color: m.color }}>
-                  <m.icon size={16} />
-                </Box>
-              </Stack>
-              <Typography variant="h6" sx={{ fontWeight: 700, mt: 0.5 }}>{(m.value ?? 0).toLocaleString()}</Typography>
-              <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5, fontFamily: 'monospace', fontSize: 9 }}>{m.sub}</Typography>
-            </CardContent>
-          </Card>
-        ))}
-      </Box>
-
-      {/* Deliverability */}
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, 1fr)' }, gap: 2 }}>
-        {healthCards.map((m, i) => (
-          <Card key={i}>
-            <CardContent>
-              <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <Typography variant="overline" sx={{ color: 'text.secondary', fontWeight: 700 }}>{m.title}</Typography>
-                <Box sx={{ width: 32, height: 32, borderRadius: '10px', display: 'grid', placeItems: 'center', bgcolor: alpha(m.color, 0.14), color: m.color }}>
-                  <m.icon size={16} />
-                </Box>
-              </Stack>
-              <Typography variant="h6" sx={{ fontWeight: 700, mt: 0.5 }}>{(m.value ?? 0).toLocaleString()}</Typography>
-              <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5, fontFamily: 'monospace', fontSize: 9 }}>{m.sub}</Typography>
-            </CardContent>
-          </Card>
-        ))}
-      </Box>
-
-      {/* Per-step table */}
-      {campaign?.telemetry?.stepStats && campaign.telemetry.stepStats.length > 0 && (
-        <Card>
-          <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
-            <Typography variant="overline" sx={{ fontWeight: 700 }}>Per-Step Performance</Typography>
-          </Box>
-          <Box sx={{ overflowX: 'auto' }}>
-            <Table size="small">
-              <TableHead>
-                <TableRow sx={{ '& th': { fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', fontSize: 10, color: 'text.secondary' } }}>
-                  <TableCell>Step</TableCell>
-                  <TableCell>Active</TableCell>
-                  <TableCell>Sent</TableCell>
-                  <TableCell>Delivered</TableCell>
-                  <TableCell>Opened</TableCell>
-                  <TableCell>Clicked</TableCell>
-                  <TableCell>Failed</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {campaign.telemetry.stepStats.map((s: any) => (
-                  <TableRow key={s.stepOrder} hover>
-                    <TableCell>
-                      <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                        <Chip size="small" label={s.stepOrder} sx={{ height: 20, fontWeight: 700, fontFamily: 'monospace', bgcolor: (t) => alpha(t.palette.primary.main, 0.14), color: 'primary.main' }} />
-                        <Typography variant="body2" sx={{ fontWeight: 600, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={s.subject}>{s.subject || '(No subject)'}</Typography>
-                      </Stack>
-                    </TableCell>
-                    <TableCell sx={{ fontFamily: 'monospace' }}>{s.active}</TableCell>
-                    <TableCell sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{s.sent}</TableCell>
-                    <TableCell sx={{ fontFamily: 'monospace' }}>{s.delivered} <Box component="span" sx={{ color: 'text.secondary' }}>({s.deliveryRate}%)</Box></TableCell>
-                    <TableCell sx={{ fontFamily: 'monospace' }}>{s.opened} <Box component="span" sx={{ color: 'text.secondary' }}>({s.openRate}%)</Box></TableCell>
-                    <TableCell sx={{ fontFamily: 'monospace' }}>{s.clicked} <Box component="span" sx={{ color: 'text.secondary' }}>({s.clickRate}%)</Box></TableCell>
-                    <TableCell sx={{ fontFamily: 'monospace', color: s.failed > 0 ? 'error.main' : undefined, fontWeight: s.failed > 0 ? 700 : 400 }}>{s.failed}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </Box>
-        </Card>
-      )}
-
       {/* Tabs */}
-      <ToggleButtonGroup value={activeTab} exclusive onChange={(_, v) => v && setActiveTab(v)} sx={{ width: 'fit-content' }}>
-        {['Sequence', 'Audience', 'Schedule', 'Options', 'Senders'].map(tab => (
+      <ToggleButtonGroup value={activeTab} exclusive onChange={(_, v) => v && setActiveTab(v)} sx={{ width: 'fit-content', maxWidth: '100%', overflowX: 'auto' }}>
+        {['Analytics', 'Sequence', 'Audience', 'Schedule', 'Options', 'Senders'].map(tab => (
           <ToggleButton key={tab} value={tab} sx={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>{tab}</ToggleButton>
         ))}
       </ToggleButtonGroup>
 
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '2fr 1fr' }, gap: 3 }}>
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-          {activeTab === 'Sequence' && (
-            <>
-              <Card>
-                <CardContent>
-                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1.5 }}>
-                    <Settings size={16} color="#2563EB" />
-                    <Typography variant="overline" sx={{ fontWeight: 700 }}>Campaign Title</Typography>
-                  </Stack>
-                  <TextField fullWidth size="small" placeholder="e.g. Q4 Inactive Leads Engagement" value={campaignName} onChange={(e) => setCampaignName(e.target.value)} />
-                </CardContent>
-              </Card>
-
-              <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', pb: 0.5, borderBottom: 1, borderColor: 'divider' }}>
-                <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                  <AlignLeft size={16} color="#2563EB" />
-                  <Typography variant="overline" sx={{ fontWeight: 700 }}>Steps Setup</Typography>
-                </Stack>
-                {templates.length > 0 && (
-                  <FormControl size="small" sx={{ minWidth: 220 }}>
-                    <Select displayEmpty value="" disabled={stepsLocked} onChange={(e) => applyTemplate(e.target.value)}>
-                      <MenuItem value="" disabled>— Use Template —</MenuItem>
-                      {templates.map(t => <MenuItem key={t.id} value={t.id}>{t.name} ({t.category})</MenuItem>)}
-                    </Select>
-                  </FormControl>
-                )}
-              </Stack>
-
-              {stepsLocked && (
-                <Stack direction="row" spacing={1} sx={{ alignItems: 'center', color: 'text.secondary' }}>
-                  <Lock size={14} style={{ flexShrink: 0 }} />
-                  <Typography variant="caption" sx={{ fontWeight: 600 }}>
-                    This campaign has started sending, so saved steps can&apos;t be removed or replaced with a template: leads already in the sequence would get the wrong step. Edit steps in place or add new ones at the end.
-                  </Typography>
-                </Stack>
-              )}
-
-              {steps.map((step, index) => {
-                const showPreview = previewSteps[step.id || index] !== false;
-                const bodyPreview = showPreview ? previewEmailBody(step.body || '') : null;
-                const stepIssue = incompleteSteps.find(s => s.stepNumber === index + 1);
-                return (
-                  <Card key={step.id || index} sx={stepIssue ? { borderColor: 'error.main' } : undefined}>
-                    <CardContent>
-                      <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 2, flexWrap: 'wrap', gap: 1 }}>
-                        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
-                          <Box sx={{ width: 28, height: 28, borderRadius: '8px', display: 'grid', placeItems: 'center', bgcolor: (t) => alpha(t.palette.primary.main, 0.14), color: 'primary.main', fontWeight: 700, fontFamily: 'monospace' }}>{index + 1}</Box>
-                          {index > 0 ? (
-                            <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                              <Typography variant="body2" sx={{ fontWeight: 600 }}>Wait for</Typography>
-                              <TextField size="small" type="number" value={step.waitDays} onChange={(e) => updateStepField(index, 'waitDays', parseInt(e.target.value) || 0)} sx={{ width: 72 }} slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: 12 } } }} />
-                              <Typography variant="body2" sx={{ fontWeight: 600 }}>days</Typography>
-                            </Stack>
-                          ) : (<Typography variant="overline" sx={{ fontWeight: 700, color: 'text.secondary' }}>Initial Dispatch</Typography>)}
-                        </Stack>
-                        <Stack direction="row" spacing={1}>
-                          <Button size="small" variant={showPreview ? 'contained' : 'outlined'} color={showPreview ? 'primary' : 'inherit'} onClick={() => toggleStepPreview(step.id || index)} sx={{ borderColor: showPreview ? undefined : 'divider', color: showPreview ? undefined : 'text.secondary', fontSize: 10 }}>
-                            {showPreview ? 'Edit Mode' : 'Preview Mode'}
-                          </Button>
-                          {steps.length > 1 && (
-                            <IconButton aria-label="Remove step" size="small" disabled={stepsLocked && savedStepIds.has(step.id)} onClick={() => removeStep(index)} sx={{ border: 1, borderColor: 'divider', color: 'text.secondary', '&:hover': { color: 'error.main', borderColor: 'error.main' } }}>
-                              <Trash2 size={14} />
-                            </IconButton>
-                          )}
-                        </Stack>
-                      </Stack>
-
-                      {stepIssue && (
-                        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 2, color: 'error.main' }}>
-                          <AlertTriangle size={14} />
-                          <Typography variant="caption" sx={{ fontWeight: 600 }}>
-                            This step has no {stepIssue.missing.map(m => m === 'subject' ? 'subject line' : 'message body').join(' or ')}. Complete it before publishing.
-                          </Typography>
-                        </Stack>
-                      )}
-
-                      {showPreview ? (
-                        <Stack spacing={2}>
-                          <Card sx={{ bgcolor: (t) => alpha(t.palette.primary.main, 0.06), borderColor: (t) => alpha(t.palette.primary.main, 0.2) }}>
-                            <CardContent sx={{ display: 'flex', gap: 1.5, alignItems: 'flex-start' }}>
-                              <Eye size={16} color="#2563EB" style={{ marginTop: 2, flexShrink: 0 }} />
-                              <Box>
-                                <Typography variant="overline" sx={{ color: 'primary.main', fontWeight: 700 }}>Dynamic Resolve Preview</Typography>
-                                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>Showing output for contact <strong>Emily</strong> at <strong>Stark Industries</strong>.</Typography>
-                              </Box>
-                            </CardContent>
-                          </Card>
-                          <Card sx={{ bgcolor: 'action.hover' }}>
-                            <CardContent>
-                              <Box sx={{ pb: 1, borderBottom: 1, borderColor: 'divider', mb: 1 }}>
-                                <Typography variant="overline" sx={{ color: 'text.secondary', fontFamily: 'monospace' }}>Subject:</Typography>
-                                <Typography variant="body2" sx={{ fontWeight: 600, mt: 0.5 }}>{personalizePreview(step.subject || '')}</Typography>
-                              </Box>
-                              <Typography variant="overline" sx={{ color: 'text.secondary', fontFamily: 'monospace', display: 'block', mb: 1 }}>Message:</Typography>
-                              {bodyPreview?.isHtml ? (
-                                <Box component="iframe" srcDoc={bodyPreview.body} title="Email Preview" sandbox="" sx={{ width: '100%', height: 500, border: 1, borderColor: 'divider', borderRadius: '12px', bgcolor: '#fff' }} />
-                              ) : (
-                                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{bodyPreview?.body}</Typography>
-                              )}
-                            </CardContent>
-                          </Card>
-                        </Stack>
-                      ) : (
-                        <Stack spacing={1.5}>
-                          <TextField fullWidth size="small" placeholder="Subject Line" value={step.subject} onChange={(e) => updateStepField(index, 'subject', e.target.value)} error={!!stepIssue?.missing.includes('subject')} />
-                          <Box sx={{ border: 1, borderColor: stepIssue?.missing.includes('body') ? 'error.main' : 'divider', borderRadius: '12px', overflow: 'hidden', bgcolor: 'action.hover' }}>
-                            <Box sx={{ px: 1.5, py: 1, borderBottom: 1, borderColor: 'divider', bgcolor: 'background.paper' }}>
-                              <VariableToolbar onInsert={(v) => insertVariable(v, index)} onInsertSubject={(v) => updateStepField(index, 'subject', (step.subject || '') + ' ' + v)} />
-                            </Box>
-                            <TextField multiline minRows={6} fullWidth value={step.body} onChange={(e) => updateStepField(index, 'body', e.target.value)} placeholder="Write your custom copy stream here..." variant="standard"
-                              slotProps={{ input: { disableUnderline: true, sx: { px: 1.5, py: 1, fontFamily: 'monospace', fontSize: 12, lineHeight: 1.6 } } }}
-                            />
-                          </Box>
-                        </Stack>
-                      )}
-                    </CardContent>
-                  </Card>
-                );
-              })}
-
-              <Button fullWidth variant="outlined" color="inherit" startIcon={<Plus size={16} />} onClick={addStep} sx={{ py: 1.5, borderStyle: 'dashed', borderColor: 'divider', color: 'text.secondary', fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-                Add Journey Step
-              </Button>
-            </>
-          )}
-
-          {activeTab === 'Schedule' && (
-            <Card>
-              <CardContent>
-                <Stack direction="row" spacing={1} sx={{ alignItems: 'center', pb: 1.5, mb: 2.5, borderBottom: 1, borderColor: 'divider' }}>
-                  <Clock size={16} color="#2563EB" />
-                  <Typography variant="overline" sx={{ fontWeight: 700 }}>Target Cadence Window</Typography>
-                </Stack>
-                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 2 }}>
-                  Required before publishing: the campaign sends only on these days, between these times in its timezone. Without a schedule it sends nothing and can&apos;t be made Active.
-                </Typography>
-                {savedWindowNote && (
-                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 2, color: 'warning.main' }}>
-                    <AlertTriangle size={14} />
-                    <Typography variant="caption" sx={{ fontWeight: 600 }}>{savedWindowNote}</Typography>
-                  </Stack>
-                )}
-                <Stack spacing={2.5}>
-                  <FormControl fullWidth size="small">
-                    <InputLabel>Outbox Timezone</InputLabel>
-                    <Select label="Outbox Timezone" value={timezone} onChange={(e) => setTimezone(e.target.value)}>
-                      {timezoneOptions.map(o => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
-                    </Select>
-                  </FormControl>
-                  <Box>
-                    <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Permitted Active Days</Typography>
-                    <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap' }}>
-                      {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => (
-                        <ToggleButton key={day} value={day} selected={selectedDays.includes(day)} onChange={() => toggleDaySelection(day)} sx={{ flex: 1, py: 0.75, fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>
-                          {day}
-                        </ToggleButton>
-                      ))}
+      {activeTab === 'Analytics' ? (
+        <CampaignAnalytics campaign={campaign} mailboxes={listErrors.mailboxes ? null : availableMailboxes} />
+      ) : (
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '2fr 1fr' }, gap: 3 }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            {activeTab === 'Sequence' && (
+              <>
+                <Card>
+                  <CardContent>
+                    <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1.5 }}>
+                      <Settings size={16} color="#2563EB" />
+                      <Typography variant="overline" sx={{ fontWeight: 700 }}>Campaign Title</Typography>
                     </Stack>
-                  </Box>
-                  <Box>
-                    <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Cadence Delivery Window (Local Senders Clock)</Typography>
-                    <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
-                      <TextField fullWidth size="small" type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-                      <Typography variant="caption" sx={{ color: 'text.secondary' }}>to</Typography>
-                      <TextField fullWidth size="small" type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-                    </Stack>
-                  </Box>
-                </Stack>
-              </CardContent>
-            </Card>
-          )}
+                    <TextField fullWidth size="small" placeholder="e.g. Q4 Inactive Leads Engagement" value={campaignName} disabled={stopped} onChange={(e) => setCampaignName(e.target.value)} />
+                  </CardContent>
+                </Card>
 
-          {activeTab === 'Options' && (
-            <Card>
-              <CardContent>
-                <Stack direction="row" spacing={1} sx={{ alignItems: 'center', pb: 1.5, mb: 2, borderBottom: 1, borderColor: 'divider' }}>
-                  <ToggleLeft size={16} color="#2563EB" />
-                  <Typography variant="overline" sx={{ fontWeight: 700 }}>Delivery Autopilot Flags</Typography>
-                </Stack>
-                <Stack spacing={1.5}>
-                  {[
-                    { label: 'Pause Sequence on Reply', desc: 'Stop further emails once a customer expresses interest.', val: stopOnReply, set: setStopOnReply, warning: replySyncWarning },
-                    { label: 'Track Opens', desc: 'Embed a tracking pixel in HTML steps. Plain-text steps cannot track opens.', val: trackOpens, set: setTrackOpens, warning: null },
-                    { label: 'Track Link Clicks', desc: 'Route links in HTML steps through the click tracker. Plain-text steps cannot track clicks.', val: trackClicks, set: setTrackClicks, warning: null },
-                  ].map((f, i) => (
-                    <Stack key={i} direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', p: 1.5, borderRadius: '14px', border: 1, borderColor: 'divider', bgcolor: 'action.hover' }}>
-                      <Box>
-                        <Typography variant="body2" sx={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{f.label}</Typography>
-                        <Typography variant="caption" sx={{ color: 'text.secondary' }}>{f.desc}</Typography>
-                        {f.warning && (
-                          <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', mt: 0.75, color: 'warning.main' }}>
-                            <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
-                            <Typography variant="caption" sx={{ fontWeight: 600 }}>{f.warning}</Typography>
-                          </Stack>
-                        )}
-                      </Box>
-                      <Switch checked={f.val} onChange={(e) => f.set(e.target.checked)} />
-                    </Stack>
-                  ))}
-                </Stack>
-              </CardContent>
-            </Card>
-          )}
-
-          {activeTab === 'Audience' && (
-            <Card>
-              <CardContent>
-                <Stack direction="row" spacing={1} sx={{ alignItems: 'center', pb: 1.5, mb: 2.5, borderBottom: 1, borderColor: 'divider' }}>
-                  <Users size={16} color="#2563EB" />
-                  <Typography variant="overline" sx={{ fontWeight: 700 }}>Audience Selection</Typography>
-                </Stack>
-                <Stack spacing={2}>
-                  <FormControl fullWidth size="small">
-                    <InputLabel>Target CRM List</InputLabel>
-                    <Select label="Target CRM List" value={audienceCohort} onChange={(e) => setAudienceCohort(e.target.value)}>
-                      <MenuItem value="Valid">All Active Valid Leads ({campaign?.telemetry?.validLeadsCount || 0})</MenuItem>
-                      <MenuItem value="Unverified">All Unverified Leads ({campaign?.telemetry?.unverifiedLeadsCount || 0})</MenuItem>
-                      {groups.map((g: any) => <MenuItem key={g.id} value={g.id}>Segment: {g.name} ({g._count?.leads || 0})</MenuItem>)}
-                    </Select>
-                  </FormControl>
-                  <Card sx={{ bgcolor: (t) => alpha(t.palette.primary.main, 0.06), borderColor: (t) => alpha(t.palette.primary.main, 0.2) }}>
-                    <CardContent>
-                      <Typography variant="overline" sx={{ color: 'primary.main', fontWeight: 700 }}>Active Enrollments</Typography>
-                      <Typography variant="h4" sx={{ fontWeight: 700, mt: 0.5 }}>{campaign?.telemetry?.activeEnrollments || 0}</Typography>
-                      <Typography variant="caption" sx={{ color: 'primary.main' }}>Leads still in the sequence. Paused, completed, failed, bounced and removed leads are not counted.</Typography>
-                    </CardContent>
-                  </Card>
-                </Stack>
-              </CardContent>
-            </Card>
-          )}
-
-          {activeTab === 'Senders' && (
-            <Card>
-              <CardContent>
-                <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', pb: 1.5, mb: 2.5, borderBottom: 1, borderColor: 'divider' }}>
+                <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', pb: 0.5, borderBottom: 1, borderColor: 'divider' }}>
                   <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                    <Mail size={16} color="#2563EB" />
-                    <Typography variant="overline" sx={{ fontWeight: 700 }}>Campaign Senders Pool & Rotation</Typography>
+                    <AlignLeft size={16} color="#2563EB" />
+                    <Typography variant="overline" sx={{ fontWeight: 700 }}>Steps Setup</Typography>
                   </Stack>
-                  <Chip size="small" label={`${poolIds.length || 1} Active ${(poolIds.length || 1) === 1 ? 'Sender' : 'Senders'}`} color="primary" variant="outlined" sx={{ fontWeight: 700 }} />
-                </Stack>
-                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 2, lineHeight: 1.6 }}>
-                  Spreading outbound across multiple mailboxes protects sender reputation and circumvents daily provider caps. The send engine routes each dispatch via the least-loaded mailbox.
-                </Typography>
-                {replySyncWarning && (
-                  <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', mb: 2, color: 'warning.main' }}>
-                    <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
-                    <Typography variant="caption" sx={{ fontWeight: 600 }}>{replySyncWarning}</Typography>
-                  </Stack>
-                )}
-                <Stack spacing={1.5}>
-                  {ownerMailboxes.map((mailbox) => {
-                    const isPrimary = primarySenderId === mailbox.id;
-                    const isChecked = selectedPoolIds.includes(mailbox.id) || isPrimary;
-                    const toggleCheckbox = () => {
-                      if (isPrimary) { showToast('The primary sender is always included.', 'error'); return; }
-                      setSelectedPoolIds(prev => isChecked ? prev.filter(id => id !== mailbox.id) : [...prev, mailbox.id]);
-                    };
-                    const makePrimary = () => {
-                      setPrimarySenderId(mailbox.id);
-                      if (!selectedPoolIds.includes(mailbox.id)) setSelectedPoolIds(prev => [...prev, mailbox.id]);
-                    };
-                    return (
-                      <Card key={mailbox.id} variant="outlined" sx={{ bgcolor: isPrimary ? (t) => alpha(t.palette.primary.main, 0.06) : isChecked ? 'action.hover' : 'background.paper', borderColor: isPrimary ? 'primary.main' : 'divider', opacity: isChecked ? 1 : 0.6 }}>
-                        <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-                          <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', gap: 1.5 }}>
-                            <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flex: 1 }}>
-                              <Checkbox size="small" checked={isChecked} disabled={isPrimary} onChange={toggleCheckbox} />
-                              <Box>
-                                <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
-                                  <Typography variant="body2" sx={{ fontWeight: 700 }}>{mailbox.name || 'SMTP Account'}</Typography>
-                                  <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace' }}>({mailbox.emailAddress})</Typography>
-                                  {isPrimary && <Chip size="small" label="PRIMARY" color="primary" sx={{ height: 16, fontSize: 8, fontWeight: 800 }} />}
-                                  {mailbox.warmupEnabled && <Chip size="small" label="WARMUP" color="warning" sx={{ height: 16, fontSize: 8, fontWeight: 800 }} />}
-                                </Stack>
-                                <Stack direction="row" spacing={2} sx={{ mt: 0.5, color: 'text.secondary', fontSize: 10 }}>
-                                  <span>Provider: <Box component="strong" sx={{ color: 'text.primary' }}>{mailbox.provider}</Box></span>
-                                  <Box component="strong" sx={{ color: imapSyncState(mailbox) === 'failing' ? 'error.main' : undefined }}>{IMAP_SYNC_LABELS[imapSyncState(mailbox)]}</Box>
-                                  <span>Last 24 Hours: <Box component="strong">{mailbox.sentLast24Hours} / {mailbox.effectiveDailyCap}</Box></span>
-                                  <span>Total: <Box component="strong">{mailbox.sentTotal}</Box></span>
-                                </Stack>
-                              </Box>
-                            </Stack>
-                            {!isPrimary && (
-                              <Button size="small" variant="outlined" color="inherit" onClick={makePrimary} sx={{ fontSize: 10, borderColor: 'divider', color: 'text.secondary' }}>
-                                Set as Primary
-                              </Button>
-                            )}
-                          </Stack>
-                        </CardContent>
-                      </Card>
-                    );
-                  })}
-                  {ownerMailboxes.length === 0 && (
-                    <Typography variant="caption" sx={{ color: listErrors.mailboxes ? 'error.main' : 'text.secondary', textAlign: 'center', py: 4, display: 'block' }}>
-                      {listErrors.mailboxes
-                        ? 'Mailboxes could not be loaded, so the sender pool is not shown. Use Retry above.'
-                        : 'No sender accounts owned by the campaign owner. Create mailboxes in the Accounts page first.'}
-                    </Typography>
+                  {templates.length > 0 && (
+                    <FormControl size="small" sx={{ minWidth: 220 }}>
+                      <Select displayEmpty value="" disabled={stepsLocked || stopped} onChange={(e) => applyTemplate(e.target.value)}>
+                        <MenuItem value="" disabled>— Use Template —</MenuItem>
+                        {templates.map(t => <MenuItem key={t.id} value={t.id}>{t.name} ({t.category})</MenuItem>)}
+                      </Select>
+                    </FormControl>
                   )}
                 </Stack>
-              </CardContent>
-            </Card>
-          )}
-        </Box>
 
-        {/* Sidebar */}
-        <Stack spacing={2.5}>
-          <Card sx={{ bgcolor: (t) => alpha(t.palette.primary.main, 0.06), borderColor: (t) => alpha(t.palette.primary.main, 0.2) }}>
-            <CardContent>
-              <Typography variant="overline" sx={{ color: 'primary.main', fontWeight: 700, display: 'block', mb: 1.5 }}>Campaign Outline</Typography>
-              <Stack spacing={1} sx={{ fontSize: 12 }}>
-                <Stack direction="row" sx={{ justifyContent: 'space-between', pb: 0.75, borderBottom: 1, borderColor: 'divider' }}><span>Total Emails</span><Box component="strong">{steps.length} Steps</Box></Stack>
-                <Stack direction="row" sx={{ justifyContent: 'space-between', pb: 0.75, borderBottom: 1, borderColor: 'divider' }}><span>Duration</span><Box component="strong">{sequenceDurationDays(steps)} Days</Box></Stack>
-                <Stack direction="row" sx={{ justifyContent: 'space-between' }}><span>Active Cohort</span><Box component="strong" sx={{ color: 'primary.main', fontFamily: 'monospace' }}>{campaign?.telemetry?.activeEnrollments || 0} leads</Box></Stack>
-              </Stack>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent>
-              <Typography variant="overline" sx={{ fontWeight: 700, mb: 2, display: 'block' }}>Engagement Over Time</Typography>
-              <Box sx={{ height: 200 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={campaign?.telemetry?.trend || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="cd-o" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#4f46e5" stopOpacity={0.2}/><stop offset="95%" stopColor="#4f46e5" stopOpacity={0}/></linearGradient>
-                      <linearGradient id="cd-c" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#818cf8" stopOpacity={0.15}/><stop offset="95%" stopColor="#818cf8" stopOpacity={0}/></linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="currentColor" className="text-slate-200 dark:text-slate-800/80" />
-                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10 }} dy={10} />
-                    <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10 }} allowDecimals={false} />
-                    <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid rgba(100,116,139,0.2)', fontSize: 11 }} />
-                    <Area type="monotone" dataKey="opens" stroke="#4f46e5" strokeWidth={2} fillOpacity={1} fill="url(#cd-o)" name="Unique Opens" />
-                    <Area type="monotone" dataKey="clicks" stroke="#818cf8" strokeWidth={2} fillOpacity={1} fill="url(#cd-c)" name="Unique Clicks" />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </Box>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent>
-              <Typography variant="overline" sx={{ fontWeight: 700, mb: 2, display: 'block' }}>Conversion Funnel</Typography>
-              <Box sx={{ height: 200 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart layout="vertical" data={campaign?.telemetry?.funnel || []} margin={{ top: 5, right: 5, left: 10, bottom: 5 }}>
-                    <XAxis type="number" hide allowDecimals={false} />
-                    <YAxis type="category" dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 9 }} width={75} />
-                    {/* Each stage names what it counts: emails, replies or leads. */}
-                    <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid rgba(100,116,139,0.2)', fontSize: 11 }} formatter={(value, name, item) => [value, item?.payload?.unit ?? name]} />
-                    <Bar dataKey="value" fill="#2563EB" radius={[0, 8, 8, 0]} barSize={14} name="Count" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </Box>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent>
-              <Typography variant="overline" sx={{ fontWeight: 700, mb: 2, display: 'block' }}>Sentiment Distribution</Typography>
-              <Box sx={{ height: 200, position: 'relative' }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie data={(campaign?.telemetry?.sentiment || []).filter((s: any) => s.value > 0)} cx="50%" cy="50%" innerRadius={45} outerRadius={65} paddingAngle={3} dataKey="value" nameKey="name">
-                      {(campaign?.telemetry?.sentiment || []).filter((s: any) => s.value > 0).map((entry: any, index: number) => {
-                        const colors: Record<string, string> = { 'Neutral': '#94a3b8', 'Interested': '#10b981', 'Not Interested': '#f43f5e', 'Meeting Booked': '#6366f1', 'Out of Office': '#f59e0b', 'Bounced': '#8b5cf6', 'Unsubscribed': '#475569' };
-                        return <Cell key={`cell-${index}`} fill={colors[entry.name] || '#3b82f6'} />;
-                      })}
-                    </Pie>
-                    <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid rgba(100,116,139,0.2)', fontSize: 11 }} />
-                  </PieChart>
-                </ResponsiveContainer>
-                {(!campaign?.telemetry?.sentiment || campaign?.telemetry?.sentiment.every((s: any) => s.value === 0)) && (
-                  <Box sx={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center' }}>
-                    <Typography variant="caption" sx={{ color: 'text.secondary' }}>No leads enrolled.</Typography>
-                  </Box>
+                {stepsLocked && !stopped && (
+                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center', color: 'text.secondary' }}>
+                    <Lock size={14} style={{ flexShrink: 0 }} />
+                    <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                      This campaign has started sending, so saved steps can&apos;t be removed or replaced with a template: leads already in the sequence would get the wrong step. Edit steps in place or add new ones at the end.
+                    </Typography>
+                  </Stack>
                 )}
-              </Box>
-              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 0.75, mt: 1, fontSize: 9 }}>
-                {campaign?.telemetry?.sentiment?.filter((s: any) => s.value > 0).map((s: any, idx: number) => {
-                  const colors: Record<string, string> = { 'Neutral': '#94a3b8', 'Interested': '#10b981', 'Not Interested': '#f43f5e', 'Meeting Booked': '#6366f1', 'Out of Office': '#f59e0b', 'Bounced': '#8b5cf6', 'Unsubscribed': '#475569' };
+
+                {steps.map((step, index) => {
+                  // A stopped campaign can't be edited, so its steps only show their preview.
+                  const showPreview = stopped || previewSteps[step.id || index] !== false;
+                  const bodyPreview = showPreview ? previewEmailBody(step.body || '') : null;
+                  const stepIssue = incompleteSteps.find(s => s.stepNumber === index + 1);
+                  // Stats belong to the saved step this card edits, matched by its id.
+                  const savedStep = (campaign?.steps || []).find((s: any) => s.id === step.id);
+                  const savedStepStats = savedStep ? (campaign?.telemetry?.stepStats || []).find((s: any) => s.stepOrder === savedStep.stepOrder) : null;
                   return (
-                    <Stack key={idx} direction="row" spacing={0.5} sx={{ alignItems: 'center', color: 'text.secondary' }}>
-                      <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: colors[s.name] || '#3b82f6' }} />
-                      <Typography variant="caption" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}: {s.value}</Typography>
-                    </Stack>
+                    <Card key={step.id || index} sx={stepIssue ? { borderColor: 'error.main' } : undefined}>
+                      <CardContent>
+                        <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 2, flexWrap: 'wrap', gap: 1 }}>
+                          <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+                            <Box sx={{ width: 28, height: 28, borderRadius: '8px', display: 'grid', placeItems: 'center', bgcolor: (t) => alpha(t.palette.primary.main, 0.14), color: 'primary.main', fontWeight: 700, fontFamily: 'monospace' }}>{index + 1}</Box>
+                            {index > 0 ? (
+                              <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                                <Typography variant="body2" sx={{ fontWeight: 600 }}>Wait for</Typography>
+                                <TextField size="small" type="number" value={step.waitDays} disabled={stopped} onChange={(e) => updateStepField(index, 'waitDays', parseInt(e.target.value) || 0)} sx={{ width: 72 }} slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: 12 } } }} />
+                                <Typography variant="body2" sx={{ fontWeight: 600 }}>days</Typography>
+                              </Stack>
+                            ) : (<Typography variant="overline" sx={{ fontWeight: 700, color: 'text.secondary' }}>Initial Dispatch</Typography>)}
+                          </Stack>
+                          {!stopped && (
+                            <Stack direction="row" spacing={1}>
+                              <Button size="small" variant={showPreview ? 'contained' : 'outlined'} color={showPreview ? 'primary' : 'inherit'} onClick={() => toggleStepPreview(step.id || index)} sx={{ borderColor: showPreview ? undefined : 'divider', color: showPreview ? undefined : 'text.secondary', fontSize: 10 }}>
+                                {showPreview ? 'Edit Mode' : 'Preview Mode'}
+                              </Button>
+                              {steps.length > 1 && (
+                                <IconButton aria-label="Remove step" size="small" disabled={stepsLocked && savedStepIds.has(step.id)} onClick={() => removeStep(index)} sx={{ border: 1, borderColor: 'divider', color: 'text.secondary', '&:hover': { color: 'error.main', borderColor: 'error.main' } }}>
+                                  <Trash2 size={14} />
+                                </IconButton>
+                              )}
+                            </Stack>
+                          )}
+                        </Stack>
+
+                        <StepStatStrip stats={savedStepStats} htmlStep={isHtmlTemplate(savedStep?.body ?? '')} caveats={statCaveats} />
+
+                        {stepIssue && (
+                          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 2, color: 'error.main' }}>
+                            <AlertTriangle size={14} />
+                            <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                              This step has no {stepIssue.missing.map(m => m === 'subject' ? 'subject line' : 'message body').join(' or ')}. Complete it before publishing.
+                            </Typography>
+                          </Stack>
+                        )}
+
+                        {showPreview ? (
+                          <Stack spacing={2}>
+                            <Card sx={{ bgcolor: (t) => alpha(t.palette.primary.main, 0.06), borderColor: (t) => alpha(t.palette.primary.main, 0.2) }}>
+                              <CardContent sx={{ display: 'flex', gap: 1.5, alignItems: 'flex-start' }}>
+                                <Eye size={16} color="#2563EB" style={{ marginTop: 2, flexShrink: 0 }} />
+                                <Box>
+                                  <Typography variant="overline" sx={{ color: 'primary.main', fontWeight: 700 }}>Dynamic Resolve Preview</Typography>
+                                  <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>Showing output for contact <strong>Emily</strong> at <strong>Stark Industries</strong>.</Typography>
+                                </Box>
+                              </CardContent>
+                            </Card>
+                            <Card sx={{ bgcolor: 'action.hover' }}>
+                              <CardContent>
+                                <Box sx={{ pb: 1, borderBottom: 1, borderColor: 'divider', mb: 1 }}>
+                                  <Typography variant="overline" sx={{ color: 'text.secondary', fontFamily: 'monospace' }}>Subject:</Typography>
+                                  <Typography variant="body2" sx={{ fontWeight: 600, mt: 0.5 }}>{personalizePreview(step.subject || '')}</Typography>
+                                </Box>
+                                <Typography variant="overline" sx={{ color: 'text.secondary', fontFamily: 'monospace', display: 'block', mb: 1 }}>Message:</Typography>
+                                {bodyPreview?.isHtml ? (
+                                  <Box component="iframe" srcDoc={bodyPreview.body} title="Email Preview" sandbox="" sx={{ width: '100%', height: 500, border: 1, borderColor: 'divider', borderRadius: '12px', bgcolor: '#fff' }} />
+                                ) : (
+                                  <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{bodyPreview?.body}</Typography>
+                                )}
+                              </CardContent>
+                            </Card>
+                          </Stack>
+                        ) : (
+                          <Stack spacing={1.5}>
+                            <TextField fullWidth size="small" placeholder="Subject Line" value={step.subject} onChange={(e) => updateStepField(index, 'subject', e.target.value)} error={!!stepIssue?.missing.includes('subject')} />
+                            <Box sx={{ border: 1, borderColor: stepIssue?.missing.includes('body') ? 'error.main' : 'divider', borderRadius: '12px', overflow: 'hidden', bgcolor: 'action.hover' }}>
+                              <Box sx={{ px: 1.5, py: 1, borderBottom: 1, borderColor: 'divider', bgcolor: 'background.paper' }}>
+                                <VariableToolbar onInsert={(v) => insertVariable(v, index)} onInsertSubject={(v) => updateStepField(index, 'subject', (step.subject || '') + ' ' + v)} />
+                              </Box>
+                              <TextField multiline minRows={6} fullWidth value={step.body} onChange={(e) => updateStepField(index, 'body', e.target.value)} placeholder="Write your custom copy stream here..." variant="standard"
+                                slotProps={{ input: { disableUnderline: true, sx: { px: 1.5, py: 1, fontFamily: 'monospace', fontSize: 12, lineHeight: 1.6 } } }}
+                              />
+                            </Box>
+                          </Stack>
+                        )}
+                      </CardContent>
+                    </Card>
                   );
                 })}
-              </Box>
-            </CardContent>
-          </Card>
-        </Stack>
-      </Box>
+
+                {!stopped && (
+                  <Button fullWidth variant="outlined" color="inherit" startIcon={<Plus size={16} />} onClick={addStep} sx={{ py: 1.5, borderStyle: 'dashed', borderColor: 'divider', color: 'text.secondary', fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                    Add Journey Step
+                  </Button>
+                )}
+              </>
+            )}
+
+            {activeTab === 'Schedule' && (
+              <Card>
+                <CardContent>
+                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center', pb: 1.5, mb: 2.5, borderBottom: 1, borderColor: 'divider' }}>
+                    <Clock size={16} color="#2563EB" />
+                    <Typography variant="overline" sx={{ fontWeight: 700 }}>Target Cadence Window</Typography>
+                  </Stack>
+                  <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 2 }}>
+                    Required before publishing: the campaign sends only on these days, between these times in its timezone. Without a schedule it sends nothing and can&apos;t be made Active.
+                  </Typography>
+                  {savedWindowNote && (
+                    <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 2, color: 'warning.main' }}>
+                      <AlertTriangle size={14} />
+                      <Typography variant="caption" sx={{ fontWeight: 600 }}>{savedWindowNote}</Typography>
+                    </Stack>
+                  )}
+                  <Stack spacing={2.5}>
+                    <FormControl fullWidth size="small">
+                      <InputLabel>Outbox Timezone</InputLabel>
+                      <Select label="Outbox Timezone" value={timezone} disabled={stopped} onChange={(e) => setTimezone(e.target.value)}>
+                        {timezoneOptions.map(o => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
+                      </Select>
+                    </FormControl>
+                    <Box>
+                      <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Permitted Active Days</Typography>
+                      <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap' }}>
+                        {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => (
+                          <ToggleButton key={day} value={day} selected={selectedDays.includes(day)} disabled={stopped} onChange={() => toggleDaySelection(day)} sx={{ flex: 1, py: 0.75, fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>
+                            {day}
+                          </ToggleButton>
+                        ))}
+                      </Stack>
+                    </Box>
+                    <Box>
+                      <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Cadence Delivery Window (Local Senders Clock)</Typography>
+                      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+                        <TextField fullWidth size="small" type="time" value={startTime} disabled={stopped} onChange={(e) => setStartTime(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
+                        <Typography variant="caption" sx={{ color: 'text.secondary' }}>to</Typography>
+                        <TextField fullWidth size="small" type="time" value={endTime} disabled={stopped} onChange={(e) => setEndTime(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
+                      </Stack>
+                    </Box>
+                  </Stack>
+                </CardContent>
+              </Card>
+            )}
+
+            {activeTab === 'Options' && (
+              <Card>
+                <CardContent>
+                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center', pb: 1.5, mb: 2, borderBottom: 1, borderColor: 'divider' }}>
+                    <ToggleLeft size={16} color="#2563EB" />
+                    <Typography variant="overline" sx={{ fontWeight: 700 }}>Delivery Autopilot Flags</Typography>
+                  </Stack>
+                  <Stack spacing={1.5}>
+                    {[
+                      { label: 'Pause Sequence on Reply', desc: 'Stop further emails once a customer expresses interest.', val: stopOnReply, set: setStopOnReply, warning: replySyncWarning },
+                      { label: 'Track Opens', desc: 'Embed a tracking pixel in HTML steps. Plain-text steps cannot track opens.', val: trackOpens, set: setTrackOpens, warning: null },
+                      { label: 'Track Link Clicks', desc: 'Route links in HTML steps through the click tracker. Plain-text steps cannot track clicks.', val: trackClicks, set: setTrackClicks, warning: null },
+                    ].map((f, i) => (
+                      <Stack key={i} direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', p: 1.5, borderRadius: '14px', border: 1, borderColor: 'divider', bgcolor: 'action.hover' }}>
+                        <Box>
+                          <Typography variant="body2" sx={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{f.label}</Typography>
+                          <Typography variant="caption" sx={{ color: 'text.secondary' }}>{f.desc}</Typography>
+                          {f.warning && (
+                            <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', mt: 0.75, color: 'warning.main' }}>
+                              <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+                              <Typography variant="caption" sx={{ fontWeight: 600 }}>{f.warning}</Typography>
+                            </Stack>
+                          )}
+                        </Box>
+                        <Switch checked={f.val} disabled={stopped} onChange={(e) => f.set(e.target.checked)} />
+                      </Stack>
+                    ))}
+                  </Stack>
+                </CardContent>
+              </Card>
+            )}
+
+            {activeTab === 'Audience' && (
+              <Card>
+                <CardContent>
+                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center', pb: 1.5, mb: 2.5, borderBottom: 1, borderColor: 'divider' }}>
+                    <Users size={16} color="#2563EB" />
+                    <Typography variant="overline" sx={{ fontWeight: 700 }}>Audience Selection</Typography>
+                  </Stack>
+                  <Stack spacing={2}>
+                    <FormControl fullWidth size="small">
+                      <InputLabel>Target CRM List</InputLabel>
+                      <Select label="Target CRM List" value={audienceCohort} disabled={stopped} onChange={(e) => setAudienceCohort(e.target.value)}>
+                        <MenuItem value="Valid">All Active Valid Leads ({campaign?.telemetry?.validLeadsCount || 0})</MenuItem>
+                        <MenuItem value="Unverified">All Unverified Leads ({campaign?.telemetry?.unverifiedLeadsCount || 0})</MenuItem>
+                        {groups.map((g: any) => <MenuItem key={g.id} value={g.id}>Segment: {g.name} ({g._count?.leads || 0})</MenuItem>)}
+                      </Select>
+                    </FormControl>
+                    <Card sx={{ bgcolor: (t) => alpha(t.palette.primary.main, 0.06), borderColor: (t) => alpha(t.palette.primary.main, 0.2) }}>
+                      <CardContent>
+                        <Typography variant="overline" sx={{ color: 'primary.main', fontWeight: 700 }}>Active Enrollments</Typography>
+                        <Typography variant="h4" sx={{ fontWeight: 700, mt: 0.5 }}>{campaign?.telemetry?.activeEnrollments || 0}</Typography>
+                        <Typography variant="caption" sx={{ color: 'primary.main' }}>Leads still in the sequence. Paused, completed, failed, bounced and removed leads are not counted.</Typography>
+                      </CardContent>
+                    </Card>
+                  </Stack>
+                </CardContent>
+              </Card>
+            )}
+
+            {activeTab === 'Senders' && (
+              <Card>
+                <CardContent>
+                  <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', pb: 1.5, mb: 2.5, borderBottom: 1, borderColor: 'divider' }}>
+                    <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+                      <Mail size={16} color="#2563EB" />
+                      <Typography variant="overline" sx={{ fontWeight: 700 }}>Campaign Senders Pool & Rotation</Typography>
+                    </Stack>
+                    <Chip size="small" label={`${poolIds.length || 1} Active ${(poolIds.length || 1) === 1 ? 'Sender' : 'Senders'}`} color="primary" variant="outlined" sx={{ fontWeight: 700 }} />
+                  </Stack>
+                  <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 2, lineHeight: 1.6 }}>
+                    Spreading outbound across multiple mailboxes protects sender reputation and circumvents daily provider caps. The send engine routes each dispatch via the least-loaded mailbox.
+                  </Typography>
+                  {replySyncWarning && (
+                    <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', mb: 2, color: 'warning.main' }}>
+                      <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+                      <Typography variant="caption" sx={{ fontWeight: 600 }}>{replySyncWarning}</Typography>
+                    </Stack>
+                  )}
+                  <Stack spacing={1.5}>
+                    {ownerMailboxes.map((mailbox) => {
+                      const isPrimary = primarySenderId === mailbox.id;
+                      const isChecked = selectedPoolIds.includes(mailbox.id) || isPrimary;
+                      const toggleCheckbox = () => {
+                        if (isPrimary) { showToast('The primary sender is always included.', 'error'); return; }
+                        setSelectedPoolIds(prev => isChecked ? prev.filter(id => id !== mailbox.id) : [...prev, mailbox.id]);
+                      };
+                      const makePrimary = () => {
+                        setPrimarySenderId(mailbox.id);
+                        if (!selectedPoolIds.includes(mailbox.id)) setSelectedPoolIds(prev => [...prev, mailbox.id]);
+                      };
+                      return (
+                        <Card key={mailbox.id} variant="outlined" sx={{ bgcolor: isPrimary ? (t) => alpha(t.palette.primary.main, 0.06) : isChecked ? 'action.hover' : 'background.paper', borderColor: isPrimary ? 'primary.main' : 'divider', opacity: isChecked ? 1 : 0.6 }}>
+                          <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+                            <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', gap: 1.5 }}>
+                              <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flex: 1 }}>
+                                <Checkbox size="small" checked={isChecked} disabled={isPrimary || stopped} onChange={toggleCheckbox} />
+                                <Box>
+                                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+                                    <Typography variant="body2" sx={{ fontWeight: 700 }}>{mailbox.name || 'SMTP Account'}</Typography>
+                                    <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace' }}>({mailbox.emailAddress})</Typography>
+                                    {isPrimary && <Chip size="small" label="PRIMARY" color="primary" sx={{ height: 16, fontSize: 8, fontWeight: 800 }} />}
+                                    {mailbox.warmupEnabled && <Chip size="small" label="WARMUP" color="warning" sx={{ height: 16, fontSize: 8, fontWeight: 800 }} />}
+                                  </Stack>
+                                  <Stack direction="row" spacing={2} sx={{ mt: 0.5, color: 'text.secondary', fontSize: 10 }}>
+                                    <span>Provider: <Box component="strong" sx={{ color: 'text.primary' }}>{mailbox.provider}</Box></span>
+                                    <Box component="strong" sx={{ color: imapSyncState(mailbox) === 'failing' ? 'error.main' : undefined }}>{IMAP_SYNC_LABELS[imapSyncState(mailbox)]}</Box>
+                                    <span>Last 24 Hours: <Box component="strong">{mailbox.sentLast24Hours} / {mailbox.effectiveDailyCap}</Box></span>
+                                    <span>Total: <Box component="strong">{mailbox.sentTotal}</Box></span>
+                                  </Stack>
+                                </Box>
+                              </Stack>
+                              {!isPrimary && !stopped && (
+                                <Button size="small" variant="outlined" color="inherit" onClick={makePrimary} sx={{ fontSize: 10, borderColor: 'divider', color: 'text.secondary' }}>
+                                  Set as Primary
+                                </Button>
+                              )}
+                            </Stack>
+                          </CardContent>
+                        </Card>
+                      );
+                    })}
+                    {ownerMailboxes.length === 0 && (
+                      <Typography variant="caption" sx={{ color: listErrors.mailboxes ? 'error.main' : 'text.secondary', textAlign: 'center', py: 4, display: 'block' }}>
+                        {listErrors.mailboxes
+                          ? 'Mailboxes could not be loaded, so the sender pool is not shown. Use Retry above.'
+                          : 'No sender accounts owned by the campaign owner. Create mailboxes in the Accounts page first.'}
+                      </Typography>
+                    )}
+                  </Stack>
+                </CardContent>
+              </Card>
+            )}
+          </Box>
+
+          {/* Sidebar */}
+          <Stack spacing={2.5}>
+            <Card sx={{ bgcolor: (t) => alpha(t.palette.primary.main, 0.06), borderColor: (t) => alpha(t.palette.primary.main, 0.2) }}>
+              <CardContent>
+                <Typography variant="overline" sx={{ color: 'primary.main', fontWeight: 700, display: 'block', mb: 1.5 }}>Campaign Outline</Typography>
+                <Stack spacing={1} sx={{ fontSize: 12 }}>
+                  <Stack direction="row" sx={{ justifyContent: 'space-between', pb: 0.75, borderBottom: 1, borderColor: 'divider' }}><span>Total Emails</span><Box component="strong">{steps.length} Steps</Box></Stack>
+                  <Stack direction="row" sx={{ justifyContent: 'space-between', pb: 0.75, borderBottom: 1, borderColor: 'divider' }}><span>Duration</span><Box component="strong">{sequenceDurationDays(steps)} Days</Box></Stack>
+                  <Stack direction="row" sx={{ justifyContent: 'space-between' }}><span>Active Cohort</span><Box component="strong" sx={{ color: 'primary.main', fontFamily: 'monospace' }}>{campaign?.telemetry?.activeEnrollments || 0} leads</Box></Stack>
+                </Stack>
+              </CardContent>
+            </Card>
+          </Stack>
+        </Box>
+      )}
 
       <ConfirmDialog
         isOpen={showChangedPrompt}
@@ -937,6 +840,25 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
         isDestructive
         onConfirm={() => { setShowChangedPrompt(false); loadCampaign(); }}
         onCancel={() => setShowChangedPrompt(false)}
+      />
+
+      <ConfirmDialog
+        isOpen={confirmAction === 'stop'}
+        title="Stop Campaign?"
+        message={stopConfirmMessage(campaignName || 'this campaign', campaign?.telemetry?.activeEnrollments ?? 0)}
+        confirmLabel="Stop Campaign"
+        isDestructive
+        onConfirm={() => handleStopOrRestart('stop')}
+        onCancel={() => setConfirmAction(null)}
+      />
+
+      <ConfirmDialog
+        isOpen={confirmAction === 'restart'}
+        title="Restart Campaign?"
+        message={restartConfirmMessage(campaignName || 'this campaign')}
+        confirmLabel="Restart"
+        onConfirm={() => handleStopOrRestart('restart')}
+        onCancel={() => setConfirmAction(null)}
       />
     </Box>
   );

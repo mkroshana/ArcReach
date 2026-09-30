@@ -8,16 +8,21 @@ import { MAILBOX_SECRET_OMIT } from '@/lib/mailboxSecrets';
 import { checkAudienceCohort, syncCohortEnrollments } from '@/lib/campaignCohort';
 import { activationBlocker, changesStepStructure, matchStoredSteps, STEP_STRUCTURE_LOCKED_ERROR } from '@/lib/campaignSteps';
 import { CAMPAIGN_OWNER_DISABLED_ERROR, CAMPAIGN_STATUSES, userStatusPause } from '@/lib/campaignPause';
+import { CAMPAIGN_STOPPED_ERROR, isStopped } from '@/lib/campaignStop';
 import { CAMPAIGN_CHANGED_ERROR, nextCampaignVersion, parseCampaignVersion, sameCampaignVersion } from '@/lib/campaignVersion';
 import { SCHEDULE_REQUIRED_ERROR, hasSendingSchedule, parseSendSchedule, sendScheduleError, timezoneError } from '@/lib/sendSchedule';
 import { fieldRules } from '@/lib/updateAllowList';
+import { emailsLeft } from '@/lib/campaignProgress';
 import {
   type MetricsScope,
+  campaignLeadTotals,
   countReplies,
   countSendAttempts,
   dailyEngagement,
+  deliveryBreakdown,
   engagementFunnel,
   healthSummary,
+  mailboxMetrics,
   metricsWindow,
   percent,
   sendSummary,
@@ -95,14 +100,19 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     // Bounced: hard bounces, reported by the delivery webhook or at send time.
     // Failed: send attempts the provider refused or that errored.
     // Unsubscribed: this campaign's emails whose unsubscribe link was used.
+    // The steps and mailboxes break the same sends down with every measure,
+    // and the delivery breakdown says what delivery reports said about them.
     const scope: MetricsScope = { kind: 'campaign', campaignId: id };
-    const [sends, health, sentRequestsCount, repliesCount, trend, stepCounts] = await Promise.all([
+    const [sends, health, sentRequestsCount, repliesCount, trend, stepCounts, delivery, leadTotals, mailboxes] = await Promise.all([
       sendSummary(prisma, scope),
       healthSummary(prisma, scope),
       countSendAttempts(prisma, scope),
       countReplies(prisma, scope),
       dailyEngagement(prisma, scope, metricsWindow(TREND_DAYS)),
-      stepMetrics(prisma, [id], { engagement: true }),
+      stepMetrics(prisma, [id], { engagement: true, health: true, leads: true, replies: true }),
+      deliveryBreakdown(prisma, scope),
+      campaignLeadTotals(prisma, id),
+      mailboxMetrics(prisma, id),
     ]);
 
     const validLeadsCount = await prisma.lead.count({
@@ -174,23 +184,71 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       }
     });
 
-    // Active leads currently sitting at each step (waiting to be sent).
-    const activeByStep = await prisma.campaignEnrollment.groupBy({
-      by: ['currentSequenceStep'],
-      where: { campaignId: id, status: 'Active' },
-      _count: { id: true },
-    });
-    const activeStepMap = new Map(activeByStep.map((a) => [a.currentSequenceStep, a._count.id]));
+    // Where the campaign's leads are: every enrollment by status, and the Active
+    // ones (still to get a step) by the step they wait for, with the earliest
+    // next send date and how many are due now.
+    const now = new Date();
+    const [enrollmentsByStatus, activeByStep, dueByStep] = await Promise.all([
+      prisma.campaignEnrollment.groupBy({
+        by: ['status'],
+        where: { campaignId: id },
+        _count: { id: true },
+      }),
+      prisma.campaignEnrollment.groupBy({
+        by: ['currentSequenceStep'],
+        where: { campaignId: id, status: 'Active' },
+        _count: { id: true },
+        _min: { nextActionDate: true },
+      }),
+      prisma.campaignEnrollment.groupBy({
+        by: ['currentSequenceStep'],
+        where: { campaignId: id, status: 'Active', nextActionDate: { lte: now } },
+        _count: { id: true },
+      }),
+    ]);
 
     // Per-step breakdown by the dispatch's recorded stepOrder, with the same
-    // definitions as the totals above.
-    const stepStats = campaign.steps.map((s: any) => ({
-      stepOrder: s.stepOrder,
-      subject: s.subject,
-      waitDays: s.waitDays,
-      active: activeStepMap.get(s.stepOrder) || 0,
-      ...stepCounts(id, s.stepOrder),
-    }));
+    // definitions as the totals above, and the Active leads waiting for it.
+    const stepStats = campaign.steps.map((s: any) => {
+      const waiting = activeByStep.find((a) => a.currentSequenceStep === s.stepOrder);
+      return {
+        stepOrder: s.stepOrder,
+        subject: s.subject,
+        waitDays: s.waitDays,
+        active: waiting?._count.id ?? 0,
+        due: dueByStep.find((d) => d.currentSequenceStep === s.stepOrder)?._count.id ?? 0,
+        nextDueAt: waiting?._min.nextActionDate ?? null,
+        ...stepCounts(id, s.stepOrder),
+      };
+    });
+
+    const progress = {
+      enrolled: enrollmentsByStatus.reduce((total, g) => total + g._count.id, 0),
+      byStatus: Object.fromEntries(enrollmentsByStatus.map((g) => [g.status, g._count.id])),
+      contacted: leadTotals.contacted,
+      repliedLeads: leadTotals.replied,
+      emailsLeft: emailsLeft(
+        campaign.steps.map((s) => s.stepOrder),
+        activeByStep.map((a) => ({ stepOrder: a.currentSequenceStep, waiting: a._count.id })),
+      ),
+      dueNow: dueByStep.reduce((total, d) => total + d._count.id, 0),
+      nextDueAt: activeByStep.reduce<Date | null>((earliest, a) => {
+        const at = a._min.nextActionDate;
+        return at && (!earliest || at < earliest) ? at : earliest;
+      }, null),
+      firstSentAt: leadTotals.firstSentAt,
+      lastSentAt: leadTotals.lastSentAt,
+    };
+
+    // The mailboxes' addresses, including any since taken out of the sender pool.
+    const mailboxIds = mailboxes.flatMap((m) => (m.senderAccountId ? [m.senderAccountId] : []));
+    const mailboxAccounts = mailboxIds.length > 0
+      ? await prisma.senderAccount.findMany({ where: { id: { in: mailboxIds } }, select: { id: true, emailAddress: true, name: true } })
+      : [];
+    const mailboxStats = mailboxes.map((m) => {
+      const account = mailboxAccounts.find((a) => a.id === m.senderAccountId);
+      return { ...m, emailAddress: account?.emailAddress ?? null, name: account?.name ?? null };
+    });
 
     const telemetry = {
       activeEnrollments: activeEnrollmentsCount,
@@ -213,7 +271,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       trend,
       funnel,
       sentiment: sentimentBreakdown,
-      stepStats
+      stepStats,
+      progress,
+      delivery,
+      mailboxes: mailboxStats
     };
 
     return NextResponse.json({
@@ -244,6 +305,11 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
     if (session.role !== 'ADMIN' && campaign.userId !== session.id) {
       return NextResponse.json({ error: 'Unauthorized modification attempt.' }, { status: 403 });
+    }
+
+    // A stopped campaign can't be edited until it is restarted (lib/campaignStop).
+    if (isStopped(campaign)) {
+      return NextResponse.json({ error: CAMPAIGN_STOPPED_ERROR }, { status: 409 });
     }
 
     const body = await req.json();

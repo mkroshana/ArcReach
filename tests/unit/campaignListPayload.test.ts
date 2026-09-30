@@ -15,6 +15,7 @@ const fake = vi.hoisted(() => {
     campaign: model('findMany', 'findFirst', 'update', 'delete'),
     campaignEnrollment: model('groupBy'),
     emailDispatch: model('groupBy'),
+    $queryRaw: vi.fn(),
   };
 });
 
@@ -124,6 +125,7 @@ beforeEach(() => {
   });
   fake.campaignEnrollment.groupBy.mockResolvedValue([]);
   fake.emailDispatch.groupBy.mockResolvedValue([]);
+  fake.$queryRaw.mockResolvedValue([]);
 });
 
 describe('GET /api/campaigns returns list fields only (M40)', () => {
@@ -145,13 +147,28 @@ describe('GET /api/campaigns returns list fields only (M40)', () => {
       id: 'cmp-1', name: 'Launch', status: 'Active', userId: 'user-1', pausedUntil: null, pauseReason: null,
       user: { id: 'user-1', name: 'User', email: 'user@example.com' },
       stepStats: [
-        { stepOrder: 1, active: 0, sent: 0, delivered: 0, failed: 0 },
-        { stepOrder: 2, active: 0, sent: 0, delivered: 0, failed: 0 },
+        { stepOrder: 1, active: 0, sent: 0, delivered: 0, failed: 0, leads: 0 },
+        { stepOrder: 2, active: 0, sent: 0, delivered: 0, failed: 0, leads: 0 },
       ],
       enrollmentSummary: { total: 0, active: 0, completed: 0 },
     });
     expect(text).not.toContain('Hello there');
     expect(text.length).toBeLessThan(2000);
+  });
+
+  it('reports the leads each step reached, each once however often it got the step, for its Progress', async () => {
+    // Step 1 was sent 5 times, to 3 leads: 2 of them got it twice.
+    fake.emailDispatch.groupBy.mockImplementation(async ({ by }: any) =>
+      by.includes('status') ? [{ campaignId: 'cmp-1', stepOrder: 1, status: 'Sent', _count: { id: 5 } }] : []);
+    fake.$queryRaw.mockResolvedValue([{ campaignId: 'cmp-1', value: 1, leads: 3 }]);
+
+    const [campaign] = await (await getCampaigns()).json();
+
+    expect(campaign.stepStats[0]).toEqual({ stepOrder: 1, active: 0, sent: 5, delivered: 0, failed: 0, leads: 3 });
+    expect(campaign.stepStats[1]).toMatchObject({ sent: 0, leads: 0 });
+    // One grouped query for every campaign's steps, not one per campaign.
+    expect(fake.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(fake.$queryRaw.mock.calls[0][0].values).toEqual(['cmp-1']);
   });
 
   it('lists every campaign for an ADMIN, still without bodies', async () => {

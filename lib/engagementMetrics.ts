@@ -218,66 +218,296 @@ export type StepMetrics = {
   deliveryRate: number;
   openRate: number;
   clickRate: number;
+  /** Hard bounces (as healthSummary counts them) and emails whose unsubscribe link was used. */
+  bounced: number;
+  unsubscribed: number;
+  bounceRate: number;
+  unsubscribeRate: number;
+  /** Sent emails any delivery report arrived for. With none, `delivered` and its rate say nothing yet. */
+  reported: number;
+  /** The leads the sent emails went to, each once however many times it was sent the email. */
+  leads: number;
+  /** The leads who replied after it (repliedLeadsBy), as a share of `leads`. */
+  replied: number;
+  replyRate: number;
 };
+
+/** Which measures a breakdown loads; the others are left 0. Sent, delivered and failed always load. */
+export type SendMetricsOptions = {
+  /** Opens and clicks. */
+  engagement?: boolean;
+  /** Hard bounces, unsubscribes and how many emails a delivery report arrived for. */
+  health?: boolean;
+  /** Leads emailed, counted once each. */
+  leads?: boolean;
+  /** Leads who replied; their rate needs `leads` too. */
+  replies?: boolean;
+};
+
+type SendCounts = {
+  sent: number; delivered: number; failed: number; reached: number; opened: number; clicked: number;
+  bounced: number; bounceBase: number; unsubscribed: number; reported: number; leads: number; replied: number;
+};
+
+const NO_SENDS: SendCounts = {
+  sent: 0, delivered: 0, failed: 0, reached: 0, opened: 0, clicked: 0,
+  bounced: 0, bounceBase: 0, unsubscribed: 0, reported: 0, leads: 0, replied: 0,
+};
+
+/** The column a campaign's sends break down by: the step they were, or the mailbox that sent them. */
+type SendGroup = 'stepOrder' | 'senderAccountId';
+
+/** One breakdown row: the campaign, the step or mailbox (null for a send that recorded none) and its counts. */
+type SendGroupCounts = { campaignId: string | null; value: number | string | null; counts: SendCounts };
+
+/** The grouping column `d.<group>`, from a fixed list so no caller's text reaches the SQL. */
+function groupColumn(group: SendGroup): Prisma.Sql {
+  return Prisma.raw(group === 'stepOrder' ? 'd."stepOrder"' : 'd."senderAccountId"');
+}
+
+type DistinctLeadRow = { campaignId: string | null; value: number | string | null; leads: number };
+
+/** Per campaign and `group`, the leads its sequence emails ACS accepted went to, each counted once. */
+async function distinctLeadsBy(client: MetricsClient, campaignIds: string[], group: SendGroup): Promise<DistinctLeadRow[]> {
+  if (campaignIds.length === 0) return [];
+  return client.$queryRaw<DistinctLeadRow[]>(Prisma.sql`
+    SELECT d."campaignId" AS "campaignId", ${groupColumn(group)} AS "value", COUNT(DISTINCT d."leadId")::int AS "leads"
+    FROM "EmailDispatch" d
+    WHERE d."campaignId" IN (${Prisma.join(campaignIds)})
+      AND d."stepOrder" IS NOT NULL
+      AND d."status" = 'Sent'
+    GROUP BY d."campaignId", ${groupColumn(group)}
+  `);
+}
+
+/**
+ * Per campaign and `group`, the leads who replied. Each human reply (not a
+ * bounce or other automated message, as countReplies counts) goes to the step
+ * and mailbox of the latest sequence email of its campaign sent to the lead
+ * before it arrived; a failed attempt never reached the lead. A lead counts
+ * once per step or mailbox however often it replied, and a reply that arrived
+ * before any such email counts nowhere.
+ */
+async function repliedLeadsBy(client: MetricsClient, campaignIds: string[], group: SendGroup): Promise<DistinctLeadRow[]> {
+  if (campaignIds.length === 0) return [];
+  return client.$queryRaw<DistinctLeadRow[]>(Prisma.sql`
+    SELECT r."campaignId" AS "campaignId", ${groupColumn(group)} AS "value", COUNT(DISTINCT r."leadId")::int AS "leads"
+    FROM "InboundResponse" r
+    CROSS JOIN LATERAL (
+      SELECT e."stepOrder", e."senderAccountId"
+      FROM "EmailDispatch" e
+      WHERE e."campaignId" = r."campaignId"
+        AND e."leadId" = r."leadId"
+        AND e."stepOrder" IS NOT NULL
+        AND e."status" <> 'Failed'
+        AND e."sentAt" <= r."receivedAt"
+      ORDER BY e."sentAt" DESC, e."id" DESC
+      LIMIT 1
+    ) d
+    WHERE r."campaignId" IN (${Prisma.join(campaignIds)})
+      AND r."autoReply" IS NULL
+    GROUP BY r."campaignId", ${groupColumn(group)}
+  `);
+}
+
+/**
+ * The sequence sends of `campaignIds` broken down by campaign and `group`,
+ * with the same definitions as the campaign totals: sent, delivered and
+ * failed attempts, and the measures `options` asks for.
+ */
+async function sendCountsBy(
+  client: MetricsClient,
+  campaignIds: string[],
+  group: SendGroup,
+  options: SendMetricsOptions,
+): Promise<Map<string, SendGroupCounts>> {
+  const sends: Prisma.EmailDispatchWhereInput = { AND: [{ campaignId: { in: campaignIds } }, SEQUENCE_SEND] };
+  const sent: Prisma.EmailDispatchWhereInput = { AND: [sends, SENT] };
+  const countBy = (where: Prisma.EmailDispatchWhereInput) =>
+    client.emailDispatch.groupBy({ by: ['campaignId', group], where, _count: { id: true } });
+  const countIf = (wanted: boolean | undefined, where: Prisma.EmailDispatchWhereInput) =>
+    wanted ? countBy(where) : Promise.resolve([]);
+
+  const [byStatus, delivered, reached, opened, clicked, bounced, bounceBase, unsubscribed, reported, leads, replied] = await Promise.all([
+    client.emailDispatch.groupBy({ by: ['campaignId', group, 'status'], where: sends, _count: { id: true } }),
+    countBy({ AND: [sent, DELIVERED] }),
+    countIf(options.engagement, { AND: [sent, REACHED] }),
+    countIf(options.engagement, { AND: [sent, OPENED] }),
+    countIf(options.engagement, { AND: [sent, CLICKED] }),
+    // As healthSummary: hard bounces, over the emails sent or bounced at send time.
+    countIf(options.health, { AND: [sends, hardBounceWhere()] }),
+    countIf(options.health, { AND: [sends, { OR: [SENT, hardBounceWhere()] }] }),
+    countIf(options.health, { AND: [sends, { events: { some: { eventType: UNSUBSCRIBE_EVENT } } }] }),
+    countIf(options.health, { AND: [sent, { deliveryStatus: { not: null } }] }),
+    options.leads ? distinctLeadsBy(client, campaignIds, group) : Promise.resolve([]),
+    options.replies ? repliedLeadsBy(client, campaignIds, group) : Promise.resolve([]),
+  ]);
+
+  const groups = new Map<string, SendGroupCounts>();
+  const at = (campaignId: string | null, value: number | string | null): SendCounts => {
+    const key = `${campaignId}:${value}`;
+    let entry = groups.get(key);
+    if (!entry) {
+      entry = { campaignId, value, counts: { ...NO_SENDS } };
+      groups.set(key, entry);
+    }
+    return entry.counts;
+  };
+  type GroupRow = { campaignId: string | null; stepOrder?: number | null; senderAccountId?: string | null; _count: { id: number } };
+  const add = (field: keyof SendCounts, rows: GroupRow[]) => {
+    for (const row of rows) at(row.campaignId, row[group] ?? null)[field] += row._count.id;
+  };
+  for (const row of byStatus as Array<GroupRow & { status: string }>) {
+    if (row.status === 'Sent') at(row.campaignId, row[group] ?? null).sent += row._count.id;
+    else if (row.status === 'Failed') at(row.campaignId, row[group] ?? null).failed += row._count.id;
+  }
+  add('delivered', delivered as GroupRow[]);
+  add('reached', reached as GroupRow[]);
+  add('opened', opened as GroupRow[]);
+  add('clicked', clicked as GroupRow[]);
+  add('bounced', bounced as GroupRow[]);
+  add('bounceBase', bounceBase as GroupRow[]);
+  add('unsubscribed', unsubscribed as GroupRow[]);
+  add('reported', reported as GroupRow[]);
+  for (const row of leads) at(row.campaignId, row.value ?? null).leads += Number(row.leads);
+  for (const row of replied) at(row.campaignId, row.value ?? null).replied += Number(row.leads);
+  return groups;
+}
+
+/** A breakdown row's counts with their rates. */
+function sendMetrics(c: SendCounts = NO_SENDS): StepMetrics {
+  return {
+    sent: c.sent,
+    delivered: c.delivered,
+    failed: c.failed,
+    opened: c.opened,
+    clicked: c.clicked,
+    deliveryRate: percent(c.delivered, c.sent),
+    openRate: percent(c.opened, c.reached),
+    clickRate: percent(c.clicked, c.reached),
+    bounced: c.bounced,
+    unsubscribed: c.unsubscribed,
+    bounceRate: percent(c.bounced, c.bounceBase),
+    unsubscribeRate: percent(c.unsubscribed, c.sent),
+    reported: c.reported,
+    leads: c.leads,
+    replied: c.replied,
+    replyRate: percent(c.replied, c.leads),
+  };
+}
 
 /**
  * Per-step sends of each of `campaignIds`, with the same definitions as the
- * campaign totals: sent, delivered and failed attempts, and with `engagement`
- * the opens and clicks too (left 0 without it). Returns a lookup by campaign
- * and step.
+ * campaign totals: sent, delivered and failed attempts always, and the
+ * measures `options` asks for (left 0 without them). Returns a lookup by
+ * campaign and step.
  */
 export async function stepMetrics(
   client: MetricsClient,
   campaignIds: string[],
-  options: { engagement?: boolean } = {},
+  options: SendMetricsOptions = {},
 ): Promise<(campaignId: string, stepOrder: number) => StepMetrics> {
-  const steps: Prisma.EmailDispatchWhereInput = { AND: [{ campaignId: { in: campaignIds } }, SEQUENCE_SEND] };
-  const sent: Prisma.EmailDispatchWhereInput = { AND: [steps, SENT] };
-  const countByStep = (where: Prisma.EmailDispatchWhereInput) =>
-    client.emailDispatch.groupBy({ by: ['campaignId', 'stepOrder'], where, _count: { id: true } });
-  const engagementCount = (where: Prisma.EmailDispatchWhereInput) =>
-    options.engagement ? countByStep({ AND: [sent, where] }) : Promise.resolve([]);
+  const groups = await sendCountsBy(client, campaignIds, 'stepOrder', options);
+  return (campaignId, stepOrder) => sendMetrics(groups.get(`${campaignId}:${stepOrder}`)?.counts);
+}
 
-  const [byStatus, delivered, reached, opened, clicked] = await Promise.all([
-    client.emailDispatch.groupBy({ by: ['campaignId', 'stepOrder', 'status'], where: steps, _count: { id: true } }),
-    countByStep({ AND: [sent, DELIVERED] }),
-    engagementCount(REACHED),
-    engagementCount(OPENED),
-    engagementCount(CLICKED),
-  ]);
+/** A campaign's sends from one mailbox; `senderAccountId` is null for sends that recorded none. */
+export type MailboxMetrics = StepMetrics & { senderAccountId: string | null };
 
-  type Counts = { sent: number; delivered: number; failed: number; reached: number; opened: number; clicked: number };
-  const counts = new Map<string, Counts>();
-  const key = (campaignId: string | null, stepOrder: number | null) => `${campaignId}:${stepOrder}`;
-  const at = (row: { campaignId: string | null; stepOrder: number | null }): Counts => {
-    let entry = counts.get(key(row.campaignId, row.stepOrder));
-    if (!entry) {
-      entry = { sent: 0, delivered: 0, failed: 0, reached: 0, opened: 0, clicked: 0 };
-      counts.set(key(row.campaignId, row.stepOrder), entry);
-    }
-    return entry;
+/**
+ * A campaign's sequence sends by the mailbox that sent them, with every
+ * measure stepMetrics has, most emails sent first. Sends that recorded no
+ * mailbox (made before dispatches recorded one, or from a mailbox since
+ * deleted) come as a row of their own rather than being put on one.
+ */
+export async function mailboxMetrics(client: MetricsClient, campaignId: string): Promise<MailboxMetrics[]> {
+  const groups = await sendCountsBy(client, [campaignId], 'senderAccountId', { engagement: true, health: true, leads: true, replies: true });
+  return [...groups.values()]
+    .map(({ value, counts }) => ({ senderAccountId: typeof value === 'string' ? value : null, ...sendMetrics(counts) }))
+    .sort((a, b) => b.sent - a.sent || b.failed - a.failed);
+}
+
+export type DeliveryBreakdown = {
+  /** Sequence emails ACS accepted. */
+  accepted: number;
+  /** Of those, the ones a delivery report arrived for. */
+  reported: number;
+  delivered: number;
+  /** Distribution lists expanded; each member's own report is counted apart. */
+  expanded: number;
+  /** FilteredSpam: the recipient's filtering rejected the email as spam. */
+  spam: number;
+  /** Quarantined: the recipient's filtering held the email. */
+  quarantined: number;
+  softBounced: number;
+  hardBounced: number;
+  /** Any other reported status. */
+  otherReported: number;
+  noReport: number;
+};
+
+/**
+ * What delivery reports (lib/deliveryReport) said about a scope's sequence
+ * emails ACS accepted: a bounce by its type, else the report's status. Emails
+ * no report has arrived for are counted apart, so a scope with no reports at
+ * all shows that rather than nothing delivered.
+ */
+export async function deliveryBreakdown(client: MetricsClient, scope: MetricsScope): Promise<DeliveryBreakdown> {
+  const rows = await client.emailDispatch.groupBy({
+    by: ['deliveryStatus', 'bounceType'],
+    where: sentWhere(scope),
+    _count: { id: true },
+  });
+  const breakdown: DeliveryBreakdown = {
+    accepted: 0, reported: 0, delivered: 0, expanded: 0, spam: 0, quarantined: 0,
+    softBounced: 0, hardBounced: 0, otherReported: 0, noReport: 0,
   };
-  for (const row of byStatus) {
-    if (row.status === 'Sent') at(row).sent += row._count.id;
-    else if (row.status === 'Failed') at(row).failed += row._count.id;
+  for (const row of rows) {
+    const count = row._count.id;
+    breakdown.accepted += count;
+    if (row.bounceType === 'hard') breakdown.hardBounced += count;
+    else if (row.bounceType === 'soft') breakdown.softBounced += count;
+    else if (row.deliveryStatus === null) breakdown.noReport += count;
+    else if (row.deliveryStatus === 'Delivered') breakdown.delivered += count;
+    else if (row.deliveryStatus === 'Expanded') breakdown.expanded += count;
+    else if (row.deliveryStatus === 'FilteredSpam') breakdown.spam += count;
+    else if (row.deliveryStatus === 'Quarantined') breakdown.quarantined += count;
+    else breakdown.otherReported += count;
   }
-  for (const row of delivered) at(row).delivered += row._count.id;
-  for (const row of reached) at(row).reached += row._count.id;
-  for (const row of opened) at(row).opened += row._count.id;
-  for (const row of clicked) at(row).clicked += row._count.id;
+  breakdown.reported = breakdown.accepted - breakdown.noReport;
+  return breakdown;
+}
 
-  return (campaignId, stepOrder) => {
-    const c = counts.get(key(campaignId, stepOrder)) ?? { sent: 0, delivered: 0, failed: 0, reached: 0, opened: 0, clicked: 0 };
-    return {
-      sent: c.sent,
-      delivered: c.delivered,
-      failed: c.failed,
-      opened: c.opened,
-      clicked: c.clicked,
-      deliveryRate: percent(c.delivered, c.sent),
-      openRate: percent(c.opened, c.reached),
-      clickRate: percent(c.clicked, c.reached),
-    };
+export type CampaignLeadTotals = {
+  /** Leads ACS accepted at least one of the campaign's sequence emails for. */
+  contacted: number;
+  /** Leads who sent the campaign a human reply (the replies countReplies counts), each once. */
+  replied: number;
+  /** When its first and latest accepted sequence emails were sent; null before any. */
+  firstSentAt: Date | null;
+  lastSentAt: Date | null;
+};
+
+type LeadTotalsRow = { contacted: number; replied: number; firstSentAt: Date | null; lastSentAt: Date | null };
+
+/** A campaign's lead-level totals, in one query. */
+export async function campaignLeadTotals(client: MetricsClient, campaignId: string): Promise<CampaignLeadTotals> {
+  const [row] = await client.$queryRaw<LeadTotalsRow[]>(Prisma.sql`
+    SELECT
+      (SELECT COUNT(DISTINCT r."leadId") FROM "InboundResponse" r
+        WHERE r."campaignId" = ${campaignId} AND r."autoReply" IS NULL)::int AS "replied",
+      t."contacted", t."firstSentAt", t."lastSentAt"
+    FROM (
+      SELECT COUNT(DISTINCT d."leadId")::int AS "contacted", MIN(d."sentAt") AS "firstSentAt", MAX(d."sentAt") AS "lastSentAt"
+      FROM "EmailDispatch" d
+      WHERE d."campaignId" = ${campaignId} AND d."stepOrder" IS NOT NULL AND d."status" = 'Sent'
+    ) t
+  `);
+  return {
+    contacted: Number(row?.contacted ?? 0),
+    replied: Number(row?.replied ?? 0),
+    firstSentAt: row?.firstSentAt ?? null,
+    lastSentAt: row?.lastSentAt ?? null,
   };
 }
 

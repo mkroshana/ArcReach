@@ -41,7 +41,8 @@ interface DbCampaign {
   steps?: { id: string; stepOrder: number; waitDays: number; subject: string }[];
   // Server-side aggregates — raw enrollment/dispatch rows are never shipped
   // (payloads at scale OOM'd the server).
-  stepStats?: { stepOrder: number; active: number; sent: number; delivered: number; failed: number }[];
+  // `leads`: the leads the step's sent emails reached, each once however often it got the step.
+  stepStats?: { stepOrder: number; active: number; sent: number; delivered: number; failed: number; leads: number }[];
   enrollmentSummary?: { total: number; active: number; completed: number };
 }
 
@@ -472,7 +473,9 @@ export default function CampaignsPage() {
                                     const deliveredCount = stats?.delivered || 0;
                                     const failedCount = stats?.failed || 0;
                                     const totalEnrolled = campaign.enrollmentSummary?.total || 0;
-                                    const progressPercent = totalEnrolled > 0 ? Math.round((sentCount / totalEnrolled) * 100) : 0;
+                                    // The share of enrolled leads the step reached: leads, not emails, so a
+                                    // step sent to a lead twice never counts it twice.
+                                    const progressPercent = totalEnrolled > 0 ? Math.round(((stats?.leads || 0) / totalEnrolled) * 100) : 0;
                                     return (
                                       <Stack key={step.id} sx={{ alignItems: 'center', textAlign: 'center', gap: 0.75, position: 'relative', width: 150 }}>
                                         <Chip size="small" label={`${activeLeadsCount} ${stopped ? 'stopped' : 'active'}`} color={isActiveStep ? 'primary' : 'default'} variant={isActiveStep ? 'filled' : 'outlined'} sx={{ height: 18, fontSize: 9, fontWeight: 800 }} />

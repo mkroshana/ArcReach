@@ -87,7 +87,10 @@ describe('PUT /api/campaigns', () => {
     vi.clearAllMocks();
     mockedSession.mockResolvedValue(USER);
     // user-1's campaign; the route's where names the caller unless they are an ADMIN.
-    const campaign = { id: 'cmp-1', userId: 'user-1', senderAccountId: 'mb-1', senders: [], steps: [{ stepOrder: 1, subject: 'Hi', body: 'Hello' }] };
+    const campaign = {
+      id: 'cmp-1', userId: 'user-1', senderAccountId: 'mb-1', senders: [], steps: [{ stepOrder: 1, subject: 'Hi', body: 'Hello' }],
+      timezone: 'UTC', sendSchedule: { days: ['Mon'], window: { start: '09:00', end: '17:00' } },
+    };
     mockedPrisma.campaign.findFirst.mockImplementation(async ({ where }: any) => (matchesWhere(campaign, where) ? campaign : null));
     mockedDb.updateCampaign.mockImplementation(async (id: string, data: any) => ({ id, ...data }));
   });

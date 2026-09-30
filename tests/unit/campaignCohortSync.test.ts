@@ -50,7 +50,7 @@ type EnrollmentRow = {
 
 let campaign: {
   id: string; userId: string; status: string; audienceCohort: string; senderAccountId: string; updatedAt: Date;
-  cohortSyncRequestedAt: Date | null;
+  cohortSyncRequestedAt: Date | null; timezone: string; sendSchedule: unknown;
 };
 let leads: LeadRow[];
 let enrollments: EnrollmentRow[];
@@ -144,6 +144,7 @@ beforeEach(() => {
   campaign = {
     id: 'cmp-1', userId: 'user-1', status: 'Active', audienceCohort: 'Valid', senderAccountId: 'mb-1',
     updatedAt: new Date('2026-09-01T10:00:00.000Z'), cohortSyncRequestedAt: null,
+    timezone: 'UTC', sendSchedule: { days: ['Mon'], window: { start: '09:00', end: '17:00' } },
   };
   leads = [
     lead('in-both', 'Valid', ['g1']),           // Active mid-sequence, stays in the audience

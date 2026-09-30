@@ -54,8 +54,11 @@ const SENDER = {
   warmupEnabled: false, warmupStartedAt: null, dailyLimit: 100, warmupLimit: 10, warmupRamp: 5,
 };
 
+/** A sending window open every minute of every day, so the window never holds a send back. */
+const ANY_TIME = { days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'], window: { start: '00:00', end: '23:59' } };
+
 const CAMPAIGN = {
-  id: 'cmp-1', userId: 'admin-1', name: 'Launch', status: 'Active', timezone: 'UTC', sendSchedule: null,
+  id: 'cmp-1', userId: 'admin-1', name: 'Launch', status: 'Active', timezone: 'UTC', sendSchedule: ANY_TIME,
   trackOpens: false, trackClicks: false, senderAccountId: 'mb-1', senderAccount: SENDER, senders: [],
   steps: [{ stepOrder: 1, subject: 'Hello', body: 'Hi there', waitDays: 0 }],
 };

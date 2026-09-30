@@ -28,7 +28,7 @@
    - Multi-step sequences with a wait in days before each follow-up (`waitDays`); a step is plain text or HTML, written in place or filled from a template.
    - Personalization variables (`{{firstName}}`, `{{name}}`, `{{company}}`, `{{jobTitle}}`, `{{email}}`) and Spintax (`{Hi|Hello}`).
    - An audience of Valid or Unverified leads or a lead group, a sending window in the campaign's timezone, a pool of the owner's mailboxes to send from, stop-on-reply, and open/click tracking toggles.
-   - Only Active campaigns send. Run Now and Send Step queue leads for the send worker rather than sending themselves.
+   - Only Active campaigns send, and only inside their sending window. A campaign needs a saved sending schedule (days, a start and end time and a timezone) to be published or made Active; without one it stays Draft and sends nothing. Run Now and Send Step queue leads for the send worker rather than sending themselves.
 
 3. **Templates** ([app/templates](file:///d:/Development/ArcReach/app/templates))
    - A library of reusable subjects and bodies with a variable toolbar and a preview for a sample lead.
@@ -65,7 +65,7 @@ The email dispatch engine is located in [lib/sendEngine.ts](file:///d:/Developme
 
 The worker sends every 30 seconds and reads new IMAP replies every 3 minutes. Each send run:
 - Picks due leads enrolled in Active campaigns, skipping any address on the suppression list.
-- Checks the global per-minute and per-hour rate limits (`checkGlobalRateLimits()` in [lib/rateLimits.ts](file:///d:/Development/ArcReach/lib/rateLimits.ts)), each campaign's sending window, and each sender mailbox's daily or warmup cap.
+- Checks the global per-minute and per-hour rate limits (`checkGlobalRateLimits()` in [lib/rateLimits.ts](file:///d:/Development/ArcReach/lib/rateLimits.ts)), each campaign's sending window, and each sender mailbox's daily or warmup cap. A campaign with no complete sending schedule never sends: the engine sets it back to Draft.
 - Resolves templated variables and Spintax formats (e.g., `{Hi|Hello}`).
 - Sends through Azure Communication Services and records each send as an `EmailDispatch` row. There is no stub or mock provider: until an admin selects Azure and saves its connection string and a verified sender domain in Settings, nothing is sent.
 - Pauses a campaign for an hour, then resumes it, when ACS refuses a send for its quota or rate limit.

@@ -73,6 +73,9 @@ const SENDER = {
   warmupEnabled: false, warmupStartedAt: null, dailyLimit: 100, warmupLimit: 10, warmupRamp: 5,
 };
 
+/** A sending window open every minute of every day, so the window never holds a send back. */
+const ANY_TIME = { days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'], window: { start: '00:00', end: '23:59' } };
+
 let campaign: any;
 let leads: Map<string, LeadRow>;
 let enrollments: EnrollmentRow[];
@@ -185,7 +188,7 @@ beforeEach(() => {
   vi.spyOn(console, 'warn').mockImplementation(() => {});
 
   campaign = {
-    id: 'cmp-1', userId: 'admin-1', user: { disabledAt: null }, name: 'Launch', status: 'Active', timezone: 'UTC', sendSchedule: null,
+    id: 'cmp-1', userId: 'admin-1', user: { disabledAt: null }, name: 'Launch', status: 'Active', timezone: 'UTC', sendSchedule: ANY_TIME,
     trackOpens: false, trackClicks: false, senderAccountId: 'mb-1', senderAccount: SENDER, senders: [],
     steps: [
       { stepOrder: 1, subject: 'Hello', body: 'Hi there', waitDays: 0 },
@@ -1134,17 +1137,61 @@ describe('processDueEmails moves enrollments outside the sending window to its n
     expect(enrollmentOf('lead-1').currentSequenceStep).toBe(2);
   });
 
-  it.each<[string, () => void]>([
-    ['no sending days', () => { campaign.sendSchedule = { days: [], window: { start: '09:00', end: '17:00' } }; }],
-    ['an unknown timezone', () => { campaign.sendSchedule = OFFICE_HOURS; campaign.timezone = 'America/NewYork'; }],
-  ])('checks again in a day and warns when the window never opens (%s)', async (_label, setup) => {
-    setup();
+  describe('an Active campaign with no complete sending schedule goes back to Draft (owner decision)', () => {
+    const LOADED = new Date('2026-06-01T10:00:00Z');
 
-    await processDueEmails();
+    beforeEach(() => {
+      campaign.updatedAt = LOADED;
+      fake.campaign.updateMany.mockImplementation(async ({ where, data }: any) => {
+        const hit = matchesWhere(campaign, where, { user: (row) => row.user });
+        if (hit) Object.assign(campaign, data, { updatedAt: new Date() });
+        return { count: hit ? 1 : 0 };
+      });
+    });
 
-    expect(mockedSend).not.toHaveBeenCalled();
-    expect(enrollmentOf('lead-1').nextActionDate).toEqual(new Date('2026-06-14T18:00:00Z'));
-    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('sending window that never opens'));
+    it.each<[string, () => void]>([
+      ['no saved schedule', () => { campaign.sendSchedule = null; }],
+      ['no sending days', () => { campaign.sendSchedule = { days: [], window: { start: '09:00', end: '17:00' } }; }],
+      ['no end time', () => { campaign.sendSchedule = { days: ['Mon'], window: { start: '09:00' } }; }],
+      ['an unknown timezone', () => { campaign.sendSchedule = OFFICE_HOURS; campaign.timezone = 'America/NewYork'; }],
+    ])('with %s it sends nothing, sets the campaign to Draft and leaves its leads due', async (_label, setup) => {
+      setup();
+      Object.assign(campaign, { pausedUntil: null, pauseReason: null });
+
+      await processDueEmails();
+
+      expect(mockedSend).not.toHaveBeenCalled();
+      expect(fake.emailDispatch.create).not.toHaveBeenCalled();
+      expect(campaign).toMatchObject({ status: 'Draft', pausedUntil: null, pauseReason: null });
+      expect(fake.campaign.updateMany).toHaveBeenCalledWith({
+        where: { id: 'cmp-1', status: 'Active', updatedAt: LOADED },
+        data: { status: 'Draft', pausedUntil: null, pauseReason: null },
+      });
+      expect(fake.campaignEnrollment.updateMany).not.toHaveBeenCalled();
+      expect(enrollmentOf('lead-1')).toMatchObject({ currentSequenceStep: 1, nextActionDate: PAST, claimToken: null });
+      expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('has no complete sending schedule, so it never sends. Set it back to Draft'));
+
+      // A Draft campaign's leads are not loaded again.
+      await processDueEmails();
+      expect(fake.campaign.findMany).toHaveBeenCalledTimes(1);
+      expect(mockedSend).not.toHaveBeenCalled();
+    });
+
+    it('leaves a campaign whose schedule was saved after the cycle loaded it Active', async () => {
+      campaign.sendSchedule = null;
+      const loadCampaigns = fake.campaign.findMany.getMockImplementation()!;
+      fake.campaign.findMany.mockImplementationOnce(async (args: any) => {
+        const loaded = await loadCampaigns(args);
+        Object.assign(campaign, { sendSchedule: OFFICE_HOURS, updatedAt: new Date('2026-06-13T17:59:00Z') });
+        return loaded;
+      });
+
+      await processDueEmails();
+
+      expect(mockedSend).not.toHaveBeenCalled();
+      expect(campaign.status).toBe('Active');
+      expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('has changed since this cycle loaded it'));
+    });
   });
 
   it.each<[string, number]>([

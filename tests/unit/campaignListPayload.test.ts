@@ -53,7 +53,7 @@ function storedCampaigns() {
   return [
     {
       id: 'cmp-1', name: 'Launch', status: 'Active', userId: 'user-1', senderAccountId: 'acc-1',
-      pausedUntil: null, pauseReason: null, timezone: 'UTC', sendSchedule: { days: ['Mon'] }, audienceCohort: 'Valid',
+      pausedUntil: null, pauseReason: null, timezone: 'UTC', sendSchedule: { days: ['Mon'], window: { start: '09:00', end: '17:00' } }, audienceCohort: 'Valid',
       stopOnReply: true, trackOpens: true, trackClicks: true,
       createdAt: new Date('2026-09-01T10:00:00.000Z'), updatedAt: new Date('2026-09-02T10:00:00.000Z'),
       user: { id: 'user-1', name: 'User', email: 'user@example.com' },

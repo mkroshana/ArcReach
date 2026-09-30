@@ -6,7 +6,7 @@ import { checkCampaignSenders, checkReassignedCampaignSenders } from '@/lib/send
 import { checkAudienceCohort, cohortLeadWhere } from '@/lib/campaignCohort';
 import { activationBlocker } from '@/lib/campaignSteps';
 import { CAMPAIGN_OWNER_DISABLED_ERROR, CAMPAIGN_STATUSES, userStatusPause } from '@/lib/campaignPause';
-import { isValidTimezone } from '@/lib/sendSchedule';
+import { SCHEDULE_REQUIRED_ERROR, hasSendingSchedule, isValidTimezone } from '@/lib/sendSchedule';
 import { findEnrollableLeadIds } from '@/lib/sendEligibility';
 import { type FieldRule, fieldRules, isPlainObject, pickUpdateFields } from '@/lib/updateAllowList';
 
@@ -134,6 +134,8 @@ export async function PUT(req: NextRequest) {
         userId: true,
         status: true,
         user: { select: { disabledAt: true } },
+        timezone: true,
+        sendSchedule: true,
         updatedAt: true,
         senderAccountId: true,
         senderAccount: { select: { emailAddress: true } },
@@ -146,11 +148,15 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized to modify this campaign.' }, { status: 403 });
     }
 
-    // An Active campaign mails every step as stored, so it needs complete steps.
+    // An Active campaign mails every step as stored, so it needs complete steps,
+    // and sends only inside its sending window, so it needs a complete one.
     if (updates.status === 'Active') {
       const stepsError = activationBlocker(target.steps);
       if (stepsError) {
         return NextResponse.json({ error: stepsError }, { status: 400 });
+      }
+      if (!hasSendingSchedule(updates.timezone ?? target.timezone, target.sendSchedule)) {
+        return NextResponse.json({ error: SCHEDULE_REQUIRED_ERROR }, { status: 400 });
       }
     }
 

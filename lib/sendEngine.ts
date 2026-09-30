@@ -9,7 +9,7 @@ import { personalizeEmail, renderEmailBody } from './personalize';
 import { sendMessage, sendingDisabledReason } from './emailProvider';
 import { sendableEnrollmentWhere, claimEnrollmentForSend, releaseEnrollmentClaim, RELEASED_CLAIM } from './sendEligibility';
 import { suppressEmail } from './suppression';
-import { type SendSchedule, SCHEDULE_DAYS, isValidTimezone, minutesOfDay, parseSendSchedule } from './sendSchedule';
+import { type SendSchedule, SCHEDULE_DAYS, hasSendingSchedule, isValidTimezone, minutesOfDay, parseSendSchedule } from './sendSchedule';
 import type { PauseReason } from './campaignPause';
 
 /**
@@ -204,6 +204,31 @@ async function pauseCampaignWithoutOwnedSender(campaign: { id: string; name: str
     }
   } catch (err: any) {
     console.error(`[SendEngine] Failed to pause campaign "${campaign.name}" (${campaign.id}) that has no sender mailbox owned by its owner:`, err?.message || err);
+  }
+}
+
+/**
+ * Sets an Active campaign with no complete sending schedule (sending days, a
+ * start and end time and a valid timezone) back to Draft: its window never
+ * opens, so its leads would only be rescheduled every day, and it may not be
+ * made Active again without one. Only while it is still Active and unchanged
+ * since this cycle loaded it, so a schedule saved meanwhile stands. Never
+ * throws, so one campaign cannot stop the cycle.
+ */
+async function draftCampaignWithoutSchedule(campaign: { id: string; name: string; updatedAt: Date }): Promise<void> {
+  try {
+    const { count } = await prisma.campaign.updateMany({
+      where: { id: campaign.id, status: 'Active', updatedAt: campaign.updatedAt },
+      data: { status: 'Draft', pausedUntil: null, pauseReason: null },
+    });
+    const problem = `Campaign "${campaign.name}" (${campaign.id}) has no complete sending schedule, so it never sends.`;
+    if (count > 0) {
+      console.warn(`[SendEngine] ${problem} Set it back to Draft until a schedule is saved and it is published again.`);
+    } else {
+      console.warn(`[SendEngine] ${problem} It is no longer Active or has changed since this cycle loaded it, so it was left as it is.`);
+    }
+  } catch (err: any) {
+    console.error(`[SendEngine] Failed to set campaign "${campaign.name}" (${campaign.id}) with no complete sending schedule back to Draft:`, err?.message || err);
   }
 }
 
@@ -767,9 +792,14 @@ export async function processDueEmails() {
 
     // Each campaign's sender pool, from the mailboxes its owner owns. Other
     // users' mailboxes are skipped, and a campaign left without any is paused
-    // and has no pool, so its enrollments are passed over this cycle.
+    // and has no pool, so its enrollments are passed over this cycle. A campaign
+    // with no complete sending schedule goes back to Draft and has no pool either.
     const senderPools = new Map<string, any[]>();
     for (const campaign of dueCampaigns) {
+      if (!hasSendingSchedule(campaign.timezone, campaign.sendSchedule)) {
+        await draftCampaignWithoutSchedule(campaign);
+        continue;
+      }
       const { pool, foreign } = resolveCampaignSenders(campaign);
       if (foreign.length > 0) {
         const mailboxes = foreign.map((account) => `${account.emailAddress} (${account.id})`).join(', ');
@@ -823,7 +853,7 @@ export async function processDueEmails() {
 
       // Pick a sender from the campaign's pool per send (least-loaded under cap)
       const senderPool = senderPools.get(campaign.id);
-      if (!senderPool) continue; // paused above: no sender mailbox its owner owns
+      if (!senderPool) continue; // set back to Draft (no complete schedule) or paused (no sender mailbox its owner owns) above
       const chosenSender = pickSender(senderPool, senderSentLast24Hours, now);
 
       if (!chosenSender) {
@@ -849,9 +879,11 @@ export async function processDueEmails() {
           if (opensAt) {
             console.log(`[SendEngine] Lead ${lead.email} is outside the sending window for ${campaign.timezone}; waiting until ${opensAt.toISOString()}.`);
           } else {
+            // A campaign without a complete schedule went back to Draft above, so
+            // this is only an error working out the opening.
             opensAt = new Date(windowCheckedAt);
             opensAt.setDate(opensAt.getDate() + 1);
-            console.warn(`[SendEngine] Campaign "${campaign.name}" (${campaign.id}) has a sending window that never opens (no days, a bad time or an unknown timezone). Checking lead ${lead.email} again in a day.`);
+            console.warn(`[SendEngine] Campaign "${campaign.name}" (${campaign.id}): the next opening of its sending window could not be worked out. Checking lead ${lead.email} again in a day.`);
           }
           await prisma.campaignEnrollment.updateMany({
             // Only while it is still due on this step, so a date set since the batch loaded stands.
@@ -1053,13 +1085,11 @@ function windowOpenAt(sched: SendSchedule, local: LocalTime): boolean {
 }
 
 /**
- * Whether `now` is inside the campaign's sending window in its timezone. A
- * campaign with no saved schedule may send at any time. A schedule with no
- * days or a missing or malformed HH:MM time, an unknown timezone, or any
- * error keeps the window closed.
+ * Whether `now` is inside the campaign's sending window in its timezone. No
+ * saved schedule, a schedule with no days or a missing or malformed HH:MM
+ * time, an unknown timezone, or any error keeps the window closed.
  */
 export function checkSendingWindow(timezone: string, schedule: unknown, now: Date = new Date()): boolean {
-  if (schedule === null || schedule === undefined) return true;
   try {
     const sched = storedSchedule(schedule);
     const clock = localClock(timezone);
@@ -1074,11 +1104,10 @@ export function checkSendingWindow(timezone: string, schedule: unknown, now: Dat
 /**
  * The first moment at or after `from` when checkSendingWindow is open: `from`
  * itself when the window is open then, otherwise the minute it next opens in
- * the campaign's timezone, across daylight-saving changes. Null when the
- * schedule or timezone is invalid, so the window never opens.
+ * the campaign's timezone, across daylight-saving changes. Null when there is
+ * no schedule or the schedule or timezone is invalid, so the window never opens.
  */
 export function nextWindowOpening(timezone: string, schedule: unknown, from: Date): Date | null {
-  if (schedule === null || schedule === undefined) return from;
   try {
     const sched = storedSchedule(schedule);
     const clock = localClock(timezone);

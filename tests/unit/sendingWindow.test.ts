@@ -17,7 +17,7 @@ vi.mock('../../lib/session', () => ({
 
 import { getSession } from '../../lib/session';
 import { checkSendingWindow, nextWindowOpening } from '../../lib/sendEngine';
-import { parseSendSchedule, sendScheduleError, timezoneError } from '../../lib/sendSchedule';
+import { hasSendingSchedule, parseSendSchedule, sendScheduleError, timezoneError } from '../../lib/sendSchedule';
 import { PUT as putCampaign } from '../../app/api/campaigns/[id]/route';
 import { matchesWhere } from './helpers/prismaWhere';
 
@@ -32,9 +32,9 @@ const MONDAY_NIGHT = { days: ['Mon'], window: { start: '22:00', end: '06:00' } }
 const at = (iso: string) => new Date(iso);
 
 describe('checkSendingWindow fails closed (M4)', () => {
-  it('lets a campaign with no saved schedule send at any time', () => {
-    expect(checkSendingWindow('UTC', null, at('2026-06-07T03:00:00Z'))).toBe(true);
-    expect(checkSendingWindow('UTC', undefined, at('2026-06-07T03:00:00Z'))).toBe(true);
+  it('keeps the window closed for a campaign with no saved schedule (owner decision)', () => {
+    expect(checkSendingWindow('UTC', null, at('2026-06-07T03:00:00Z'))).toBe(false);
+    expect(checkSendingWindow('UTC', undefined, at('2026-06-08T10:00:00Z'))).toBe(false);
   });
 
   it('keeps the window closed when no day is chosen', () => {
@@ -104,10 +104,9 @@ describe('checkSendingWindow fails closed (M4)', () => {
 });
 
 describe('nextWindowOpening (M4)', () => {
-  it('returns `from` when the window is already open or there is no schedule', () => {
+  it('returns `from` when the window is already open', () => {
     const from = at('2026-06-08T10:15:30Z');
     expect(nextWindowOpening('UTC', OFFICE_HOURS, from)).toEqual(from);
-    expect(nextWindowOpening('UTC', null, from)).toEqual(from);
   });
 
   it('returns the start time later the same day', () => {
@@ -154,6 +153,12 @@ describe('nextWindowOpening (M4)', () => {
     expect(nextWindowOpening('UTC', 'not json', from)).toBeNull();
     errorSpy.mockRestore();
   });
+
+  it('returns null when there is no saved schedule (owner decision)', () => {
+    const from = at('2026-06-08T10:00:00Z');
+    expect(nextWindowOpening('UTC', null, from)).toBeNull();
+    expect(nextWindowOpening('UTC', undefined, from)).toBeNull();
+  });
 });
 
 describe('sending schedule validation (M4)', () => {
@@ -178,6 +183,20 @@ describe('sending schedule validation (M4)', () => {
   it('keeps only the days and window of a complete schedule', () => {
     expect(parseSendSchedule({ ...OFFICE_HOURS, window: { ...OFFICE_HOURS.window, extra: 1 }, note: 'x' })).toEqual(OFFICE_HOURS);
     expect(parseSendSchedule({ days: [], window: OFFICE_HOURS.window })).toBeNull();
+  });
+
+  it('counts a campaign as scheduled only with a complete window in a valid timezone (owner decision)', () => {
+    expect(hasSendingSchedule('UTC', OFFICE_HOURS)).toBe(true);
+    expect(hasSendingSchedule('America/New_York', MONDAY_NIGHT)).toBe(true);
+    expect(hasSendingSchedule('UTC', JSON.stringify(OFFICE_HOURS))).toBe(true);
+    expect(hasSendingSchedule('UTC', null)).toBe(false);
+    expect(hasSendingSchedule('UTC', undefined)).toBe(false);
+    expect(hasSendingSchedule('UTC', { days: [], window: OFFICE_HOURS.window })).toBe(false);
+    expect(hasSendingSchedule('UTC', { days: WEEKDAYS })).toBe(false);
+    expect(hasSendingSchedule('UTC', '{"days": ["Mon"')).toBe(false);
+    expect(hasSendingSchedule('UTC', JSON.stringify({ days: ['Mon'] }))).toBe(false);
+    expect(hasSendingSchedule('America/NewYork', OFFICE_HOURS)).toBe(false);
+    expect(hasSendingSchedule(undefined, OFFICE_HOURS)).toBe(false);
   });
 
   it('accepts time zone names the runtime knows', () => {

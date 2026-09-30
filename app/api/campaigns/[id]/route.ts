@@ -8,7 +8,7 @@ import { checkAudienceCohort, syncCohortEnrollments } from '@/lib/campaignCohort
 import { activationBlocker, changesStepStructure, matchStoredSteps, STEP_STRUCTURE_LOCKED_ERROR } from '@/lib/campaignSteps';
 import { CAMPAIGN_OWNER_DISABLED_ERROR, CAMPAIGN_STATUSES, userStatusPause } from '@/lib/campaignPause';
 import { CAMPAIGN_CHANGED_ERROR, nextCampaignVersion, parseCampaignVersion, sameCampaignVersion } from '@/lib/campaignVersion';
-import { parseSendSchedule, sendScheduleError, timezoneError } from '@/lib/sendSchedule';
+import { SCHEDULE_REQUIRED_ERROR, hasSendingSchedule, parseSendSchedule, sendScheduleError, timezoneError } from '@/lib/sendSchedule';
 import { fieldRules } from '@/lib/updateAllowList';
 import {
   type MetricsScope,
@@ -315,6 +315,15 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       if (stepsError) {
         return NextResponse.json({ error: stepsError }, { status: 400 });
       }
+    }
+
+    // A campaign sends only inside its sending window, so Publish Sequence needs
+    // a complete one, submitted (checked above) or stored; without it the campaign stays Draft.
+    if (status === 'Active' && !hasSendingSchedule(
+      timezone !== undefined ? timezone : campaign.timezone,
+      sendSchedule !== undefined ? sendSchedule : campaign.sendSchedule,
+    )) {
+      return NextResponse.json({ error: SCHEDULE_REQUIRED_ERROR }, { status: 400 });
     }
 
     // Steps are saved over the stored ones by id, keeping their ids and

@@ -13,8 +13,8 @@ describe('sendEngine', () => {
       vi.useRealTimers();
     });
 
-    it('should return true if no schedule is specified', () => {
-      expect(checkSendingWindow('UTC', null)).toBe(true);
+    it('should return false if no schedule is specified', () => {
+      expect(checkSendingWindow('UTC', null)).toBe(false);
     });
 
     it('should return true if current time is within allowed schedule', () => {

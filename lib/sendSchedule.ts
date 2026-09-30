@@ -1,9 +1,10 @@
 /**
  * A campaign's sending window: the weekdays it may send on and a daily 24-hour
  * HH:MM start and end in the campaign's timezone. A window whose start is later
- * than its end runs past midnight into the next day. The send engine keeps an
- * incomplete window closed, so the PUT route and the campaign page refuse to
- * save one. Pure string work so the campaign page runs the same checks.
+ * than its end runs past midnight into the next day. The send engine keeps a
+ * missing or incomplete window closed, so the PUT route and the campaign page
+ * refuse to save one, and a campaign may only be Active with a complete one.
+ * Pure string work so the campaign page runs the same checks.
  */
 
 export const SCHEDULE_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -61,4 +62,26 @@ export function isValidTimezone(timezone: unknown): timezone is string {
 /** Why `timezone` cannot hold a sending window, or null when it can. */
 export function timezoneError(timezone: unknown): string | null {
   return isValidTimezone(timezone) ? null : 'Choose a valid timezone for the sending window.';
+}
+
+/**
+ * Why a campaign without a complete sending schedule may not be made Active or
+ * have its leads queued. The send engine never opens its window and sets it
+ * back to Draft.
+ */
+export const SCHEDULE_REQUIRED_ERROR =
+  "Set a sending schedule first: save sending days and a start and end time on the campaign's Schedule tab. A campaign without one stays Draft and sends nothing.";
+
+/**
+ * Whether a campaign's timezone and stored schedule (a JSON value, or legacy
+ * JSON text) are a complete sending window, which it needs to be Active.
+ */
+export function hasSendingSchedule(timezone: unknown, schedule: unknown): boolean {
+  if (!isValidTimezone(timezone)) return false;
+  if (typeof schedule !== 'string') return parseSendSchedule(schedule) !== null;
+  try {
+    return parseSendSchedule(JSON.parse(schedule)) !== null;
+  } catch {
+    return false;
+  }
 }

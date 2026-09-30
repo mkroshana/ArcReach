@@ -132,8 +132,8 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
         setStartTime(typeof sched?.window?.start === 'string' ? sched.window.start : '');
         setEndTime(typeof sched?.window?.end === 'string' ? sched.window.end : '');
         // What the send engine does with the saved window, which the form may not show.
-        if (data.sendSchedule == null) setSavedWindowNote('No sending window is saved, so this campaign sends at any hour. Choose days and times, then save.');
-        else if (sendScheduleError(sched) || timezoneError(data.timezone)) setSavedWindowNote('The saved sending window is incomplete or its timezone is unknown, so this campaign sends nothing until you fix it and save.');
+        if (data.sendSchedule == null) setSavedWindowNote('No sending window is saved, so this campaign sends nothing and stays Draft. Choose days and times, then save.');
+        else if (sendScheduleError(sched) || timezoneError(data.timezone)) setSavedWindowNote('The saved sending window is incomplete or its timezone is unknown, so this campaign sends nothing and stays Draft until you fix it and save.');
         else setSavedWindowNote(null);
       } else {
         const message = await responseErrorMessage(res, `The campaign could not be loaded (the server answered ${res.status}).`);
@@ -352,6 +352,9 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
   // but not removed or replaced by a template; new steps go after them.
   const stepsLocked = !!campaign?.stepsLocked;
   const savedStepIds = new Set<string>((campaign?.steps || []).map((s: any) => s.id));
+  // Publish Sequence saves the form's window with it, and a campaign without a
+  // complete one never sends, so it can't be published until one is set.
+  const scheduleMissing = !!(timezoneError(timezone) ?? sendScheduleError({ days: selectedDays, window: { start: startTime, end: endTime } }));
 
   return (
     <Box sx={{ maxWidth: 1100, mx: 'auto', pb: 8, display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -403,16 +406,23 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
             )}
           </Box>
         </Stack>
-        <Stack direction="row" spacing={1}>
-          {status === 'Active' && (
-            <Button variant="contained" color="warning" disabled={runningCampaign} startIcon={runningCampaign ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />} onClick={handleRunCampaign}>
-              {runningCampaign ? 'Running…' : 'Run Campaign'}
+        <Stack spacing={0.75} sx={{ alignItems: { md: 'flex-end' } }}>
+          <Stack direction="row" spacing={1}>
+            {status === 'Active' && (
+              <Button variant="contained" color="warning" disabled={runningCampaign} startIcon={runningCampaign ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />} onClick={handleRunCampaign}>
+                {runningCampaign ? 'Running…' : 'Run Campaign'}
+              </Button>
+            )}
+            <Button variant="outlined" color="inherit" disabled={saving} startIcon={<Save size={14} />} onClick={() => handleSaveCampaign()} sx={{ borderColor: 'divider', color: 'text.secondary' }}>
+              {saving ? 'Saving…' : 'Save'}
             </Button>
+            <Button variant="contained" disabled={saving || scheduleMissing} startIcon={<Send size={14} />} onClick={() => handleSaveCampaign(true)}>Publish Sequence</Button>
+          </Stack>
+          {scheduleMissing && (
+            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <Clock size={12} style={{ flexShrink: 0 }} /> Publishing needs a sending schedule: set days, times and a timezone on the Schedule tab.
+            </Typography>
           )}
-          <Button variant="outlined" color="inherit" disabled={saving} startIcon={<Save size={14} />} onClick={() => handleSaveCampaign()} sx={{ borderColor: 'divider', color: 'text.secondary' }}>
-            {saving ? 'Saving…' : 'Save'}
-          </Button>
-          <Button variant="contained" disabled={saving} startIcon={<Send size={14} />} onClick={() => handleSaveCampaign(true)}>Publish Sequence</Button>
         </Stack>
       </Stack>
 
@@ -645,6 +655,9 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                   <Clock size={16} color="#2563EB" />
                   <Typography variant="overline" sx={{ fontWeight: 700 }}>Target Cadence Window</Typography>
                 </Stack>
+                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 2 }}>
+                  Required before publishing: the campaign sends only on these days, between these times in its timezone. Without a schedule it stays Draft and sends nothing.
+                </Typography>
                 {savedWindowNote && (
                   <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 2, color: 'warning.main' }}>
                     <AlertTriangle size={14} />

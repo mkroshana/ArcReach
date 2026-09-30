@@ -41,7 +41,7 @@ const HOUR_MS = 60 * 60 * 1000;
 
 type CampaignRow = {
   id: string; userId: string; name: string; status: string; audienceCohort: string;
-  pausedUntil: Date | null; pauseReason: string | null; timezone: string; updatedAt: Date;
+  pausedUntil: Date | null; pauseReason: string | null; timezone: string; sendSchedule: unknown; updatedAt: Date;
 };
 
 let campaign: CampaignRow;
@@ -91,6 +91,7 @@ beforeEach(() => {
   campaign = {
     id: 'cmp-1', userId: 'user-1', name: 'Launch', status: 'Active', audienceCohort: 'Valid',
     pausedUntil: null, pauseReason: null, timezone: 'UTC', updatedAt: new Date('2026-09-01T10:00:00.000Z'),
+    sendSchedule: { days: ['Mon'], window: { start: '09:00', end: '17:00' } },
   };
   enrollment = { id: 'enr-1', nextActionDate: null, claimToken: 'worker', claimedAt: new Date() };
 

@@ -7,6 +7,7 @@ import { UnauthorizedError, unauthorizedResponse } from '@/lib/sessionError';
 import { sendingDisabledReason } from '@/lib/emailProvider';
 import { sendableEnrollmentWhere, withoutSuppressedLeads } from '@/lib/sendEligibility';
 import { CAMPAIGN_OWNER_DISABLED_ERROR } from '@/lib/campaignPause';
+import { SCHEDULE_REQUIRED_ERROR, hasSendingSchedule } from '@/lib/sendSchedule';
 
 /** Most enrollments one queueing write names by id. */
 const QUEUE_WRITE_CHUNK = 1000;
@@ -51,6 +52,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         success: false,
         error: 'Campaign is not active. Please publish the sequence before executing a manual run.'
       }, { status: 409 });
+    }
+
+    // Nothing is sent outside a complete sending window, so without one no lead
+    // is queued; the send engine sets such a campaign back to Draft.
+    if (!hasSendingSchedule(campaign.timezone, campaign.sendSchedule)) {
+      return NextResponse.json({ success: false, error: SCHEDULE_REQUIRED_ERROR }, { status: 409 });
     }
 
     // With no steps every enrollment would look finished and be marked Completed

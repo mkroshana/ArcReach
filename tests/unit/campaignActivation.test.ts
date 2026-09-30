@@ -43,6 +43,7 @@ import { checkGlobalRateLimits } from '../../lib/rateLimits';
 import { sendMessage } from '../../lib/emailProvider';
 import { activationBlocker, findIncompleteSteps } from '../../lib/campaignSteps';
 import { CAMPAIGN_OWNER_DISABLED_ERROR, ownerDisabledNote } from '../../lib/campaignPause';
+import { SCHEDULE_REQUIRED_ERROR } from '../../lib/sendSchedule';
 import { matchesWhere } from './helpers/prismaWhere';
 import { PUT as putCampaign } from '../../app/api/campaigns/[id]/route';
 import { POST as postCampaign, PUT as putCampaignList } from '../../app/api/campaigns/route';
@@ -61,6 +62,10 @@ const COMPLETE_STEPS = [
 
 /** Step 2 is the placeholder "Add Journey Step" leaves: no subject, no body. */
 const PLACEHOLDER_STEPS = [COMPLETE_STEPS[0], { stepOrder: 2, waitDays: 3, subject: '', body: '' }];
+
+const OFFICE_HOURS = { days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'], window: { start: '09:00', end: '17:00' } };
+/** A complete sending window, which a campaign needs to be made Active. */
+const SCHEDULED = { timezone: 'UTC', sendSchedule: OFFICE_HOURS };
 
 const SENDER = {
   id: 'mb-1', userId: 'user-1', emailAddress: 'one@acme.test', name: 'One', replyTo: null,
@@ -95,7 +100,7 @@ beforeEach(() => {
   mockedSession.mockResolvedValue(USER);
   campaign = {
     id: 'cmp-1', userId: 'user-1', name: 'Launch', status: 'Draft', audienceCohort: 'Valid',
-    timezone: 'UTC', sendSchedule: null, trackOpens: false, trackClicks: false,
+    ...SCHEDULED, trackOpens: false, trackClicks: false,
     senderAccountId: 'mb-1', senderAccount: SENDER, senders: [], steps: [],
     updatedAt: new Date('2026-09-01T10:00:00.000Z'),
   };
@@ -212,7 +217,7 @@ describe('PUT /api/campaigns refuses to activate a campaign with incomplete step
   });
 
   it('activates a campaign whose steps are complete, and pauses one whose steps are not', async () => {
-    fake.campaign.findFirst.mockResolvedValue({ userId: 'user-1', steps: COMPLETE_STEPS });
+    fake.campaign.findFirst.mockResolvedValue({ userId: 'user-1', ...SCHEDULED, steps: COMPLETE_STEPS });
     expect((await toggle('Active')).status).toBe(200);
     expect(mockedDb.updateCampaign).toHaveBeenLastCalledWith('cmp-1', { status: 'Active', pausedUntil: null, pauseReason: null });
 
@@ -280,7 +285,7 @@ describe("a disabled owner's campaigns can not be made Active or have leads queu
   const toggle = (body: Record<string, unknown>) => putCampaignList(makeReq('PUT', '/api/campaigns', { id: 'cmp-1', ...body }));
   /** The collection PUT's read of the campaign, with its owner. */
   const listRow = (status: string, disabledAt: Date | null) => ({
-    userId: 'user-1', status, user: { disabledAt }, updatedAt: campaign.updatedAt,
+    userId: 'user-1', status, user: { disabledAt }, ...SCHEDULED, updatedAt: campaign.updatedAt,
     senderAccountId: 'mb-1', senderAccount: { emailAddress: SENDER.emailAddress }, senders: [], steps: COMPLETE_STEPS,
   });
 
@@ -357,6 +362,89 @@ describe("a disabled owner's campaigns can not be made Active or have leads queu
 
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual({ success: false, error: CAMPAIGN_OWNER_DISABLED_ERROR });
+    expect(fake.campaignEnrollment.findMany).not.toHaveBeenCalled();
+    expect(fake.campaignEnrollment.update).not.toHaveBeenCalled();
+    expect(mockedSend).not.toHaveBeenCalled();
+  });
+});
+
+describe('a campaign without a complete sending schedule stays Draft (owner decision)', () => {
+  const toggle = (status: string) => putCampaignList(makeReq('PUT', '/api/campaigns', { id: 'cmp-1', status }));
+  /** The collection PUT's read of the campaign. */
+  const listRow = (schedule: Record<string, unknown>) => ({
+    userId: 'user-1', status: 'Draft', user: { disabledAt: null }, updatedAt: campaign.updatedAt,
+    senderAccountId: 'mb-1', senderAccount: { emailAddress: SENDER.emailAddress }, senders: [], steps: COMPLETE_STEPS, ...schedule,
+  });
+  const UNSCHEDULED: Array<[string, Record<string, unknown>]> = [
+    ['no saved schedule', { timezone: 'UTC', sendSchedule: null }],
+    ['no sending days', { timezone: 'UTC', sendSchedule: { days: [], window: OFFICE_HOURS.window } }],
+    ['no window', { timezone: 'UTC', sendSchedule: { days: ['Mon'] } }],
+    ['legacy JSON text without times', { timezone: 'UTC', sendSchedule: JSON.stringify({ days: ['Mon'] }) }],
+    ['an unknown timezone', { timezone: 'America/NewYork', sendSchedule: OFFICE_HOURS }],
+  ];
+
+  it.each(UNSCHEDULED)('refuses Publish Sequence with 400 for %s when the request sends no schedule, and saves nothing', async (_label, schedule) => {
+    Object.assign(campaign, schedule);
+
+    const res = await save({ status: 'Active', steps: COMPLETE_STEPS });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: SCHEDULE_REQUIRED_ERROR });
+    expectNothingSaved();
+    expect(campaign.status).toBe('Draft');
+  });
+
+  it('publishes a campaign with no stored schedule when the request saves a complete one with it', async () => {
+    campaign.sendSchedule = null;
+
+    const res = await save({ status: 'Active', steps: COMPLETE_STEPS, timezone: 'Europe/London', sendSchedule: OFFICE_HOURS });
+
+    expect(res.status).toBe(200);
+    expect(campaign).toMatchObject({ status: 'Active', timezone: 'Europe/London', sendSchedule: OFFICE_HOURS });
+  });
+
+  it('still saves a Draft with no schedule, and pauses one', async () => {
+    campaign.sendSchedule = null;
+
+    expect((await save({ name: 'Renamed', steps: COMPLETE_STEPS })).status).toBe(200);
+    expect(campaign).toMatchObject({ name: 'Renamed', status: 'Draft', sendSchedule: null });
+
+    expect((await save({ status: 'Paused' })).status).toBe(200);
+    expect(campaign.status).toBe('Paused');
+  });
+
+  it.each(UNSCHEDULED)('refuses Active from the list toggle and status menu with 400 for %s, and still allows Paused and Draft', async (_label, schedule) => {
+    fake.campaign.findFirst.mockResolvedValue(listRow(schedule));
+
+    const res = await toggle('Active');
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe(SCHEDULE_REQUIRED_ERROR);
+    expect(mockedDb.updateCampaign).not.toHaveBeenCalled();
+
+    expect((await toggle('Paused')).status).toBe(200);
+    expect((await toggle('Draft')).status).toBe(200);
+    expect(mockedDb.updateCampaign).toHaveBeenLastCalledWith('cmp-1', { status: 'Draft', pausedUntil: null, pauseReason: null });
+  });
+
+  it('checks the timezone the list toggle saves with the status against the stored schedule', async () => {
+    fake.campaign.findFirst.mockResolvedValue(listRow({ timezone: 'America/NewYork', sendSchedule: OFFICE_HOURS }));
+
+    const res = await putCampaignList(makeReq('PUT', '/api/campaigns', { id: 'cmp-1', status: 'Active', timezone: 'America/New_York' }));
+
+    expect(res.status).toBe(200);
+    expect(mockedDb.updateCampaign).toHaveBeenLastCalledWith('cmp-1', { status: 'Active', timezone: 'America/New_York', pausedUntil: null, pauseReason: null });
+  });
+
+  it.each([['Run Now', ''], ['Send Step', '?stepOrder=1']])('refuses %s with 409 and queues nothing', async (_label, query) => {
+    // As an Active campaign saved before schedules were required could be.
+    campaign = { ...campaign, status: 'Active', steps: COMPLETE_STEPS, user: { disabledAt: null }, sendSchedule: null };
+
+    const res = await postRun(makeReq('POST', `/api/campaigns/cmp-1/run${query}`), params);
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ success: false, error: SCHEDULE_REQUIRED_ERROR });
+    expect(getGlobalSettings).not.toHaveBeenCalled();
     expect(fake.campaignEnrollment.findMany).not.toHaveBeenCalled();
     expect(fake.campaignEnrollment.update).not.toHaveBeenCalled();
     expect(mockedSend).not.toHaveBeenCalled();

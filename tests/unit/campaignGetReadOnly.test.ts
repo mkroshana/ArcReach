@@ -46,6 +46,7 @@ const ADMIN = { id: 'admin-1', name: 'Admin', email: 'admin@example.com', role: 
 /** Published while group g1 was empty, so it has no enrollments yet. */
 const CAMPAIGN = {
   id: 'cmp-1', name: 'Launch', userId: 'user-1', status: 'Active', audienceCohort: 'group_g1', senderAccountId: 'mb-1', steps: [],
+  timezone: 'UTC', sendSchedule: { days: ['Mon'], window: { start: '09:00', end: '17:00' } },
   updatedAt: new Date('2026-09-01T10:00:00.000Z'),
 };
 

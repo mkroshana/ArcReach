@@ -24,7 +24,7 @@
 2. **Campaign Sequences Builder** ([app/campaigns](file:///d:/Development/ArcReach/app/campaigns))
    - Create multi-step outreach schedules with granular follow-up intervals (`waitDays`).
    - Personalization variables (`{{firstName}}`, `{{company}}`) and dynamic Spintax template resolution.
-   - A/B testing support, custom timezones, and open/click tracking toggles.
+   - Custom timezones and open/click tracking toggles.
 
 3. **Sender Accounts & Sending Limits** ([app/accounts](file:///d:/Development/ArcReach/app/accounts))
    - Link multiple sender mailboxes (Microsoft 365, Google Workspace, custom SMTP/IMAP).

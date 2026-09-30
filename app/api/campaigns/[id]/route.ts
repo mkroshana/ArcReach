@@ -383,8 +383,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
             stepOrder: index + 1,
             waitDays: Number(step.waitDays) || 0,
             subject: step.subject || '',
-            body: step.body || '',
-            isABTest: !!step.isABTest
+            body: step.body || ''
           };
           const storedId = matchedIds[index];
           if (storedId) {

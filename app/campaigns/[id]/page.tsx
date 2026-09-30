@@ -3,7 +3,7 @@
 
 import {
   ArrowLeft, Save, Send, Settings, Users, AlignLeft, Clock, ToggleLeft, Plus, Trash2,
-  SplitSquareHorizontal, Mail, CheckCircle2, MousePointerClick, Reply, SendHorizontal,
+  Mail, CheckCircle2, MousePointerClick, Reply, SendHorizontal,
   Sparkles, Play, Loader2, XCircle, AlertTriangle, UserMinus, TimerOff, Lock,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -81,9 +81,9 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
       try { parsedSteps = typeof selected.steps === 'string' ? JSON.parse(selected.steps) : selected.steps; } catch (e) { console.error(e); }
     }
     if (parsedSteps && parsedSteps.length > 0) {
-      setSteps(parsedSteps.map((step, idx) => ({ id: `temp-${Date.now()}-${idx}`, waitDays: idx === 0 ? 0 : (step.waitDays || 3), subject: step.subject || '', body: step.body || '', isABTest: false })));
+      setSteps(parsedSteps.map((step, idx) => ({ id: `temp-${Date.now()}-${idx}`, waitDays: idx === 0 ? 0 : (step.waitDays || 3), subject: step.subject || '', body: step.body || '' })));
     } else {
-      setSteps([{ id: `temp-${Date.now()}`, waitDays: 0, subject: selected.subject || '', body: selected.body || '', isABTest: false }]);
+      setSteps([{ id: `temp-${Date.now()}`, waitDays: 0, subject: selected.subject || '', body: selected.body || '' }]);
     }
     showToast(`Applied template: ${selected.name}`);
   };
@@ -143,7 +143,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
 
   useEffect(() => { loadCampaign(); loadTemplates(); loadGroups(); loadMailboxes(); }, [campaignId]);
 
-  const addStep = () => setSteps([...steps, { id: `temp-${Date.now()}`, waitDays: 3, subject: '', body: '', isABTest: false }]);
+  const addStep = () => setSteps([...steps, { id: `temp-${Date.now()}`, waitDays: 3, subject: '', body: '' }]);
   const removeStep = (i: number) => { if (steps.length > 1) setSteps(steps.filter((_, idx) => idx !== i)); };
   const updateStepField = (i: number, field: string, value: any) => setSteps(prev => prev.map((s, idx) => idx === i ? { ...s, [field]: value } : s));
   const insertVariable = (variable: string, i: number) => updateStepField(i, 'body', (steps[i]?.body || '') + variable);
@@ -503,9 +503,6 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                         <Stack direction="row" spacing={1}>
                           <Button size="small" variant={showPreview ? 'contained' : 'outlined'} color={showPreview ? 'primary' : 'inherit'} onClick={() => toggleStepPreview(step.id || index)} sx={{ borderColor: showPreview ? undefined : 'divider', color: showPreview ? undefined : 'text.secondary', fontSize: 10 }}>
                             {showPreview ? 'Edit Mode' : 'Preview Mode'}
-                          </Button>
-                          <Button size="small" variant={step.isABTest ? 'contained' : 'outlined'} color={step.isABTest ? 'primary' : 'inherit'} startIcon={<SplitSquareHorizontal size={12} />} onClick={() => updateStepField(index, 'isABTest', !step.isABTest)} sx={{ borderColor: step.isABTest ? undefined : 'divider', color: step.isABTest ? undefined : 'text.secondary', fontSize: 10 }}>
-                            A/B Test
                           </Button>
                           {steps.length > 1 && (
                             <IconButton aria-label="Remove step" size="small" disabled={stepsLocked && savedStepIds.has(step.id)} onClick={() => removeStep(index)} sx={{ border: 1, borderColor: 'divider', color: 'text.secondary', '&:hover': { color: 'error.main', borderColor: 'error.main' } }}>

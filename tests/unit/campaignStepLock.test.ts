@@ -49,7 +49,7 @@ function step(id: string, stepOrder: number, subject: string): StepRow {
 const loaded = () => stepRows.map((s) => ({ ...s }));
 
 /** A step the page's Add Journey Step or Use Template made, with a temporary id. */
-const unsaved = (subject: string) => ({ id: `temp-${subject}`, waitDays: 2, subject, body: `${subject} body`, isABTest: false });
+const unsaved = (subject: string) => ({ id: `temp-${subject}`, waitDays: 2, subject, body: `${subject} body` });
 
 const orderOf = () => [...stepRows].sort((a, b) => a.stepOrder - b.stepOrder).map((s) => [s.id, s.stepOrder, s.subject]);
 
@@ -242,6 +242,20 @@ describe('PUT /api/campaigns/[id] before a campaign has started sending (H11)', 
 
     expect(res.status).toBe(200);
     expect(orderOf()).toEqual([['step-new-1', 1, 'T1'], ['step-new-2', 2, 'T2']]);
+  });
+});
+
+describe('PUT /api/campaigns/[id] has no A/B test flag (M14)', () => {
+  it('ignores an isABTest sent with stored or new steps, since steps have no variants', async () => {
+    const steps = loaded().map((s) => ({ ...s, isABTest: true }));
+
+    expect((await saveSteps([...steps, { ...unsaved('D'), isABTest: true }])).status).toBe(200);
+
+    expect(fake.campaignStep.update).toHaveBeenCalledTimes(3);
+    for (const [{ data }] of fake.campaignStep.update.mock.calls) expect(data).not.toHaveProperty('isABTest');
+    expect(fake.campaignStep.createMany).toHaveBeenCalledTimes(1);
+    for (const row of fake.campaignStep.createMany.mock.calls[0][0].data) expect(row).not.toHaveProperty('isABTest');
+    expect(stepRows.some((s) => s.isABTest)).toBe(false);
   });
 });
 

@@ -27,7 +27,7 @@ vi.mock('../../lib/session', () => ({
 }));
 
 import { getSession } from '../../lib/session';
-import { changesStepStructure, matchStoredSteps, STEP_STRUCTURE_LOCKED_ERROR } from '../../lib/campaignSteps';
+import { changesStepStructure, matchStoredSteps, sequenceDurationDays, STEP_STRUCTURE_LOCKED_ERROR } from '../../lib/campaignSteps';
 import { GET as getCampaign, PUT as putCampaign } from '../../app/api/campaigns/[id]/route';
 import { matchesWhere } from './helpers/prismaWhere';
 
@@ -242,6 +242,32 @@ describe('PUT /api/campaigns/[id] before a campaign has started sending (H11)', 
 
     expect(res.status).toBe(200);
     expect(orderOf()).toEqual([['step-new-1', 1, 'T1'], ['step-new-2', 2, 'T2']]);
+  });
+});
+
+describe('the first step has no wait, since it is sent on enrollment (L27)', () => {
+  const waits = () => [...stepRows].sort((a, b) => a.stepOrder - b.stepOrder).map((s) => [s.stepOrder, s.waitDays]);
+
+  it('stores 0 wait days on a new first step and keeps the wait days of the follow-ups', async () => {
+    const res = await saveSteps([{ ...unsaved('T1'), waitDays: 3 }, unsaved('T2')]);
+
+    expect(res.status).toBe(200);
+    expect(waits()).toEqual([[1, 0], [2, 2]]);
+  });
+
+  it('stores 0 wait days on a follow-up that becomes the first step', async () => {
+    const [, b, c] = loaded();
+
+    expect((await saveSteps([b, c])).status).toBe(200);
+
+    expect(stepRows.map((s) => [s.id, s.stepOrder, s.waitDays])).toEqual([['step-b', 1, 0], ['step-c', 2, 3]]);
+  });
+
+  it('counts the sequence duration from the steps after the first', () => {
+    expect(sequenceDurationDays([])).toBe(0);
+    expect(sequenceDurationDays([{ waitDays: 3 }])).toBe(0);
+    expect(sequenceDurationDays([{ waitDays: 3 }, { waitDays: 2 }, { waitDays: 5 }])).toBe(7);
+    expect(sequenceDurationDays([{ waitDays: 0 }, { waitDays: undefined }, { waitDays: '4' }])).toBe(4);
   });
 });
 

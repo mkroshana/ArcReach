@@ -36,6 +36,15 @@ export function activationBlocker(steps: StepContent[]): string | null {
 }
 
 /**
+ * Days from a lead's first step to its last: the wait days of the steps after
+ * the first. Step 1 is sent on enrollment, so its waitDays is never applied
+ * (and PUT /api/campaigns/[id] stores it as 0).
+ */
+export function sequenceDurationDays(steps: Array<{ waitDays?: unknown }>): number {
+  return steps.slice(1).reduce<number>((days, step) => days + (Number(step.waitDays) || 0), 0);
+}
+
+/**
  * Enrollments, dispatches and per-step stats point at a step by its stepOrder.
  * Once a campaign has started sending (a lead is past step 1 or it has any
  * dispatch), a save may only edit stored steps in place and add steps after

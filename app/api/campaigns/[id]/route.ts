@@ -4,7 +4,7 @@ import { getSession } from '@/lib/session';
 import { UnauthorizedError, unauthorizedResponse } from '@/lib/sessionError';
 import { checkCampaignSenders } from '@/lib/senderOwnership';
 import { MAILBOX_SECRET_OMIT } from '@/lib/mailboxSecrets';
-import { checkAudienceCohort, REMOVED_ENROLLMENT_STATUS, syncCohortEnrollments } from '@/lib/campaignCohort';
+import { checkAudienceCohort, syncCohortEnrollments } from '@/lib/campaignCohort';
 import { activationBlocker, changesStepStructure, matchStoredSteps, STEP_STRUCTURE_LOCKED_ERROR } from '@/lib/campaignSteps';
 import { CAMPAIGN_STATUSES, userStatusPause } from '@/lib/campaignPause';
 import { CAMPAIGN_CHANGED_ERROR, nextCampaignVersion, parseCampaignVersion, sameCampaignVersion } from '@/lib/campaignVersion';
@@ -81,9 +81,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
     // Calculate real campaign telemetry metrics. GET is read-only: leads are
     // enrolled when the campaign is created (POST) or saved (PUT), never on view.
-    // Removed enrollments belong to leads that have left the audience.
-    const enrollmentsCount = await prisma.campaignEnrollment.count({
-      where: { campaignId: id, status: { not: REMOVED_ENROLLMENT_STATUS } }
+    // Active enrollments are the leads still in the sequence; Paused, Completed,
+    // Failed, Bounced and Removed ones are not counted.
+    const activeEnrollmentsCount = await prisma.campaignEnrollment.count({
+      where: { campaignId: id, status: 'Active' }
     });
 
     // Sends, opens, clicks, bounces, failed attempts and unsubscribes of this
@@ -191,7 +192,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     }));
 
     const telemetry = {
-      enrollments: enrollmentsCount,
+      activeEnrollments: activeEnrollmentsCount,
       validLeadsCount,
       unverifiedLeadsCount,
       sentRequests: sentRequestsCount,
@@ -381,7 +382,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
           const step = steps[index];
           const data = {
             stepOrder: index + 1,
-            waitDays: Number(step.waitDays) || 0,
+            // Step 1 is sent on enrollment, so no wait is ever applied before it.
+            waitDays: index === 0 ? 0 : Number(step.waitDays) || 0,
             subject: step.subject || '',
             body: step.body || ''
           };

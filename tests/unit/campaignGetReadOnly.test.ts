@@ -34,6 +34,7 @@ import { db } from '../../lib/db';
 import { getSession } from '../../lib/session';
 import { POST as postCampaign } from '../../app/api/campaigns/route';
 import { GET as getCampaign, PUT as putCampaign } from '../../app/api/campaigns/[id]/route';
+import { matchesWhere } from './helpers/prismaWhere';
 
 const mockedDb = db as any;
 const mockedSession = vi.mocked(getSession);
@@ -112,7 +113,7 @@ describe('GET /api/campaigns/[id] is read-only (M24)', () => {
   it.each(['GET', 'HEAD'])('%s of a campaign with no enrollments enrolls no one', async (method) => {
     const res = await getCampaign(makeReq(method, '/api/campaigns/cmp-1'), params);
     expect(res.status).toBe(200);
-    expect((await res.json()).telemetry.enrollments).toBe(0);
+    expect((await res.json()).telemetry.activeEnrollments).toBe(0);
     expect(writeCalls()).toEqual([]);
   });
 
@@ -125,11 +126,29 @@ describe('GET /api/campaigns/[id] is read-only (M24)', () => {
 
   it('reports the stored enrollment count unchanged', async () => {
     fake.campaignEnrollment.count.mockImplementation(async ({ where }: any) =>
-      where.status?.not === 'Removed' ? 7 : 0,
+      where.status === 'Active' ? 7 : 0,
     );
     const res = await getCampaign(makeReq('GET', '/api/campaigns/cmp-1'), params);
-    expect((await res.json()).telemetry.enrollments).toBe(7);
+    expect((await res.json()).telemetry.activeEnrollments).toBe(7);
     expect(writeCalls()).toEqual([]);
+  });
+});
+
+describe('GET /api/campaigns/[id] counts only Active enrollments (L29)', () => {
+  it('leaves Paused, Completed, Failed, Bounced and Removed enrollments and other campaigns out', async () => {
+    const enrollments = ['Active', 'Active', 'Paused', 'Completed', 'Failed', 'Bounced', 'Removed']
+      .map((status, i) => ({ id: `e-${i}`, campaignId: 'cmp-1', status, currentSequenceStep: 1 }));
+    enrollments.push({ id: 'e-other', campaignId: 'cmp-2', status: 'Active', currentSequenceStep: 1 });
+    fake.campaignEnrollment.count.mockImplementation(async ({ where }: any) =>
+      enrollments.filter((e) => matchesWhere(e, where)).length,
+    );
+
+    const res = await getCampaign(makeReq('GET', '/api/campaigns/cmp-1'), params);
+
+    expect(res.status).toBe(200);
+    const { telemetry } = await res.json();
+    expect(telemetry.activeEnrollments).toBe(2);
+    expect(telemetry).not.toHaveProperty('enrollments');
   });
 });
 

@@ -16,7 +16,7 @@ import {
 import { useToast } from '@/components/Toast';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import VariableToolbar from '@/components/VariableToolbar';
-import { activationBlocker, findIncompleteSteps, queuedLeadsMessage } from '@/lib/campaignSteps';
+import { activationBlocker, findIncompleteSteps, queuedLeadsMessage, sequenceDurationDays } from '@/lib/campaignSteps';
 import { autoResumeNote } from '@/lib/campaignPause';
 import { sameCampaignVersion } from '@/lib/campaignVersion';
 import { sendScheduleError, timezoneError } from '@/lib/sendSchedule';
@@ -46,7 +46,8 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
   const [activeTab, setActiveTab] = useState('Sequence');
   const [templates, setTemplates] = useState<any[]>([]);
   const [previewSteps, setPreviewSteps] = useState<Record<string, boolean>>({});
-  const toggleStepPreview = (id: string | number) => setPreviewSteps(prev => ({ ...prev, [id]: !prev[id] }));
+  // A step shows its preview unless its key is false (edit mode), so a toggle flips it to or from false.
+  const toggleStepPreview = (id: string | number) => setPreviewSteps(prev => ({ ...prev, [id]: prev[id] === false }));
 
   const [campaignName, setCampaignName] = useState('');
   const [status, setStatus] = useState('Draft');
@@ -169,7 +170,8 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
 
   useEffect(() => { loadCampaign(); loadTemplates(); loadGroups(); loadMailboxes(); }, [campaignId]);
 
-  const addStep = () => setSteps([...steps, { id: `temp-${Date.now()}`, waitDays: 3, subject: '', body: '' }]);
+  // Step 1 is sent on enrollment, so it has no wait; follow-ups start at 3 days.
+  const addStep = () => setSteps([...steps, { id: `temp-${Date.now()}`, waitDays: steps.length === 0 ? 0 : 3, subject: '', body: '' }]);
   const removeStep = (i: number) => { if (steps.length > 1) setSteps(steps.filter((_, idx) => idx !== i)); };
   const updateStepField = (i: number, field: string, value: any) => setSteps(prev => prev.map((s, idx) => idx === i ? { ...s, [field]: value } : s));
   const insertVariable = (variable: string, i: number) => updateStepField(i, 'body', (steps[i]?.body || '') + variable);
@@ -718,9 +720,9 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                   </FormControl>
                   <Card sx={{ bgcolor: (t) => alpha(t.palette.primary.main, 0.06), borderColor: (t) => alpha(t.palette.primary.main, 0.2) }}>
                     <CardContent>
-                      <Typography variant="overline" sx={{ color: 'primary.main', fontWeight: 700 }}>Selected Prospects Estimate</Typography>
-                      <Typography variant="h4" sx={{ fontWeight: 700, mt: 0.5 }}>{campaign?.telemetry?.enrollments || 0}</Typography>
-                      <Typography variant="caption" sx={{ color: 'primary.main' }}>Active enrollments in sequence execution queue</Typography>
+                      <Typography variant="overline" sx={{ color: 'primary.main', fontWeight: 700 }}>Active Enrollments</Typography>
+                      <Typography variant="h4" sx={{ fontWeight: 700, mt: 0.5 }}>{campaign?.telemetry?.activeEnrollments || 0}</Typography>
+                      <Typography variant="caption" sx={{ color: 'primary.main' }}>Leads still in the sequence. Paused, completed, failed, bounced and removed leads are not counted.</Typography>
                     </CardContent>
                   </Card>
                 </Stack>
@@ -810,8 +812,8 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
               <Typography variant="overline" sx={{ color: 'primary.main', fontWeight: 700, display: 'block', mb: 1.5 }}>Campaign Outline</Typography>
               <Stack spacing={1} sx={{ fontSize: 12 }}>
                 <Stack direction="row" sx={{ justifyContent: 'space-between', pb: 0.75, borderBottom: 1, borderColor: 'divider' }}><span>Total Emails</span><Box component="strong">{steps.length} Steps</Box></Stack>
-                <Stack direction="row" sx={{ justifyContent: 'space-between', pb: 0.75, borderBottom: 1, borderColor: 'divider' }}><span>Duration</span><Box component="strong">{steps.reduce((acc, step) => acc + (step.waitDays || 0), 0)} Days</Box></Stack>
-                <Stack direction="row" sx={{ justifyContent: 'space-between' }}><span>Active Cohort</span><Box component="strong" sx={{ color: 'primary.main', fontFamily: 'monospace' }}>{campaign?.telemetry?.enrollments || 0} leads</Box></Stack>
+                <Stack direction="row" sx={{ justifyContent: 'space-between', pb: 0.75, borderBottom: 1, borderColor: 'divider' }}><span>Duration</span><Box component="strong">{sequenceDurationDays(steps)} Days</Box></Stack>
+                <Stack direction="row" sx={{ justifyContent: 'space-between' }}><span>Active Cohort</span><Box component="strong" sx={{ color: 'primary.main', fontFamily: 'monospace' }}>{campaign?.telemetry?.activeEnrollments || 0} leads</Box></Stack>
               </Stack>
             </CardContent>
           </Card>

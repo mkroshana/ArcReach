@@ -12,7 +12,7 @@ import { findEnrollableLeadIds } from '@/lib/sendEligibility';
 /** Enrollment status for a lead that left the audience after this campaign emailed it. */
 export const REMOVED_ENROLLMENT_STATUS = 'Removed';
 
-function cohortGroupId(cohort: string): string {
+export function cohortGroupId(cohort: string): string {
   return cohort.startsWith('group_') ? cohort.slice('group_'.length) : cohort;
 }
 

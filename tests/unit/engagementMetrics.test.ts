@@ -15,6 +15,7 @@ const fake = vi.hoisted(() => {
     emailDispatch: model(),
     inboundResponse: model(),
     lead: model(),
+    senderAccount: model(),
     $queryRaw: vi.fn(),
   };
 });
@@ -126,6 +127,9 @@ beforeEach(() => {
   fake.emailDispatch.count.mockImplementation(async ({ where }: any) => countRows(dispatches, where, DISPATCH_RELATIONS));
   fake.emailDispatch.groupBy.mockImplementation(async (args: any) => groupRows(dispatches, args, DISPATCH_RELATIONS));
   fake.inboundResponse.count.mockImplementation(async ({ where }: any) => countRows(replies, where, REPLY_RELATIONS));
+  // The campaign page names the mailboxes its sends came from.
+  fake.senderAccount.findMany.mockImplementation(async ({ where }: any) =>
+    Object.values(MAILBOXES).filter((m) => where.id.in.includes(m.id)).map((m) => ({ id: m.id, emailAddress: `${m.id}@acme.test`, name: null })));
   fake.$queryRaw.mockResolvedValue([]);
 });
 

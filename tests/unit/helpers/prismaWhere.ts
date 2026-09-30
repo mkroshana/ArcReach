@@ -62,14 +62,26 @@ export function countRows(rows: any[], where: any, relations: Relations = {}): n
   return rows.filter((row) => matchesWhere(row, where, relations)).length;
 }
 
-/** A groupBy with `_count: { id: true }` over the rows matching `where`. */
-export function groupRows(rows: any[], args: { by: string[]; where?: any }, relations: Relations = {}) {
+/**
+ * A groupBy with `_count: { id: true }` over the rows matching `where`, and the
+ * `_min` of the fields it names, null where every row's is null, as Prisma gives it.
+ */
+export function groupRows(rows: any[], args: { by: string[]; where?: any; _min?: Record<string, boolean> }, relations: Relations = {}) {
+  const minFields = Object.keys(args._min ?? {});
   const groups = new Map<string, any>();
   for (const row of rows.filter((r) => matchesWhere(r, args.where, relations))) {
     const keys = Object.fromEntries(args.by.map((field) => [field, row[field] ?? null]));
     const id = JSON.stringify(keys);
-    const group = groups.get(id) ?? { ...keys, _count: { id: 0 } };
+    const group = groups.get(id) ?? {
+      ...keys,
+      _count: { id: 0 },
+      ...(args._min && { _min: Object.fromEntries(minFields.map((field) => [field, null])) }),
+    };
     group._count.id++;
+    for (const field of minFields) {
+      const value = row[field];
+      if (value != null && (group._min[field] == null || value < group._min[field])) group._min[field] = value;
+    }
     groups.set(id, group);
   }
   return [...groups.values()];

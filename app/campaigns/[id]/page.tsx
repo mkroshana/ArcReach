@@ -4,7 +4,7 @@
 import {
   ArrowLeft, Save, Send, Settings, Users, AlignLeft, Clock, ToggleLeft, Plus, Trash2,
   Mail, CheckCircle2, MousePointerClick, Reply, SendHorizontal,
-  Sparkles, Play, Loader2, XCircle, AlertTriangle, UserMinus, TimerOff, Lock, RefreshCw,
+  Eye, Play, Loader2, XCircle, AlertTriangle, UserMinus, TimerOff, Lock, RefreshCw,
 } from 'lucide-react';
 import Link from 'next/link';
 import { use, useState, useEffect } from 'react';
@@ -581,7 +581,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                         <Stack spacing={2}>
                           <Card sx={{ bgcolor: (t) => alpha(t.palette.primary.main, 0.06), borderColor: (t) => alpha(t.palette.primary.main, 0.2) }}>
                             <CardContent sx={{ display: 'flex', gap: 1.5, alignItems: 'flex-start' }}>
-                              <Sparkles size={16} color="#2563EB" style={{ marginTop: 2, flexShrink: 0 }} />
+                              <Eye size={16} color="#2563EB" style={{ marginTop: 2, flexShrink: 0 }} />
                               <Box>
                                 <Typography variant="overline" sx={{ color: 'primary.main', fontWeight: 700 }}>Dynamic Resolve Preview</Typography>
                                 <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>Showing output for contact <strong>Emily</strong> at <strong>Stark Industries</strong>.</Typography>

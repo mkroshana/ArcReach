@@ -2,7 +2,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { FileText, Search, Plus, Eye, Sparkles, Copy, Check, Trash2, ArrowRight, X, RefreshCw } from 'lucide-react';
+import { FileText, Search, Plus, Eye, Copy, Check, Trash2, ArrowRight, X, RefreshCw } from 'lucide-react';
 import VariableToolbar from '@/components/VariableToolbar';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { personalizePreview, previewEmailBody } from '@/lib/personalize';
@@ -151,7 +151,7 @@ export default function TemplatesPage() {
 
   const deleteTemplate = (id: any) => {
     setConfirmState({
-      title: 'Delete template?',
+      title: 'Delete Template',
       message: 'This removes the template and all of its sequence steps. This cannot be undone.',
       confirmLabel: 'Delete',
       onConfirm: () => { setConfirmState(null); performDeleteTemplate(id); },
@@ -352,7 +352,7 @@ export default function TemplatesPage() {
                   <Stack spacing={2}>
                     <Card sx={{ bgcolor: (t) => alpha(t.palette.primary.main, 0.06), borderColor: (t) => alpha(t.palette.primary.main, 0.2) }}>
                       <CardContent sx={{ display: 'flex', gap: 1.5, alignItems: 'flex-start' }}>
-                        <Sparkles size={16} color="#2563EB" style={{ marginTop: 2, flexShrink: 0 }} />
+                        <Eye size={16} color="#2563EB" style={{ marginTop: 2, flexShrink: 0 }} />
                         <Box>
                           <Typography variant="overline" sx={{ color: 'primary.main', fontWeight: 700 }}>Live Preview (Step {activeStepIndex + 1})</Typography>
                           <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5 }}>

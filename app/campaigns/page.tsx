@@ -5,8 +5,8 @@ import { useState, useEffect, Fragment } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
-  Plus, PlayCircle, Search, Layers, RefreshCw,
-  Mail, User, ChevronRight, ChevronDown, Sparkles, Inbox, Trash2, Play, Pause, Send, Check, Clock, TimerOff,
+  Plus, PlayCircle, Search, Layers, RefreshCw, Loader2,
+  Mail, User, ChevronRight, ChevronDown, Gauge, Inbox, Trash2, Play, Pause, Send, Check, Clock, TimerOff,
 } from 'lucide-react';
 import {
   Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
@@ -376,7 +376,7 @@ export default function CampaignsPage() {
                                   {campaign.status === 'Active' && (
                                     <Button
                                       size="small" variant="contained"
-                                      startIcon={executingId === campaign.id ? <RefreshCw size={12} className="animate-spin" /> : <PlayCircle size={12} />}
+                                      startIcon={executingId === campaign.id ? <Loader2 size={12} className="animate-spin" /> : <PlayCircle size={12} />}
                                       onClick={() => handleRunCampaign(campaign.id)}
                                       disabled={executingId !== null}
                                     >
@@ -518,7 +518,7 @@ export default function CampaignsPage() {
             )}
             <Card sx={{ bgcolor: (t) => alpha(t.palette.primary.main, 0.06), borderColor: (t) => alpha(t.palette.primary.main, 0.2) }}>
               <CardContent sx={{ p: 2, '&:last-child': { pb: 2 }, display: 'flex', gap: 1.5, alignItems: 'flex-start' }}>
-                <Sparkles size={16} color="#2563EB" style={{ marginTop: 2, flexShrink: 0 }} />
+                <Gauge size={16} color="#2563EB" style={{ marginTop: 2, flexShrink: 0 }} />
                 <Typography variant="caption" sx={{ color: 'primary.main', lineHeight: 1.6 }}>
                   This sequence will follow the sending limits configured on the connected mailbox(es).
                 </Typography>

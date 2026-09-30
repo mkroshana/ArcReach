@@ -12,20 +12,13 @@
  */
 import crypto from 'crypto';
 import { unsubscribeUrl } from './emailTracking';
+import { requireProductionSecret } from './productionEnv';
 
 const DEV_FALLBACK_SECRET = 'dev_unsubscribe_secret_change_me_32_chars';
 
-// Skipped while `next build` collects page data, as in lib/sessionSecret.
-const isBuildPhase = process.env.NEXT_PHASE === 'phase-production-build';
-if (
-  !isBuildPhase &&
-  process.env.NODE_ENV === 'production' &&
-  (!process.env.UNSUBSCRIBE_SECRET || process.env.UNSUBSCRIBE_SECRET.length < 32)
-) {
-  throw new Error(
-    'UNSUBSCRIBE_SECRET environment variable must be set and at least 32 characters long in production.'
-  );
-}
+// In production (not while `next build` collects page data) UNSUBSCRIBE_SECRET must be
+// set, at least 32 characters and not a published value such as the fallback above.
+requireProductionSecret('UNSUBSCRIBE_SECRET', process.env.UNSUBSCRIBE_SECRET);
 
 const SECRET = process.env.UNSUBSCRIBE_SECRET || DEV_FALLBACK_SECRET;
 

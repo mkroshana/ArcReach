@@ -6,24 +6,14 @@
  * Keeping a single source of truth ensures middleware and route verification never
  * drift apart, and the production guard fails closed in every runtime that loads it.
  */
+import { requireProductionSecret } from './productionEnv';
+
 const DEV_FALLBACK_SECRET = 'dev_session_secret_jwt_32_chars_long_placeholder';
 
 const SESSION_SECRET = process.env.SESSION_SECRET || DEV_FALLBACK_SECRET;
 
-// `next build` evaluates route modules during the "Collecting page data" phase with
-// NODE_ENV=production but no runtime secrets available. Skip the guard during that
-// phase; it still fires at runtime (NEXT_PHASE unset or 'phase-production-server'),
-// which is where a missing/short secret actually matters.
-const isBuildPhase = process.env.NEXT_PHASE === 'phase-production-build';
-
-if (
-  !isBuildPhase &&
-  process.env.NODE_ENV === 'production' &&
-  (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32)
-) {
-  throw new Error(
-    'SESSION_SECRET environment variable must be set and at least 32 characters long in production.'
-  );
-}
+// In production (not while `next build` collects page data) SESSION_SECRET must be
+// set, at least 32 characters and not a published value such as the fallback above.
+requireProductionSecret('SESSION_SECRET', process.env.SESSION_SECRET);
 
 export const sessionSecretKey = new TextEncoder().encode(SESSION_SECRET);

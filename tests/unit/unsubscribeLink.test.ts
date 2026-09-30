@@ -40,7 +40,9 @@ describe('signed unsubscribe tokens (H16)', () => {
   });
 
   it('refuses to load in production without a 32-character UNSUBSCRIBE_SECRET', async () => {
-    await expect(loadWith({ NODE_ENV: 'production', UNSUBSCRIBE_SECRET: 'short' })).rejects.toThrow(/UNSUBSCRIBE_SECRET/);
+    await expect(
+      loadWith({ NODE_ENV: 'production', APP_URL: 'https://reach.acme.test', UNSUBSCRIBE_SECRET: 'short' })
+    ).rejects.toThrow(/UNSUBSCRIBE_SECRET/);
   });
 });
 

@@ -11,6 +11,7 @@
  * keep working until they're re-saved, at which point writes upgrade to ciphertext.
  */
 import crypto from 'crypto';
+import { requireProductionSecret } from './productionEnv';
 
 const ENC_PREFIX = 'enc:v1:';
 const ALGO = 'aes-256-gcm';
@@ -38,16 +39,9 @@ function resolveKey(): Buffer {
   return buf.subarray(0, KEY_BYTES);
 }
 
-const isBuildPhase = process.env.NEXT_PHASE === 'phase-production-build';
-if (
-  !isBuildPhase &&
-  process.env.NODE_ENV === 'production' &&
-  (!process.env.SECRETS_KEY || process.env.SECRETS_KEY.length < 32)
-) {
-  throw new Error(
-    'SECRETS_KEY environment variable must be set and at least 32 characters long in production.'
-  );
-}
+// In production (not while `next build` collects page data) SECRETS_KEY must be set,
+// at least 32 characters and not a published value such as the fallback above.
+requireProductionSecret('SECRETS_KEY', process.env.SECRETS_KEY);
 
 const KEY = resolveKey();
 

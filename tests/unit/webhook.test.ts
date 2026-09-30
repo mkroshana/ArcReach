@@ -79,6 +79,40 @@ describe('webhook POST auth', () => {
     const body = await res.json();
     expect(body.validationResponse).toBe('abc-123');
   });
+
+  describe('in production (M74)', () => {
+    const handshake = [{ eventType: 'Microsoft.EventGrid.SubscriptionValidationEvent', data: { validationCode: 'abc-123' } }];
+
+    beforeEach(() => {
+      vi.stubEnv('NODE_ENV', 'production');
+      vi.stubEnv('NEXT_PHASE', undefined);
+    });
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it.each([
+      'whsec_e9a182c38d4f7281',
+      'whsec_placeholder_secret_key_12345',
+      'my_webhook_secret_placeholder',
+      '<output of: openssl rand -hex 32>',
+      '<your webhook signature secret>',
+    ])(
+      'refuses every request while WEBHOOK_SECRET is the published or placeholder value %j, even with that header',
+      async (published) => {
+        process.env.WEBHOOK_SECRET = published;
+        const res = await POST(makeReq(handshake, { 'x-arcreach-webhook-secret': published }));
+        expect(res.status).toBe(500);
+        expect((await res.json()).error).toMatch(/not configured/i);
+      }
+    );
+
+    it('accepts the configured secret when it is not a published value', async () => {
+      const res = await POST(makeReq(handshake, { 'x-arcreach-webhook-secret': 'test-secret-value' }));
+      expect(res.status).toBe(200);
+      expect((await res.json()).validationResponse).toBe('abc-123');
+    });
+  });
 });
 
 type DispatchRow = {

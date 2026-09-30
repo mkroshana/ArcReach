@@ -4,8 +4,11 @@
  * database on this machine or a throwaway test database, never a shared or production one.
  */
 
-/** Postgres hosts that are this machine: localhost, *.localhost, 127.0.0.0/8, ::1, or a Unix socket path. */
-function isLocalHost(host: string): boolean {
+/**
+ * Postgres hosts that are this machine: localhost, *.localhost, 127.0.0.0/8, ::1, or a Unix socket path.
+ * Also checks APP_URL's host (lib/productionEnv).
+ */
+export function isLocalHost(host: string): boolean {
   const h = host.toLowerCase().replace(/^\[|\]$/g, '');
   return (
     h === 'localhost' ||

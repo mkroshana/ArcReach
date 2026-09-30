@@ -9,8 +9,15 @@
  */
 
 import { decodeEntities } from './emailText';
+import { requireProductionAppUrl } from './productionEnv';
 
-const APP_URL = process.env.APP_URL || 'http://localhost:3000';
+// A production server needs a public https APP_URL (lib/productionEnv), so no email is
+// sent with localhost links. The browser never sees APP_URL: the editor previews build
+// their links on the local fallback.
+if (typeof window === 'undefined') requireProductionAppUrl(process.env.APP_URL);
+
+// Trimmed and without a trailing slash, so links are never `https://host//api/...`.
+const APP_URL = (process.env.APP_URL?.trim() || 'http://localhost:3000').replace(/\/+$/, '');
 
 /**
  * Injects a 1×1 tracking pixel <img> tag into an HTML email body.

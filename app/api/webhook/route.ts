@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { applyDeliveryReport, findReportedDispatch, reportedAt } from '@/lib/deliveryReport';
+import { isProductionRuntime, isPublishedSecret } from '@/lib/productionEnv';
 import crypto from 'crypto';
 
 const SECRET_HEADER = 'x-arcreach-webhook-secret';
@@ -20,6 +21,11 @@ export async function POST(req: NextRequest) {
     const expectedSecret = process.env.WEBHOOK_SECRET;
     if (!expectedSecret) {
       console.error('[Webhook] WEBHOOK_SECRET is not configured. Rejecting request.');
+      return NextResponse.json({ error: 'Webhook secret is not configured.' }, { status: 500 });
+    }
+    // A secret published in this repository would let anyone forge delivery reports.
+    if (isProductionRuntime() && isPublishedSecret(expectedSecret)) {
+      console.error('[Webhook] WEBHOOK_SECRET is a placeholder or a value published in .env.example or the README. Rejecting request.');
       return NextResponse.json({ error: 'Webhook secret is not configured.' }, { status: 500 });
     }
 

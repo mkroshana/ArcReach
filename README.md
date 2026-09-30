@@ -165,20 +165,25 @@ To keep email open and link click metrics accurate and prevent security scanners
    DATABASE_URL="postgresql://username:password@localhost:5432/arcreach?schema=public"
    APP_URL="http://localhost:3000"
 
-   # Hardened Server-Only Secrets
-   SESSION_SECRET="arcreach_session_secret_jwt_32_chars_long_placeholder"
-   WEBHOOK_SECRET="whsec_e9a182c38d4f7281"
+   # Hardened Server-Only Secrets (generate each with: openssl rand -hex 32)
+   SESSION_SECRET=""
+   SECRETS_KEY=""
+   WEBHOOK_SECRET=""
+   UNSUBSCRIBE_SECRET=""
    ```
+   `.env.example` lists every variable the app reads, with what each does.
 
    #### Key Specifications & How to Obtain/Generate Them:
    - **`DATABASE_URL`**: Connection string to the PostgreSQL database instance.
      - *How to Obtain*: 
        - **Local**: Install and run a PostgreSQL server locally on port 5432.
        - **Online (Recommended & Free)**: Sign up at [Neon (neon.tech)](https://neon.tech) or [Supabase (supabase.com)](https://supabase.com) to instantly spin up a serverless cloud PostgreSQL database, and copy the provided connection string.
-   - **`APP_URL`**: Absolute URL of the hosted application. Set to `http://localhost:3000` for local development.
-   - **`SESSION_SECRET`**: Private signing key for session JWTs. Must be at least 32 characters in production.
-   - **`WEBHOOK_SECRET`**: Secret signature verified by the CRM webhook endpoint.
-     - *How to Generate*: Any secret string starting with `whsec_` followed by hexadecimal characters (e.g. `whsec_e9a182c38d4f7281`).
+   - **`APP_URL`**: Absolute URL of the hosted application, the base of every tracked link and unsubscribe link in sent email. Set to `http://localhost:3000` for local development. In production it must be the app's public `https` URL; the server refuses to start while it is unset, not `https` or points at localhost.
+   - **`SESSION_SECRET`**: Private signing key for session JWTs.
+   - **`SECRETS_KEY`**: Encrypts the Azure connection string and mailbox passwords stored in the database. Keep it once set: stored secrets cannot be decrypted with another key. Set your own locally whenever `DATABASE_URL` points at a shared database, since the local fallback key is published in this repository.
+   - **`WEBHOOK_SECRET`**: Secret the Event Grid webhook checks in the `X-ArcReach-Webhook-Secret` header.
+   - **`UNSUBSCRIBE_SECRET`**: Signs the unsubscribe link in every campaign email. Keep it once set: changing it breaks the links in email already sent.
+   - *How to Generate the Secrets*: `openssl rand -hex 32`, or `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Left empty locally, `SESSION_SECRET`, `SECRETS_KEY` and `UNSUBSCRIBE_SECRET` fall back to dev values published in this repository, and the webhook refuses every request. In production the server refuses to start while `SESSION_SECRET`, `SECRETS_KEY` or `UNSUBSCRIBE_SECRET` is unset, shorter than 32 characters, contains `placeholder` or `change_me`, or is an example or dev fallback value published in this repository, and the webhook refuses every request while `WEBHOOK_SECRET` is a placeholder or a published example.
 
 
 3. **Synchronize database schema:**
@@ -256,10 +261,14 @@ npm run seed
    ```
    DATABASE_URL = postgresql://arcadmin:<password>@arcreach-db.postgres.database.azure.com:5432/arcreach?sslmode=require
    APP_URL = https://arcreach-app.azurewebsites.net
-   SESSION_SECRET = <your minimum 32 character session signing key>
-   WEBHOOK_SECRET = <your webhook signature secret>
+   SESSION_SECRET = <output of: openssl rand -hex 32>
+   SECRETS_KEY = <output of: openssl rand -hex 32>
+   UNSUBSCRIBE_SECRET = <output of: openssl rand -hex 32>
+   WEBHOOK_SECRET = <output of: openssl rand -hex 32>
    SEND_WORKER_ENABLED = true
    ```
+   Generate a different value for each secret. The server refuses to start without `APP_URL`, `SESSION_SECRET`, `SECRETS_KEY` and `UNSUBSCRIBE_SECRET` set as described under Setup Steps.
+
    `SEND_WORKER_ENABLED` turns on the background worker that sends campaign email and syncs IMAP replies. Without it the app never sends. Leave it off in local `.env` files.
 4. Under **Settings** → **Configuration** → **General settings**, set the **Startup Command**:
    ```

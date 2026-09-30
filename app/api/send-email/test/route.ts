@@ -33,13 +33,13 @@ export async function POST(req: NextRequest) {
     }
     const senderAccount = found.account;
 
-    // Fetch global settings; only Azure Communication Services sends
+    // Fetch global settings; only Azure Communication Services sends, so past
+    // this check every send below goes through it
     const settings = await getGlobalSettings();
     const sendingDisabled = sendingDisabledReason(settings);
     if (sendingDisabled) {
       return NextResponse.json({ success: false, error: sendingDisabled }, { status: 409 });
     }
-    const provider = settings?.activeProvider;
 
     // Check global outbound rate limits and the mailbox's daily and warmup caps
     const rateCheck = await checkGlobalRateLimits();
@@ -88,7 +88,6 @@ export async function POST(req: NextRequest) {
 
       const fallbackId = `mock-test-${Date.now()}-${Math.random().toString(36).substring(7)}`;
       const messageId = providerMessageId || fallbackId;
-      const label = provider === 'AZURE' ? ' via Azure Communication Services' : '';
 
       // Record the test (it has no lead or campaign) so the global rate limits
       // and the mailbox's caps count it
@@ -112,7 +111,7 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        message: `Test email successfully sent${label} to ${recipientEmail}.`,
+        message: `Test email successfully sent via Azure Communication Services to ${recipientEmail}.`,
         messageId,
         recipient: recipientEmail,
       });
@@ -121,10 +120,9 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: false, error: err.message }, { status: 400 });
       }
       if (err instanceof EmailSendError) {
-        const label = provider === 'AZURE' ? 'Azure Communication Services' : 'SMTP';
         return NextResponse.json({
           success: false,
-          error: `${label} failed to send: ${err.message}`,
+          error: `Azure Communication Services failed to send: ${err.message}`,
         }, { status: 550 });
       }
       throw err;

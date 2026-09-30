@@ -20,8 +20,6 @@ import {
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 
-const isSmtpDisabled = (provider: string) => provider === 'AZURE' || provider === 'DISABLED';
-
 /** Per-mailbox opt-in that turns off IMAP certificate verification, labelled with what it risks. */
 function AllowSelfSignedSwitch({ checked, onChange }: { checked: boolean; onChange: (checked: boolean) => void }) {
   return (
@@ -41,6 +39,15 @@ function AllowSelfSignedSwitch({ checked, onChange }: { checked: boolean; onChan
         </Box>
       }
     />
+  );
+}
+
+/** Why there are no SMTP fields: Azure sends every email, so per-mailbox SMTP details would never be used. */
+function SmtpNotUsedNote() {
+  return (
+    <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
+      Outgoing email is sent through Azure Communication Services, so this mailbox needs no SMTP details. IMAP below is used only to read replies.
+    </Typography>
   );
 }
 
@@ -114,7 +121,6 @@ export default function AccountsPage() {
   const [dailyLimit, setDailyLimit] = useState(500);
   const [replyTo, setReplyTo] = useState('');
   const [editReplyTo, setEditReplyTo] = useState('');
-  const [globalActiveProvider, setGlobalActiveProvider] = useState('DISABLED');
   const [globalRateLimits, setGlobalRateLimits] = useState<GlobalRateLimitValues | null>(null);
 
   const totalSentLast24Hours = accounts.reduce((sum, a) => sum + (a.sentLast24Hours || 0), 0);
@@ -122,28 +128,18 @@ export default function AccountsPage() {
   const remainingCapacity = Math.max(0, totalDailyLimit - totalSentLast24Hours);
   const failingSyncCount = accounts.filter(a => imapSyncState(a) === 'failing').length;
 
-  const [smtpHost, setSmtpHost] = useState('');
-  const [smtpPort, setSmtpPort] = useState('');
-  const [smtpUser, setSmtpUser] = useState('');
-  const [smtpPass, setSmtpPass] = useState('');
   const [imapHost, setImapHost] = useState('');
   const [imapPort, setImapPort] = useState('');
   const [imapUser, setImapUser] = useState('');
   const [imapPass, setImapPass] = useState('');
   const [imapAllowSelfSigned, setImapAllowSelfSigned] = useState(false);
-  const [editSmtpHost, setEditSmtpHost] = useState('');
-  const [editSmtpPort, setEditSmtpPort] = useState('');
-  const [editSmtpUser, setEditSmtpUser] = useState('');
-  const [editSmtpPass, setEditSmtpPass] = useState('');
   const [editImapHost, setEditImapHost] = useState('');
   const [editImapPort, setEditImapPort] = useState('');
   const [editImapUser, setEditImapUser] = useState('');
   const [editImapPass, setEditImapPass] = useState('');
   const [editImapAllowSelfSigned, setEditImapAllowSelfSigned] = useState(false);
   const [savingCredentials, setSavingCredentials] = useState(false);
-  const [showAddSmtpPass, setShowAddSmtpPass] = useState(false);
   const [showAddImapPass, setShowAddImapPass] = useState(false);
-  const [showEditSmtpPass, setShowEditSmtpPass] = useState(false);
   const [showEditImapPass, setShowEditImapPass] = useState(false);
   const [sendingTestEmail, setSendingTestEmail] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -152,10 +148,6 @@ export default function AccountsPage() {
 
   useEffect(() => {
     if (selectedWarmupAccount) {
-      setEditSmtpHost(selectedWarmupAccount.smtpHost || '');
-      setEditSmtpPort(selectedWarmupAccount.smtpPort ? String(selectedWarmupAccount.smtpPort) : '');
-      setEditSmtpUser(selectedWarmupAccount.smtpUser || '');
-      setEditSmtpPass(selectedWarmupAccount.smtpPass || '');
       setEditImapHost(selectedWarmupAccount.imapHost || '');
       setEditImapPort(selectedWarmupAccount.imapPort ? String(selectedWarmupAccount.imapPort) : '');
       setEditImapUser(selectedWarmupAccount.imapUser || '');
@@ -168,18 +160,15 @@ export default function AccountsPage() {
   const handleOpenAddModal = () => {
     setIsAddOpen(true);
     setProvider('Google Workspace');
-    setSmtpHost('smtp.gmail.com'); setSmtpPort('587');
     setImapHost('imap.gmail.com'); setImapPort('993'); setImapAllowSelfSigned(false);
     setDailyLimit(500);
   };
 
   const handleProviderChange = (selectedProvider: string) => {
     setProvider(selectedProvider);
-    if (selectedProvider === 'Google Workspace') { setSmtpHost('smtp.gmail.com'); setSmtpPort('587'); setImapHost('imap.gmail.com'); setImapPort('993'); }
+    if (selectedProvider === 'Google Workspace') { setImapHost('imap.gmail.com'); setImapPort('993'); }
     // Microsoft 365 refuses password IMAP sign-in, so no IMAP host is filled in for it.
-    else if (selectedProvider === 'Microsoft 365') { setSmtpHost('smtp.office365.com'); setSmtpPort('587'); setImapHost(''); setImapPort(''); }
-    else if (selectedProvider === 'SendGrid Relay Node') { setSmtpHost('smtp.sendgrid.net'); setSmtpPort('587'); setImapHost(''); setImapPort(''); }
-    else { setSmtpHost(''); setSmtpPort(''); setImapHost(''); setImapPort(''); }
+    else { setImapHost(''); setImapPort(''); }
   };
 
   const loadData = async () => {
@@ -195,7 +184,6 @@ export default function AccountsPage() {
       const settingsRes = await fetch('/api/settings');
       if (settingsRes.ok) {
         const settingsData = await settingsRes.json();
-        setGlobalActiveProvider(settingsData.settings?.activeProvider || 'DISABLED');
         // Settings come back for admins only, so other roles see the limits described without values.
         if (settingsData.settings) {
           setGlobalRateLimits({ minute: settingsData.settings.rateLimitMinute ?? null, hour: settingsData.settings.rateLimitHour ?? null });
@@ -248,7 +236,6 @@ export default function AccountsPage() {
         body: JSON.stringify({
           emailAddress, name: senderName, replyTo: replyTo || null, provider, userId: assignedUserId,
           dailyLimit: Number(dailyLimit),
-          smtpHost: smtpHost || null, smtpPort: smtpPort ? Number(smtpPort) : null, smtpUser: smtpUser || null, smtpPass: smtpPass || null,
           imapHost: imapHost || null, imapPort: imapPort ? Number(imapPort) : null, imapUser: imapUser || null, imapPass: imapPass || null,
           imapAllowSelfSigned,
         }),
@@ -258,7 +245,6 @@ export default function AccountsPage() {
       setIsAddOpen(false);
       setEmailAddress(''); setSenderName(''); setReplyTo(''); setProvider('Google Workspace');
       setDailyLimit(500);
-      setSmtpHost(''); setSmtpPort(''); setSmtpUser(''); setSmtpPass('');
       setImapHost(''); setImapPort(''); setImapUser(''); setImapPass('');
       showToast('Mailbox connected successfully');
     } catch (err: any) {
@@ -275,7 +261,6 @@ export default function AccountsPage() {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           id: selectedWarmupAccount.id, replyTo: editReplyTo || null,
-          smtpHost: editSmtpHost || null, smtpPort: editSmtpPort ? Number(editSmtpPort) : null, smtpUser: editSmtpUser || null, smtpPass: editSmtpPass || null,
           imapHost: editImapHost || null, imapPort: editImapPort ? Number(editImapPort) : null, imapUser: editImapUser || null, imapPass: editImapPass || null,
           imapAllowSelfSigned: editImapAllowSelfSigned,
         }),
@@ -351,17 +336,15 @@ export default function AccountsPage() {
           </Stack>
 
           {/* KPIs */}
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(3, 1fr)' }, gap: 2 }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, 1fr)' }, gap: 2 }}>
             {[
               { label: 'Total Senders', value: loading ? '…' : `${accounts.length} Senders`, color: undefined },
-              { label: 'Active Senders', value: `${accounts.filter(a => a.status === 'Active').length} Active`, color: '#10b981', pulse: true },
               { label: 'Combined Daily Limit', value: `${accounts.reduce((sum, a) => sum + (a.dailyLimit || 0), 0).toLocaleString()} Emails`, color: '#2563EB' },
             ].map((kpi, i) => (
               <Card key={i}>
                 <CardContent>
                   <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
                     <Typography variant="overline" sx={{ color: 'text.secondary', fontWeight: 700 }}>{kpi.label}</Typography>
-                    {kpi.pulse && <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: 'success.main', animation: 'pulse 2s infinite' }} />}
                   </Stack>
                   <Typography variant="h6" sx={{ fontWeight: 700, fontFamily: 'monospace', mt: 0.5, color: kpi.color }}>{kpi.value}</Typography>
                 </CardContent>
@@ -510,23 +493,7 @@ export default function AccountsPage() {
                 <form onSubmit={handleSaveAccountCredentials}>
                   <Stack spacing={2}>
                     <TextField size="small" label="Reply-To Address (Optional)" type="email" placeholder="replies@mycompany.com" value={editReplyTo} onChange={(e) => setEditReplyTo(e.target.value)} sx={{ maxWidth: 360 }} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-                    {selectedWarmupAccount.provider !== 'Azure Relay Node' && (
-                      <Card variant="outlined" sx={{ bgcolor: 'action.hover' }}>
-                        <CardContent>
-                          <Typography variant="overline" sx={{ color: 'text.secondary', fontWeight: 700, display: 'block', mb: 1.5 }}>Outbound Email (SMTP)</Typography>
-                          <Stack spacing={1.5}>
-                            <Stack direction="row" spacing={1.5}>
-                              <TextField fullWidth size="small" label="SMTP Host" value={editSmtpHost} onChange={(e) => setEditSmtpHost(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-                              <TextField fullWidth size="small" label="Port" value={editSmtpPort} onChange={(e) => setEditSmtpPort(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-                            </Stack>
-                            <Stack direction="row" spacing={1.5}>
-                              <TextField fullWidth size="small" label="Username" value={editSmtpUser} onChange={(e) => setEditSmtpUser(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-                              <PwField label="Password" value={editSmtpPass} onChange={setEditSmtpPass} show={showEditSmtpPass} setShow={setShowEditSmtpPass} />
-                            </Stack>
-                          </Stack>
-                        </CardContent>
-                      </Card>
-                    )}
+                    <SmtpNotUsedNote />
                     {/* Any mailbox can sync replies over IMAP, whatever its provider label */}
                     <Card variant="outlined" sx={{ bgcolor: 'action.hover' }}>
                       <CardContent>
@@ -652,30 +619,13 @@ export default function AccountsPage() {
                 {session?.role !== 'ADMIN' ? (
                   <MenuItem value={session?.id}>Me ({session?.name})</MenuItem>
                 ) : (
-                  users.map((u) => <MenuItem key={u.id} value={u.id}>{u.name} ({u.role})</MenuItem>)
+                  // Disabled users cannot sign in, so they are not offered as owners.
+                  users.filter((u) => !u.disabledAt).map((u) => <MenuItem key={u.id} value={u.id}>{u.name} ({u.role})</MenuItem>)
                 )}
               </Select>
             </FormControl>
 
-            {provider !== 'Azure Relay Node' && (
-              <Card variant="outlined" sx={{ bgcolor: 'action.hover' }}>
-                <CardContent>
-                  <Typography variant="overline" sx={{ color: 'text.secondary', fontWeight: 700, display: 'block', mb: 1.5 }}>
-                    Outbound Email (SMTP){isSmtpDisabled(globalActiveProvider) ? ' · overrides global route' : ''}
-                  </Typography>
-                  <Stack spacing={1.5}>
-                    <Stack direction="row" spacing={1.5}>
-                      <TextField fullWidth size="small" label="SMTP Host" value={smtpHost} onChange={(e) => setSmtpHost(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-                      <TextField fullWidth size="small" label="Port" value={smtpPort} onChange={(e) => setSmtpPort(e.target.value)} placeholder="587" slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-                    </Stack>
-                    <Stack direction="row" spacing={1.5}>
-                      <TextField fullWidth size="small" label="Username" value={smtpUser} onChange={(e) => setSmtpUser(e.target.value)} placeholder="user@domain.com" slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-                      <PwField label="Password" value={smtpPass} onChange={setSmtpPass} show={showAddSmtpPass} setShow={setShowAddSmtpPass} placeholder="Password or App Key" />
-                    </Stack>
-                  </Stack>
-                </CardContent>
-              </Card>
-            )}
+            <SmtpNotUsedNote />
 
             {/* Any mailbox can sync replies over IMAP, whatever its provider label */}
             <Card variant="outlined" sx={{ bgcolor: 'action.hover' }}>

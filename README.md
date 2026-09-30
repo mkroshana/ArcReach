@@ -27,7 +27,7 @@
    - Custom timezones and open/click tracking toggles.
 
 3. **Sender Accounts & Sending Limits** ([app/accounts](file:///d:/Development/ArcReach/app/accounts))
-   - Link multiple sender mailboxes (Microsoft 365, Google Workspace, custom SMTP/IMAP).
+   - Link multiple sender mailboxes on your verified Azure domains. Azure Communication Services sends all mail, so a mailbox needs no SMTP details; optional IMAP details (e.g. Google Workspace or your own server) let ArcReach read its replies.
    - Per-mailbox deliverability stats: emails sent/opened/clicked, replies, and bounces.
    - Warmup volume ramp (gradually increases a new mailbox's daily cap; enforced by the send engine).
    - *Planned (schema fields present but not yet computed):* reputation score and spam-save / warmup-network telemetry.

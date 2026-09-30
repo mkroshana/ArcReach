@@ -299,7 +299,6 @@ export default function UsersAdminPage() {
         <Card>
           <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', p: 2, borderBottom: 1, borderColor: 'divider' }}>
             <Typography variant="overline" sx={{ fontWeight: 700, letterSpacing: '0.1em' }}>All Users</Typography>
-            <Chip size="small" label="RBAC ACTIVE" color="success" variant="outlined" sx={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 10 }} />
           </Stack>
           <Box sx={{ overflowX: 'auto' }}>
             <Table size="small">

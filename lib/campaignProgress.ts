@@ -17,7 +17,7 @@ export const ENROLLMENT_STATES: EnrollmentState[] = [
     description: 'Replied, unsubscribed, went on the suppression list, left the audience group or was paused in Unibox.',
   },
   { status: 'Bounced', label: 'Bounced', description: 'A delivery report said the address does not exist.' },
-  { status: 'Failed', label: 'Failed', description: 'Sending failed after every retry, or the address bounced when sent.' },
+  { status: 'Failed', label: 'Failed', description: 'Azure refused the address or sending errored on every retry, or the address bounced when sent.' },
   { status: 'Removed', label: 'Removed', description: 'Left the audience after the campaign had emailed them.' },
 ];
 
@@ -28,6 +28,14 @@ export const ENROLLMENT_STATES: EnrollmentState[] = [
 export const STOPPED_ACTIVE_STATE: EnrollmentState = {
   status: 'Active', label: 'Stopped', description: 'Still to get a step. A restart continues each from the step it was on.',
 };
+
+/**
+ * Added to the Failed state's description for a campaign with send attempts
+ * recorded as failed before the 30 Sep 2026 send-engine fix
+ * (lib/engagementMetrics STATUS_CHECK_FIX_AT).
+ */
+export const FAILED_BEFORE_STATUS_CHECK_FIX_NOTE =
+  'Before 30 Sep 2026, an email whose status check failed after Azure accepted it was also recorded as failed, so some of these leads may have got their emails.';
 
 /**
  * The emails a campaign's Active leads are still to get: a lead waiting for

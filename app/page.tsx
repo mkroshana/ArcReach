@@ -307,7 +307,7 @@ export default function Dashboard() {
 
           {/* Deliverability health */}
           <Box sx={gridSx(3)}>
-            <MetricCard title="Failed Sends" value={(stats.failed ?? 0).toLocaleString()} sub="Delivery errors at send time" color="#DC2626" icon={XCircle} />
+            <MetricCard title="Failed Sends" value={(stats.failed ?? 0).toLocaleString()} sub="Send attempts recorded as failed" color="#DC2626" icon={XCircle} />
             <MetricCard title="Bounced" value={(stats.bounced ?? 0).toLocaleString()} sub="Hard bounces at send time or reported on delivery" color="#D97706" icon={AlertTriangle} />
             <MetricCard title="Unsubscribed" value={(stats.unsubscribed ?? 0).toLocaleString()} sub="Opted out of mailings" color="#64748B" icon={UserMinus} />
           </Box>

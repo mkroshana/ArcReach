@@ -16,6 +16,7 @@ import { emailsLeft } from '@/lib/campaignProgress';
 import {
   type MetricsScope,
   campaignLeadTotals,
+  countFailedBeforeStatusCheckFix,
   countReplies,
   countSendAttempts,
   dailyEngagement,
@@ -100,14 +101,17 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     // Bounced: hard bounces, reported by the delivery webhook or at send time,
     // and their rate: bouncedInRate (all but the send-time bounces from before
     // delivery reports arrived) of the emails whose outcome is known (bounceBase).
-    // Failed: send attempts the provider refused or that errored.
+    // Failed: send attempts the provider refused or that errored, and those
+    // made before STATUS_CHECK_FIX_AT, which also include accepted emails whose
+    // status check failed, so the page can say so.
     // Unsubscribed: this campaign's emails whose unsubscribe link was used.
     // The steps and mailboxes break the same sends down with every measure,
     // and the delivery breakdown says what delivery reports said about them.
     const scope: MetricsScope = { kind: 'campaign', campaignId: id };
-    const [sends, health, sentRequestsCount, repliesCount, trend, stepCounts, delivery, leadTotals, mailboxes] = await Promise.all([
+    const [sends, health, failedBeforeStatusCheckFix, sentRequestsCount, repliesCount, trend, stepCounts, delivery, leadTotals, mailboxes] = await Promise.all([
       sendSummary(prisma, scope),
       healthSummary(prisma, scope),
+      countFailedBeforeStatusCheckFix(prisma, scope),
       countSendAttempts(prisma, scope),
       countReplies(prisma, scope),
       dailyEngagement(prisma, scope, metricsWindow(TREND_DAYS)),
@@ -266,6 +270,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       replies: repliesCount,
       bounced: health.bounced,
       failed: health.failed,
+      failedBeforeStatusCheckFix,
       unsubscribed: health.unsubscribed,
       deliveryRate: sends.deliveryRate,
       openRate: sends.openRate,

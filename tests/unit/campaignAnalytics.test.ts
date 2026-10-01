@@ -34,7 +34,7 @@ vi.mock('../../lib/session', () => ({
 
 import { getSession } from '../../lib/session';
 import { GET as getCampaign } from '../../app/api/campaigns/[id]/route';
-import { deliveryBreakdown, mailboxMetrics, stepMetrics } from '../../lib/engagementMetrics';
+import { STATUS_CHECK_FIX_AT, deliveryBreakdown, mailboxMetrics, stepMetrics } from '../../lib/engagementMetrics';
 import { emailsLeft, nextSendText } from '../../lib/campaignProgress';
 import { countRows, groupRows } from './helpers/prismaWhere';
 
@@ -255,6 +255,37 @@ describe('what delivery reports said', () => {
     const { delivery } = await telemetry();
 
     expect(delivery).toMatchObject({ accepted: 2, reported: 0, noReport: 2, delivered: 0 });
+  });
+});
+
+describe('failed send attempts', () => {
+  const beforeFix = new Date(STATUS_CHECK_FIX_AT.getTime() - 60_000);
+  const afterFix = new Date(STATUS_CHECK_FIX_AT.getTime() + 60_000);
+
+  it('counts the failed attempts made before the status-check fix, so the page can say what they include (stats A10)', async () => {
+    // Before the fix, a status check that failed after Azure accepted the email recorded it as Failed.
+    addDispatch({ id: 'old-1', status: 'Failed', sentAt: beforeFix });
+    addDispatch({ id: 'old-2', leadId: 'lead-2', stepOrder: 2, status: 'Failed', sentAt: hoursAgo(24 * 60) });
+    // Failed after the fix, accepted before it, not a sequence send, or another campaign's: not counted.
+    addDispatch({ id: 'new', leadId: 'lead-3', status: 'Failed', sentAt: afterFix });
+    addDispatch({ id: 'sent', leadId: 'lead-4', sentAt: beforeFix });
+    addDispatch({ id: 'unibox', stepOrder: null, status: 'Failed', sentAt: beforeFix });
+    addDispatch({ id: 'other', campaignId: 'cmp-2', status: 'Failed', sentAt: beforeFix });
+
+    const { failed, failedBeforeStatusCheckFix } = await telemetry();
+
+    // Failed Sends still counts every failed attempt of the campaign's sequence.
+    expect(failed).toBe(3);
+    expect(failedBeforeStatusCheckFix).toBe(2);
+  });
+
+  it('counts none for a campaign whose attempts all failed after the fix', async () => {
+    addDispatch({ id: 'new', status: 'Failed', sentAt: afterFix });
+
+    const { failed, failedBeforeStatusCheckFix } = await telemetry();
+
+    expect(failed).toBe(1);
+    expect(failedBeforeStatusCheckFix).toBe(0);
   });
 });
 

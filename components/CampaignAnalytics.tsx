@@ -15,7 +15,7 @@ import { alpha } from '@mui/material/styles';
 import { isHtmlTemplate } from '@/lib/personalize';
 import { replyCountUnknown, replySyncState, type ImapSyncState } from '@/lib/imapSyncStatus';
 import { bounceFigure, noReportsFor, type BounceCounts, type BounceFigure } from '@/lib/bounceStats';
-import { ENROLLMENT_STATES, STOPPED_ACTIVE_STATE, nextSendText } from '@/lib/campaignProgress';
+import { ENROLLMENT_STATES, FAILED_BEFORE_STATUS_CHECK_FIX_NOTE, STOPPED_ACTIVE_STATE, nextSendText } from '@/lib/campaignProgress';
 import { timeAgo } from '@/lib/systemStatus';
 import { useTheme as useAppTheme } from '@/components/ThemeProvider';
 
@@ -60,6 +60,10 @@ const NO_REPORTS_NOTE =
 /** Why a bounce count without delivery reports has no rate. */
 const SEND_TIME_BOUNCES_NOTE =
   'No delivery reports have arrived for these emails, so only the bounces found when sending are counted, and there is no bounce rate yet.';
+
+/** Why a campaign's failed count is high when it has failed attempts from before the send-engine fix. */
+const FAILED_SENDS_BEFORE_FIX_NOTE =
+  'Before 30 Sep 2026, an email whose status check failed after Azure accepted it was also recorded as failed. Many of those were delivered.';
 
 const BOUNCED_DEFINITION =
   'Hard bounces: reported by Azure or found when sending. The rate is of the emails whose outcome is known: those a delivery report arrived for, and those that bounced when sending once reports were arriving.';
@@ -359,16 +363,26 @@ export default function CampaignAnalytics({ campaign, mailboxes }: { campaign: a
     : bounces.note === 'noReports' ? 'No delivery reports yet'
       : bounces.note === 'sendTimeOnly' ? 'Found when sending; no reports yet'
         : 'No bounce rate yet';
+  // Failed attempts from before the send-engine fix include accepted emails whose status check failed.
+  const failedBeforeFix = (t.failedBeforeStatusCheckFix ?? 0) > 0;
   const healthTiles = [
-    { title: 'Failed Sends', value: count(t.failed), icon: XCircle, color: '#DC2626', sub: 'Delivery errors at send time' },
+    {
+      title: 'Failed Sends', value: count(t.failed), icon: XCircle, color: '#DC2626', sub: 'Send attempts recorded as failed',
+      caveat: failedBeforeFix ? FAILED_SENDS_BEFORE_FIX_NOTE : null,
+    },
     { title: 'Bounced', value: bounces.count === null ? '—' : count(bounces.count), icon: AlertTriangle, color: '#D97706', sub: bouncedSub, caveat: bounceNote(bounces) },
     { title: 'Unsubscribed', value: count(t.unsubscribed), icon: UserMinus, color: '#64748b', sub: 'Opted out of mailings' },
   ];
 
-  // Every enrollment status, in a fixed order, zeros included; a stopped campaign's Active leads show as Stopped.
+  // Every enrollment status, in a fixed order, zeros included; a stopped campaign's Active leads show as Stopped,
+  // and Failed says what failures from before the send-engine fix include.
   const knownStatuses = new Set(ENROLLMENT_STATES.map((s) => s.status));
   const progressRows: BarRow[] = [
-    ...ENROLLMENT_STATES.map((state) => (stopped && state.status === 'Active' ? STOPPED_ACTIVE_STATE : state)),
+    ...ENROLLMENT_STATES.map((state) => {
+      if (stopped && state.status === 'Active') return STOPPED_ACTIVE_STATE;
+      if (failedBeforeFix && state.status === 'Failed') return { ...state, description: `${state.description} ${FAILED_BEFORE_STATUS_CHECK_FIX_NOTE}` };
+      return state;
+    }),
     ...Object.keys(progress.byStatus ?? {}).filter((status) => !knownStatuses.has(status))
       .map((status) => ({ status, label: status, description: 'An enrollment status this page does not describe.' })),
   ].map((state) => ({ key: state.status, label: state.label, description: state.description, value: progress.byStatus?.[state.status] ?? 0 }));

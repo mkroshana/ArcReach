@@ -154,8 +154,9 @@ describe("each step's stats use the campaign's definitions", () => {
       delivered: 1, deliveryRate: 25, reported: 3,
       // Reached: d1 (delivered) and d4 (no report); d2 and d5 bounced.
       opened: 1, openRate: 50, clicked: 0,
-      // Hard bounces d2 and d3, over the 4 sent and the 1 bounced at send time.
-      bounced: 2, bounceRate: 40,
+      // Hard bounces d2 and d3, over the emails whose outcome is known: the 3
+      // reported (d1, d2, d5) and the 1 bounced at send time, not d4 (stats A5).
+      bounced: 2, bouncedInRate: 2, bounceBase: 4, bounceRate: 50,
       unsubscribed: 1, unsubscribeRate: 25,
       replied: 1, replyRate: 25,
     });
@@ -211,7 +212,7 @@ describe('the mailboxes a campaign sent from', () => {
       [null, null, 0, 1],
     ]);
     expect(mailboxes[0]).toMatchObject({ opened: 1, openRate: 50, leads: 2, replied: 0 });
-    expect(mailboxes[1]).toMatchObject({ bounced: 1, bounceRate: 100, replied: 1, replyRate: 100 });
+    expect(mailboxes[1]).toMatchObject({ bounced: 1, bounceBase: 1, bounceRate: 100, replied: 1, replyRate: 100 });
     // The addresses are looked up only for the mailboxes the sends recorded.
     expect(fake.senderAccount.findMany.mock.calls[0][0].where).toEqual({ id: { in: ['mb-1', 'mb-2'] } });
   });

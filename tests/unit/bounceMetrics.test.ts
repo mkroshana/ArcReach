@@ -86,10 +86,10 @@ beforeEach(() => {
 
 describe('Bounced metrics come from the dispatches the webhook marked hard-bounced (H21)', () => {
   it('counts a one-step campaign\'s hard bounces whatever its enrollments say, not its soft ones or another campaign\'s', async () => {
-    addDispatch({ id: 'd-1', bounceType: 'hard', bouncedAt: daysAgo(1) });
-    addDispatch({ id: 'd-2', bounceType: 'soft', bouncedAt: daysAgo(1) });
-    addDispatch({ id: 'd-3', deliveredAt: daysAgo(1) });
-    addDispatch({ id: 'd-4', campaignId: 'cmp-2', senderAccountId: 'mb-2', bounceType: 'hard', bouncedAt: daysAgo(1) });
+    addDispatch({ id: 'd-1', deliveryStatus: 'Bounced', bounceType: 'hard', bouncedAt: daysAgo(1) });
+    addDispatch({ id: 'd-2', deliveryStatus: 'Bounced', bounceType: 'soft', bouncedAt: daysAgo(1) });
+    addDispatch({ id: 'd-3', deliveryStatus: 'Delivered', deliveredAt: daysAgo(1) });
+    addDispatch({ id: 'd-4', campaignId: 'cmp-2', senderAccountId: 'mb-2', deliveryStatus: 'Bounced', bounceType: 'hard', bouncedAt: daysAgo(1) });
 
     const res = await getCampaign(new NextRequest('http://localhost/api/campaigns/cmp-1'), {
       params: Promise.resolve({ id: 'cmp-1' }),
@@ -97,7 +97,8 @@ describe('Bounced metrics come from the dispatches the webhook marked hard-bounc
 
     expect(res.status).toBe(200);
     const { telemetry } = await res.json();
-    expect(telemetry).toMatchObject({ sent: 3, bounced: 1, bounceRate: 33.3 });
+    // Of the 3 emails a delivery report arrived for, to two decimals (stats A5).
+    expect(telemetry).toMatchObject({ sent: 3, bounced: 1, bounceBase: 3, bounceRate: 33.33 });
   });
 
   it('counts the user\'s own campaigns\' hard bounces in the dashboard period by when they bounced', async () => {

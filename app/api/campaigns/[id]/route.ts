@@ -97,7 +97,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     // campaign's sequence sends, defined in lib/engagementMetrics as on the
     // dashboard and the Accounts page, and counted in the database.
     // Total Sent Requests counts every attempt, retries and failures included.
-    // Bounced: hard bounces, reported by the delivery webhook or at send time.
+    // Bounced: hard bounces, reported by the delivery webhook or at send time,
+    // and their rate: bouncedInRate (all but the send-time bounces from before
+    // delivery reports arrived) of the emails whose outcome is known (bounceBase).
     // Failed: send attempts the provider refused or that errored.
     // Unsubscribed: this campaign's emails whose unsubscribe link was used.
     // The steps and mailboxes break the same sends down with every measure,
@@ -270,6 +272,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       clickRate: sends.clickRate,
       replyRate: percent(repliesCount, sends.sent),
       bounceRate: health.bounceRate,
+      bouncedInRate: health.bouncedInRate,
+      bounceBase: health.bounceBase,
       trend,
       funnel,
       sentiment: sentimentBreakdown,

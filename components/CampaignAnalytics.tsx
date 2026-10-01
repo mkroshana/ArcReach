@@ -14,6 +14,7 @@ import {
 import { alpha } from '@mui/material/styles';
 import { isHtmlTemplate } from '@/lib/personalize';
 import { replyCountUnknown, replySyncState, type ImapSyncState } from '@/lib/imapSyncStatus';
+import { bounceFigure, noReportsFor, type BounceCounts, type BounceFigure } from '@/lib/bounceStats';
 import { ENROLLMENT_STATES, STOPPED_ACTIVE_STATE, nextSendText } from '@/lib/campaignProgress';
 import { timeAgo } from '@/lib/systemStatus';
 import { useTheme as useAppTheme } from '@/components/ThemeProvider';
@@ -55,6 +56,27 @@ const REPLY_SYNC_NOTES: Record<Exclude<ImapSyncState, 'ok'>, { short: string; lo
 
 const NO_REPORTS_NOTE =
   "No delivery reports have arrived for these emails. Deliveries, bounces and spam filtering show here once Azure sends delivery reports to ArcReach (Event Grid).";
+
+/** Why a bounce count without delivery reports has no rate. */
+const SEND_TIME_BOUNCES_NOTE =
+  'No delivery reports have arrived for these emails, so only the bounces found when sending are counted, and there is no bounce rate yet.';
+
+const BOUNCED_DEFINITION =
+  'Hard bounces: reported by Azure or found when sending. The rate is of the emails whose outcome is known: those a delivery report arrived for, and those that bounced when sending once reports were arriving.';
+
+/** The note on a bounce figure (lib/bounceStats), or null when it needs none. */
+function bounceNote(figure: BounceFigure): string | null {
+  switch (figure.note) {
+    case 'noReports':
+      return NO_REPORTS_NOTE;
+    case 'sendTimeOnly':
+      return SEND_TIME_BOUNCES_NOTE;
+    case 'leftOutOfRate':
+      return `Includes ${count(figure.leftOutOfRate)} found when sending before delivery reports arrived. They are left out of the rate: the other emails sent then never get a report, so their bounces are not known.`;
+    default:
+      return null;
+  }
+}
 
 /**
  * The reply-sync state of the mailboxes that receive a campaign's replies (its
@@ -100,14 +122,6 @@ function Caveat({ note }: { note: string }) {
   );
 }
 
-/**
- * Whether a step's or mailbox's delivered count means nothing yet: no report
- * arrived for any of its sent emails (or for any of the campaign's).
- */
-function noReportsFor(row: { sent: number; reported: number }, caveats: AnalyticsCaveats): boolean {
-  return caveats.noDeliveryReports || (row.sent > 0 && row.reported === 0);
-}
-
 /** A table cell's count, with its rate on a line below it. */
 function rated(value: number, rate: number): ReactNode {
   return (
@@ -144,6 +158,24 @@ function NoReports() {
     <MuiTooltip title={NO_REPORTS_NOTE} arrow>
       <Box component="span" tabIndex={0} aria-label="No delivery reports" sx={{ color: 'text.secondary' }}>—</Box>
     </MuiTooltip>
+  );
+}
+
+/**
+ * A step's or mailbox's hard bounces as bounceFigure (lib/bounceStats) works
+ * them out: '—' while unknown, else the count with a note when it has no rate
+ * or its rate leaves bounces out, and the rate on a line below it.
+ */
+function bouncedCell(row: BounceCounts, caveats: AnalyticsCaveats): ReactNode {
+  const figure = bounceFigure(row, caveats);
+  if (figure.count === null) return <NoReports />;
+  const note = bounceNote(figure);
+  return (
+    <>
+      {count(figure.count)}
+      {note && <Caveat note={note} />}
+      {figure.rate && <Typography component="span" variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>{figure.rate}</Typography>}
+    </>
   );
 }
 
@@ -252,14 +284,21 @@ export function StepStatStrip({ stats, htmlStep, caveats }: { stats: any; htmlSt
   if (!stats || (stats.sent === 0 && stats.failed === 0)) return null;
   const opensGap = trackingGap(caveats.trackOpens, htmlStep, stats.opened);
   const clicksGap = trackingGap(caveats.trackClicks, htmlStep, stats.clicked);
+  const noReports = noReportsFor(stats, caveats);
+  const bounces = bounceFigure(stats, caveats);
   const items: Array<{ label: string; value: string; caveat?: string | null }> = [
     { label: 'Sent', value: stats.leads && stats.leads !== stats.sent ? `${count(stats.sent)} to ${count(stats.leads)} leads` : count(stats.sent) },
-    ...(noReportsFor(stats, caveats) ? [] : [{ label: 'Delivered', value: `${stats.deliveryRate}%` }]),
+    ...(noReports ? [] : [{ label: 'Delivered', value: `${stats.deliveryRate}%` }]),
     { label: 'Opened', value: opensGap ?? `${stats.openRate}%` },
     { label: 'Clicked', value: clicksGap ?? `${stats.clickRate}%` },
     { label: 'Replied', value: `${stats.replyRate}%`, caveat: caveats.replySync ? REPLY_SYNC_NOTES[caveats.replySync].long : null },
     { label: 'Unsubscribed', value: count(stats.unsubscribed) },
-    { label: 'Bounced', value: count(stats.bounced) },
+    {
+      label: 'Bounced',
+      value: bounces.count === null ? '—' : count(bounces.count),
+      // The strip shows no bounce rate, so what the rate leaves out needs no note here.
+      caveat: bounces.note === 'leftOutOfRate' ? null : bounceNote(bounces),
+    },
     ...(stats.failed > 0 ? [{ label: 'Failed', value: count(stats.failed) }] : []),
   ];
   return (
@@ -309,9 +348,20 @@ export default function CampaignAnalytics({ campaign, mailboxes }: { campaign: a
     { title: 'Unique Clicks', value: count(t.clicks), icon: MousePointerClick, color: '#D97706', sub: caveats.trackClicks ? `${t.clickRate ?? 0}% click rate` : 'Click tracking is off' },
     { title: 'Replies', value: repliesUnknown ? '—' : count(t.replies), icon: Reply, color: '#7C3AED', sub: replyNote ? replyNote.short : `${t.replyRate ?? 0}% reply rate`, caveat: replyNote?.long },
   ];
+  // As the step and mailbox rows (bounceFigure): with no delivery report, a bounce count of 0 shows as unknown and
+  // the bounces found when sending show with no rate. The rate is of the emails whose outcome is known, so
+  // unreported emails do not dilute it, and the bounces from before reports arrived do not inflate it.
+  const bounces = bounceFigure({
+    sent: t.sent ?? 0, reported: delivery.reported ?? 0,
+    bounced: t.bounced, bouncedInRate: t.bouncedInRate, bounceRate: t.bounceRate, bounceBase: t.bounceBase,
+  }, caveats);
+  const bouncedSub = bounces.rate ? `${bounces.rate} of ${count(t.bounceBase)} with a known outcome`
+    : bounces.note === 'noReports' ? 'No delivery reports yet'
+      : bounces.note === 'sendTimeOnly' ? 'Found when sending; no reports yet'
+        : 'No bounce rate yet';
   const healthTiles = [
     { title: 'Failed Sends', value: count(t.failed), icon: XCircle, color: '#DC2626', sub: 'Delivery errors at send time' },
-    { title: 'Bounced', value: count(t.bounced), icon: AlertTriangle, color: '#D97706', sub: `${t.bounceRate ?? 0}% bounce rate` },
+    { title: 'Bounced', value: bounces.count === null ? '—' : count(bounces.count), icon: AlertTriangle, color: '#D97706', sub: bouncedSub, caveat: bounceNote(bounces) },
     { title: 'Unsubscribed', value: count(t.unsubscribed), icon: UserMinus, color: '#64748b', sub: 'Opted out of mailings' },
   ];
 
@@ -385,7 +435,7 @@ export default function CampaignAnalytics({ campaign, mailboxes }: { campaign: a
         <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
           <Typography variant="overline" sx={{ fontWeight: 700, display: 'block', lineHeight: 1.6 }}>Step Performance</Typography>
           <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-            Each email in the sequence. Rates are of the emails that step sent; Replied is of the leads it reached.
+            Each email in the sequence. Rates are of the emails that step sent; Replied is of the leads it reached, and Bounced of the emails whose outcome is known.
           </Typography>
         </Box>
         {stepStats.length === 0 ? (
@@ -403,7 +453,7 @@ export default function CampaignAnalytics({ campaign, mailboxes }: { campaign: a
                   <Th title="Emails a person clicked a link in, of those not reported undelivered.">Clicked</Th>
                   <Th title="Leads who replied after this step was their latest email, of the leads it reached. Bounces and auto-replies are left out." caveat={replyNote?.long}>Replied</Th>
                   <Th title="Emails whose unsubscribe link was used.">Unsubscribed</Th>
-                  <Th title="Hard bounces: reported by Azure or found when sending.">Bounced</Th>
+                  <Th title={BOUNCED_DEFINITION}>Bounced</Th>
                   <Th title="Send attempts the provider refused or that errored, retries included.">Failed</Th>
                 </TableRow>
               </TableHead>
@@ -442,7 +492,7 @@ export default function CampaignAnalytics({ campaign, mailboxes }: { campaign: a
                       <TableCell>{clicksGap ? <Gap label={clicksGap} /> : rated(s.clicked, s.clickRate)}</TableCell>
                       <TableCell>{rated(s.replied, s.replyRate)}</TableCell>
                       <TableCell>{rated(s.unsubscribed, s.unsubscribeRate)}</TableCell>
-                      <TableCell>{rated(s.bounced, s.bounceRate)}</TableCell>
+                      <TableCell>{bouncedCell(s, caveats)}</TableCell>
                       <TableCell sx={{ color: s.failed > 0 ? 'error.main' : undefined, fontWeight: s.failed > 0 ? 700 : 400 }}>{count(s.failed)}</TableCell>
                     </TableRow>
                   );
@@ -470,7 +520,7 @@ export default function CampaignAnalytics({ campaign, mailboxes }: { campaign: a
                   <Th title="Emails a delivery report said were delivered.">Delivered</Th>
                   <Th title="Emails a person opened or clicked in, of those not reported undelivered.">Opened</Th>
                   <Th title="Leads who replied after an email from this mailbox was their latest, of the leads it reached." caveat={replyNote?.long}>Replied</Th>
-                  <Th title="Hard bounces: reported by Azure or found when sending.">Bounced</Th>
+                  <Th title={BOUNCED_DEFINITION}>Bounced</Th>
                   <Th title="Send attempts the provider refused or that errored, retries included.">Failed</Th>
                 </TableRow>
               </TableHead>
@@ -496,7 +546,7 @@ export default function CampaignAnalytics({ campaign, mailboxes }: { campaign: a
                     <TableCell>{noReportsFor(m, caveats) ? <NoReports /> : rated(m.delivered, m.deliveryRate)}</TableCell>
                     <TableCell>{!caveats.trackOpens && m.opened === 0 ? <Gap label="Off" /> : rated(m.opened, m.openRate)}</TableCell>
                     <TableCell>{rated(m.replied, m.replyRate)}</TableCell>
-                    <TableCell>{rated(m.bounced, m.bounceRate)}</TableCell>
+                    <TableCell>{bouncedCell(m, caveats)}</TableCell>
                     <TableCell sx={{ color: m.failed > 0 ? 'error.main' : undefined, fontWeight: m.failed > 0 ? 700 : 400 }}>{count(m.failed)}</TableCell>
                   </TableRow>
                 ))}

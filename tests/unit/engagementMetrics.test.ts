@@ -34,7 +34,7 @@ import { getSession } from '../../lib/session';
 import { GET as getCampaign } from '../../app/api/campaigns/[id]/route';
 import { GET as getDashboardStats } from '../../app/api/dashboard-stats/route';
 import { GET as getAccounts } from '../../app/api/accounts/route';
-import { dailyEngagement, metricsWindow, stepMetrics } from '../../lib/engagementMetrics';
+import { dailyEngagement, healthSummary, metricsWindow, percent, stepMetrics } from '../../lib/engagementMetrics';
 import { countRows, groupRows, matchesWhere } from './helpers/prismaWhere';
 
 const mockedSession = vi.mocked(getSession);
@@ -277,6 +277,81 @@ describe('Delivered is unknown, not 0, until a delivery report arrives (stats A1
   });
 });
 
+describe('the bounce rate is of the emails whose outcome is known, to two decimals (stats A5)', () => {
+  it('leaves out the emails no delivery report arrived for, so they never dilute the rate, on the campaign, each step and each mailbox', async () => {
+    // No report arrived for these yet: each may still bounce.
+    for (let i = 1; i <= 6; i++) addDispatch({ id: `old-${i}` });
+    addDispatch({ id: 'delivered-1', deliveredAt: at(1), deliveryStatus: 'Delivered' });
+    addDispatch({ id: 'delivered-2', deliveredAt: at(1), deliveryStatus: 'Delivered' });
+    addDispatch({ id: 'hard', deliveryStatus: 'Bounced', bounceType: 'hard', bouncedAt: at(1) });
+    // A soft bounce is a known outcome that is not a hard bounce.
+    addDispatch({ id: 'soft', deliveryStatus: 'Bounced', bounceType: 'soft', bouncedAt: at(1) });
+    // Refused when sending: a known outcome with no report.
+    addDispatch({ id: 'at-send', status: 'Failed', events: [event('bounce')] });
+    // Failed for another reason: its outcome is not a bounce, nor a send.
+    addDispatch({ id: 'failed', status: 'Failed', events: [event('send_failed')] });
+
+    // The old base, every email sent plus the send-time bounce, read 2 of 11 = 18.2%.
+    const telemetry = await campaignTelemetry();
+    expect(telemetry).toMatchObject({ sent: 10, bounced: 2, bouncedInRate: 2, bounceBase: 5, bounceRate: 40 });
+    expect(telemetry.stepStats[0]).toMatchObject({ sent: 10, bounced: 2, bouncedInRate: 2, bounceBase: 5, bounceRate: 40 });
+    expect(telemetry.mailboxes[0]).toMatchObject({ senderAccountId: 'mb-1', bounced: 2, bouncedInRate: 2, bounceBase: 5, bounceRate: 40 });
+  });
+
+  it('counts the bounces found when sending before delivery reports arrived, but leaves them out of the rate, so it is the rate of the newer emails alone', async () => {
+    // Before delivery reports: 52 addresses refused when sending (their bounce
+    // events recorded since, as backfill B4 does) and accepted emails that
+    // never get a report, on both steps.
+    for (let i = 1; i <= 50; i++) addDispatch({ id: `old-refused-${i}`, status: 'Failed', sentAt: at(20), events: [event('bounce', at(0))] });
+    for (let i = 1; i <= 2; i++) addDispatch({ id: `old-refused-step-2-${i}`, stepOrder: 2, status: 'Failed', sentAt: at(20), events: [event('bounce', at(0))] });
+    for (let i = 1; i <= 10; i++) addDispatch({ id: `old-sent-${i}`, stepOrder: (i % 2) + 1, sentAt: at(20) });
+    // The campaign resumes with delivery reports, and the first arrives.
+    addDispatch({ id: 'new-1', sentAt: at(2), deliveredAt: at(2), deliveryStatus: 'Delivered' });
+
+    // Over that one report, the old bounces would read 52 of 53 = 98.11%.
+    let telemetry = await campaignTelemetry();
+    expect(telemetry).toMatchObject({ bounced: 52, bouncedInRate: 0, bounceBase: 1, bounceRate: 0 });
+
+    // 98 more newly reported emails, 3 of them hard bounces, and 1 refused
+    // when sending since: 4 bounces in the 100 newer emails whose outcome is known.
+    for (let i = 2; i <= 96; i++) addDispatch({ id: `new-${i}`, sentAt: at(1), deliveredAt: at(1), deliveryStatus: 'Delivered' });
+    for (let i = 1; i <= 3; i++) addDispatch({ id: `new-hard-${i}`, sentAt: at(1), deliveryStatus: 'Bounced', bounceType: 'hard', bouncedAt: at(1) });
+    addDispatch({ id: 'new-refused', status: 'Failed', sentAt: at(1), events: [event('bounce', at(1))] });
+
+    telemetry = await campaignTelemetry();
+    const newerEmails = { bouncedInRate: 4, bounceBase: 100, bounceRate: 4 };
+    expect(telemetry).toMatchObject({ bounced: 56, ...newerEmails });
+    expect(telemetry.stepStats[0]).toMatchObject({ bounced: 54, ...newerEmails });
+    expect(telemetry.mailboxes[0]).toMatchObject({ senderAccountId: 'mb-1', bounced: 56, ...newerEmails });
+    // No report arrived for step 2's emails, so its old bounces have no rate.
+    expect(telemetry.stepStats[1]).toMatchObject({ reported: 0, bounced: 2, bouncedInRate: 0, bounceBase: 0, bounceRate: 0 });
+  });
+
+  it('keeps two decimals, so a few bounces in many emails do not read 0%', async () => {
+    addDispatch({ id: 'hard', deliveryStatus: 'Bounced', bounceType: 'hard', bouncedAt: at(1) });
+    addDispatch({ id: 'delivered-1', deliveredAt: at(1), deliveryStatus: 'Delivered' });
+    addDispatch({ id: 'delivered-2', deliveredAt: at(1), deliveryStatus: 'Delivered' });
+
+    // Other rates keep one decimal.
+    expect(await campaignTelemetry()).toMatchObject({ bounced: 1, bounceBase: 3, bounceRate: 33.33, deliveryRate: 66.7 });
+    // 52 bounces in 187,852 emails is 0.03%, which one decimal rounds to 0.
+    expect(percent(52, 187_852, 2)).toBe(0.03);
+    expect(percent(52, 187_852)).toBe(0);
+  });
+
+  it('counts a period\'s base by when the reported emails were sent and when the bounces happened', async () => {
+    const period = { gte: at(6, 0), lte: NOW };
+    addDispatch({ id: 'reported-in', deliveredAt: at(1), deliveryStatus: 'Delivered' });
+    addDispatch({ id: 'reported-before', sentAt: at(20), deliveredAt: at(20), deliveryStatus: 'Delivered' });
+    addDispatch({ id: 'unreported-in' });
+    // Sent before the period, bounced in it.
+    addDispatch({ id: 'bounced-in', sentAt: at(20), deliveryStatus: 'Bounced', bounceType: 'hard', bouncedAt: at(2) });
+
+    expect(await healthSummary(fake as any, { kind: 'campaign', campaignId: 'cmp-1' }, period))
+      .toMatchObject({ bounced: 1, bouncedInRate: 1, bounceBase: 2, bounceRate: 50 });
+  });
+});
+
 describe('the dashboard says replies are not read while no mailbox has reply sync on (stats A11)', () => {
   const IMAP = { imapHost: 'imap.acme.test', imapPort: 993, imapUser: 'sales@acme.test', imapPass: 'encrypted' };
 
@@ -350,7 +425,9 @@ describe('only campaign sequence sends ACS accepted count as sent (L7, M38)', ()
     addDispatch({ id: 'soft', status: 'Failed', sentAt: at(0), events: [event('send_failed', at(0))] });
 
     expect(await mailbox()).toMatchObject({ sentTotal: 1, bounced: 1 });
-    expect(await campaignTelemetry()).toMatchObject({ sent: 1, bounced: 1, failed: 2, bounceRate: 50 });
+    // No report arrived for any of the campaign's emails, so the bounce found
+    // when sending is counted with no rate, not as 100% (stats A5).
+    expect(await campaignTelemetry()).toMatchObject({ sent: 1, bounced: 1, failed: 2, bouncedInRate: 0, bounceBase: 0, bounceRate: 0 });
     expect((await dashboard()).stats).toMatchObject({ bounced: 1, failed: 2 });
   });
 });

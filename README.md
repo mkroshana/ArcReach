@@ -132,7 +132,8 @@ lists what each flag would change:
   report, else with a provider id, else the earliest. It never deletes a row
   with events, a `Failed`, `Sending` or
   `Unknown` row (a retried step leaves a `Failed` attempt before its `Sent` row),
-  or a row whose step was only inferred. A deleted row's tracked links show Link
+  or a row whose step was only inferred. A deleted row's tracked links redirect
+  only to the domains in `PRE_RESET_LINK_DOMAINS` and otherwise show Link
   Unavailable; its unsubscribe link still works.
 
 ```bash
@@ -166,7 +167,7 @@ To keep email open and link click metrics accurate and prevent security scanners
 - **Apple Mail Privacy Protection**: MPP's proxy fetches every pixel when the email arrives, opened or not, under the bare `Mozilla/5.0` user agent, so those fetches are machine opens. Gmail Image Proxy and YahooMailProxy fetch the pixel only when a person opens the email, so they count.
 - **Removal of Implicit Opens**: The click tracking endpoint does not auto-generate an open event upon registering a click.
 - **HEAD Requests**: Link checkers' HEAD requests to the tracking endpoints are answered but never recorded as opens or clicks.
-- **Sent Links Only**: The click endpoint records a click and redirects only when its `url` is exactly one of the links that email sent; anything else gets a neutral Link Unavailable page. A click whose dispatch is gone (mail sent before the 2026-10 campaign history reset) records nothing and redirects only to jobpromax.com, thejobhelpers.com, calendly.com or their subdomains (`PRE_RESET_LINK_DOMAINS` in `lib/emailTracking.ts`); any other url gets the same page.
+- **Sent Links Only**: The click endpoint records a click and redirects only when its `url` is exactly one of the links that email sent; anything else gets a neutral Link Unavailable page. A click whose dispatch is gone (mail sent before the 2026-10 campaign history reset, or a row deleted since) records nothing and redirects only to jobpromax.com, thejobhelpers.com, calendly.com or their subdomains (`PRE_RESET_LINK_DOMAINS` in `lib/emailTracking.ts`); any other url gets the same page.
 
 ---
 
@@ -349,6 +350,7 @@ These bring data written by older versions in line with the current code. Each o
 | `backfill-suppression.ts` | Puts leads already Unsubscribed, Bounced or Invalid on the suppression list and pauses their Active enrollments | `--apply` | The `SuppressedEmail` table (db push) |
 | `encrypt-mailbox-secrets.ts` | Encrypts mailbox IMAP passwords stored in plaintext | `--write` | `SECRETS_KEY` set to the App Service's value |
 | `audit-dispatches.ts` | Backfills `stepOrder` and deletes duplicate `Sent` dispatches (see Dispatch Metrics & Duplicate Cleanup) | `--backfill`, `--fix` | The schema pushed (db push) |
+| `reset-campaign-history.ts` | Deletes every campaign with its emails, events, steps and enrollments, keeping leads, groups, templates, mailboxes and the suppression list. First exports who received what to `--out` (outside the repo) and, as its flags say, suppresses Azure-dropped addresses, resets clock-skew Risky leads and saves progress groups | `--apply` with `--expect-dispatches`, `--azure-dropped`, `--clock-skew`, `--save-progress-groups` | No campaign Active or sending, and a noted Azure point-in-time-restore time |
 
 #### Schema Check
 

@@ -97,7 +97,7 @@ describe('parseResetArgs', () => {
     const parsed = parseResetArgs(['--out=C:/exports']);
     expect(parsed).toEqual({
       ok: true,
-      options: { apply: false, out: 'C:/exports', expectDispatches: null, azureDropped: null, clockSkew: null, saveProgressGroups: null },
+      options: { apply: false, out: 'C:/exports', expectDispatches: null, expectHost: null, azureDropped: null, clockSkew: null, saveProgressGroups: null },
     });
   });
 
@@ -110,23 +110,23 @@ describe('parseResetArgs', () => {
     const parsed = parseResetArgs(['--out=/x', '--apply']);
     expect(parsed.ok).toBe(false);
     if (parsed.ok) return;
-    for (const flag of ['--expect-dispatches', '--azure-dropped', '--clock-skew', '--save-progress-groups']) {
+    for (const flag of ['--expect-dispatches', '--expect-host', '--azure-dropped', '--clock-skew', '--save-progress-groups']) {
       expect(parsed.error).toContain(flag);
     }
-    expect(parseResetArgs(['--out=/x', '--apply', '--expect-dispatches=5', '--azure-dropped=suppress', '--clock-skew=reset']))
+    expect(parseResetArgs(['--out=/x', '--apply', '--expect-dispatches=5', '--expect-host=db.example', '--azure-dropped=suppress', '--clock-skew=reset']))
       .toMatchObject({ ok: false, error: expect.stringContaining('--save-progress-groups') });
   });
 
   it('reads every flag, a bare --save-progress-groups as yes and each keep or no alternative', () => {
-    expect(parseResetArgs(['--out=/x', '--apply', '--expect-dispatches=213966', '--azure-dropped=suppress', '--clock-skew=reset', '--save-progress-groups']))
+    expect(parseResetArgs(['--out=/x', '--apply', '--expect-dispatches=213966', '--expect-host=ArcReach-DB.postgres.database.azure.com', '--azure-dropped=suppress', '--clock-skew=reset', '--save-progress-groups']))
       .toEqual({
         ok: true,
-        options: { apply: true, out: '/x', expectDispatches: 213966, azureDropped: 'suppress', clockSkew: 'reset', saveProgressGroups: true },
+        options: { apply: true, out: '/x', expectDispatches: 213966, expectHost: 'arcreach-db.postgres.database.azure.com', azureDropped: 'suppress', clockSkew: 'reset', saveProgressGroups: true },
       });
-    expect(parseResetArgs(['--apply', '--out=/x', '--expect-dispatches=0', '--azure-dropped=keep', '--clock-skew=keep', '--save-progress-groups=no']))
+    expect(parseResetArgs(['--apply', '--out=/x', '--expect-dispatches=0', '--expect-host=localhost', '--azure-dropped=keep', '--clock-skew=keep', '--save-progress-groups=no']))
       .toEqual({
         ok: true,
-        options: { apply: true, out: '/x', expectDispatches: 0, azureDropped: 'keep', clockSkew: 'keep', saveProgressGroups: false },
+        options: { apply: true, out: '/x', expectDispatches: 0, expectHost: 'localhost', azureDropped: 'keep', clockSkew: 'keep', saveProgressGroups: false },
       });
   });
 
@@ -140,6 +140,7 @@ describe('parseResetArgs', () => {
     expect(parseResetArgs(['--out=/x', '--save-progress-groups=true'])).toMatchObject({ ok: false });
     expect(parseResetArgs(['--out=/x', '--expect-dispatches=213,966'])).toMatchObject({ ok: false });
     expect(parseResetArgs(['--out=/x', '--expect-dispatches=-1'])).toMatchObject({ ok: false });
+    expect(parseResetArgs(['--out=/x', '--expect-host='])).toMatchObject({ ok: false, error: expect.stringContaining('--expect-host') });
   });
 });
 
@@ -421,7 +422,7 @@ describe('the export', () => {
 });
 
 describe('when --apply refuses', () => {
-  const options: ResetOptions = { apply: true, out: '/x', expectDispatches: 213966, azureDropped: 'suppress', clockSkew: 'reset', saveProgressGroups: true };
+  const options: ResetOptions = { apply: true, out: '/x', expectDispatches: 213966, expectHost: 'arcreach-db.postgres.database.azure.com', azureDropped: 'suppress', clockSkew: 'reset', saveProgressGroups: true };
   const quiet: SafetyState = {
     campaigns: [{ name: 'JPM Cold Outreach', status: 'Paused', pausedUntil: null }, { name: 'HR Leads Initial', status: 'Stopped', pausedUntil: null }],
     sendingEmails: 0,
@@ -429,7 +430,7 @@ describe('when --apply refuses', () => {
     campaignReplies: 0,
   };
   const refusals = (state: SafetyState, overrides: Partial<Parameters<typeof applyRefusals>[0]> = {}) =>
-    applyRefusals({ options, exportWritten: true, resetDispatches: 213966, campaignCount: state.campaigns.length, checks: safetyChecks(state), ...overrides });
+    applyRefusals({ options, host: 'arcreach-db.postgres.database.azure.com', exportWritten: true, resetDispatches: 213966, campaignCount: state.campaigns.length, checks: safetyChecks(state), ...overrides });
 
   it('runs when every check passes and the expected count matches', () => {
     expect(safetyChecks(quiet).every((check) => check.ok)).toBe(true);
@@ -453,6 +454,14 @@ describe('when --apply refuses', () => {
     expect(refusals(quiet, { options: { ...options, expectDispatches: null } })[0]).toContain('(missing)');
     expect(refusals(quiet, { exportWritten: false })).toEqual(['The export was not written in this run.']);
     expect(refusals(quiet, { options: { ...options, clockSkew: null } })[0]).toContain('--clock-skew');
+  });
+
+  it('refuses when DATABASE_URL points at a different database than --expect-host names, such as a local .env', () => {
+    expect(refusals(quiet, { host: 'ep-cool-name.neon.tech' })).toEqual([
+      '--expect-host=arcreach-db.postgres.database.azure.com is not the database this run is connected to (ep-cool-name.neon.tech).',
+    ]);
+    expect(refusals(quiet, { options: { ...options, expectHost: null } })[0]).toContain('--expect-host=(missing)');
+    expect(refusals(quiet, { host: 'ArcReach-DB.postgres.database.azure.com' })).toEqual([]);
   });
 
   it('does nothing, without refusing, once no campaign and no campaign email is left', () => {

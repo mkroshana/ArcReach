@@ -60,18 +60,20 @@ export type ResetOptions = {
   out: string;
   /** The dry run's count of emails to delete; --apply refuses unless it matches. */
   expectDispatches: number | null;
+  /** The database host the dry run printed; --apply refuses unless DATABASE_URL points there, so a stray .env is never reset. */
+  expectHost: string | null;
   /** Null when not given, which only a dry run allows. */
   azureDropped: AzureDroppedChoice | null;
   clockSkew: ClockSkewChoice | null;
   saveProgressGroups: boolean | null;
 };
 
-const VALUE_FLAGS = ['--out', '--expect-dispatches', '--azure-dropped', '--clock-skew', '--save-progress-groups'];
+const VALUE_FLAGS = ['--out', '--expect-dispatches', '--expect-host', '--azure-dropped', '--clock-skew', '--save-progress-groups'];
 
 /**
  * The options in `argv` (the script's arguments), or why they are refused: an
  * unknown or repeated argument, a value out of range, a missing --out, or
- * --apply without every decision flag and --expect-dispatches.
+ * --apply without every decision flag, --expect-dispatches and --expect-host.
  */
 export function parseResetArgs(argv: string[]): { ok: true; options: ResetOptions } | { ok: false; error: string } {
   let apply = false;
@@ -98,6 +100,8 @@ export function parseResetArgs(argv: string[]): { ok: true; options: ResetOption
   if (expect !== undefined && !/^\d+$/.test(expect)) {
     return { ok: false, error: '--expect-dispatches must be the whole number of emails the dry run would delete.' };
   }
+  const host = values.get('--expect-host')?.trim().toLowerCase();
+  if (host !== undefined && !host) return { ok: false, error: '--expect-host must be the database host the dry run printed.' };
   const azure = values.get('--azure-dropped');
   if (azure !== undefined && azure !== 'suppress' && azure !== 'keep') {
     return { ok: false, error: '--azure-dropped must be suppress or keep.' };
@@ -114,6 +118,7 @@ export function parseResetArgs(argv: string[]): { ok: true; options: ResetOption
   if (apply) {
     const missing = [
       expect === undefined && '--expect-dispatches=<count from the dry run>',
+      host === undefined && '--expect-host=<database host from the dry run>',
       azure === undefined && '--azure-dropped=suppress|keep',
       clock === undefined && '--clock-skew=reset|keep',
       groups === undefined && '--save-progress-groups=yes|no',
@@ -127,6 +132,7 @@ export function parseResetArgs(argv: string[]): { ok: true; options: ResetOption
       apply,
       out,
       expectDispatches: expect === undefined ? null : Number(expect),
+      expectHost: host ?? null,
       azureDropped: (azure as AzureDroppedChoice | undefined) ?? null,
       clockSkew: (clock as ClockSkewChoice | undefined) ?? null,
       saveProgressGroups: groups === undefined ? null : groups === 'yes',
@@ -656,13 +662,16 @@ export function safetyChecks(state: SafetyState): SafetyCheck[] {
 
 /**
  * Why --apply must not run, or [] when it may: the export was not written,
- * a decision flag is missing, --expect-dispatches differs from the emails to
- * delete now, or a safety check failed. With no campaign and no campaign
+ * a decision flag is missing, --expect-host is not the database DATABASE_URL
+ * points at, --expect-dispatches differs from the emails to delete now, or a
+ * safety check failed. With no campaign and no campaign
  * email left there is nothing to delete, so --expect-dispatches is not checked
  * and a run after a finished reset does nothing.
  */
 export function applyRefusals(input: {
   options: ResetOptions;
+  /** The host DATABASE_URL points at (databaseHost). */
+  host: string;
   exportWritten: boolean;
   resetDispatches: number;
   campaignCount: number;
@@ -671,6 +680,9 @@ export function applyRefusals(input: {
   const { options } = input;
   const refusals: string[] = [];
   if (!input.exportWritten) refusals.push('The export was not written in this run.');
+  if (options.expectHost !== input.host.toLowerCase()) {
+    refusals.push(`--expect-host=${options.expectHost ?? '(missing)'} is not the database this run is connected to (${input.host}).`);
+  }
   if (options.azureDropped === null || options.clockSkew === null || options.saveProgressGroups === null) {
     refusals.push('Pass --azure-dropped=suppress|keep, --clock-skew=reset|keep and --save-progress-groups=yes|no.');
   }

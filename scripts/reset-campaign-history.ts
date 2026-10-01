@@ -43,7 +43,7 @@
  * no longer needed. It never reads the email bodies of EmailDispatch.
  *
  * --apply refuses unless the export was written, every decision flag is given,
- * --expect-dispatches equals the emails it would delete now, no campaign is
+ * --expect-host is the database host DATABASE_URL points at, --expect-dispatches equals the emails it would delete now, no campaign is
  * Active or due to auto-resume, no campaign email is Sending, no enrollment has
  * a send claim from the last 10 minutes and no reply belongs to a campaign. It
  * checks the campaigns and Sending emails again in every batch, and all four
@@ -63,7 +63,7 @@
  * Usage:
  *   npx tsx scripts/reset-campaign-history.ts --out=<dir outside the repo>   # dry run and export (default, no writes)
  *   npx tsx scripts/reset-campaign-history.ts --out=<dir> --apply \
- *       --expect-dispatches=<count from the dry run> \
+ *       --expect-dispatches=<count from the dry run> --expect-host=<database host from the dry run> \
  *       --azure-dropped=suppress|keep --clock-skew=reset|keep --save-progress-groups=yes|no   # (writes)
  */
 import fs from 'fs';
@@ -682,7 +682,7 @@ async function main() {
   if (!options.apply) {
     console.log(
       `${LABEL} Dry run. To apply, after noting a restore point and making sure nothing is sending:\n` +
-      `  npx tsx scripts/reset-campaign-history.ts --out=${options.out} --apply --expect-dispatches=${resetDispatches} ` +
+      `  npx tsx scripts/reset-campaign-history.ts --out=${options.out} --apply --expect-dispatches=${resetDispatches} --expect-host=${host} ` +
       '--azure-dropped=suppress|keep --clock-skew=reset|keep --save-progress-groups=yes|no'
     );
     return;
@@ -690,6 +690,7 @@ async function main() {
 
   const refusals = applyRefusals({
     options,
+    host,
     exportWritten: true,
     resetDispatches,
     campaignCount: s.campaigns.length,

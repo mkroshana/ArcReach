@@ -350,7 +350,7 @@ These bring data written by older versions in line with the current code. Each o
 | `backfill-suppression.ts` | Puts leads already Unsubscribed, Bounced or Invalid on the suppression list and pauses their Active enrollments | `--apply` | The `SuppressedEmail` table (db push) |
 | `encrypt-mailbox-secrets.ts` | Encrypts mailbox IMAP passwords stored in plaintext | `--write` | `SECRETS_KEY` set to the App Service's value |
 | `audit-dispatches.ts` | Backfills `stepOrder` and deletes duplicate `Sent` dispatches (see Dispatch Metrics & Duplicate Cleanup) | `--backfill`, `--fix` | The schema pushed (db push) |
-| `reset-campaign-history.ts` | Deletes every campaign with its emails, events, steps and enrollments, keeping leads, groups, templates, mailboxes and the suppression list. First exports who received what to `--out` (outside the repo) and, as its flags say, suppresses Azure-dropped addresses, resets clock-skew Risky leads and saves progress groups | `--apply` with `--expect-dispatches`, `--azure-dropped`, `--clock-skew`, `--save-progress-groups` | No campaign Active or sending, and a noted Azure point-in-time-restore time |
+| `reset-campaign-history.ts` | Deletes every campaign with its emails, events, steps and enrollments, keeping leads, groups, templates, mailboxes and the suppression list. First exports who received what to `--out` (outside the repo) and, as its flags say, suppresses Azure-dropped addresses, resets clock-skew Risky leads and saves progress groups | `--apply` with `--expect-dispatches`, `--expect-host`, `--azure-dropped`, `--clock-skew`, `--save-progress-groups` | No campaign Active or sending, and a noted Azure point-in-time-restore time |
 
 #### Schema Check
 

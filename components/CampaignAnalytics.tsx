@@ -13,7 +13,7 @@ import {
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import { isHtmlTemplate } from '@/lib/personalize';
-import { replySyncState, type ImapSyncState } from '@/lib/imapSyncStatus';
+import { replyCountUnknown, replySyncState, type ImapSyncState } from '@/lib/imapSyncStatus';
 import { ENROLLMENT_STATES, STOPPED_ACTIVE_STATE, nextSendText } from '@/lib/campaignProgress';
 import { timeAgo } from '@/lib/systemStatus';
 import { useTheme as useAppTheme } from '@/components/ThemeProvider';
@@ -289,6 +289,10 @@ export default function CampaignAnalytics({ campaign, mailboxes }: { campaign: a
   const mailboxStats: any[] = t.mailboxes ?? [];
   const caveats = analyticsCaveats(campaign, mailboxes);
   const replyNote = caveats.replySync ? REPLY_SYNC_NOTES[caveats.replySync] : null;
+  // With reply sync off, a reply count of 0 shows as unknown, and the funnel leaves Replied out.
+  const repliesUnknown = replyCountUnknown(caveats.replySync, t.replies);
+  const repliedLeadsUnknown = replyCountUnknown(caveats.replySync, progress.repliedLeads);
+  const funnel = (t.funnel ?? []).filter((stage: any) => !(repliesUnknown && stage.name === 'Replied'));
   const stopped = campaign?.status === 'Stopped';
   const now = new Date();
   // Opens and clicks in the validated categorical slots 1 and 2 (light and dark steps), each named in the legend.
@@ -303,7 +307,7 @@ export default function CampaignAnalytics({ campaign, mailboxes }: { campaign: a
       : { title: 'Delivered', value: count(t.delivered), icon: CheckCircle2, color: '#059669', sub: `${t.deliveryRate ?? 0}% delivery rate` },
     { title: 'Unique Opens', value: count(t.opens), icon: Mail, color: '#2563EB', sub: caveats.trackOpens ? `${t.openRate ?? 0}% open rate` : 'Open tracking is off' },
     { title: 'Unique Clicks', value: count(t.clicks), icon: MousePointerClick, color: '#D97706', sub: caveats.trackClicks ? `${t.clickRate ?? 0}% click rate` : 'Click tracking is off' },
-    { title: 'Replies', value: count(t.replies), icon: Reply, color: '#7C3AED', sub: replyNote ? replyNote.short : `${t.replyRate ?? 0}% reply rate`, caveat: replyNote?.long },
+    { title: 'Replies', value: repliesUnknown ? '—' : count(t.replies), icon: Reply, color: '#7C3AED', sub: replyNote ? replyNote.short : `${t.replyRate ?? 0}% reply rate`, caveat: replyNote?.long },
   ];
   const healthTiles = [
     { title: 'Failed Sends', value: count(t.failed), icon: XCircle, color: '#DC2626', sub: 'Delivery errors at send time' },
@@ -351,7 +355,7 @@ export default function CampaignAnalytics({ campaign, mailboxes }: { campaign: a
             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)', sm: 'repeat(3, 1fr)' }, gap: 2, mb: 3 }}>
               <Fact label="Enrolled" value={count(progress.enrolled)} />
               <Fact label="Contacted" value={count(progress.contacted)} sub={`${share(progress.contacted, progress.enrolled)}% of enrolled`} />
-              <Fact label="Replied" value={count(progress.repliedLeads)} sub={`${share(progress.repliedLeads, progress.contacted)}% of contacted`} caveat={replyNote?.long} />
+              <Fact label="Replied" value={repliedLeadsUnknown ? '—' : count(progress.repliedLeads)} sub={repliedLeadsUnknown ? replyNote?.short : `${share(progress.repliedLeads, progress.contacted)}% of contacted`} caveat={replyNote?.long} />
               <Fact label="Emails Left" value={`Up to ${count(progress.emailsLeft)}`} sub={stopped ? 'Sent after a restart' : undefined} />
               <Fact label="Next Send" value={nextSendText(campaign ?? {}, progress.nextDueAt, now, dateTime)} sub={campaign?.status === 'Active' && progress.dueNow > 0 ? `${count(progress.dueNow)} leads due` : undefined} />
               <Fact label="Last Send" value={progress.lastSentAt ? timeAgo(progress.lastSentAt, now) : 'Never'} />
@@ -527,10 +531,10 @@ export default function CampaignAnalytics({ campaign, mailboxes }: { campaign: a
 
         <Card>
           <CardContent>
-            <SectionTitle>Conversion Funnel</SectionTitle>
+            <SectionTitle caption={repliesUnknown ? 'Replied is left out while reply sync is off.' : undefined}>Conversion Funnel</SectionTitle>
             <Box sx={{ height: 220 }}>
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart layout="vertical" data={t.funnel || []} margin={{ top: 5, right: 5, left: 10, bottom: 5 }}>
+                <BarChart layout="vertical" data={funnel} margin={{ top: 5, right: 5, left: 10, bottom: 5 }}>
                   <XAxis type="number" hide allowDecimals={false} />
                   <YAxis type="category" dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 9 }} width={75} />
                   {/* Each stage names what it counts: emails, replies or leads. */}

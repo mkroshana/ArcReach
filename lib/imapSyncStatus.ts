@@ -71,6 +71,16 @@ export function replySyncState(pool: ImapSyncFields[], mailboxes: ImapSyncFields
 }
 
 /**
+ * Whether a reply count is unknown rather than 0, by the reply-sync state of the
+ * mailboxes that receive the replies: with it off no reply is ever read, so a 0
+ * says nothing. Replies recorded before reply sync was turned off are still a
+ * count, as opens are once tracking is off.
+ */
+export function replyCountUnknown(sync: ImapSyncState | null | undefined, replies: number | null | undefined): boolean {
+  return sync === 'off' && !replies;
+}
+
+/**
  * Why a campaign that pauses leads on reply would never pause anyone: no mailbox that
  * receives its replies has a working reply sync, so no reply is ever read. Replies go
  * to the sender pool's mailboxes, and for one with a Reply-To, to the mailbox (among

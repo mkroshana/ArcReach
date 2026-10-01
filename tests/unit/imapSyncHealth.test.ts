@@ -62,7 +62,7 @@ vi.mock('../../lib/db', () => ({
 import { prisma } from '../../lib/db';
 import { encryptSecret } from '../../lib/secrets';
 import { getActiveImapAccounts, imapSyncFailureMessage, syncMailboxReplies } from '../../lib/imapService';
-import { IMAP_SYNC_LABELS, MICROSOFT_IMAP_NOTE, imapSyncState, isMicrosoftImapHost, replySyncState, stopOnReplyWarning } from '../../lib/imapSyncStatus';
+import { IMAP_SYNC_LABELS, MICROSOFT_IMAP_NOTE, imapSyncState, isMicrosoftImapHost, replyCountUnknown, replySyncState, stopOnReplyWarning } from '../../lib/imapSyncStatus';
 
 const mocked = prisma as any;
 
@@ -328,5 +328,26 @@ describe('replySyncState', () => {
 
   it('counts the mailbox a sender sets as Reply-To', () => {
     expect(replySyncState([{ ...off, replyTo: 'ok@acme.test' }], [off, ok])).toBe('ok');
+  });
+});
+
+describe('replyCountUnknown (stats A11)', () => {
+  it('is unknown, not 0, only while reply sync is off on every mailbox that receives the replies', () => {
+    expect(replyCountUnknown('off', 0)).toBe(true);
+    expect(replyCountUnknown('off', undefined)).toBe(true);
+    // Reply sync is on: a 0 is a measurement, even before the first sync or while it fails.
+    for (const state of ['ok', 'waiting', 'failing'] as const) expect(replyCountUnknown(state, 0)).toBe(false);
+    // The mailboxes did not load, so nothing says the count is unknown.
+    expect(replyCountUnknown(null, 0)).toBe(false);
+  });
+
+  it('still counts the replies recorded before reply sync was turned off', () => {
+    expect(replyCountUnknown('off', 3)).toBe(false);
+  });
+
+  it("gives the campaign page's state for a campaign whose only mailbox has no IMAP details", () => {
+    const sender = { emailAddress: 'steve@acme.test', status: 'Active', imapHost: null, imapPort: null, imapUser: null, imapPass: null };
+    expect(replyCountUnknown(replySyncState([sender]), 0)).toBe(true);
+    expect(replyCountUnknown(replySyncState([{ ...sender, imapHost: 'imap.gmail.com', imapPort: 993, imapUser: 'steve@acme.test', imapPass: '********' }]), 0)).toBe(false);
   });
 });

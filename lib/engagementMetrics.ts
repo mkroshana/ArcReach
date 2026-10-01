@@ -618,14 +618,15 @@ export type FunnelStage = { name: string; value: number; unit: 'Emails' | 'Repli
 /**
  * The conversion funnel's stages, each with the unit it counts, which the
  * charts show: sends, deliveries, opens and clicks are emails, replies are
- * replies received, and meetings booked are leads. Delivered only when given.
+ * replies received, and meetings booked are leads. Delivered and Replied only
+ * when given.
  */
 export function engagementFunnel(counts: {
   sent: number;
   delivered?: number;
   opened: number;
   clicked: number;
-  replies: number;
+  replies?: number;
   meetingsBooked: number;
 }): FunnelStage[] {
   return [
@@ -633,7 +634,7 @@ export function engagementFunnel(counts: {
     ...(counts.delivered === undefined ? [] : [{ name: 'Delivered', value: counts.delivered, unit: 'Emails' as const }]),
     { name: 'Opened', value: counts.opened, unit: 'Emails' },
     { name: 'Clicked', value: counts.clicked, unit: 'Emails' },
-    { name: 'Replied', value: counts.replies, unit: 'Replies' },
+    ...(counts.replies === undefined ? [] : [{ name: 'Replied', value: counts.replies, unit: 'Replies' as const }]),
     { name: 'Meeting Booked', value: counts.meetingsBooked, unit: 'Leads' },
   ];
 }

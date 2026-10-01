@@ -15,6 +15,7 @@ import {
 import { alpha, useTheme } from '@mui/material/styles';
 import { useTheme as useAppTheme } from '@/components/ThemeProvider';
 import { deliveryStatusText } from '@/lib/systemStatus';
+import { replyCountUnknown } from '@/lib/imapSyncStatus';
 import { LoadError, loadErrorMessage, readJsonObject } from '@/lib/apiResponse';
 
 /** The outbox chip for each /api/system-status deliveryStatus. */
@@ -25,6 +26,9 @@ const DELIVERY_CHIP: Record<string, { label: string; color: string }> = {
   NOT_RUNNING: { label: 'Outbox Not Running', color: 'error.main' },
   DISABLED: { label: 'Sending Disabled', color: 'warning.main' },
 };
+
+/** The Replies card's note while no mailbox has reply sync on, so no reply is read. */
+const REPLY_SYNC_OFF_NOTE = 'No active mailbox has IMAP set up, so replies are not read and are missing from these counts. Add IMAP details to a mailbox on the Accounts page.';
 
 const gridSx = (cols: number) => ({
   display: 'grid',
@@ -56,7 +60,7 @@ function DeltaChip({ change }: { change: number }) {
   );
 }
 
-function MetricCard({ title, value, change, sub, color, icon: Icon }: any) {
+function MetricCard({ title, value, change, sub, caveat, color, icon: Icon }: any) {
   const hasDelta = change !== undefined && change !== null;
   return (
     <Card sx={{ transition: 'border-color .2s, box-shadow .2s', '&:hover': { boxShadow: 3 } }}>
@@ -74,7 +78,16 @@ function MetricCard({ title, value, change, sub, color, icon: Icon }: any) {
             <Typography variant="caption" sx={{ color: 'text.secondary' }}>vs last period</Typography>
           </Stack>
         ) : sub ? (
-          <Typography variant="caption" sx={{ color: 'text.secondary', mt: 1.25, display: 'block' }}>{sub}</Typography>
+          <Typography variant="caption" sx={{ color: 'text.secondary', mt: 1.25, display: 'flex', alignItems: 'center' }}>
+            {sub}
+            {caveat && (
+              <MuiTooltip title={caveat} arrow>
+                <Box component="span" tabIndex={0} aria-label={caveat} sx={{ display: 'inline-flex', color: 'warning.main', ml: 0.5 }}>
+                  <AlertTriangle size={12} />
+                </Box>
+              </MuiTooltip>
+            )}
+          </Typography>
         ) : null}
       </CardContent>
     </Card>
@@ -188,6 +201,9 @@ export default function Dashboard() {
   const deliveryDetail = DELIVERY_CHIP[systemStatus?.deliveryStatus]
     ? deliveryStatusText(systemStatus.deliveryStatus, systemStatus.sendingProblem, systemStatus.workerHeartbeat)
     : !systemStatus && loading ? '' : 'The system status could not be read.';
+  // With reply sync off on every mailbox no reply is read, so a 0 means replies are not read, not that nobody replied.
+  const replySyncOff = stats?.replySync === 'off';
+  const repliesUnknown = replyCountUnknown(stats?.replySync, stats?.totalReplies);
   const needsSetup = systemStatus && (systemStatus.accountsCount === 0 || systemStatus.leadsCount === 0 || systemStatus.activeCampaignsCount === 0);
 
   const setupSteps = systemStatus ? [
@@ -278,7 +294,15 @@ export default function Dashboard() {
             <MetricCard title="Emails Sent" value={stats.totalSent.toLocaleString()} change={stats.deltas?.sent} color="#2563EB" icon={SendHorizontal} />
             <MetricCard title="Open Rate" value={`${stats.averageOpenRate}%`} change={stats.deltas?.openRate} color="#0D9488" icon={Mail} />
             <MetricCard title="Click Rate" value={`${stats.averageClickRate}%`} change={stats.deltas?.clickRate} color="#D97706" icon={MousePointerClick} />
-            <MetricCard title="Replies" value={stats.totalReplies.toLocaleString()} change={stats.deltas?.replies} color="#7C3AED" icon={Reply} />
+            <MetricCard
+              title="Replies"
+              value={repliesUnknown ? '—' : stats.totalReplies.toLocaleString()}
+              change={replySyncOff ? undefined : stats.deltas?.replies}
+              sub={replySyncOff ? 'Reply sync off' : undefined}
+              caveat={replySyncOff ? REPLY_SYNC_OFF_NOTE : undefined}
+              color="#7C3AED"
+              icon={Reply}
+            />
           </Box>
 
           {/* Deliverability health */}
@@ -323,7 +347,10 @@ export default function Dashboard() {
           </ChartCard>
 
           <Box sx={{ display: 'grid', gap: 3, gridTemplateColumns: { xs: '1fr', lg: '1fr 1fr' } }}>
-            <ChartCard title="Conversion Funnel" subtitle="Pipeline from outbound dispatch to booked meeting.">
+            <ChartCard
+              title="Conversion Funnel"
+              subtitle={`Pipeline from outbound dispatch to booked meeting.${repliesUnknown ? ' Replied is left out while reply sync is off.' : ''}`}
+            >
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart layout="vertical" data={funnel} margin={{ top: 10, right: 24, left: 20, bottom: 10 }}>
                   <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: axisTickColor, fontSize: 10 }} allowDecimals={false} />

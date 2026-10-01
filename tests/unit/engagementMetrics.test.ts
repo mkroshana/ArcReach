@@ -35,7 +35,7 @@ import { GET as getCampaign } from '../../app/api/campaigns/[id]/route';
 import { GET as getDashboardStats } from '../../app/api/dashboard-stats/route';
 import { GET as getAccounts } from '../../app/api/accounts/route';
 import { dailyEngagement, metricsWindow, stepMetrics } from '../../lib/engagementMetrics';
-import { countRows, groupRows } from './helpers/prismaWhere';
+import { countRows, groupRows, matchesWhere } from './helpers/prismaWhere';
 
 const mockedSession = vi.mocked(getSession);
 const USER = { id: 'user-1', name: 'User', email: 'user@example.com', role: 'USER' as const };
@@ -66,6 +66,8 @@ type ReplyRow = { id: string; campaignId: string | null; senderAccountId: string
 
 let dispatches: DispatchRow[];
 let replies: ReplyRow[];
+/** Each mailbox's IMAP columns a test sets; with none its reply sync is off. */
+let imap: Record<string, Record<string, unknown>>;
 
 /** A step-1 send of cmp-1 from mb-1 that ACS accepted yesterday, by default. */
 function addDispatch(row: Partial<DispatchRow> & { id: string }) {
@@ -115,6 +117,7 @@ beforeEach(() => {
   mockedSession.mockResolvedValue(USER);
   dispatches = [];
   replies = [];
+  imap = {};
   for (const model of [fake.campaign, fake.campaignEnrollment, fake.emailDispatch, fake.inboundResponse, fake.lead]) {
     model.count.mockResolvedValue(0);
     model.groupBy.mockResolvedValue([]);
@@ -127,9 +130,11 @@ beforeEach(() => {
   fake.emailDispatch.count.mockImplementation(async ({ where }: any) => countRows(dispatches, where, DISPATCH_RELATIONS));
   fake.emailDispatch.groupBy.mockImplementation(async (args: any) => groupRows(dispatches, args, DISPATCH_RELATIONS));
   fake.inboundResponse.count.mockImplementation(async ({ where }: any) => countRows(replies, where, REPLY_RELATIONS));
-  // The campaign page names the mailboxes its sends came from.
+  // The campaign page names the mailboxes its sends came from; the dashboard reads their reply sync.
   fake.senderAccount.findMany.mockImplementation(async ({ where }: any) =>
-    Object.values(MAILBOXES).filter((m) => where.id.in.includes(m.id)).map((m) => ({ id: m.id, emailAddress: `${m.id}@acme.test`, name: null })));
+    Object.values(MAILBOXES)
+      .map((m) => ({ ...m, emailAddress: `${m.id}@acme.test`, name: null, status: 'Active', ...imap[m.id] }))
+      .filter((m) => matchesWhere(m, where)));
   fake.$queryRaw.mockResolvedValue([]);
 });
 
@@ -269,6 +274,55 @@ describe('Delivered is unknown, not 0, until a delivery report arrives (stats A1
 
     addDispatch({ id: 'd4', deliveredAt: at(1), deliveryStatus: 'Delivered' });
     expect(await stages()).toEqual([['Sent', 4], ['Delivered', 1], ['Opened', 1], ['Clicked', 0], ['Replied', 0], ['Meeting Booked', 0]]);
+  });
+});
+
+describe('the dashboard says replies are not read while no mailbox has reply sync on (stats A11)', () => {
+  const IMAP = { imapHost: 'imap.acme.test', imapPort: 993, imapUser: 'sales@acme.test', imapPass: 'encrypted' };
+
+  /** What the dashboard says about replies: its reply-sync state, the count, and the funnel's stages. */
+  async function shown() {
+    const { stats, funnel } = await dashboard();
+    return { replySync: stats.replySync, totalReplies: stats.totalReplies, stages: funnel.map((s: any) => [s.name, s.value]) };
+  }
+
+  it('leaves Replied out of the funnel while no mailbox reads replies, and draws its 0 once one does', async () => {
+    addDispatch({ id: 'd1' });
+
+    expect(await shown()).toEqual({
+      replySync: 'off', totalReplies: 0,
+      stages: [['Sent', 1], ['Opened', 0], ['Clicked', 0], ['Meeting Booked', 0]],
+    });
+
+    // A paused mailbox is never synced, whatever its IMAP details.
+    imap['mb-1'] = { ...IMAP, status: 'Paused' };
+    expect((await shown()).replySync).toBe('off');
+
+    // IMAP saved and not synced yet: replies are read from now on, so the 0 is a count.
+    imap['mb-1'] = IMAP;
+    expect(await shown()).toEqual({
+      replySync: 'waiting', totalReplies: 0,
+      stages: [['Sent', 1], ['Opened', 0], ['Clicked', 0], ['Replied', 0], ['Meeting Booked', 0]],
+    });
+  });
+
+  it("reads the reply sync of the mailboxes whose replies it counts: the user's own, or every one for admins", async () => {
+    imap['mb-2'] = { ...IMAP, imapLastSyncAt: at(0) };
+
+    expect((await dashboard()).stats.replySync).toBe('off');
+    expect(fake.senderAccount.findMany).toHaveBeenLastCalledWith(expect.objectContaining({ where: { userId: 'user-1' } }));
+    mockedSession.mockResolvedValue(OTHER_USER);
+    expect((await dashboard()).stats.replySync).toBe('ok');
+    mockedSession.mockResolvedValue(ADMIN);
+    expect((await dashboard()).stats.replySync).toBe('ok');
+  });
+
+  it('still counts the replies recorded before reply sync was turned off', async () => {
+    replies.push({ id: 'r1', campaignId: 'cmp-1', senderAccountId: 'mb-1', receivedAt: at(0) });
+
+    const { stats, funnel } = await dashboard();
+    expect(stats).toMatchObject({ replySync: 'off', totalReplies: 1 });
+    expect(funnel).toContainEqual({ name: 'Replied', value: 1, unit: 'Replies' });
   });
 });
 

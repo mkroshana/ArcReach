@@ -11,6 +11,7 @@ const fake = vi.hoisted(() => {
     emailDispatch: model(),
     inboundResponse: model(),
     lead: model(),
+    senderAccount: model(),
     $queryRaw: vi.fn(),
   };
 });
@@ -70,7 +71,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   mockedSession.mockResolvedValue(USER);
   dispatches = [];
-  for (const model of [fake.campaign, fake.campaignEnrollment, fake.emailDispatch, fake.inboundResponse, fake.lead]) {
+  for (const model of [fake.campaign, fake.campaignEnrollment, fake.emailDispatch, fake.inboundResponse, fake.lead, fake.senderAccount]) {
     model.count.mockResolvedValue(0);
     model.groupBy.mockResolvedValue([]);
     model.findMany.mockResolvedValue([]);

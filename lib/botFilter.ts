@@ -41,9 +41,17 @@ const BOT_UA_PATTERNS: RegExp[] = [
 // agent. Browsers and mail clients always send platform details after it.
 const APPLE_PRIVACY_PROXY_UA = /^Mozilla\/5\.0$/;
 
-// Threshold constants
-export const PREFETCH_WINDOW_OPEN_SECONDS = 10;
-export const PREFETCH_WINDOW_CLICK_SECONDS = 5;
+/**
+ * How long after ACS accepts an email an open or click is still the
+ * recipient's mail system rather than a person: email security gateways fetch
+ * the pixel and follow the links when the email is delivered. In production
+ * (June to September 2026) 93% of one campaign's clicked emails were first
+ * clicked, and 64% of all opened emails first opened, within 2 minutes of the
+ * send, so both windows are 2 minutes. A person who opens or clicks that soon
+ * is missed, which is rare for cold email.
+ */
+export const PREFETCH_WINDOW_OPEN_SECONDS = 120;
+export const PREFETCH_WINDOW_CLICK_SECONDS = 120;
 /** Clicks on different links of one email this close together are a scanner following every link. */
 export const LINK_BURST_SECONDS = 2;
 
@@ -110,7 +118,7 @@ export function prefetchWindowStart(dispatch: TrackedDispatch): Date | null {
   return new Date(dispatch.sentAt);
 }
 
-// kind: 'open' uses 10s window; 'click' uses 5s window.
+// Opens use PREFETCH_WINDOW_OPEN_SECONDS and clicks PREFETCH_WINDOW_CLICK_SECONDS.
 // Returns true if the event arrived suspiciously fast after the send was
 // accepted (i.e. likely a gateway pre-scan on delivery, not a human), or
 // before the acceptance was recorded at all (windowStart null or later than now).

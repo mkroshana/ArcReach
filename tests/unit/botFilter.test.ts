@@ -133,24 +133,19 @@ describe('prefetchWindowStart (M34)', () => {
 describe('isWithinPrefetchWindow', () => {
   const now = new Date('2026-06-19T10:00:00Z');
 
-  it('should return true for opens within 10 seconds', () => {
-    const acceptedAt = new Date('2026-06-19T09:59:55Z'); // 5 seconds ago
-    expect(isWithinPrefetchWindow(acceptedAt, 'open', now)).toBe(true);
+  it('counts opens and clicks up to 2 minutes after the send was accepted as the gateway on delivery', () => {
+    for (const kind of ['open', 'click'] as const) {
+      expect(isWithinPrefetchWindow(new Date('2026-06-19T09:59:58Z'), kind, now)).toBe(true); // 2 seconds ago
+      expect(isWithinPrefetchWindow(new Date('2026-06-19T09:58:30Z'), kind, now)).toBe(true); // 90 seconds ago
+      expect(isWithinPrefetchWindow(new Date('2026-06-19T09:58:01Z'), kind, now)).toBe(true); // 119 seconds ago
+    }
   });
 
-  it('should return false for opens after 10 seconds', () => {
-    const acceptedAt = new Date('2026-06-19T09:59:45Z'); // 15 seconds ago
-    expect(isWithinPrefetchWindow(acceptedAt, 'open', now)).toBe(false);
-  });
-
-  it('should return true for clicks within 5 seconds', () => {
-    const acceptedAt = new Date('2026-06-19T09:59:58Z'); // 2 seconds ago
-    expect(isWithinPrefetchWindow(acceptedAt, 'click', now)).toBe(true);
-  });
-
-  it('should return false for clicks after 5 seconds', () => {
-    const acceptedAt = new Date('2026-06-19T09:59:53Z'); // 7 seconds ago
-    expect(isWithinPrefetchWindow(acceptedAt, 'click', now)).toBe(false);
+  it('lets opens and clicks from 2 minutes after the send was accepted count', () => {
+    for (const kind of ['open', 'click'] as const) {
+      expect(isWithinPrefetchWindow(new Date('2026-06-19T09:58:00Z'), kind, now)).toBe(false); // exactly 2 minutes ago
+      expect(isWithinPrefetchWindow(new Date('2026-06-19T09:57:00Z'), kind, now)).toBe(false); // 3 minutes ago
+    }
   });
 
   it('counts a hit before the acceptance was recorded, or with no acceptance yet, as a prefetch', () => {
@@ -188,8 +183,14 @@ describe('engagementBotReason', () => {
     expect(engagementBotReason(dispatch, UA.applePrivacyProxy, 'open', now)).toBe('apple-mpp');
   });
 
+  it('flags a browser click a minute after the send was accepted: a link scanner on delivery', () => {
+    const dispatch = { status: 'Sent', sentAt: ago(70), acceptedAt: ago(60) };
+    expect(engagementBotReason(dispatch, UA.chrome, 'click', now)).toBe('prefetch-window');
+    expect(engagementBotReason(dispatch, UA.appleMailIphone, 'open', now)).toBe('prefetch-window');
+  });
+
   it('counts a person after the prefetch window', () => {
-    const dispatch = { status: 'Sent', sentAt: ago(60), acceptedAt: ago(50) };
+    const dispatch = { status: 'Sent', sentAt: ago(190), acceptedAt: ago(180) };
     expect(engagementBotReason(dispatch, UA.appleMailIphone, 'open', now)).toBeNull();
     expect(engagementBotReason(dispatch, UA.chrome, 'click', now)).toBeNull();
   });

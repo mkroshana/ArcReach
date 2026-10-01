@@ -469,7 +469,7 @@ export default function CampaignAnalytics({ campaign, mailboxes }: { campaign: a
               <Fact label="Enrolled" value={count(progress.enrolled)} />
               <Fact label="Contacted" value={count(progress.contacted)} sub={`${share(progress.contacted, progress.enrolled)}% of enrolled`} />
               <Fact label="Replied" value={repliedLeadsUnknown ? '—' : count(progress.repliedLeads)} sub={repliedLeadsUnknown ? replyNote?.short : `${share(progress.repliedLeads, progress.contacted)}% of contacted`} caveat={replyNote?.long} />
-              <Fact label="Emails Left" value={`Up to ${count(progress.emailsLeft)}`} sub={stopped ? 'Sent after a restart' : undefined} />
+              <Fact label="Emails Left" value={`Up to ${count(progress.emailsLeft)}`} sub={stopped && progress.emailsLeft > 0 ? 'Sent after a restart' : undefined} />
               <Fact label="Next Send" value={nextSendText(campaign ?? {}, progress.nextDueAt, now, dateTime)} sub={campaign?.status === 'Active' && progress.dueNow > 0 ? `${count(progress.dueNow)} leads due` : undefined} />
               <Fact label="Last Send" value={progress.lastSentAt ? timeAgo(progress.lastSentAt, now) : 'Never'} />
             </Box>

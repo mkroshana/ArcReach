@@ -184,9 +184,10 @@ describe('open and click rates have one definition on every page (M30, L8)', () 
       { name: 'Meeting Booked', value: 0, unit: 'Leads' },
     ]);
 
+    // No delivery report arrived, so the campaign funnel has no Delivered stage either (stats A2).
     const telemetry = await campaignTelemetry();
     expect(telemetry.funnel.map((s: any) => [s.name, s.value, s.unit])).toEqual([
-      ['Sent', 3, 'Emails'], ['Delivered', 0, 'Emails'], ['Opened', 2, 'Emails'], ['Clicked', 2, 'Emails'],
+      ['Sent', 3, 'Emails'], ['Opened', 2, 'Emails'], ['Clicked', 2, 'Emails'],
       ['Replied', 1, 'Replies'], ['Meeting Booked', 0, 'Leads'],
     ]);
     expect(telemetry).toMatchObject({ opens: 2, clicks: 2, openRate: 66.7, clickRate: 66.7 });
@@ -250,6 +251,24 @@ describe('Delivered is unknown, not 0, until a delivery report arrives (stats A1
     expect(fake.emailDispatch.groupBy).toHaveBeenCalledTimes(plainQueries + 1);
     expect(fake.emailDispatch.count).not.toHaveBeenCalled();
     expect(fake.$queryRaw).not.toHaveBeenCalled();
+  });
+
+  it('leaves the campaign funnel\'s Delivered stage out until a report arrives for one of its emails, then draws it (stats A2)', async () => {
+    // Sent before delivery reports, so none arrived.
+    addDispatch({ id: 'd1', events: [event('open')] });
+    addDispatch({ id: 'd2' });
+    // Another campaign's report says nothing about cmp-1's emails.
+    addDispatch({ id: 'theirs', campaignId: 'cmp-2', senderAccountId: 'mb-2', deliveredAt: at(1), deliveryStatus: 'Delivered' });
+    const stages = async () => (await campaignTelemetry()).funnel.map((s: any) => [s.name, s.value]);
+
+    expect(await stages()).toEqual([['Sent', 2], ['Opened', 1], ['Clicked', 0], ['Replied', 0], ['Meeting Booked', 0]]);
+
+    // A report that the email was not delivered is still a report, so the stage's 0 is now measured.
+    addDispatch({ id: 'd3', deliveryStatus: 'Bounced', bounceType: 'soft', bouncedAt: at(1) });
+    expect(await stages()).toEqual([['Sent', 3], ['Delivered', 0], ['Opened', 1], ['Clicked', 0], ['Replied', 0], ['Meeting Booked', 0]]);
+
+    addDispatch({ id: 'd4', deliveredAt: at(1), deliveryStatus: 'Delivered' });
+    expect(await stages()).toEqual([['Sent', 4], ['Delivered', 1], ['Opened', 1], ['Clicked', 0], ['Replied', 0], ['Meeting Booked', 0]]);
   });
 });
 

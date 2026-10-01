@@ -148,9 +148,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       }
     });
 
+    // Delivered is a stage only once a delivery report arrived for one of the
+    // campaign's emails; until then its 0 is not a measurement, so it is left out.
     const funnel = engagementFunnel({
       sent: sends.sent,
-      delivered: sends.delivered,
+      delivered: delivery.reported > 0 ? sends.delivered : undefined,
       opened: sends.opened,
       clicked: sends.clicked,
       replies: repliesCount,

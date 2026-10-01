@@ -21,7 +21,7 @@ vi.mock('@azure/communication-email', async (importOriginal) => {
   return { ...real, EmailClient };
 });
 
-import { sendMessage, getAzureSendStatus, EmailSendError } from '../../lib/emailProvider';
+import { sendMessage, getAzureSendStatus, EmailSendError, EmailSendUnconfirmedError } from '../../lib/emailProvider';
 import { classifyFailure } from '../../lib/sendEngine';
 import { encryptSecret } from '../../lib/secrets';
 import { replyThreadingHeaders } from '../../lib/replyThreading';
@@ -30,12 +30,14 @@ const OPERATION_ID = '5b0e7a52-3c1d-4d8e-9f10-2a3b4c5d6e7f';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const ACCESS_KEY = Buffer.from('k'.repeat(32)).toString('base64');
 
-type Reply = { status: number; body: unknown } | 'drop' | 'hang';
+type Reply = { status: number; body: unknown; headers?: Record<string, string> } | 'drop' | 'hang';
 type Hit = { method: string; path: string; operationId: string | undefined };
 
 let server: http.Server;
 let baseUrl: string;
 let hits: Hit[];
+/** Requests the stub left hanging whose connection the client then closed. */
+let hungClosed: number;
 /** Full URL and Authorization header of each request, in the order received. */
 let signed: Array<{ url: string; authorization: string | undefined }>;
 /** Raw body of each request, in the order received. */
@@ -46,6 +48,7 @@ let reply: (method: string, n: number) => Reply;
 beforeEach(async () => {
   sdk.clientOptions.length = 0;
   hits = [];
+  hungClosed = 0;
   signed = [];
   bodies = [];
   vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -66,9 +69,12 @@ beforeEach(async () => {
         req.socket.destroy();
         return;
       }
-      if (answer === 'hang') return;
+      if (answer === 'hang') {
+        res.on('close', () => { hungClosed++; });
+        return;
+      }
       const operationLocation = `${baseUrl}/emails/operations/${OPERATION_ID}?api-version=2025-09-01`;
-      res.writeHead(answer.status, { 'content-type': 'application/json', 'operation-location': operationLocation });
+      res.writeHead(answer.status, { 'content-type': 'application/json', 'operation-location': operationLocation, ...answer.headers });
       res.end(JSON.stringify(answer.body));
     });
   });
@@ -82,7 +88,7 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-const send = (operationId: string | undefined = OPERATION_ID) =>
+const send = (operationId: string | undefined = OPERATION_ID, timeoutMs?: number) =>
   sendMessage(
     {
       to: 'lead@prospect.test', subject: 'Hello', body: 'Hi there', isHtml: false,
@@ -93,6 +99,7 @@ const send = (operationId: string | undefined = OPERATION_ID) =>
       azureConnString: encryptSecret(`endpoint=${baseUrl}/;accesskey=${ACCESS_KEY}`),
       azureSenderDomains: ['acme.test'],
     },
+    timeoutMs,
   );
 
 const accepted: Reply = { status: 202, body: { id: OPERATION_ID, status: 'Running' } };
@@ -176,6 +183,61 @@ describe('Azure send: one POST under the Operation-Id, and acceptance is final (
     expect(err).toBeInstanceOf(EmailSendError);
     expect(err).toMatchObject({ code: 'EmailDroppedAllRecipientsSuppressed', message: 'Message dropped because all recipients were suppressed' });
     expect(classifyFailure(err)).toBe('hard');
+  });
+});
+
+describe('Azure send: gives up on ACS after the timeout and reports the send unconfirmed, never failed (stats S11)', () => {
+  it('gives up on a status poll that never answers, aborts it, and reports the accepted send unconfirmed', async () => {
+    reply = (method) => (method === 'POST' ? accepted : 'hang');
+
+    const startedAt = Date.now();
+    const err = await send(OPERATION_ID, 200).catch((e) => e);
+
+    expect(Date.now() - startedAt).toBeLessThan(2_000);
+    expect(err).toBeInstanceOf(EmailSendUnconfirmedError);
+    expect(err).not.toBeInstanceOf(EmailSendError);
+    expect(err).toMatchObject({ operationId: OPERATION_ID, accepted: true });
+    expect(err.message).toMatch(/accepted the email but did not report its final status within 0\.2 seconds/);
+    expect(hits.map((h) => h.method)).toEqual(['POST', 'GET']);
+    // The hung poll's connection is closed, so it cannot answer later.
+    await vi.waitFor(() => expect(hungClosed).toBe(1));
+  });
+
+  it('stops polling a send ACS keeps reporting Running, however long its Retry-After asks to wait', async () => {
+    const running: Reply = { status: 200, body: { id: OPERATION_ID, status: 'Running' }, headers: { 'retry-after': '1' } };
+    reply = (method) => (method === 'POST' ? accepted : running);
+
+    const err = await send(OPERATION_ID, 300).catch((e) => e);
+
+    expect(err).toBeInstanceOf(EmailSendUnconfirmedError);
+    expect(err).toMatchObject({ operationId: OPERATION_ID, accepted: true });
+    expect(hits[0].method).toBe('POST');
+    const polls = hits.length;
+    expect(polls).toBeGreaterThanOrEqual(2);
+    // A Retry-After interval later, no further poll has gone out.
+    await new Promise((resolve) => setTimeout(resolve, 1_300));
+    expect(hits).toHaveLength(polls);
+  });
+
+  it('gives up on a POST that gets no answer and reports it unconfirmed, not refused, since ACS may have queued it', async () => {
+    reply = () => 'hang';
+
+    const err = await send(OPERATION_ID, 200).catch((e) => e);
+
+    expect(err).toBeInstanceOf(EmailSendUnconfirmedError);
+    expect(err).toMatchObject({ operationId: OPERATION_ID, accepted: false });
+    expect(err.message).toMatch(/did not answer the send within 0\.2 seconds; the email may or may not have gone out/);
+    expect(hits).toEqual([{ method: 'POST', path: '/emails:send', operationId: OPERATION_ID }]);
+    await vi.waitFor(() => expect(hungClosed).toBe(1));
+  });
+
+  it('still reports a send ACS settles within the timeout as sent or refused, as before', async () => {
+    reply = (method, n) => (method === 'POST' ? accepted : n === 2 ? status('Running') : status('Succeeded'));
+    await expect(send(OPERATION_ID, 1_000)).resolves.toEqual({ providerMessageId: OPERATION_ID });
+
+    hits = [];
+    reply = (method) => (method === 'POST' ? accepted : status('Failed', { error: { code: 'InvalidRecipient', message: 'Recipient address rejected.' } }));
+    await expect(send(OPERATION_ID, 1_000)).rejects.toMatchObject({ name: 'EmailSendError', code: 'InvalidRecipient' });
   });
 });
 

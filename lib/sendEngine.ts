@@ -6,7 +6,7 @@ import { checkGlobalRateLimits } from './rateLimits';
 import { applyEmailTracking } from './emailTracking';
 import { listUnsubscribeHeaders, signUnsubscribeToken } from './unsubscribeLink';
 import { personalizeEmail, renderEmailBody } from './personalize';
-import { sendMessage, sendingDisabledReason } from './emailProvider';
+import { sendMessage, sendingDisabledReason, EmailSendUnconfirmedError } from './emailProvider';
 import { sendableEnrollmentWhere, claimEnrollmentForSend, releaseEnrollmentClaim, RELEASED_CLAIM } from './sendEligibility';
 import { suppressEmail } from './suppression';
 import { type SendSchedule, SCHEDULE_DAYS, hasSendingSchedule, isValidTimezone, minutesOfDay, parseSendSchedule } from './sendSchedule';
@@ -1046,6 +1046,18 @@ export async function processDueEmails() {
           settings
         ));
       } catch (err: any) {
+        if (err instanceof EmailSendUnconfirmedError) {
+          // ACS did not say in time how the send ended, so it may have gone
+          // out: it is neither marked Failed nor sent again. The dispatch stays
+          // Sending under its operation id, as after a send interrupted by a
+          // restart: the step guard above leaves it alone, it counts toward the
+          // mailbox caps, and lib/sendReconciler settles it from ACS once it is
+          // stale. ACS is not answering in time, so the cycle ends here rather
+          // than wait the timeout out again on each remaining send.
+          console.warn(`[SendEngine] Send to ${lead.email} unconfirmed; dispatch ${dispatch.id} stays Sending for the reconciler and this cycle ends: ${err.message}`);
+          await releaseEnrollmentClaim(enrollment.id, claimToken);
+          break;
+        }
         console.error(`[SendEngine Failure] Could not send to ${lead.email}:`, err.message || err);
 
         // Soft/hard bounce classification + retry/backoff (shared with the send reconciler).

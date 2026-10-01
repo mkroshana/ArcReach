@@ -36,6 +36,17 @@ describe('bounceFigure: the tile, step rows, mailbox rows and Sequence strip (st
       .toEqual({ count: 0, rate: '0%', note: null });
   });
 
+  it("decides the Accounts page's mailbox row and Bounced tile, which GET /api/accounts gives no bounce base or rate (stats S16)", () => {
+    // 755 sent, none reported or bounced when sending: unknown, not a bare 0.
+    expect(bounceFigure({ sent: 755, reported: 0, bounced: 0 }, WITH_REPORTS)).toMatchObject({ count: null, note: 'noReports' });
+    // Bounces found when sending are a count.
+    expect(bounceFigure({ sent: 755, reported: 0, bounced: 3 }, WITH_REPORTS)).toMatchObject({ count: 3 });
+    // Once some of its emails are reported, a 0 is measured.
+    expect(bounceFigure({ sent: 755, reported: 55, bounced: 0 }, WITH_REPORTS)).toEqual({ count: 0, rate: null, note: null });
+    // A mailbox that sent nothing bounced nothing.
+    expect(bounceFigure({ sent: 0, reported: 0, bounced: 0 }, WITH_REPORTS)).toMatchObject({ count: 0 });
+  });
+
   it('gives no rate where nothing was accepted, so bounces found when sending never read 100%', () => {
     const refused = { sent: 0, reported: 0, bounced: 3, bounceBase: 3, bounceRate: 100 };
     expect(bounceFigure(refused, WITH_REPORTS)).toEqual({ count: 3, rate: null, note: 'sendTimeOnly' });

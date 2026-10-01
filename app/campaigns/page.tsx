@@ -42,11 +42,15 @@ interface DbCampaign {
   // Server-side aggregates — raw enrollment/dispatch rows are never shipped
   // (payloads at scale OOM'd the server).
   // `leads`: the leads the step's sent emails reached, each once however often it got the step.
-  stepStats?: { stepOrder: number; active: number; sent: number; delivered: number; failed: number; leads: number }[];
+  // `reported`: its sent emails a delivery report arrived for; with none, `delivered` is unknown, not 0.
+  stepStats?: { stepOrder: number; active: number; sent: number; delivered: number; reported: number; failed: number; leads: number }[];
   enrollmentSummary?: { total: number; active: number; completed: number };
 }
 
 const statusColorMap = { Active: 'success', Draft: 'default', Paused: 'warning', Stopped: 'error' } as const;
+
+/** Why a step card shows Delivered as unknown. */
+const NO_DELIVERY_REPORTS_NOTE = 'No delivery reports have arrived for these emails, so how many were delivered is not known.';
 
 export default function CampaignsPage() {
   const router = useRouter();
@@ -471,6 +475,8 @@ export default function CampaignsPage() {
                                     const isActiveStep = activeLeadsCount > 0;
                                     const sentCount = stats?.sent || 0;
                                     const deliveredCount = stats?.delivered || 0;
+                                    // With no delivery report for any of its emails, Delivered is unknown rather than 0.
+                                    const deliveryUnknown = (stats?.reported || 0) === 0;
                                     const failedCount = stats?.failed || 0;
                                     const totalEnrolled = campaign.enrollmentSummary?.total || 0;
                                     // The share of enrolled leads the step reached: leads, not emails, so a
@@ -492,7 +498,11 @@ export default function CampaignsPage() {
                                             <Box sx={{ mt: 0.75, pt: 0.75, borderTop: 1, borderColor: 'divider', display: 'flex', flexDirection: 'column', gap: 0.25 }}>
                                               <Stack direction="row" sx={{ justifyContent: 'space-between', fontSize: 9 }}><Box component="span" sx={{ color: 'text.secondary' }}>{stopped ? 'Stopped here:' : 'To send:'}</Box><Box component="span" sx={{ fontWeight: 800, color: activeLeadsCount > 0 ? 'warning.main' : 'text.disabled' }}>{activeLeadsCount}</Box></Stack>
                                               <Stack direction="row" sx={{ justifyContent: 'space-between', fontSize: 9 }}><Box component="span" sx={{ color: 'text.secondary' }}>Sent:</Box><Box component="span" sx={{ fontWeight: 800 }}>{sentCount}</Box></Stack>
-                                              {sentCount > 0 && <Stack direction="row" sx={{ justifyContent: 'space-between', fontSize: 9 }}><Box component="span" sx={{ color: 'text.secondary' }}>Delivered:</Box><Box component="span" sx={{ fontWeight: 800, color: 'success.main' }}>{deliveredCount}</Box></Stack>}
+                                              {sentCount > 0 && <Stack direction="row" sx={{ justifyContent: 'space-between', fontSize: 9 }}><Box component="span" sx={{ color: 'text.secondary' }}>Delivered:</Box>{deliveryUnknown ? (
+                                                <MuiTooltip title={NO_DELIVERY_REPORTS_NOTE}>
+                                                  <Box component="span" tabIndex={0} aria-label="No delivery reports" sx={{ fontWeight: 800, color: 'text.secondary' }}>—</Box>
+                                                </MuiTooltip>
+                                              ) : <Box component="span" sx={{ fontWeight: 800, color: 'success.main' }}>{deliveredCount}</Box>}</Stack>}
                                               {failedCount > 0 && <Stack direction="row" sx={{ justifyContent: 'space-between', fontSize: 9 }}><Box component="span" sx={{ color: 'text.secondary' }}>Failed:</Box><Box component="span" sx={{ fontWeight: 800, color: 'error.main' }}>{failedCount}</Box></Stack>}
                                               {sentCount > 0 && <Stack direction="row" sx={{ justifyContent: 'space-between', fontSize: 9 }}><Box component="span" sx={{ color: 'text.secondary' }}>Progress:</Box><Box component="span" sx={{ fontWeight: 800, color: 'primary.main' }}>{progressPercent}%</Box></Stack>}
                                             </Box>

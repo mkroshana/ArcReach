@@ -59,6 +59,8 @@ export const SEQUENCE_SEND: Prisma.EmailDispatchWhereInput = { stepOrder: { not:
 
 const SENT: Prisma.EmailDispatchWhereInput = { status: 'Sent' };
 const DELIVERED: Prisma.EmailDispatchWhereInput = { deliveredAt: { not: null } };
+/** A delivery report arrived for the email; until one does, its delivered count says nothing. */
+const REPORTED: Prisma.EmailDispatchWhereInput = { deliveryStatus: { not: null } };
 const OPENED: Prisma.EmailDispatchWhereInput = { events: { some: { eventType: { in: [OPEN_EVENT, CLICK_EVENT] } } } };
 const CLICKED: Prisma.EmailDispatchWhereInput = { events: { some: { eventType: CLICK_EVENT } } };
 /** The open and click rates' base: delivered, or not reported undelivered, or opened (which proves delivery). */
@@ -172,6 +174,14 @@ export function countSendAttempts(client: MetricsClient, scope: MetricsScope): P
   return client.emailDispatch.count({ where: { AND: [scopeWhere(scope), SEQUENCE_SEND] } });
 }
 
+/**
+ * A scope's sends any delivery report arrived for. With none, its delivered
+ * count is not a measurement, so pages show it as unknown rather than 0.
+ */
+export function countReported(client: MetricsClient, scope: MetricsScope): Promise<number> {
+  return client.emailDispatch.count({ where: { AND: [sentWhere(scope), REPORTED] } });
+}
+
 /** A scope's hard bounces, those that happened in `period` when given. */
 export function countHardBounces(client: MetricsClient, scope: MetricsScope, period?: Period): Promise<number> {
   return client.emailDispatch.count({ where: { AND: [scopeWhere(scope), SEQUENCE_SEND, hardBounceWhere(period)] } });
@@ -238,6 +248,8 @@ export type SendMetricsOptions = {
   engagement?: boolean;
   /** Hard bounces, unsubscribes and how many emails a delivery report arrived for. */
   health?: boolean;
+  /** Only how many emails a delivery report arrived for (`health` loads it too). */
+  reports?: boolean;
   /** Leads emailed, counted once each. */
   leads?: boolean;
   /** Leads who replied; their rate needs `leads` too. */
@@ -338,7 +350,7 @@ async function sendCountsBy(
     countIf(options.health, { AND: [sends, hardBounceWhere()] }),
     countIf(options.health, { AND: [sends, { OR: [SENT, hardBounceWhere()] }] }),
     countIf(options.health, { AND: [sends, { events: { some: { eventType: UNSUBSCRIBE_EVENT } } }] }),
-    countIf(options.health, { AND: [sent, { deliveryStatus: { not: null } }] }),
+    countIf(options.health || options.reports, { AND: [sent, REPORTED] }),
     options.leads ? distinctLeadsBy(client, campaignIds, group) : Promise.resolve([]),
     options.replies ? repliedLeadsBy(client, campaignIds, group) : Promise.resolve([]),
   ]);

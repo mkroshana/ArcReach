@@ -77,7 +77,7 @@ describe('PUT /api/accounts answers with the effective cap GET shows, so the pag
     mockedDb.getAccounts.mockResolvedValue([stored]);
     const [listed] = await (await getAccounts()).json();
     expect(listed.effectiveDailyCap).toBe(cap);
-    for (const stat of ['sentLast24Hours', 'sentTotal', 'delivered', 'opens', 'clicks', 'replies', 'bounced']) {
+    for (const stat of ['sentLast24Hours', 'sentTotal', 'delivered', 'reported', 'opens', 'clicks', 'replies', 'bounced']) {
       expect(listed).toHaveProperty(stat);
       expect(answer).not.toHaveProperty(stat);
     }

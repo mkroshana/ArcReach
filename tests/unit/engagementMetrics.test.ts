@@ -208,6 +208,51 @@ describe('open and click rates have one definition on every page (M30, L8)', () 
   });
 });
 
+describe('Delivered is unknown, not 0, until a delivery report arrives (stats A1)', () => {
+  it('gives the campaigns list and the Accounts page how many sent emails a delivery report arrived for', async () => {
+    // Sent before delivery reports, so none arrived.
+    addDispatch({ id: 'd1' });
+    addDispatch({ id: 'd2', stepOrder: 2 });
+    addDispatch({ id: 'failed', status: 'Failed' });
+    // Another mailbox's report says nothing about mb-1's emails.
+    addDispatch({ id: 'theirs', campaignId: 'cmp-2', senderAccountId: 'mb-2', deliveredAt: at(1), deliveryStatus: 'Delivered' });
+
+    expect(await mailbox()).toMatchObject({ sentTotal: 2, delivered: 0, reported: 0 });
+    let listed = await stepMetrics(fake as any, ['cmp-1'], { reports: true });
+    expect([1, 2].map((step) => listed('cmp-1', step).reported)).toEqual([0, 0]);
+
+    // A report that the email was not delivered is still a report, so that step's 0 delivered is measured.
+    addDispatch({ id: 'd3', stepOrder: 2, deliveryStatus: 'Bounced', bounceType: 'soft', bouncedAt: at(1) });
+    addDispatch({ id: 'd4', deliveredAt: at(1), deliveryStatus: 'Delivered' });
+
+    expect(await mailbox()).toMatchObject({ sentTotal: 4, delivered: 1, reported: 2 });
+    listed = await stepMetrics(fake as any, ['cmp-1'], { reports: true });
+    const counts = (step: number) => {
+      const { sent, delivered, reported } = listed('cmp-1', step);
+      return { sent, delivered, reported };
+    };
+    expect([counts(1), counts(2)]).toEqual([{ sent: 2, delivered: 1, reported: 1 }, { sent: 2, delivered: 0, reported: 1 }]);
+    // The count the campaign page's step rows load with the rest of their health measures.
+    const { stepStats } = await campaignTelemetry();
+    expect(stepStats.map((s: any) => s.reported)).toEqual([1, 1]);
+  });
+
+  it('loads the reported count with one grouped count, and only when asked', async () => {
+    addDispatch({ id: 'd1', deliveredAt: at(1), deliveryStatus: 'Delivered' });
+
+    const plain = await stepMetrics(fake as any, ['cmp-1']);
+    expect(plain('cmp-1', 1)).toMatchObject({ sent: 1, delivered: 1, reported: 0 });
+    const plainQueries = fake.emailDispatch.groupBy.mock.calls.length;
+
+    fake.emailDispatch.groupBy.mockClear();
+    const withReports = await stepMetrics(fake as any, ['cmp-1'], { reports: true });
+    expect(withReports('cmp-1', 1)).toMatchObject({ sent: 1, delivered: 1, reported: 1 });
+    expect(fake.emailDispatch.groupBy).toHaveBeenCalledTimes(plainQueries + 1);
+    expect(fake.emailDispatch.count).not.toHaveBeenCalled();
+    expect(fake.$queryRaw).not.toHaveBeenCalled();
+  });
+});
+
 describe('only campaign sequence sends ACS accepted count as sent (L7, M38)', () => {
   it('leaves Unibox replies, mailbox test sends and failed attempts out of every page\'s sends and rates', async () => {
     addDispatch({ id: 'd1', events: [event('open')] });

@@ -119,6 +119,13 @@ function ReplySyncChip({ account, withTooltip = true }: { account: any; withTool
   return withTooltip ? <MuiTooltip title={replySyncDetail(account)}>{chip}</MuiTooltip> : chip;
 }
 
+const NO_DELIVERY_REPORTS_NOTE = "No delivery reports have arrived for this mailbox's emails, so how many were delivered is not known.";
+
+/** Whether the mailbox sent emails but no delivery report arrived for any of them, so its Delivered is unknown rather than 0. */
+function deliveryUnknown(account: any): boolean {
+  return (account.sentTotal ?? 0) > 0 && (account.reported ?? 0) === 0;
+}
+
 export default function AccountsPage() {
   const [accounts, setAccounts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -469,7 +476,11 @@ export default function AccountsPage() {
                               <Typography variant="caption" sx={{ color: 'text.secondary' }}>{account.name} • {account.provider}</Typography>
                               <Stack direction="row" spacing={1.5} sx={{ mt: 0.5, fontFamily: 'monospace', fontSize: 9, color: 'text.secondary', flexWrap: 'wrap' }}>
                                 <span>Sent: <strong>{account.sentTotal ?? 0}</strong></span>
-                                <span>Delivered: <Box component="strong" sx={{ color: 'success.main' }}>{account.delivered ?? 0}</Box></span>
+                                <span>Delivered: {deliveryUnknown(account) ? (
+                                  <MuiTooltip title={NO_DELIVERY_REPORTS_NOTE}>
+                                    <Box component="strong" tabIndex={0} aria-label="No delivery reports">—</Box>
+                                  </MuiTooltip>
+                                ) : <Box component="strong" sx={{ color: 'success.main' }}>{account.delivered ?? 0}</Box>}</span>
                                 <span>Opens: <strong>{account.opens ?? 0}</strong> ({account.openRate ?? 0}%)</span>
                                 <span>Clicks: <strong>{account.clicks ?? 0}</strong> ({account.clickRate ?? 0}%)</span>
                                 <span>Replies: <strong>{account.replies ?? 0}</strong></span>
@@ -544,7 +555,9 @@ export default function AccountsPage() {
               <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)', md: 'repeat(6, 1fr)' }, gap: 2 }}>
                 {[
                   { title: 'Total Sent', value: selectedWarmupAccount.sentTotal ?? 0, desc: 'All campaigns' },
-                  { title: 'Delivered', value: selectedWarmupAccount.delivered ?? 0, desc: `${selectedWarmupAccount.deliveryRate ?? 0}% delivery rate` },
+                  deliveryUnknown(selectedWarmupAccount)
+                    ? { title: 'Delivered', value: '—', desc: 'No delivery reports for these emails' }
+                    : { title: 'Delivered', value: selectedWarmupAccount.delivered ?? 0, desc: `${selectedWarmupAccount.deliveryRate ?? 0}% delivery rate` },
                   { title: 'Unique Opens', value: selectedWarmupAccount.opens ?? 0, desc: `${selectedWarmupAccount.openRate ?? 0}% open rate` },
                   { title: 'Unique Clicks', value: selectedWarmupAccount.clicks ?? 0, desc: `${selectedWarmupAccount.clickRate ?? 0}% click rate` },
                   { title: 'Replies', value: selectedWarmupAccount.replies ?? 0, desc: `${selectedWarmupAccount.replyRate ?? 0}% reply rate` },

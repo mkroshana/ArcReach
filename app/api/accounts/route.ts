@@ -7,7 +7,7 @@ import { MASKED_SECRET, encryptSecret } from '@/lib/secrets';
 import { getGlobalSettings } from '@/lib/settings';
 import { getVerifiedDomains, unverifiedSenderMessage } from '@/lib/azureDomains';
 import { getEffectiveDailyCap, senderCapDispatchWhere } from '@/lib/sendEngine';
-import { type MetricsScope, countHardBounces, countReplies, percent, sendSummary } from '@/lib/engagementMetrics';
+import { type MetricsScope, countHardBounces, countReplies, countReported, percent, sendSummary } from '@/lib/engagementMetrics';
 import { type FieldRule, fieldRules, isPlainObject, pickUpdateFields } from '@/lib/updateAllowList';
 
 /** Scalar columns the mailbox PUT may write: the daily limit, warmup and IMAP credential
@@ -72,10 +72,12 @@ export async function GET() {
 
       // The mailbox's campaign sends that ACS accepted, their opens, clicks and
       // hard bounces (at send time or reported), defined in lib/engagementMetrics
-      // as on the campaign pages and the dashboard.
+      // as on the campaign pages and the dashboard. `reported`: how many a
+      // delivery report arrived for; with none, the page shows Delivered as unknown.
       const scope: MetricsScope = { kind: 'mailbox', senderAccountId: account.id };
-      const [sends, bounced, replies] = await Promise.all([
+      const [sends, reported, bounced, replies] = await Promise.all([
         sendSummary(prisma, scope),
+        countReported(prisma, scope),
         countHardBounces(prisma, scope),
         countReplies(prisma, scope),
       ]);
@@ -88,6 +90,7 @@ export async function GET() {
         sentLast24Hours,
         sentTotal: sends.sent,
         delivered: sends.delivered,
+        reported,
         opens: sends.opened,
         clicks: sends.clicked,
         replies,

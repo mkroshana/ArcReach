@@ -3,7 +3,7 @@ import { NextRequest } from 'next/server';
 
 vi.mock('../../lib/db', () => ({
   prisma: {
-    lead: { findUnique: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
+    lead: { findUnique: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn() },
     leadAlias: { findUnique: vi.fn() },
     deletedLead: { findUnique: vi.fn() },
     campaignEnrollment: { updateMany: vi.fn() },
@@ -25,11 +25,14 @@ function makeReq(query: string, init?: { method: string; body?: string; headers?
 
 const post = (query: string) => POST(makeReq(query, { method: 'POST' }));
 
+/** The write that marks a lead Unsubscribed, only if it is not already. */
+const statusChange = (id: string) => ({ where: { id, status: { not: 'Unsubscribed' } }, data: { status: 'Unsubscribed' } });
+
 /** What an unsubscribe writes: nothing at all when `wrote` is false. */
 function expectUnsubscribed(wrote: boolean) {
   const expectWrite = (mock: any) => (wrote ? expect(mock).toHaveBeenCalled() : expect(mock).not.toHaveBeenCalled());
   expectWrite(mocked.suppressedEmail.createMany);
-  expectWrite(mocked.lead.update);
+  expectWrite(mocked.lead.updateMany);
   expectWrite(mocked.campaignEnrollment.updateMany);
 }
 
@@ -37,6 +40,7 @@ describe('unsubscribe page', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocked.suppressedEmail.createMany.mockResolvedValue({ count: 1 });
+    mocked.lead.updateMany.mockResolvedValue({ count: 1 });
   });
 
   it('HTML-escapes the lead email so stored markup cannot run (M49)', async () => {
@@ -52,7 +56,7 @@ describe('unsubscribe page', () => {
 
     expect(html).not.toContain('<img');
     expect(html).toContain('<strong>&lt;img src=x onerror=&quot;alert(1)&quot;&gt;@example.com</strong> has been removed');
-    expect(mocked.lead.update).toHaveBeenCalledWith({ where: { id: 'lead-1' }, data: { status: 'Unsubscribed' } });
+    expect(mocked.lead.updateMany).toHaveBeenCalledWith(statusChange('lead-1'));
   });
 
   it('sends a restrictive Content-Security-Policy with the HTML page, allowing its form to post only back here', async () => {
@@ -66,7 +70,7 @@ describe('unsubscribe page', () => {
       expect(csp).toContain("form-action 'self'");
       expect(csp).toContain("frame-ancestors 'none'");
     }
-    expect(mocked.lead.update).not.toHaveBeenCalled();
+    expect(mocked.lead.updateMany).not.toHaveBeenCalled();
   });
 
   it('sets the same CSP on error pages', async () => {
@@ -90,7 +94,7 @@ describe('unsubscribe page', () => {
     const res = await post('?id=lead-merged');
     expect(res.status).toBe(200);
     expect(mocked.leadAlias.findUnique).toHaveBeenCalledWith({ where: { id: 'lead-merged' }, select: { lead: true } });
-    expect(mocked.lead.update).toHaveBeenCalledWith({ where: { id: 'lead-kept' }, data: { status: 'Unsubscribed' } });
+    expect(mocked.lead.updateMany).toHaveBeenCalledWith(statusChange('lead-kept'));
     expect(mocked.campaignEnrollment.updateMany).toHaveBeenCalledWith({
       where: { leadId: 'lead-kept', status: 'Active' },
       data: { status: 'Paused', nextActionDate: null },
@@ -125,7 +129,7 @@ describe('unsubscribe page', () => {
       data: [{ email: 'jane@example.com', reason: 'Unsubscribed', source: 'unsubscribe-link' }],
       skipDuplicates: true,
     });
-    expect(mocked.lead.update).not.toHaveBeenCalled();
+    expect(mocked.lead.updateMany).not.toHaveBeenCalled();
     expect(mocked.campaignEnrollment.updateMany).not.toHaveBeenCalled();
   });
 });
@@ -136,6 +140,7 @@ describe('two-step unsubscribe with signed links (H16)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocked.suppressedEmail.createMany.mockResolvedValue({ count: 1 });
+    mocked.lead.updateMany.mockResolvedValue({ count: 1 });
     mocked.lead.findUnique.mockResolvedValue({ id: 'lead-1', email: 'jane@example.com', status: 'Neutral' });
   });
 
@@ -168,7 +173,7 @@ describe('two-step unsubscribe with signed links (H16)', () => {
       data: [{ email: 'jane@example.com', reason: 'Unsubscribed', source: 'unsubscribe-link' }],
       skipDuplicates: true,
     });
-    expect(mocked.lead.update).toHaveBeenCalledWith({ where: { id: 'lead-1' }, data: { status: 'Unsubscribed' } });
+    expect(mocked.lead.updateMany).toHaveBeenCalledWith(statusChange('lead-1'));
     expect(mocked.campaignEnrollment.updateMany).toHaveBeenCalledWith({
       where: { leadId: 'lead-1', status: 'Active' },
       data: { status: 'Paused', nextActionDate: null },
@@ -206,6 +211,7 @@ describe('the unsubscribe is recorded on the email it came from (M31)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocked.suppressedEmail.createMany.mockResolvedValue({ count: 1 });
+    mocked.lead.updateMany.mockResolvedValue({ count: 1 });
     mocked.lead.findUnique.mockResolvedValue({ id: 'lead-1', email: 'jane@example.com', status: 'Neutral' });
     mocked.emailDispatch.findUnique.mockResolvedValue({ messageId: 'msg-signed' });
     mocked.emailDispatch.findFirst.mockResolvedValue({ messageId: 'msg-latest' });
@@ -233,7 +239,6 @@ describe('the unsubscribe is recorded on the email it came from (M31)', () => {
   });
 
   it.each([
-    ['the address was already on the suppression list', () => mocked.suppressedEmail.createMany.mockResolvedValue({ count: 0 })],
     ['the lead was already Unsubscribed', () => mocked.lead.findUnique.mockResolvedValue({ id: 'lead-1', email: 'jane@example.com', status: 'Unsubscribed' })],
     ['the email it came from no longer exists', () => mocked.emailDispatch.findUnique.mockResolvedValue(null)],
   ])('records nothing when %s', async (_label, arrange) => {
@@ -253,8 +258,90 @@ describe('the unsubscribe is recorded on the email it came from (M31)', () => {
 
     expect(res.status).toBe(200);
     expect(await res.text()).toContain('has been removed');
-    expect(mocked.lead.update).toHaveBeenCalledWith({ where: { id: 'lead-1' }, data: { status: 'Unsubscribed' } });
+    expect(mocked.lead.updateMany).toHaveBeenCalledWith(statusChange('lead-1'));
     expect(consoleError).toHaveBeenCalled();
     consoleError.mockRestore();
+  });
+});
+
+describe('an unsubscribe is counted once, when the lead becomes Unsubscribed (stats A6)', () => {
+  const token = signUnsubscribeToken('lead-1', 'dispatch-1');
+  const oneClick = () => POST(makeReq(`?token=${token}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: 'List-Unsubscribe=One-Click',
+  }));
+
+  /**
+   * A lead row the route reads and marks Unsubscribed as Postgres would: the
+   * status condition of the write is checked against the row as it is then.
+   */
+  function storedLead(status: string) {
+    const row = { id: 'lead-1', email: 'jane@example.com', status };
+    mocked.lead.findUnique.mockImplementation(async () => ({ ...row }));
+    mocked.lead.updateMany.mockImplementation(async ({ where, data }: any) => {
+      if (where.id !== row.id || row.status === where.status.not) return { count: 0 };
+      row.status = data.status;
+      return { count: 1 };
+    });
+    return row;
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocked.emailDispatch.findUnique.mockResolvedValue({ messageId: 'msg-signed' });
+    mocked.emailEvent.create.mockResolvedValue({});
+  });
+
+  it('counts the opt-out of an address already on the suppression list for a hard bounce, which is not added again', async () => {
+    mocked.suppressedEmail.createMany.mockResolvedValue({ count: 0 });
+    const lead = storedLead('Bounced');
+
+    const res = await post(`?token=${token}`);
+
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('<strong>jane@example.com</strong> has been removed');
+    expect(mocked.suppressedEmail.createMany).toHaveBeenCalledWith({
+      data: [{ email: 'jane@example.com', reason: 'Unsubscribed', source: 'unsubscribe-link' }],
+      skipDuplicates: true,
+    });
+    expect(mocked.lead.updateMany).toHaveBeenCalledWith(statusChange('lead-1'));
+    expect(lead.status).toBe('Unsubscribed');
+    expect(mocked.campaignEnrollment.updateMany).toHaveBeenCalledWith({
+      where: { leadId: 'lead-1', status: 'Active' },
+      data: { status: 'Paused', nextActionDate: null },
+    });
+    expect(mocked.emailEvent.create).toHaveBeenCalledTimes(1);
+    expect(mocked.emailEvent.create).toHaveBeenCalledWith({ data: { messageId: 'msg-signed', eventType: 'unsubscribe' } });
+  });
+
+  it.each([
+    ['a new address', 'Neutral', () => mocked.suppressedEmail.createMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValue({ count: 0 })],
+    ['an address already listed for a hard bounce', 'Bounced', () => mocked.suppressedEmail.createMany.mockResolvedValue({ count: 0 })],
+  ])('counts %s once when the button and then a one-click POST both unsubscribe', async (_label, status, arrangeList) => {
+    arrangeList();
+    storedLead(status);
+
+    for (const res of [await post(`?token=${token}`), await oneClick(), await post(`?token=${token}`)]) {
+      expect(res.status).toBe(200);
+      expect(await res.text()).toContain('has been removed');
+    }
+
+    expect(mocked.suppressedEmail.createMany).toHaveBeenCalledTimes(3);
+    expect(mocked.lead.updateMany).toHaveBeenCalledTimes(1);
+    expect(mocked.emailEvent.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('counts the button and a one-click POST racing it once, though both read the lead before either changed it', async () => {
+    mocked.suppressedEmail.createMany.mockResolvedValue({ count: 0 });
+    const lead = storedLead('Neutral');
+    mocked.lead.findUnique.mockResolvedValue({ id: 'lead-1', email: 'jane@example.com', status: 'Neutral' });
+
+    const responses = await Promise.all([post(`?token=${token}`), oneClick()]);
+
+    expect(responses.map((res) => res.status)).toEqual([200, 200]);
+    expect(mocked.lead.updateMany).toHaveBeenCalledTimes(2);
+    expect(lead.status).toBe('Unsubscribed');
+    expect(mocked.emailEvent.create).toHaveBeenCalledTimes(1);
   });
 });

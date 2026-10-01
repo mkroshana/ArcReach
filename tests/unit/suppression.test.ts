@@ -31,6 +31,7 @@ const db = vi.hoisted(() => {
     if ('in' in cond) return cond.in.map(fold).includes(fold(value));
     if ('notIn' in cond) return !cond.notIn.includes(value);
     if ('gt' in cond) return value > cond.gt;
+    if ('not' in cond) return cond.not === null ? value != null : value !== cond.not;
     throw new Error(`Unmodelled filter: ${JSON.stringify(cond)}`);
   }
 

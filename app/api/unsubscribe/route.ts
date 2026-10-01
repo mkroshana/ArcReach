@@ -153,12 +153,15 @@ export async function POST(req: NextRequest) {
     // The suppression list outlives the lead, so the opt-out holds even if the
     // lead is deleted and imported again. Also written for a lead already
     // Unsubscribed, which may predate the list.
-    const added = await suppressEmails(prisma, [{ email, reason: 'Unsubscribed' }], 'unsubscribe-link');
+    await suppressEmails(prisma, [{ email, reason: 'Unsubscribed' }], 'unsubscribe-link');
 
     // Idempotent — skip if already unsubscribed or the lead is gone
     if (lead && lead.status !== 'Unsubscribed') {
-      await prisma.lead.update({
-        where: { id: lead.id },
+      // Changes the status only if it is still not Unsubscribed: of two POSTs
+      // at once (the button and a mail client's one-click), Postgres re-checks
+      // the status under the row lock, so only one of them changes it.
+      const { count: changed } = await prisma.lead.updateMany({
+        where: { id: lead.id, status: { not: 'Unsubscribed' } },
         data: { status: 'Unsubscribed' },
       });
 
@@ -174,10 +177,13 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      // Counted once, when the address first goes on the list: a second click,
-      // or a mail client's one-click POST after the button, records nothing.
-      // A metrics write never fails the unsubscribe itself.
-      if (added > 0) {
+      // Counted once, when the lead's status changes to Unsubscribed: a second
+      // click, or a mail client's one-click POST after the button, records
+      // nothing. Not when the address first goes on the list: one already
+      // listed for another reason, such as a hard bounce, is not added again
+      // but still opts out here. A metrics write never fails the unsubscribe
+      // itself.
+      if (changed > 0) {
         await recordUnsubscribeEvent(lead.id, target.dispatchId).catch((error) =>
           console.error('[Unsubscribe] Could not record the unsubscribe event:', error)
         );

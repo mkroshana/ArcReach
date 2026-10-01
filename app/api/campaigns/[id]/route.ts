@@ -112,6 +112,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     // recorded before BOT_FILTER_FIX_AT, which include security-scanner hits,
     // so the page can say so, and the leads they came from (campaignLeadTotals),
     // since a lead often opens several of the campaign's emails.
+    // Replies: the human replies the campaign received. Reply rate: the leads
+    // who replied of the leads contacted, as Lead Progress and the step and
+    // mailbox rows count it, so a lead who replies twice counts once.
     // The steps and mailboxes break the same sends down with every measure,
     // and the delivery breakdown says what delivery reports said about them,
     // and which of those with none were sent before reports were connected.
@@ -294,7 +297,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       deliveryRate: sends.deliveryRate,
       openRate: sends.openRate,
       clickRate: sends.clickRate,
-      replyRate: percent(repliesCount, sends.sent),
+      replyRate: percent(leadTotals.replied, leadTotals.contacted),
       bounceRate: health.bounceRate,
       bouncedInRate: health.bouncedInRate,
       bounceBase: health.bounceBase,

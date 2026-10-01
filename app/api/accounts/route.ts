@@ -80,6 +80,11 @@ export async function GET() {
       // engagedBeforeBotFilterFix: the opened and clicked emails with hits recorded
       // before BOT_FILTER_FIX_AT, which include security-scanner hits, so the page
       // can say so.
+      // Replies: the human replies that arrived in this mailbox, which may answer
+      // another mailbox's emails (its Reply-To), so they are no share of the leads
+      // this mailbox contacted, as a campaign's reply rate is. They are given per
+      // 100 emails this mailbox sent instead (repliesPer100Sent), null when it sent
+      // none, and the page says when even that means little (mailboxRepliesFigure).
       const scope: MetricsScope = { kind: 'mailbox', senderAccountId: account.id };
       const [sends, bounced, replies, engagedBeforeBotFilterFix] = await Promise.all([
         sendSummary(prisma, scope),
@@ -105,7 +110,7 @@ export async function GET() {
         deliveryRate: sends.deliveryRate,
         openRate: sends.openRate,
         clickRate: sends.clickRate,
-        replyRate: percent(replies, sends.sent),
+        repliesPer100Sent: sends.sent > 0 ? percent(replies, sends.sent) : null,
         effectiveDailyCap
       };
     }));

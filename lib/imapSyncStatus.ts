@@ -80,6 +80,70 @@ export function replyCountUnknown(sync: ImapSyncState | null | undefined, replie
   return sync === 'off' && !replies;
 }
 
+/** A mailbox as GET /api/accounts lists it: its reply sync, its Reply-To and its reply figures. */
+export interface MailboxReplyFields extends ImapSyncFields {
+  /** The human replies that arrived in this mailbox, whichever mailbox's email they answer. */
+  replies?: number | null;
+  /** The campaign emails it sent that ACS accepted. */
+  sentTotal?: number | null;
+  /** `replies` per 100 of those emails; null when it sent none. */
+  repliesPer100Sent?: number | null;
+}
+
+/** The Accounts page's Replies figure for a mailbox: the count (null where it is unknown), the line under it and a caveat. */
+export type MailboxRepliesFigure = { count: number | null; sub: string; caveat: string | null };
+
+/** Why a mailbox's reply count may be short, by its reply-sync state, as the campaign page's Replies tile says it. */
+const MAILBOX_REPLY_SYNC_NOTES: Record<Exclude<ImapSyncState, 'ok'>, { short: string; long: string }> = {
+  off: { short: 'Reply sync off', long: 'Reply sync is off on this mailbox, so replies to it are not read and may be missing from this count.' },
+  waiting: { short: 'Reply sync pending', long: 'This mailbox has not finished a reply sync yet, so replies to it may be missing from this count.' },
+  failing: { short: 'Reply sync failing', long: 'Reply sync is failing on this mailbox, so replies to it may be missing from this count.' },
+};
+
+/** An address as the Reply-To matching compares it. */
+const sameAddressKey = (value: string | null | undefined) => value?.trim().toLowerCase() || '';
+
+/**
+ * The Accounts page's Replies figure for a mailbox. Its count is of the replies that
+ * arrived in it, so it is no share of the leads it contacted, as a campaign's reply
+ * rate is: it is given per 100 of the emails it sent, but only where that means
+ * something. Otherwise the line under it says why there is no such figure:
+ * - its Reply-To is another address, so replies to its emails land there, not here;
+ * - its reply sync is not working (off, pending or failing), as the campaign page says;
+ * - it is the Reply-To of other mailboxes among `mailboxes`, so its replies answer their emails too;
+ * - it sent no campaign email, so there is nothing to give replies per.
+ * The count is unknown while its reply sync is off and no reply was recorded (replyCountUnknown).
+ */
+export function mailboxRepliesFigure(mailbox: MailboxReplyFields, mailboxes: MailboxReplyFields[] = []): MailboxRepliesFigure {
+  const own = sameAddressKey(mailbox.emailAddress);
+  const sync = imapSyncState(mailbox);
+  const count = replyCountUnknown(sync, mailbox.replies) ? null : mailbox.replies ?? 0;
+  const replyTo = mailbox.replyTo?.trim();
+  const repliesGoElsewhere = !!replyTo && sameAddressKey(replyTo) !== own;
+  const answered = own
+    ? mailboxes.filter((m) => sameAddressKey(m.replyTo) === own && sameAddressKey(m.emailAddress) !== own)
+    : [];
+
+  const caveat = [
+    repliesGoElsewhere ? `Replies to this mailbox's emails go to its Reply-To address, ${replyTo}, so they are not counted here.` : null,
+    sync !== 'ok' && count !== null ? MAILBOX_REPLY_SYNC_NOTES[sync].long : null,
+    answered.length > 0
+      ? `This mailbox is the Reply-To address of ${answered.map((m) => m.emailAddress).join(', ')}, so its count includes replies to their emails.`
+      : null,
+  ].filter(Boolean).join(' ') || null;
+
+  let sub: string;
+  if (repliesGoElsewhere) sub = `Replies go to ${replyTo}`;
+  else if (sync !== 'ok') sub = MAILBOX_REPLY_SYNC_NOTES[sync].short;
+  else if (answered.length > 0) sub = `Reply-To for ${answered.length} ${answered.length === 1 ? 'mailbox' : 'mailboxes'}`;
+  else if (!mailbox.sentTotal) sub = 'No campaign emails sent from this mailbox';
+  else {
+    const per100 = mailbox.repliesPer100Sent ?? 0;
+    sub = `${per100} ${per100 === 1 ? 'reply' : 'replies'} per 100 emails sent`;
+  }
+  return { count, sub, caveat };
+}
+
 /**
  * Why a campaign that pauses leads on reply would never pause anyone: no mailbox that
  * receives its replies has a working reply sync, so no reply is ever read. Replies go

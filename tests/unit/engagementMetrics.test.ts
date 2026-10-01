@@ -36,6 +36,7 @@ import { GET as getDashboardStats } from '../../app/api/dashboard-stats/route';
 import { GET as getAccounts } from '../../app/api/accounts/route';
 import { dailyEngagement, deliveryBreakdown, healthSummary, metricsWindow, percent, stepMetrics } from '../../lib/engagementMetrics';
 import { BOT_FILTER_FIX_AT } from '../../lib/botFilter';
+import { mailboxRepliesFigure } from '../../lib/imapSyncStatus';
 import { countRows, firstRow, groupRows, matchesWhere } from './helpers/prismaWhere';
 
 const mockedSession = vi.mocked(getSession);
@@ -102,9 +103,10 @@ async function dashboard(range: number | string = 7) {
   return res.json();
 }
 
-async function mailbox(id = 'mb-1') {
+/** The mailbox as GET /api/accounts lists it, with any other `columns` (its address, Reply-To or IMAP details) as stored. */
+async function mailbox(id = 'mb-1', columns: Record<string, unknown> = {}) {
   vi.mocked(db.getAccounts).mockResolvedValue([
-    { id, dailyLimit: 50, warmupEnabled: false, warmupStartedAt: null, warmupLimit: 10, warmupRamp: 2, imapPass: null },
+    { id, dailyLimit: 50, warmupEnabled: false, warmupStartedAt: null, warmupLimit: 10, warmupRamp: 2, imapPass: null, ...columns },
   ] as any);
   const res = await getAccounts();
   expect(res.status).toBe(200);
@@ -485,6 +487,64 @@ describe('the dashboard says replies are not read while no mailbox has reply syn
     const { stats, funnel } = await dashboard();
     expect(stats).toMatchObject({ replySync: 'off', totalReplies: 1 });
     expect(funnel).toContainEqual({ name: 'Replied', value: 1, unit: 'Replies' });
+  });
+});
+
+describe('the Accounts page gives replies per 100 emails sent, not a reply rate of leads (stats A12)', () => {
+  /** A mailbox's address and IMAP details, its reply sync last succeeding today. */
+  const synced = (id: string) => ({
+    emailAddress: `${id}@acme.test`, status: 'Active',
+    imapHost: 'imap.acme.test', imapPort: 993, imapUser: `${id}@acme.test`, imapPass: 'encrypted', imapLastSyncAt: at(0),
+  });
+
+  it("counts the replies that arrived in the mailbox, a Reply-To's included, per 100 of the emails it sent", async () => {
+    addDispatch({ id: 'd1' });
+    addDispatch({ id: 'd2', stepOrder: 2 });
+    addDispatch({ id: 'd3', leadId: 'lead-2' });
+    addDispatch({ id: 'd4', leadId: 'lead-3' });
+    addDispatch({ id: 'theirs', campaignId: 'cmp-2', senderAccountId: 'mb-2', leadId: 'lead-4' });
+    replies.push(
+      { id: 'r1', campaignId: 'cmp-1', senderAccountId: 'mb-1', receivedAt: at(0) },
+      // mb-1 is mb-2's Reply-To: it answers an email mb-2 sent, to a lead mb-1 never contacted.
+      { id: 'r2', campaignId: 'cmp-2', senderAccountId: 'mb-1', receivedAt: at(0) },
+    );
+
+    const mb1 = await mailbox('mb-1', synced('mb-1'));
+    expect(mb1).toMatchObject({ sentTotal: 4, replies: 2, repliesPer100Sent: 50 });
+    expect(mb1).not.toHaveProperty('replyRate');
+    const mb2 = await mailbox('mb-2', { ...synced('mb-2'), replyTo: 'mb-1@acme.test' });
+    expect(mb2).toMatchObject({ sentTotal: 1, replies: 0, repliesPer100Sent: 0 });
+
+    // On the page: mb-1's replies answer mb-2's emails too, so it gives no figure per 100 of its own;
+    // mb-2's replies are counted on mb-1, so its 0 per 100 would say its lead never replied.
+    expect(mailboxRepliesFigure(mb1, [mb1, mb2])).toEqual({
+      count: 2, sub: 'Reply-To for 1 mailbox',
+      caveat: 'This mailbox is the Reply-To address of mb-2@acme.test, so its count includes replies to their emails.',
+    });
+    expect(mailboxRepliesFigure(mb2, [mb1, mb2])).toEqual({
+      count: 0, sub: 'Replies go to mb-1@acme.test',
+      caveat: "Replies to this mailbox's emails go to its Reply-To address, mb-1@acme.test, so they are not counted here.",
+    });
+    // Without the Reply-To, mb-1's figure is of its own emails.
+    expect(mailboxRepliesFigure(mb1, [mb1])).toEqual({ count: 2, sub: '50 replies per 100 emails sent', caveat: null });
+  });
+
+  it('gives no figure per 100 emails for a mailbox that sent none, rather than 0', async () => {
+    // mb-1 only receives replies, as mb-2's Reply-To: none answers an email of its own.
+    addDispatch({ id: 'theirs', campaignId: 'cmp-2', senderAccountId: 'mb-2', leadId: 'lead-4' });
+    replies.push({ id: 'r1', campaignId: 'cmp-2', senderAccountId: 'mb-1', receivedAt: at(0) });
+
+    const inbox = await mailbox('mb-1', synced('mb-1'));
+    expect(inbox).toMatchObject({ sentTotal: 0, replies: 1, repliesPer100Sent: null });
+    expect(mailboxRepliesFigure(inbox).sub).toBe('No campaign emails sent from this mailbox');
+    const sender = await mailbox('mb-2', { ...synced('mb-2'), replyTo: 'mb-1@acme.test' });
+    expect(mailboxRepliesFigure(inbox, [inbox, sender])).toMatchObject({ count: 1, sub: 'Reply-To for 1 mailbox' });
+
+    // A new mailbox: reply sync works, nothing sent or received yet.
+    replies.length = 0;
+    expect(mailboxRepliesFigure(await mailbox('mb-1', synced('mb-1')))).toEqual({
+      count: 0, sub: 'No campaign emails sent from this mailbox', caveat: null,
+    });
   });
 });
 

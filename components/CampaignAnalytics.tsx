@@ -40,9 +40,9 @@ const count = (value: number | null | undefined) => (value ?? 0).toLocaleString(
 const share = (part: number, whole: number) => (whole > 0 ? Number(((part / whole) * 100).toFixed(1)) : 0);
 
 /**
- * Who a tile's opened or clicked emails came from: " · from 2,131 leads". A lead
- * often opens or clicks several of a campaign's emails, so the email count alone
- * reads as more people than it is. Empty while there are none.
+ * Who a tile's opened or clicked emails, or replies, came from: " · from 2,131 leads".
+ * A lead often opens or clicks several of a campaign's emails, or replies more than
+ * once, so the count alone reads as more people than it is. Empty while there are none.
  */
 const fromLeads = (emails: number | null | undefined, leads: number | null | undefined) =>
   emails && leads ? ` · from ${count(leads)} ${leads === 1 ? 'lead' : 'leads'}` : '';
@@ -430,7 +430,12 @@ export default function CampaignAnalytics({ campaign, mailboxes }: { campaign: a
       title: 'Unique Clicks', value: count(t.clicks), icon: MousePointerClick, color: '#D97706', sub: caveats.trackClicks ? `${t.clickRate ?? 0}% click rate${fromLeads(t.clicks, t.clickedLeads)}` : 'Click tracking is off',
       caveat: clicksNote,
     },
-    { title: 'Replies', value: repliesUnknown ? '—' : count(t.replies), icon: Reply, color: '#7C3AED', sub: replyNote ? replyNote.short : `${t.replyRate ?? 0}% reply rate`, caveat: replyNote?.long },
+    // The rate is of leads, as Lead Progress's Replied is, so it names its leads apart from the count of replies.
+    {
+      title: 'Replies', value: repliesUnknown ? '—' : count(t.replies), icon: Reply, color: '#7C3AED',
+      sub: replyNote ? replyNote.short : `${t.replyRate ?? 0}% of contacted leads replied${fromLeads(t.replies, progress.repliedLeads)}`,
+      caveat: replyNote?.long,
+    },
   ];
   // As the step and mailbox rows (bounceFigure): with no delivery report, a bounce count of 0 shows as unknown and
   // the bounces found when sending show with no rate. The rate is of the emails whose outcome is known, so

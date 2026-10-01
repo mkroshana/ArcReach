@@ -398,6 +398,24 @@ describe('the leads the opened and clicked emails came from (stats A8)', () => {
   });
 });
 
+describe('the reply rate counts leads, as every other reply figure does (stats A12)', () => {
+  it('gives the leads who replied of the leads contacted, so a lead who replies more than once counts once', async () => {
+    // Four emails to two leads; lead-1 replied three times.
+    addDispatch({ id: 'd1' });
+    addDispatch({ id: 'd2', stepOrder: 2 });
+    addDispatch({ id: 'd3', stepOrder: 3 });
+    addDispatch({ id: 'd4', leadId: 'lead-2' });
+    fake.inboundResponse.count.mockResolvedValue(3);
+    raw.totals = [{ contacted: 2, opened: 0, clicked: 0, replied: 1, firstSentAt: hoursAgo(48), lastSentAt: hoursAgo(48) }];
+
+    const t = await telemetry();
+
+    // Old tile: 3 replies / 4 emails = 75%, against Lead Progress's 1 of 2 contacted leads.
+    expect(t).toMatchObject({ sent: 4, replies: 3, replyRate: 50 });
+    expect(t.progress).toMatchObject({ contacted: 2, repliedLeads: 1 });
+  });
+});
+
 describe("where the campaign's leads are", () => {
   it('counts every enrollment by status, the emails still to send and when the next is due', async () => {
     enroll('e1', 'Active', 1, hoursAgo(2)); // due

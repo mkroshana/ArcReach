@@ -34,7 +34,7 @@ vi.mock('../../lib/session', () => ({
 
 import { getSession } from '../../lib/session';
 import { GET as getCampaign } from '../../app/api/campaigns/[id]/route';
-import { STATUS_CHECK_FIX_AT, countEngagedBeforeBotFilterFix, deliveryBreakdown, mailboxMetrics, stepMetrics } from '../../lib/engagementMetrics';
+import { STATUS_CHECK_FIX_AT, campaignLeadTotals, countEngagedBeforeBotFilterFix, deliveryBreakdown, mailboxMetrics, stepMetrics } from '../../lib/engagementMetrics';
 import { BOT_FILTER_FIX_AT } from '../../lib/botFilter';
 import { emailsLeft, nextSendText } from '../../lib/campaignProgress';
 import { countRows, groupRows } from './helpers/prismaWhere';
@@ -349,6 +349,50 @@ describe('opens and clicks recorded before the current bot filter (stats A7)', (
 
     expect(await countEngagedBeforeBotFilterFix(fake as any, scope)).toEqual({ opened: 1, clicked: 1 });
     expect(fake.emailDispatch.count).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('the leads the opened and clicked emails came from (stats A8)', () => {
+  it('gives the Unique Opens and Unique Clicks tiles the leads their emails came from, each once', async () => {
+    // lead-1 opened three emails, one of them only by a click; lead-2 opened one.
+    addDispatch({ id: 'd1', events: [event('open')] });
+    addDispatch({ id: 'd2', stepOrder: 2, events: [event('open'), event('open')] });
+    addDispatch({ id: 'd3', stepOrder: 3, events: [event('click')] });
+    addDispatch({ id: 'd4', leadId: 'lead-2', events: [event('open')] });
+    // A machine hit opens nothing.
+    addDispatch({ id: 'd5', leadId: 'lead-3', events: [event('machine_click')] });
+    raw.totals = [{ contacted: 3, opened: 2, clicked: 1, replied: 0, firstSentAt: hoursAgo(48), lastSentAt: hoursAgo(48) }];
+
+    const t = await telemetry();
+
+    expect(t).toMatchObject({ opens: 4, openedLeads: 2, clicks: 1, clickedLeads: 1 });
+    expect(t.progress.contacted).toBe(3);
+  });
+
+  it("counts them in the lead totals' one query, over the accepted sequence emails and a person's opens and clicks only", async () => {
+    raw.totals = [{ contacted: 20608, opened: 2131, clicked: 1173, replied: 0, firstSentAt: null, lastSentAt: null }];
+
+    expect(await campaignLeadTotals(fake as any, 'cmp-1')).toMatchObject({ contacted: 20608, opened: 2131, clicked: 1173 });
+
+    expect(fake.$queryRaw).toHaveBeenCalledTimes(1);
+    const [query] = fake.$queryRaw.mock.calls[0];
+    for (const clause of [
+      'COUNT(DISTINCT d."leadId") FILTER (WHERE e."eventType" IS NOT NULL)::int AS "opened"',
+      'COUNT(DISTINCT d."leadId") FILTER (WHERE e."eventType" = $2)::int AS "clicked"',
+      'LEFT JOIN "EmailEvent" e',
+      'ON e."messageId" = d."messageId" AND e."eventType" IN ($3,$4)',
+      `d."stepOrder" IS NOT NULL AND d."status" = 'Sent'`,
+    ]) {
+      expect(sqlText(query)).toContain(clause);
+    }
+    // Only a person's opens and clicks are joined, so machine hits, bounces and unsubscribes open nothing.
+    expect(query.values).toEqual(['cmp-1', 'click', 'open', 'click', 'cmp-1']);
+  });
+
+  it('counts no leads for a campaign with no sends', async () => {
+    expect(await campaignLeadTotals(fake as any, 'cmp-1')).toEqual({
+      contacted: 0, opened: 0, clicked: 0, replied: 0, firstSentAt: null, lastSentAt: null,
+    });
   });
 });
 

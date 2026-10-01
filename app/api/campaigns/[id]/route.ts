@@ -108,7 +108,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     // Unsubscribed: this campaign's emails whose unsubscribe link was used.
     // Opened and clicked emails: and those, overall and in the trend, with hits
     // recorded before BOT_FILTER_FIX_AT, which include security-scanner hits,
-    // so the page can say so.
+    // so the page can say so, and the leads they came from (campaignLeadTotals),
+    // since a lead often opens several of the campaign's emails.
     // The steps and mailboxes break the same sends down with every measure,
     // and the delivery breakdown says what delivery reports said about them.
     const scope: MetricsScope = { kind: 'campaign', campaignId: id };
@@ -277,6 +278,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       delivered: sends.delivered,
       opens: sends.opened,
       clicks: sends.clicked,
+      openedLeads: leadTotals.opened,
+      clickedLeads: leadTotals.clicked,
       engagedBeforeBotFilterFix,
       replies: repliesCount,
       bounced: health.bounced,

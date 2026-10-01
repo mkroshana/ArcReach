@@ -639,6 +639,13 @@ export async function deliveryBreakdown(client: MetricsClient, scope: MetricsSco
 export type CampaignLeadTotals = {
   /** Leads ACS accepted at least one of the campaign's sequence emails for. */
   contacted: number;
+  /**
+   * Of those, the leads with an email sendSummary counts as opened (and as
+   * clicked), each once however many of their emails were: the people the
+   * opened and clicked emails came from.
+   */
+  opened: number;
+  clicked: number;
   /** Leads who sent the campaign a human reply (the replies countReplies counts), each once. */
   replied: number;
   /** When its first and latest accepted sequence emails were sent; null before any. */
@@ -646,23 +653,37 @@ export type CampaignLeadTotals = {
   lastSentAt: Date | null;
 };
 
-type LeadTotalsRow = { contacted: number; replied: number; firstSentAt: Date | null; lastSentAt: Date | null };
+type LeadTotalsRow = {
+  contacted: number; opened: number; clicked: number; replied: number; firstSentAt: Date | null; lastSentAt: Date | null;
+};
 
-/** A campaign's lead-level totals, in one query. */
+/**
+ * A campaign's lead-level totals, in one query. Each accepted sequence email
+ * is joined to a person's opens and clicks on it (not the machine hits
+ * lib/botFilter recorded), which repeats the email once per hit but leaves the
+ * counts of distinct leads, and the first and latest send, as they are.
+ */
 export async function campaignLeadTotals(client: MetricsClient, campaignId: string): Promise<CampaignLeadTotals> {
   const [row] = await client.$queryRaw<LeadTotalsRow[]>(Prisma.sql`
     SELECT
       (SELECT COUNT(DISTINCT r."leadId") FROM "InboundResponse" r
         WHERE r."campaignId" = ${campaignId} AND r."autoReply" IS NULL)::int AS "replied",
-      t."contacted", t."firstSentAt", t."lastSentAt"
+      t."contacted", t."opened", t."clicked", t."firstSentAt", t."lastSentAt"
     FROM (
-      SELECT COUNT(DISTINCT d."leadId")::int AS "contacted", MIN(d."sentAt") AS "firstSentAt", MAX(d."sentAt") AS "lastSentAt"
+      SELECT COUNT(DISTINCT d."leadId")::int AS "contacted",
+             COUNT(DISTINCT d."leadId") FILTER (WHERE e."eventType" IS NOT NULL)::int AS "opened",
+             COUNT(DISTINCT d."leadId") FILTER (WHERE e."eventType" = ${CLICK_EVENT})::int AS "clicked",
+             MIN(d."sentAt") AS "firstSentAt", MAX(d."sentAt") AS "lastSentAt"
       FROM "EmailDispatch" d
+      LEFT JOIN "EmailEvent" e
+        ON e."messageId" = d."messageId" AND e."eventType" IN (${Prisma.join([OPEN_EVENT, CLICK_EVENT])})
       WHERE d."campaignId" = ${campaignId} AND d."stepOrder" IS NOT NULL AND d."status" = 'Sent'
     ) t
   `);
   return {
     contacted: Number(row?.contacted ?? 0),
+    opened: Number(row?.opened ?? 0),
+    clicked: Number(row?.clicked ?? 0),
     replied: Number(row?.replied ?? 0),
     firstSentAt: row?.firstSentAt ?? null,
     lastSentAt: row?.lastSentAt ?? null,

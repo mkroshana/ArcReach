@@ -36,6 +36,14 @@ const count = (value: number | null | undefined) => (value ?? 0).toLocaleString(
 /** `part` as a percentage of `whole` to one decimal, as lib/engagementMetrics percent() works it out; 0 with no whole. */
 const share = (part: number, whole: number) => (whole > 0 ? Number(((part / whole) * 100).toFixed(1)) : 0);
 
+/**
+ * Who a tile's opened or clicked emails came from: " · from 2,131 leads". A lead
+ * often opens or clicks several of a campaign's emails, so the email count alone
+ * reads as more people than it is. Empty while there are none.
+ */
+const fromLeads = (emails: number | null | undefined, leads: number | null | undefined) =>
+  emails && leads ? ` · from ${count(leads)} ${leads === 1 ? 'lead' : 'leads'}` : '';
+
 /** A next send date: "Tue, 1 Oct, 09:00", in local 24-hour time. */
 const dateTime = (at: Date) =>
   at.toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
@@ -362,11 +370,11 @@ export default function CampaignAnalytics({ campaign, mailboxes }: { campaign: a
       ? { title: 'Delivered', value: '—', icon: CheckCircle2, color: '#059669', sub: 'No delivery reports yet', caveat: NO_REPORTS_NOTE }
       : { title: 'Delivered', value: count(t.delivered), icon: CheckCircle2, color: '#059669', sub: `${t.deliveryRate ?? 0}% delivery rate` },
     {
-      title: 'Unique Opens', value: count(t.opens), icon: Mail, color: '#2563EB', sub: caveats.trackOpens ? `${t.openRate ?? 0}% open rate` : 'Open tracking is off',
+      title: 'Unique Opens', value: count(t.opens), icon: Mail, color: '#2563EB', sub: caveats.trackOpens ? `${t.openRate ?? 0}% open rate${fromLeads(t.opens, t.openedLeads)}` : 'Open tracking is off',
       caveat: opensNote,
     },
     {
-      title: 'Unique Clicks', value: count(t.clicks), icon: MousePointerClick, color: '#D97706', sub: caveats.trackClicks ? `${t.clickRate ?? 0}% click rate` : 'Click tracking is off',
+      title: 'Unique Clicks', value: count(t.clicks), icon: MousePointerClick, color: '#D97706', sub: caveats.trackClicks ? `${t.clickRate ?? 0}% click rate${fromLeads(t.clicks, t.clickedLeads)}` : 'Click tracking is off',
       caveat: clicksNote,
     },
     { title: 'Replies', value: repliesUnknown ? '—' : count(t.replies), icon: Reply, color: '#7C3AED', sub: replyNote ? replyNote.short : `${t.replyRate ?? 0}% reply rate`, caveat: replyNote?.long },

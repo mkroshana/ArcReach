@@ -10,7 +10,6 @@ import {
 } from 'lucide-react';
 import { TableSkeleton } from '@/components/Skeleton';
 import { IMAP_SYNC_LABELS, MICROSOFT_IMAP_NOTE, imapSyncState, isMicrosoftImapHost, mailboxRepliesFigure, replyCountUnknown } from '@/lib/imapSyncStatus';
-import { BEFORE_BOT_FILTER_FIX_NOTE } from '@/lib/botFilter';
 import { deliveryRateText } from '@/lib/deliveryStats';
 import { useToast } from '@/components/Toast';
 import { LoadError, loadErrorMessage, readJsonList, readJsonObject, responseErrorMessage } from '@/lib/apiResponse';
@@ -133,15 +132,13 @@ function repliesUnknown(account: any): boolean {
   return replyCountUnknown(imapSyncState(account), account.replies);
 }
 
+/** A tile of the mailbox's deliverability stats; a `caveat` shows as a warning mark beside its description. */
+type StatTile = { title: string; value: string | number; desc: string; caveat?: string | null };
+
 /** The mailbox's Replies tile (mailboxRepliesFigure): '—' where its count is unknown. */
 function repliesTile(account: any, accounts: any[]) {
   const { count, sub, caveat } = mailboxRepliesFigure(account, accounts);
   return { title: 'Replies', value: count ?? '—', desc: sub, caveat };
-}
-
-/** Whether the opens (or clicks) the mailbox counts include hits recorded before the current bot filter (lib/botFilter). */
-function engagedBeforeBotFilterFix(account: any, kind: 'opened' | 'clicked'): boolean {
-  return (account.engagedBeforeBotFilterFix?.[kind] ?? 0) > 0;
 }
 
 /** A small warning mark with its reason on hover and focus. */
@@ -510,8 +507,8 @@ export default function AccountsPage() {
                                     <Box component="strong" tabIndex={0} aria-label="No delivery reports">—</Box>
                                   </MuiTooltip>
                                 ) : <Box component="strong" sx={{ color: 'success.main' }}>{account.delivered ?? 0}</Box>}</span>
-                                <span>Opens: <strong>{account.opens ?? 0}</strong> ({account.openRate ?? 0}%){engagedBeforeBotFilterFix(account, 'opened') && <CaveatMark note={BEFORE_BOT_FILTER_FIX_NOTE} />}</span>
-                                <span>Clicks: <strong>{account.clicks ?? 0}</strong> ({account.clickRate ?? 0}%){engagedBeforeBotFilterFix(account, 'clicked') && <CaveatMark note={BEFORE_BOT_FILTER_FIX_NOTE} />}</span>
+                                <span>Opens: <strong>{account.opens ?? 0}</strong> ({account.openRate ?? 0}%)</span>
+                                <span>Clicks: <strong>{account.clicks ?? 0}</strong> ({account.clickRate ?? 0}%)</span>
                                 <span>Replies: {repliesUnknown(account) ? (
                                   <MuiTooltip title={replySyncDetail(account)}>
                                     <Box component="strong" tabIndex={0} aria-label="Reply sync off">—</Box>
@@ -591,12 +588,12 @@ export default function AccountsPage() {
                   deliveryUnknown(selectedWarmupAccount)
                     ? { title: 'Delivered', value: '—', desc: 'No delivery reports for these emails' }
                     : { title: 'Delivered', value: selectedWarmupAccount.delivered ?? 0, desc: deliveryRateText(selectedWarmupAccount.deliveryRate, selectedWarmupAccount.reported) },
-                  { title: 'Unique Opens', value: selectedWarmupAccount.opens ?? 0, desc: `${selectedWarmupAccount.openRate ?? 0}% open rate`, caveat: engagedBeforeBotFilterFix(selectedWarmupAccount, 'opened') ? BEFORE_BOT_FILTER_FIX_NOTE : null },
-                  { title: 'Unique Clicks', value: selectedWarmupAccount.clicks ?? 0, desc: `${selectedWarmupAccount.clickRate ?? 0}% click rate`, caveat: engagedBeforeBotFilterFix(selectedWarmupAccount, 'clicked') ? BEFORE_BOT_FILTER_FIX_NOTE : null },
+                  { title: 'Unique Opens', value: selectedWarmupAccount.opens ?? 0, desc: `${selectedWarmupAccount.openRate ?? 0}% open rate` },
+                  { title: 'Unique Clicks', value: selectedWarmupAccount.clicks ?? 0, desc: `${selectedWarmupAccount.clickRate ?? 0}% click rate` },
                   // Per 100 emails sent where that means something, not a share of leads: replies to this mailbox may answer another mailbox's emails.
                   repliesTile(selectedWarmupAccount, accounts),
                   { title: 'Bounced', value: selectedWarmupAccount.bounced ?? 0, desc: 'Hard bounces' },
-                ].map((s, idx) => (
+                ].map((s: StatTile, idx) => (
                   <Box key={idx} sx={{ p: 1.5, bgcolor: 'action.hover', borderRadius: '12px', border: 1, borderColor: 'divider' }}>
                     <Typography variant="overline" sx={{ color: 'text.secondary', fontWeight: 700, fontSize: 9 }}>{s.title}</Typography>
                     <Typography variant="h6" sx={{ fontWeight: 700, fontFamily: 'monospace' }}>{s.value.toLocaleString()}</Typography>

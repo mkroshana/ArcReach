@@ -16,7 +16,6 @@ import { emailsLeft } from '@/lib/campaignProgress';
 import {
   type MetricsScope,
   campaignLeadTotals,
-  countEngagedBeforeBotFilterFix,
   countReplies,
   countSendAttempts,
   dailyEngagement,
@@ -104,9 +103,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     // and their rate of the emails whose outcome is known (bounceBase).
     // Failed: send attempts the provider refused or that errored.
     // Unsubscribed: this campaign's emails whose unsubscribe link was used.
-    // Opened and clicked emails: and those, overall and in the trend, with hits
-    // recorded before BOT_FILTER_FIX_AT, which include security-scanner hits,
-    // so the page can say so, and the leads they came from (campaignLeadTotals),
+    // Opened and clicked emails, and the leads they came from (campaignLeadTotals),
     // since a lead often opens several of the campaign's emails.
     // Replies: the human replies the campaign received. Reply rate: the leads
     // who replied of the leads contacted, as Lead Progress and the step and
@@ -114,18 +111,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     // The steps and mailboxes break the same sends down with every measure,
     // and the delivery breakdown says what delivery reports said about them.
     const scope: MetricsScope = { kind: 'campaign', campaignId: id };
-    const trendWindow = metricsWindow(TREND_DAYS);
-    const [
-      sends, health, engagedBeforeBotFilterFix, trendEngagedBeforeBotFilterFix,
-      sentRequestsCount, repliesCount, trend, stepCounts, delivery, leadTotals, mailboxes,
-    ] = await Promise.all([
+    const [sends, health, sentRequestsCount, repliesCount, trend, stepCounts, delivery, leadTotals, mailboxes] = await Promise.all([
       sendSummary(prisma, scope),
       healthSummary(prisma, scope),
-      countEngagedBeforeBotFilterFix(prisma, scope),
-      countEngagedBeforeBotFilterFix(prisma, scope, trendWindow.current),
       countSendAttempts(prisma, scope),
       countReplies(prisma, scope),
-      dailyEngagement(prisma, scope, trendWindow),
+      dailyEngagement(prisma, scope, metricsWindow(TREND_DAYS)),
       stepMetrics(prisma, [id], { engagement: true, health: true, leads: true, replies: true }),
       deliveryBreakdown(prisma, scope),
       campaignLeadTotals(prisma, id),
@@ -280,7 +271,6 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       clicks: sends.clicked,
       openedLeads: leadTotals.opened,
       clickedLeads: leadTotals.clicked,
-      engagedBeforeBotFilterFix,
       replies: repliesCount,
       bounced: health.bounced,
       failed: health.failed,
@@ -292,7 +282,6 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       bounceRate: health.bounceRate,
       bounceBase: health.bounceBase,
       trend,
-      trendEngagedBeforeBotFilterFix,
       funnel,
       sentiment: sentimentBreakdown,
       stepStats,

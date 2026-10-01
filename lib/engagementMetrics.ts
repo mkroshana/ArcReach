@@ -1,5 +1,4 @@
 import { Prisma, type PrismaClient } from '@prisma/client';
-import { BOT_FILTER_FIX_AT } from '@/lib/botFilter';
 
 /**
  * Engagement metrics, defined once here for the dashboard, the campaigns list,
@@ -14,9 +13,7 @@ import { BOT_FILTER_FIX_AT } from '@/lib/botFilter';
  * - Opened: a person opened the email or clicked a link in it, since a click
  *   means it was opened even when its pixel was blocked. Clicked: a person
  *   clicked a link in it. Each email counts once however often it was opened
- *   or clicked, and hits lib/botFilter judged automated never count. Those
- *   recorded before BOT_FILTER_FIX_AT went through an older filter and include
- *   security-scanner hits; countEngagedBeforeBotFilterFix finds them.
+ *   or clicked, and hits lib/botFilter judged automated never count.
  * - Delivered: a delivery report said the email was delivered and none since
  *   bounced it or filed it as spam: its delivery status is Delivered and it
  *   has no bounce. Such a later report replaces the status but leaves
@@ -252,31 +249,6 @@ export async function healthSummary(client: MetricsClient, scope: MetricsScope, 
     bounced, failed, unsubscribed, bounceBase,
     bounceRate: percent(bounced, bounceBase, BOUNCE_RATE_DECIMALS),
   };
-}
-
-/** Of the emails a scope counts as opened (and as clicked), those with an open or click (a click) recorded before BOT_FILTER_FIX_AT. */
-export type EngagedBeforeBotFilterFix = { opened: number; clicked: number };
-
-/**
- * Of a scope's sends (sent in `sentAt` when given), how many of the opened,
- * and of the clicked, emails sendSummary counts have an open or click (a
- * click) recorded before BOT_FILTER_FIX_AT, when the older bot filter let
- * security-scanner hits through. Such a hit is on an email sent before then,
- * so a period starting later needs no query, and the clicked emails are
- * counted only when some opened ones are, since a click counts as an open.
- */
-export async function countEngagedBeforeBotFilterFix(
-  client: MetricsClient,
-  scope: MetricsScope,
-  sentAt?: Period,
-): Promise<EngagedBeforeBotFilterFix> {
-  if (sentAt && sentAt.gte >= BOT_FILTER_FIX_AT) return { opened: 0, clicked: 0 };
-  const recordedBefore = (eventType: Prisma.StringFilter | string): Prisma.EmailDispatchWhereInput => ({
-    AND: [sentWhere(scope, sentAt), { sentAt: { lt: BOT_FILTER_FIX_AT } }, { events: { some: { eventType, timestamp: { lt: BOT_FILTER_FIX_AT } } } }],
-  });
-  const opened = await client.emailDispatch.count({ where: recordedBefore({ in: [OPEN_EVENT, CLICK_EVENT] }) });
-  const clicked = opened > 0 ? await client.emailDispatch.count({ where: recordedBefore(CLICK_EVENT) }) : 0;
-  return { opened, clicked };
 }
 
 export type StepMetrics = {

@@ -35,7 +35,6 @@ import { GET as getCampaign } from '../../app/api/campaigns/[id]/route';
 import { GET as getDashboardStats } from '../../app/api/dashboard-stats/route';
 import { GET as getAccounts } from '../../app/api/accounts/route';
 import { dailyEngagement, deliveryBreakdown, healthSummary, metricsWindow, percent, stepMetrics } from '../../lib/engagementMetrics';
-import { BOT_FILTER_FIX_AT } from '../../lib/botFilter';
 import { mailboxRepliesFigure } from '../../lib/imapSyncStatus';
 import { bounceFigure } from '../../lib/bounceStats';
 import { countRows, groupRows, matchesWhere } from './helpers/prismaWhere';
@@ -580,36 +579,20 @@ describe('the Accounts page gives replies per 100 emails sent, not a reply rate 
   });
 });
 
-describe('the dashboard and the Accounts page say which opens and clicks were recorded before the current bot filter (stats A7)', () => {
-  const DAY = 24 * 3600_000;
-  /** `ms` before the bot filter went live. */
-  const beforeFix = (ms: number) => new Date(BOT_FILTER_FIX_AT.getTime() - ms);
-
-  it('counts them in the period and in the prior one its changes compare with, and for each mailbox', async () => {
-    // This period: opened 30 s after sending, as a scanner does.
-    addDispatch({ id: 'current', sentAt: beforeFix(DAY), events: [event('open', beforeFix(DAY - 30_000))] });
-    // The prior period: clicked, which counts as opened too.
-    addDispatch({ id: 'prior', leadId: 'lead-2', sentAt: beforeFix(10 * DAY), events: [event('click', beforeFix(10 * DAY - 20_000))] });
-    // A machine hit never counts; another user's campaign counts on its own mailbox only.
-    addDispatch({ id: 'machine', leadId: 'lead-3', sentAt: beforeFix(DAY), events: [event('machine_click', beforeFix(DAY - 5_000))] });
-    addDispatch({ id: 'theirs', campaignId: 'cmp-2', senderAccountId: 'mb-2', sentAt: beforeFix(DAY), events: [event('click', beforeFix(DAY - 30_000))] });
-
-    const { stats } = await dashboard();
-    expect(stats.engagedBeforeBotFilterFix).toEqual({ opened: 1, clicked: 0 });
-    expect(stats.priorEngagedBeforeBotFilterFix).toEqual({ opened: 1, clicked: 1 });
-
-    expect((await mailbox('mb-1')).engagedBeforeBotFilterFix).toEqual({ opened: 2, clicked: 1 });
-    expect((await mailbox('mb-2')).engagedBeforeBotFilterFix).toEqual({ opened: 1, clicked: 1 });
-  });
-
-  it('counts none where every open and click was recorded after it', async () => {
-    addDispatch({ id: 'old-email-new-open', sentAt: beforeFix(DAY), events: [event('open', new Date(BOT_FILTER_FIX_AT.getTime() + 60_000))] });
+describe('the dashboard and the Accounts page count every open and click, whenever it was recorded', () => {
+  it('give no before-and-after split of them', async () => {
+    // This period's email opened; the prior period's clicked, which counts as opened too.
+    addDispatch({ id: 'current', events: [event('open')] });
+    addDispatch({ id: 'prior', leadId: 'lead-2', sentAt: at(10), events: [event('click', at(10, 13))] });
 
     const { stats } = await dashboard();
     expect(stats.averageOpenRate).toBe(100);
-    expect(stats.engagedBeforeBotFilterFix).toEqual({ opened: 0, clicked: 0 });
-    expect(stats.priorEngagedBeforeBotFilterFix).toEqual({ opened: 0, clicked: 0 });
-    expect((await mailbox()).engagedBeforeBotFilterFix).toEqual({ opened: 0, clicked: 0 });
+    expect(stats).not.toHaveProperty('engagedBeforeBotFilterFix');
+    expect(stats).not.toHaveProperty('priorEngagedBeforeBotFilterFix');
+
+    const mb1 = await mailbox('mb-1');
+    expect(mb1).toMatchObject({ opens: 2, clicks: 1 });
+    expect(mb1).not.toHaveProperty('engagedBeforeBotFilterFix');
   });
 });
 

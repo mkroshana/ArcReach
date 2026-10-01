@@ -7,9 +7,7 @@ import { MASKED_SECRET, encryptSecret } from '@/lib/secrets';
 import { getGlobalSettings } from '@/lib/settings';
 import { getVerifiedDomains, unverifiedSenderMessage } from '@/lib/azureDomains';
 import { getEffectiveDailyCap, senderCapDispatchWhere } from '@/lib/sendEngine';
-import {
-  type MetricsScope, countEngagedBeforeBotFilterFix, countHardBounces, countReplies, percent, sendSummary,
-} from '@/lib/engagementMetrics';
+import { type MetricsScope, countHardBounces, countReplies, percent, sendSummary } from '@/lib/engagementMetrics';
 import { type FieldRule, fieldRules, isPlainObject, pickUpdateFields } from '@/lib/updateAllowList';
 
 /** Scalar columns the mailbox PUT may write: the daily limit, warmup and IMAP credential
@@ -77,20 +75,16 @@ export async function GET() {
       // as on the campaign pages and the dashboard. `reported`: how many a
       // delivery report arrived for, the delivery rate's base; with none, the
       // page shows Delivered as unknown.
-      // engagedBeforeBotFilterFix: the opened and clicked emails with hits recorded
-      // before BOT_FILTER_FIX_AT, which include security-scanner hits, so the page
-      // can say so.
       // Replies: the human replies that arrived in this mailbox, which may answer
       // another mailbox's emails (its Reply-To), so they are no share of the leads
       // this mailbox contacted, as a campaign's reply rate is. They are given per
       // 100 emails this mailbox sent instead (repliesPer100Sent), null when it sent
       // none, and the page says when even that means little (mailboxRepliesFigure).
       const scope: MetricsScope = { kind: 'mailbox', senderAccountId: account.id };
-      const [sends, bounced, replies, engagedBeforeBotFilterFix] = await Promise.all([
+      const [sends, bounced, replies] = await Promise.all([
         sendSummary(prisma, scope),
         countHardBounces(prisma, scope),
         countReplies(prisma, scope),
-        countEngagedBeforeBotFilterFix(prisma, scope),
       ]);
 
       // The cap the send engine enforces: the warmup ramp while it holds the mailbox below its daily limit.
@@ -104,7 +98,6 @@ export async function GET() {
         reported: sends.reported,
         opens: sends.opened,
         clicks: sends.clicked,
-        engagedBeforeBotFilterFix,
         replies,
         bounced,
         deliveryRate: sends.deliveryRate,

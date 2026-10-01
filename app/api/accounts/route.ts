@@ -7,7 +7,9 @@ import { MASKED_SECRET, encryptSecret } from '@/lib/secrets';
 import { getGlobalSettings } from '@/lib/settings';
 import { getVerifiedDomains, unverifiedSenderMessage } from '@/lib/azureDomains';
 import { getEffectiveDailyCap, senderCapDispatchWhere } from '@/lib/sendEngine';
-import { type MetricsScope, countHardBounces, countReplies, countReported, percent, sendSummary } from '@/lib/engagementMetrics';
+import {
+  type MetricsScope, countEngagedBeforeBotFilterFix, countHardBounces, countReplies, countReported, percent, sendSummary,
+} from '@/lib/engagementMetrics';
 import { type FieldRule, fieldRules, isPlainObject, pickUpdateFields } from '@/lib/updateAllowList';
 
 /** Scalar columns the mailbox PUT may write: the daily limit, warmup and IMAP credential
@@ -74,12 +76,16 @@ export async function GET() {
       // hard bounces (at send time or reported), defined in lib/engagementMetrics
       // as on the campaign pages and the dashboard. `reported`: how many a
       // delivery report arrived for; with none, the page shows Delivered as unknown.
+      // engagedBeforeBotFilterFix: the opened and clicked emails with hits recorded
+      // before BOT_FILTER_FIX_AT, which include security-scanner hits, so the page
+      // can say so.
       const scope: MetricsScope = { kind: 'mailbox', senderAccountId: account.id };
-      const [sends, reported, bounced, replies] = await Promise.all([
+      const [sends, reported, bounced, replies, engagedBeforeBotFilterFix] = await Promise.all([
         sendSummary(prisma, scope),
         countReported(prisma, scope),
         countHardBounces(prisma, scope),
         countReplies(prisma, scope),
+        countEngagedBeforeBotFilterFix(prisma, scope),
       ]);
 
       // The cap the send engine enforces: the warmup ramp while it holds the mailbox below its daily limit.
@@ -93,6 +99,7 @@ export async function GET() {
         reported,
         opens: sends.opened,
         clicks: sends.clicked,
+        engagedBeforeBotFilterFix,
         replies,
         bounced,
         deliveryRate: sends.deliveryRate,

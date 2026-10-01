@@ -16,6 +16,7 @@ import { isHtmlTemplate } from '@/lib/personalize';
 import { replyCountUnknown, replySyncState, type ImapSyncState } from '@/lib/imapSyncStatus';
 import { bounceFigure, noReportsFor, type BounceCounts, type BounceFigure } from '@/lib/bounceStats';
 import { ENROLLMENT_STATES, FAILED_BEFORE_STATUS_CHECK_FIX_NOTE, STOPPED_ACTIVE_STATE, nextSendText } from '@/lib/campaignProgress';
+import { BEFORE_BOT_FILTER_FIX_NOTE } from '@/lib/botFilter';
 import { timeAgo } from '@/lib/systemStatus';
 import { useTheme as useAppTheme } from '@/components/ThemeProvider';
 
@@ -25,7 +26,8 @@ import { useTheme as useAppTheme } from '@/components/ThemeProvider';
  * number that depends on something not set up says so instead of showing a
  * misleading zero: deliveries need Azure delivery reports, replies need reply
  * sync on the mailboxes that receive them, and opens and clicks need tracking
- * on and an HTML step.
+ * on and an HTML step. Opens and clicks recorded before the current bot filter
+ * include security-scanner hits, so where they are counted the page says so.
  */
 
 /** A count as the page shows it: 1,284. */
@@ -102,16 +104,22 @@ export type AnalyticsCaveats = {
   replySync: Exclude<ImapSyncState, 'ok'> | null;
   trackOpens: boolean;
   trackClicks: boolean;
+  /** The campaign's counted opens, and clicks, include hits recorded before the current bot filter (lib/botFilter BOT_FILTER_FIX_AT). */
+  opensBeforeBotFilterFix: boolean;
+  clicksBeforeBotFilterFix: boolean;
 };
 
 export function analyticsCaveats(campaign: any, mailboxes: any[] | null): AnalyticsCaveats {
   const delivery = campaign?.telemetry?.delivery;
+  const beforeBotFilterFix = campaign?.telemetry?.engagedBeforeBotFilterFix;
   const sync = campaignReplySync(campaign, mailboxes);
   return {
     noDeliveryReports: !!delivery && delivery.accepted > 0 && delivery.reported === 0,
     replySync: sync && sync !== 'ok' ? sync : null,
     trackOpens: campaign?.trackOpens !== false,
     trackClicks: campaign?.trackClicks !== false,
+    opensBeforeBotFilterFix: (beforeBotFilterFix?.opened ?? 0) > 0,
+    clicksBeforeBotFilterFix: (beforeBotFilterFix?.clicked ?? 0) > 0,
   };
 }
 
@@ -293,8 +301,8 @@ export function StepStatStrip({ stats, htmlStep, caveats }: { stats: any; htmlSt
   const items: Array<{ label: string; value: string; caveat?: string | null }> = [
     { label: 'Sent', value: stats.leads && stats.leads !== stats.sent ? `${count(stats.sent)} to ${count(stats.leads)} leads` : count(stats.sent) },
     ...(noReports ? [] : [{ label: 'Delivered', value: `${stats.deliveryRate}%` }]),
-    { label: 'Opened', value: opensGap ?? `${stats.openRate}%` },
-    { label: 'Clicked', value: clicksGap ?? `${stats.clickRate}%` },
+    { label: 'Opened', value: opensGap ?? `${stats.openRate}%`, caveat: !opensGap && caveats.opensBeforeBotFilterFix ? BEFORE_BOT_FILTER_FIX_NOTE : null },
+    { label: 'Clicked', value: clicksGap ?? `${stats.clickRate}%`, caveat: !clicksGap && caveats.clicksBeforeBotFilterFix ? BEFORE_BOT_FILTER_FIX_NOTE : null },
     { label: 'Replied', value: `${stats.replyRate}%`, caveat: caveats.replySync ? REPLY_SYNC_NOTES[caveats.replySync].long : null },
     { label: 'Unsubscribed', value: count(stats.unsubscribed) },
     {
@@ -342,14 +350,25 @@ export default function CampaignAnalytics({ campaign, mailboxes }: { campaign: a
   const series = colorMode === 'dark' ? { opens: '#3987e5', clicks: '#d95926' } : { opens: '#2a78d6', clicks: '#eb6834' };
   const stepBodies = new Map<number, string>((campaign?.steps ?? []).map((s: any) => [s.stepOrder, s.body ?? '']));
 
+  // Opens and clicks recorded before the current bot filter include security-scanner hits: the campaign's, and the trend's emails'.
+  const opensNote = caveats.opensBeforeBotFilterFix ? BEFORE_BOT_FILTER_FIX_NOTE : null;
+  const clicksNote = caveats.clicksBeforeBotFilterFix ? BEFORE_BOT_FILTER_FIX_NOTE : null;
+  const trendNote = (t.trendEngagedBeforeBotFilterFix?.opened ?? 0) > 0 ? BEFORE_BOT_FILTER_FIX_NOTE : null;
+
   const emailTiles = [
     { title: 'Total Sent Requests', value: count(t.sentRequests), icon: SendHorizontal, color: '#64748b', sub: 'Includes retries & failures' },
     { title: 'Emails Sent', value: count(t.sent), icon: Send, color: '#2563EB', sub: `Accepted by provider, to ${count(progress.contacted)} leads` },
     caveats.noDeliveryReports
       ? { title: 'Delivered', value: '—', icon: CheckCircle2, color: '#059669', sub: 'No delivery reports yet', caveat: NO_REPORTS_NOTE }
       : { title: 'Delivered', value: count(t.delivered), icon: CheckCircle2, color: '#059669', sub: `${t.deliveryRate ?? 0}% delivery rate` },
-    { title: 'Unique Opens', value: count(t.opens), icon: Mail, color: '#2563EB', sub: caveats.trackOpens ? `${t.openRate ?? 0}% open rate` : 'Open tracking is off' },
-    { title: 'Unique Clicks', value: count(t.clicks), icon: MousePointerClick, color: '#D97706', sub: caveats.trackClicks ? `${t.clickRate ?? 0}% click rate` : 'Click tracking is off' },
+    {
+      title: 'Unique Opens', value: count(t.opens), icon: Mail, color: '#2563EB', sub: caveats.trackOpens ? `${t.openRate ?? 0}% open rate` : 'Open tracking is off',
+      caveat: opensNote,
+    },
+    {
+      title: 'Unique Clicks', value: count(t.clicks), icon: MousePointerClick, color: '#D97706', sub: caveats.trackClicks ? `${t.clickRate ?? 0}% click rate` : 'Click tracking is off',
+      caveat: clicksNote,
+    },
     { title: 'Replies', value: repliesUnknown ? '—' : count(t.replies), icon: Reply, color: '#7C3AED', sub: replyNote ? replyNote.short : `${t.replyRate ?? 0}% reply rate`, caveat: replyNote?.long },
   ];
   // As the step and mailbox rows (bounceFigure): with no delivery report, a bounce count of 0 shows as unknown and
@@ -463,8 +482,8 @@ export default function CampaignAnalytics({ campaign, mailboxes }: { campaign: a
                   <Th title={waitingDefinition}>{waitingTitle}</Th>
                   <Th title="Emails the provider accepted for this step. Where a lead got the step more than once, the leads it reached are shown too.">Sent</Th>
                   <Th title="Emails a delivery report said were delivered.">Delivered</Th>
-                  <Th title="Emails a person opened or clicked in (automated opens are left out), of those not reported undelivered.">Opened</Th>
-                  <Th title="Emails a person clicked a link in, of those not reported undelivered.">Clicked</Th>
+                  <Th title="Emails a person opened or clicked in (automated opens are left out), of those not reported undelivered." caveat={opensNote}>Opened</Th>
+                  <Th title="Emails a person clicked a link in, of those not reported undelivered." caveat={clicksNote}>Clicked</Th>
                   <Th title="Leads who replied after this step was their latest email, of the leads it reached. Bounces and auto-replies are left out." caveat={replyNote?.long}>Replied</Th>
                   <Th title="Emails whose unsubscribe link was used.">Unsubscribed</Th>
                   <Th title={BOUNCED_DEFINITION}>Bounced</Th>
@@ -532,7 +551,7 @@ export default function CampaignAnalytics({ campaign, mailboxes }: { campaign: a
                   <TableCell>Mailbox</TableCell>
                   <Th title="Emails the provider accepted from this mailbox, and the leads they went to.">Sent</Th>
                   <Th title="Emails a delivery report said were delivered.">Delivered</Th>
-                  <Th title="Emails a person opened or clicked in, of those not reported undelivered.">Opened</Th>
+                  <Th title="Emails a person opened or clicked in, of those not reported undelivered." caveat={opensNote}>Opened</Th>
                   <Th title="Leads who replied after an email from this mailbox was their latest, of the leads it reached." caveat={replyNote?.long}>Replied</Th>
                   <Th title={BOUNCED_DEFINITION}>Bounced</Th>
                   <Th title="Send attempts the provider refused or that errored, retries included.">Failed</Th>
@@ -573,7 +592,7 @@ export default function CampaignAnalytics({ campaign, mailboxes }: { campaign: a
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: 'repeat(3, 1fr)' }, gap: 2 }}>
         <Card>
           <CardContent>
-            <SectionTitle caption="Of the emails sent each day, the last 7 days.">Engagement Over Time</SectionTitle>
+            <SectionTitle caption={<>Of the emails sent each day, the last 7 days.{trendNote && <Caveat note={trendNote} />}</>}>Engagement Over Time</SectionTitle>
             <Box sx={{ height: 220 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={t.trend || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>

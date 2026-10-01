@@ -16,6 +16,7 @@ import { alpha, useTheme } from '@mui/material/styles';
 import { useTheme as useAppTheme } from '@/components/ThemeProvider';
 import { deliveryStatusText } from '@/lib/systemStatus';
 import { replyCountUnknown } from '@/lib/imapSyncStatus';
+import { BEFORE_BOT_FILTER_FIX_NOTE } from '@/lib/botFilter';
 import { LoadError, loadErrorMessage, readJsonObject } from '@/lib/apiResponse';
 
 /** The outbox chip for each /api/system-status deliveryStatus. */
@@ -60,6 +61,17 @@ function DeltaChip({ change }: { change: number }) {
   );
 }
 
+/** A small warning mark with its reason on hover and focus. */
+function CaveatMark({ note }: { note: string }) {
+  return (
+    <MuiTooltip title={note} arrow>
+      <Box component="span" tabIndex={0} aria-label={note} sx={{ display: 'inline-flex', color: 'warning.main', verticalAlign: 'middle', ml: 0.5 }}>
+        <AlertTriangle size={12} />
+      </Box>
+    </MuiTooltip>
+  );
+}
+
 function MetricCard({ title, value, change, sub, caveat, color, icon: Icon }: any) {
   const hasDelta = change !== undefined && change !== null;
   return (
@@ -76,17 +88,12 @@ function MetricCard({ title, value, change, sub, caveat, color, icon: Icon }: an
           <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mt: 1.25 }}>
             <DeltaChip change={Number(change) || 0} />
             <Typography variant="caption" sx={{ color: 'text.secondary' }}>vs last period</Typography>
+            {caveat && <CaveatMark note={caveat} />}
           </Stack>
         ) : sub ? (
           <Typography variant="caption" sx={{ color: 'text.secondary', mt: 1.25, display: 'flex', alignItems: 'center' }}>
             {sub}
-            {caveat && (
-              <MuiTooltip title={caveat} arrow>
-                <Box component="span" tabIndex={0} aria-label={caveat} sx={{ display: 'inline-flex', color: 'warning.main', ml: 0.5 }}>
-                  <AlertTriangle size={12} />
-                </Box>
-              </MuiTooltip>
-            )}
+            {caveat && <CaveatMark note={caveat} />}
           </Typography>
         ) : null}
       </CardContent>
@@ -204,6 +211,13 @@ export default function Dashboard() {
   // With reply sync off on every mailbox no reply is read, so a 0 means replies are not read, not that nobody replied.
   const replySyncOff = stats?.replySync === 'off';
   const repliesUnknown = replyCountUnknown(stats?.replySync, stats?.totalReplies);
+  // Opens and clicks recorded before the current bot filter include security-scanner hits: on the rate cards when
+  // this period's emails or the prior period's they compare with have some, on the trend when this period's do.
+  const beforeBotFilterFix = stats?.engagedBeforeBotFilterFix;
+  const priorBeforeBotFilterFix = stats?.priorEngagedBeforeBotFilterFix;
+  const opensNote = (beforeBotFilterFix?.opened ?? 0) > 0 || (priorBeforeBotFilterFix?.opened ?? 0) > 0 ? BEFORE_BOT_FILTER_FIX_NOTE : undefined;
+  const clicksNote = (beforeBotFilterFix?.clicked ?? 0) > 0 || (priorBeforeBotFilterFix?.clicked ?? 0) > 0 ? BEFORE_BOT_FILTER_FIX_NOTE : undefined;
+  const trendNote = (beforeBotFilterFix?.opened ?? 0) > 0 ? BEFORE_BOT_FILTER_FIX_NOTE : undefined;
   const needsSetup = systemStatus && (systemStatus.accountsCount === 0 || systemStatus.leadsCount === 0 || systemStatus.activeCampaignsCount === 0);
 
   const setupSteps = systemStatus ? [
@@ -292,8 +306,8 @@ export default function Dashboard() {
           {/* Engagement metrics */}
           <Box sx={gridSx(4)}>
             <MetricCard title="Emails Sent" value={stats.totalSent.toLocaleString()} change={stats.deltas?.sent} color="#2563EB" icon={SendHorizontal} />
-            <MetricCard title="Open Rate" value={`${stats.averageOpenRate}%`} change={stats.deltas?.openRate} color="#0D9488" icon={Mail} />
-            <MetricCard title="Click Rate" value={`${stats.averageClickRate}%`} change={stats.deltas?.clickRate} color="#D97706" icon={MousePointerClick} />
+            <MetricCard title="Open Rate" value={`${stats.averageOpenRate}%`} change={stats.deltas?.openRate} caveat={opensNote} color="#0D9488" icon={Mail} />
+            <MetricCard title="Click Rate" value={`${stats.averageClickRate}%`} change={stats.deltas?.clickRate} caveat={clicksNote} color="#D97706" icon={MousePointerClick} />
             <MetricCard
               title="Replies"
               value={repliesUnknown ? '—' : stats.totalReplies.toLocaleString()}
@@ -315,7 +329,7 @@ export default function Dashboard() {
           {/* Engagement trend */}
           <ChartCard
             title="Engagement Trends"
-            subtitle="Campaign emails sent each day, and how many of them were opened and clicked."
+            subtitle={<>Campaign emails sent each day, and how many of them were opened and clicked.{trendNote && <CaveatMark note={trendNote} />}</>}
             height={350}
             action={
               <FormControl size="small">

@@ -61,6 +61,20 @@ export type BotReason =
 /** The event types automated opens and clicks are recorded under; metrics never count them. */
 export const MACHINE_EVENT_TYPE = { open: 'machine_open', click: 'machine_click' } as const;
 
+/**
+ * When this filter went live (deployed 2026-09-30, about 14:05 UTC). The one
+ * before it (added 2026-06-19; there was none before that) dropped only scanner
+ * user agents and hits within seconds of sentAt, recorded nothing it dropped
+ * and stored no user agent, so the opens and clicks recorded before then
+ * include security-scanner hits and cannot be re-checked. They are left as
+ * they are; pages say so where they count them.
+ */
+export const BOT_FILTER_FIX_AT = new Date('2026-09-30T14:05:00.000Z');
+
+/** What a page says where the opens or clicks it counts include hits recorded before BOT_FILTER_FIX_AT. */
+export const BEFORE_BOT_FILTER_FIX_NOTE =
+  'Opens and clicks on emails sent before 30 Sep 2026 were recorded under an older bot filter and include security-scanner hits.';
+
 export function isLikelyScannerUA(userAgent: string | null): boolean {
   if (!userAgent) return false;
   return SCANNER_UA_PATTERNS.some((pattern) => pattern.test(userAgent));

@@ -6,10 +6,11 @@ import Link from 'next/link';
 import {
   Plus, CheckCircle2, AlertCircle, Mail, Flame, ArrowLeft, Sliders,
   ChevronRight, Gauge, User, Activity, Save, Send, Loader2, Trash2, Eye, EyeOff, ShieldAlert,
-  MailCheck, MailWarning, MailX, Clock, Settings, RefreshCw,
+  MailCheck, MailWarning, MailX, Clock, Settings, RefreshCw, AlertTriangle,
 } from 'lucide-react';
 import { TableSkeleton } from '@/components/Skeleton';
 import { IMAP_SYNC_LABELS, MICROSOFT_IMAP_NOTE, imapSyncState, isMicrosoftImapHost } from '@/lib/imapSyncStatus';
+import { BEFORE_BOT_FILTER_FIX_NOTE } from '@/lib/botFilter';
 import { useToast } from '@/components/Toast';
 import { LoadError, loadErrorMessage, readJsonList, readJsonObject, responseErrorMessage } from '@/lib/apiResponse';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -124,6 +125,22 @@ const NO_DELIVERY_REPORTS_NOTE = "No delivery reports have arrived for this mail
 /** Whether the mailbox sent emails but no delivery report arrived for any of them, so its Delivered is unknown rather than 0. */
 function deliveryUnknown(account: any): boolean {
   return (account.sentTotal ?? 0) > 0 && (account.reported ?? 0) === 0;
+}
+
+/** Whether the opens (or clicks) the mailbox counts include hits recorded before the current bot filter (lib/botFilter). */
+function engagedBeforeBotFilterFix(account: any, kind: 'opened' | 'clicked'): boolean {
+  return (account.engagedBeforeBotFilterFix?.[kind] ?? 0) > 0;
+}
+
+/** A small warning mark with its reason on hover and focus. */
+function CaveatMark({ note }: { note: string }) {
+  return (
+    <MuiTooltip title={note} arrow>
+      <Box component="span" tabIndex={0} aria-label={note} sx={{ display: 'inline-flex', color: 'warning.main', verticalAlign: 'middle', ml: 0.5 }}>
+        <AlertTriangle size={12} />
+      </Box>
+    </MuiTooltip>
+  );
 }
 
 export default function AccountsPage() {
@@ -481,8 +498,8 @@ export default function AccountsPage() {
                                     <Box component="strong" tabIndex={0} aria-label="No delivery reports">—</Box>
                                   </MuiTooltip>
                                 ) : <Box component="strong" sx={{ color: 'success.main' }}>{account.delivered ?? 0}</Box>}</span>
-                                <span>Opens: <strong>{account.opens ?? 0}</strong> ({account.openRate ?? 0}%)</span>
-                                <span>Clicks: <strong>{account.clicks ?? 0}</strong> ({account.clickRate ?? 0}%)</span>
+                                <span>Opens: <strong>{account.opens ?? 0}</strong> ({account.openRate ?? 0}%){engagedBeforeBotFilterFix(account, 'opened') && <CaveatMark note={BEFORE_BOT_FILTER_FIX_NOTE} />}</span>
+                                <span>Clicks: <strong>{account.clicks ?? 0}</strong> ({account.clickRate ?? 0}%){engagedBeforeBotFilterFix(account, 'clicked') && <CaveatMark note={BEFORE_BOT_FILTER_FIX_NOTE} />}</span>
                                 <span>Replies: <strong>{account.replies ?? 0}</strong></span>
                                 <span>Bounces: <Box component="strong" sx={{ color: 'error.main' }}>{account.bounced ?? 0}</Box></span>
                               </Stack>
@@ -558,15 +575,15 @@ export default function AccountsPage() {
                   deliveryUnknown(selectedWarmupAccount)
                     ? { title: 'Delivered', value: '—', desc: 'No delivery reports for these emails' }
                     : { title: 'Delivered', value: selectedWarmupAccount.delivered ?? 0, desc: `${selectedWarmupAccount.deliveryRate ?? 0}% delivery rate` },
-                  { title: 'Unique Opens', value: selectedWarmupAccount.opens ?? 0, desc: `${selectedWarmupAccount.openRate ?? 0}% open rate` },
-                  { title: 'Unique Clicks', value: selectedWarmupAccount.clicks ?? 0, desc: `${selectedWarmupAccount.clickRate ?? 0}% click rate` },
+                  { title: 'Unique Opens', value: selectedWarmupAccount.opens ?? 0, desc: `${selectedWarmupAccount.openRate ?? 0}% open rate`, caveat: engagedBeforeBotFilterFix(selectedWarmupAccount, 'opened') ? BEFORE_BOT_FILTER_FIX_NOTE : null },
+                  { title: 'Unique Clicks', value: selectedWarmupAccount.clicks ?? 0, desc: `${selectedWarmupAccount.clickRate ?? 0}% click rate`, caveat: engagedBeforeBotFilterFix(selectedWarmupAccount, 'clicked') ? BEFORE_BOT_FILTER_FIX_NOTE : null },
                   { title: 'Replies', value: selectedWarmupAccount.replies ?? 0, desc: `${selectedWarmupAccount.replyRate ?? 0}% reply rate` },
                   { title: 'Bounced', value: selectedWarmupAccount.bounced ?? 0, desc: 'Hard bounces' },
                 ].map((s, idx) => (
                   <Box key={idx} sx={{ p: 1.5, bgcolor: 'action.hover', borderRadius: '12px', border: 1, borderColor: 'divider' }}>
                     <Typography variant="overline" sx={{ color: 'text.secondary', fontWeight: 700, fontSize: 9 }}>{s.title}</Typography>
                     <Typography variant="h6" sx={{ fontWeight: 700, fontFamily: 'monospace' }}>{s.value.toLocaleString()}</Typography>
-                    <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: 9, display: 'block' }}>{s.desc}</Typography>
+                    <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: 9, display: 'block' }}>{s.desc}{s.caveat && <CaveatMark note={s.caveat} />}</Typography>
                   </Box>
                 ))}
               </Box>

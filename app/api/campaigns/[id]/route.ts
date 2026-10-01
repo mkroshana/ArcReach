@@ -16,6 +16,7 @@ import { emailsLeft } from '@/lib/campaignProgress';
 import {
   type MetricsScope,
   campaignLeadTotals,
+  countEngagedBeforeBotFilterFix,
   countFailedBeforeStatusCheckFix,
   countReplies,
   countSendAttempts,
@@ -105,16 +106,25 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     // made before STATUS_CHECK_FIX_AT, which also include accepted emails whose
     // status check failed, so the page can say so.
     // Unsubscribed: this campaign's emails whose unsubscribe link was used.
+    // Opened and clicked emails: and those, overall and in the trend, with hits
+    // recorded before BOT_FILTER_FIX_AT, which include security-scanner hits,
+    // so the page can say so.
     // The steps and mailboxes break the same sends down with every measure,
     // and the delivery breakdown says what delivery reports said about them.
     const scope: MetricsScope = { kind: 'campaign', campaignId: id };
-    const [sends, health, failedBeforeStatusCheckFix, sentRequestsCount, repliesCount, trend, stepCounts, delivery, leadTotals, mailboxes] = await Promise.all([
+    const trendWindow = metricsWindow(TREND_DAYS);
+    const [
+      sends, health, failedBeforeStatusCheckFix, engagedBeforeBotFilterFix, trendEngagedBeforeBotFilterFix,
+      sentRequestsCount, repliesCount, trend, stepCounts, delivery, leadTotals, mailboxes,
+    ] = await Promise.all([
       sendSummary(prisma, scope),
       healthSummary(prisma, scope),
       countFailedBeforeStatusCheckFix(prisma, scope),
+      countEngagedBeforeBotFilterFix(prisma, scope),
+      countEngagedBeforeBotFilterFix(prisma, scope, trendWindow.current),
       countSendAttempts(prisma, scope),
       countReplies(prisma, scope),
-      dailyEngagement(prisma, scope, metricsWindow(TREND_DAYS)),
+      dailyEngagement(prisma, scope, trendWindow),
       stepMetrics(prisma, [id], { engagement: true, health: true, leads: true, replies: true }),
       deliveryBreakdown(prisma, scope),
       campaignLeadTotals(prisma, id),
@@ -267,6 +277,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       delivered: sends.delivered,
       opens: sends.opened,
       clicks: sends.clicked,
+      engagedBeforeBotFilterFix,
       replies: repliesCount,
       bounced: health.bounced,
       failed: health.failed,
@@ -280,6 +291,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       bouncedInRate: health.bouncedInRate,
       bounceBase: health.bounceBase,
       trend,
+      trendEngagedBeforeBotFilterFix,
       funnel,
       sentiment: sentimentBreakdown,
       stepStats,

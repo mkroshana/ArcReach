@@ -34,7 +34,8 @@ vi.mock('../../lib/session', () => ({
 
 import { getSession } from '../../lib/session';
 import { GET as getCampaign } from '../../app/api/campaigns/[id]/route';
-import { STATUS_CHECK_FIX_AT, deliveryBreakdown, mailboxMetrics, stepMetrics } from '../../lib/engagementMetrics';
+import { STATUS_CHECK_FIX_AT, countEngagedBeforeBotFilterFix, deliveryBreakdown, mailboxMetrics, stepMetrics } from '../../lib/engagementMetrics';
+import { BOT_FILTER_FIX_AT } from '../../lib/botFilter';
 import { emailsLeft, nextSendText } from '../../lib/campaignProgress';
 import { countRows, groupRows } from './helpers/prismaWhere';
 
@@ -286,6 +287,68 @@ describe('failed send attempts', () => {
 
     expect(failed).toBe(1);
     expect(failedBeforeStatusCheckFix).toBe(0);
+  });
+});
+
+describe('opens and clicks recorded before the current bot filter (stats A7)', () => {
+  const DAY = 24 * 3600_000;
+  /** `ms` before or after the bot filter went live. */
+  const beforeFix = (ms: number) => new Date(BOT_FILTER_FIX_AT.getTime() - ms);
+  const afterFix = (ms: number) => new Date(BOT_FILTER_FIX_AT.getTime() + ms);
+  const hit = (eventType: string, timestamp: Date): Event => ({ eventType, timestamp });
+
+  it('counts the opened and clicked emails with a hit recorded before it, overall and in the trend, so the page can say they include scanner hits', async () => {
+    vi.setSystemTime(afterFix(2 * DAY));
+    // In the trend's 7 days: opened 30 s after sending, as a scanner does.
+    addDispatch({ id: 'old-open', sentAt: beforeFix(DAY), events: [hit('open', beforeFix(DAY - 30_000))] });
+    // Before the trend's 7 days: clicked, which counts as opened too.
+    addDispatch({ id: 'old-click', leadId: 'lead-2', stepOrder: 2, sentAt: beforeFix(10 * DAY), events: [hit('click', beforeFix(10 * DAY - 20_000))] });
+    // An old email opened after the fix went through the current filter, as did a new one's hits.
+    addDispatch({ id: 'old-email-new-open', leadId: 'lead-3', sentAt: beforeFix(DAY), events: [hit('open', afterFix(DAY))] });
+    addDispatch({ id: 'new', leadId: 'lead-4', sentAt: afterFix(DAY), events: [hit('open', afterFix(DAY)), hit('click', afterFix(DAY))] });
+    // Not counted: a machine hit, a failed attempt, a Unibox reply and another campaign's email.
+    addDispatch({ id: 'machine', leadId: 'lead-5', sentAt: beforeFix(DAY), events: [hit('machine_open', beforeFix(DAY - 5_000))] });
+    addDispatch({ id: 'failed', leadId: 'lead-6', status: 'Failed', sentAt: beforeFix(DAY), events: [hit('open', beforeFix(DAY - 30_000))] });
+    addDispatch({ id: 'unibox', stepOrder: null, sentAt: beforeFix(DAY), events: [hit('click', beforeFix(DAY - 30_000))] });
+    addDispatch({ id: 'other', campaignId: 'cmp-2', sentAt: beforeFix(DAY), events: [hit('click', beforeFix(DAY - 30_000))] });
+
+    const t = await telemetry();
+
+    // Unique Opens and Clicks still count every hit they counted before.
+    expect(t).toMatchObject({ opens: 4, clicks: 2 });
+    expect(t.engagedBeforeBotFilterFix).toEqual({ opened: 2, clicked: 1 });
+    expect(t.trendEngagedBeforeBotFilterFix).toEqual({ opened: 1, clicked: 0 });
+  });
+
+  it('counts none for a campaign whose opens and clicks were all recorded after it', async () => {
+    vi.setSystemTime(afterFix(20 * DAY));
+    addDispatch({ id: 'old-email-new-open', sentAt: beforeFix(DAY), events: [hit('open', afterFix(DAY))] });
+    addDispatch({ id: 'new', leadId: 'lead-2', sentAt: afterFix(19 * DAY), events: [hit('click', afterFix(19 * DAY + 60_000))] });
+
+    const t = await telemetry();
+
+    expect(t).toMatchObject({ opens: 2, clicks: 1 });
+    expect(t.engagedBeforeBotFilterFix).toEqual({ opened: 0, clicked: 0 });
+    expect(t.trendEngagedBeforeBotFilterFix).toEqual({ opened: 0, clicked: 0 });
+  });
+
+  it('asks for the clicked emails only once some opened ones are found, and asks nothing for a period that starts after it', async () => {
+    const scope = { kind: 'campaign', campaignId: 'cmp-1' } as const;
+    addDispatch({ id: 'new', sentAt: afterFix(DAY), events: [hit('click', afterFix(DAY))] });
+
+    fake.emailDispatch.count.mockClear();
+    expect(await countEngagedBeforeBotFilterFix(fake as any, scope)).toEqual({ opened: 0, clicked: 0 });
+    expect(fake.emailDispatch.count).toHaveBeenCalledTimes(1);
+
+    addDispatch({ id: 'old', leadId: 'lead-2', sentAt: beforeFix(DAY), events: [hit('click', beforeFix(DAY - 20_000))] });
+
+    // No email sent after the fix has a hit from before it.
+    fake.emailDispatch.count.mockClear();
+    expect(await countEngagedBeforeBotFilterFix(fake as any, scope, { gte: BOT_FILTER_FIX_AT, lte: afterFix(DAY) })).toEqual({ opened: 0, clicked: 0 });
+    expect(fake.emailDispatch.count).not.toHaveBeenCalled();
+
+    expect(await countEngagedBeforeBotFilterFix(fake as any, scope)).toEqual({ opened: 1, clicked: 1 });
+    expect(fake.emailDispatch.count).toHaveBeenCalledTimes(2);
   });
 });
 

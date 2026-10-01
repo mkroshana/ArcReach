@@ -4,6 +4,7 @@ import { getSession } from '@/lib/session';
 import { UnauthorizedError, unauthorizedResponse } from '@/lib/sessionError';
 import { replyCountUnknown, replySyncState } from '@/lib/imapSyncStatus';
 import {
+  countEngagedBeforeBotFilterFix,
   countReplies,
   dailyEngagement,
   engagementFunnel,
@@ -41,8 +42,10 @@ export async function GET(req: NextRequest) {
     // pages). All counted in the database, the daily trend included: loading
     // every dispatch in the period here OOM'd the server. And the reply sync
     // of the mailboxes whose replies are counted: the user's, or every one
-    // for admins.
-    const [current, prior, health, totalReplies, priorReplies, trends, mailboxes] = await Promise.all([
+    // for admins. Of the opened and clicked emails of each period, those with
+    // hits recorded before BOT_FILTER_FIX_AT, which include security-scanner
+    // hits, so the page can say so where it shows them or compares with them.
+    const [current, prior, health, totalReplies, priorReplies, trends, mailboxes, engagedBeforeBotFilterFix, priorEngagedBeforeBotFilterFix] = await Promise.all([
       sendSummary(prisma, scope, periods.current),
       sendSummary(prisma, scope, periods.prior),
       healthSummary(prisma, scope, periods.current),
@@ -53,6 +56,8 @@ export async function GET(req: NextRequest) {
         where: scope.kind === 'owner' ? { userId: scope.userId } : {},
         select: { status: true, imapHost: true, imapPort: true, imapUser: true, imapPass: true, imapLastSyncAt: true, imapLastSyncError: true },
       }),
+      countEngagedBeforeBotFilterFix(prisma, scope, periods.current),
+      countEngagedBeforeBotFilterFix(prisma, scope, periods.prior),
     ]);
 
     // 'off' when no mailbox has reply sync on (lib/imapSyncStatus), so no
@@ -148,6 +153,8 @@ export async function GET(req: NextRequest) {
         replySync,
         averageOpenRate: current.openRate,
         averageClickRate: current.clickRate,
+        engagedBeforeBotFilterFix,
+        priorEngagedBeforeBotFilterFix,
         failed: health.failed,
         bounced: health.bounced,
         unsubscribed: health.unsubscribed,

@@ -30,14 +30,6 @@ export const STOPPED_ACTIVE_STATE: EnrollmentState = {
 };
 
 /**
- * Added to the Failed state's description for a campaign with send attempts
- * recorded as failed before the 30 Sep 2026 send-engine fix
- * (lib/engagementMetrics STATUS_CHECK_FIX_AT).
- */
-export const FAILED_BEFORE_STATUS_CHECK_FIX_NOTE =
-  'Before 30 Sep 2026, an email whose status check failed after Azure accepted it was also recorded as failed, so some of these leads may have got their emails.';
-
-/**
  * The emails a campaign's Active leads are still to get: a lead waiting for
  * step s gets it and every step after it. An upper bound, since a reply,
  * unsubscribe or bounce ends a lead early, and a lead waiting for a step the

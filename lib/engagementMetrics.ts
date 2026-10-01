@@ -35,9 +35,7 @@ import { BOT_FILTER_FIX_AT } from '@/lib/botFilter';
  *   delivery report arrived for and those bounced at send time, so emails no
  *   report has arrived for never dilute it. To two decimals, so a small rate
  *   does not round to 0.
- * - Failed: send attempts that failed (status Failed), at the attempt. Before
- *   STATUS_CHECK_FIX_AT these include emails Azure accepted whose status
- *   check then failed, many of which were delivered.
+ * - Failed: send attempts that failed (status Failed), at the attempt.
  * - Unsubscribed: emails whose unsubscribe link was used, at the time it was
  *   ('unsubscribe' event, recorded by /api/unsubscribe).
  *
@@ -97,13 +95,6 @@ export function percent(part: number, whole: number, decimals = 1): number {
 
 /** Bounce rates are small, so they keep two decimals: 1 bounce in 5,000 emails is 0.02%, not 0%. */
 const BOUNCE_RATE_DECIMALS = 2;
-
-/**
- * When the send engine stopped recording an email as Failed because its
- * status check failed after Azure had accepted it (deployed 2026-09-30, about
- * 14:05 UTC). Failed attempts made before then include emails that went out.
- */
-export const STATUS_CHECK_FIX_AT = new Date('2026-09-30T14:05:00.000Z');
 
 /**
  * The dispatches a scope covers. A sequence send belongs to its campaign's
@@ -261,16 +252,6 @@ export async function healthSummary(client: MetricsClient, scope: MetricsScope, 
     bounced, failed, unsubscribed, bounceBase,
     bounceRate: percent(bounced, bounceBase, BOUNCE_RATE_DECIMALS),
   };
-}
-
-/**
- * A scope's failed send attempts made before STATUS_CHECK_FIX_AT, when a
- * failed status check also recorded an accepted email as Failed.
- */
-export function countFailedBeforeStatusCheckFix(client: MetricsClient, scope: MetricsScope): Promise<number> {
-  return client.emailDispatch.count({
-    where: { AND: [scopeWhere(scope), SEQUENCE_SEND, { status: 'Failed' }, { sentAt: { lt: STATUS_CHECK_FIX_AT } }] },
-  });
 }
 
 /** Of the emails a scope counts as opened (and as clicked), those with an open or click (a click) recorded before BOT_FILTER_FIX_AT. */

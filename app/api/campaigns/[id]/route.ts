@@ -17,7 +17,6 @@ import {
   type MetricsScope,
   campaignLeadTotals,
   countEngagedBeforeBotFilterFix,
-  countFailedBeforeStatusCheckFix,
   countReplies,
   countSendAttempts,
   dailyEngagement,
@@ -103,9 +102,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     // so emails whose report has not arrived never dilute it.
     // Bounced: hard bounces, reported by the delivery webhook or at send time,
     // and their rate of the emails whose outcome is known (bounceBase).
-    // Failed: send attempts the provider refused or that errored, and those
-    // made before STATUS_CHECK_FIX_AT, which also include accepted emails whose
-    // status check failed, so the page can say so.
+    // Failed: send attempts the provider refused or that errored.
     // Unsubscribed: this campaign's emails whose unsubscribe link was used.
     // Opened and clicked emails: and those, overall and in the trend, with hits
     // recorded before BOT_FILTER_FIX_AT, which include security-scanner hits,
@@ -119,12 +116,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const scope: MetricsScope = { kind: 'campaign', campaignId: id };
     const trendWindow = metricsWindow(TREND_DAYS);
     const [
-      sends, health, failedBeforeStatusCheckFix, engagedBeforeBotFilterFix, trendEngagedBeforeBotFilterFix,
+      sends, health, engagedBeforeBotFilterFix, trendEngagedBeforeBotFilterFix,
       sentRequestsCount, repliesCount, trend, stepCounts, delivery, leadTotals, mailboxes,
     ] = await Promise.all([
       sendSummary(prisma, scope),
       healthSummary(prisma, scope),
-      countFailedBeforeStatusCheckFix(prisma, scope),
       countEngagedBeforeBotFilterFix(prisma, scope),
       countEngagedBeforeBotFilterFix(prisma, scope, trendWindow.current),
       countSendAttempts(prisma, scope),
@@ -288,7 +284,6 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       replies: repliesCount,
       bounced: health.bounced,
       failed: health.failed,
-      failedBeforeStatusCheckFix,
       unsubscribed: health.unsubscribed,
       deliveryRate: sends.deliveryRate,
       openRate: sends.openRate,

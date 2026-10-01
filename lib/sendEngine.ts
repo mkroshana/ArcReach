@@ -313,12 +313,31 @@ function isProviderQuotaRefusal(err: any): boolean {
   return Number(err?.statusCode) === 429 || (typeof err?.code === 'string' && QUOTA_ERROR_CODES.includes(err.code));
 }
 
+/** ACS's error code for a send it dropped because every recipient is on its managed suppression list, lower-cased. */
+const RECIPIENTS_SUPPRESSED_CODE = 'emaildroppedallrecipientssuppressed';
+/**
+ * The same refusal in a lower-cased error message: the code inside the old
+ * engine's "The long-running operation has failed.
+ * EmailDroppedAllRecipientsSuppressed. Message dropped because all recipients
+ * were suppressed", or ACS's own wording that the provider now passes on.
+ */
+const RECIPIENTS_SUPPRESSED_PATTERN = /emaildroppedallrecipientssuppressed|\brecipients were suppressed\b/;
+
+/**
+ * ACS refused the send because the address is on its managed suppression list
+ * (it hard-bounced on Azure email), known by its error code or its wording.
+ */
+function isRecipientSuppressedRefusal(code: string, errStr: string): boolean {
+  return code.toLowerCase() === RECIPIENTS_SUPPRESSED_CODE || RECIPIENTS_SUPPRESSED_PATTERN.test(errStr);
+}
+
 /**
  * Classifies an email sending error:
  *  - 'systemic': no send can go out until the Azure settings, the sender's
  *    domain or the host clock are fixed. Nothing is wrong with the lead.
  *  - 'quota': ACS's sending quota or rate limit.
- *  - 'hard': the recipient address is permanently undeliverable.
+ *  - 'hard': the recipient address is permanently undeliverable, or ACS
+ *    refused it as suppressed.
  *  - 'soft': anything else, retried with backoff.
  */
 export function classifyFailure(err: any): 'systemic' | 'quota' | 'hard' | 'soft' {
@@ -350,6 +369,15 @@ export function classifyFailure(err: any): 'systemic' | 'quota' | 'hard' | 'soft
   }
   if (/\bquota\b/.test(errStr)) {
     return 'quota';
+  }
+
+  // ACS dropped the send because the address is on its managed suppression
+  // list, which holds addresses that hard-bounced on Azure email. It is a hard
+  // bounce, as a 'Suppressed' delivery report is (lib/deliveryReport.ts), so
+  // the address is suppressed instead of retried; each retry would only extend
+  // Azure's block. Checked before the wording checks below.
+  if (isRecipientSuppressedRefusal(code, errStr)) {
+    return 'hard';
   }
 
   // Sender/system configuration or connection error check (e.g. SMTP auth failure is 5xx but is not a hard bounce for the recipient)

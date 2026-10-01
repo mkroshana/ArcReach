@@ -22,6 +22,7 @@ vi.mock('@azure/communication-email', async (importOriginal) => {
 });
 
 import { sendMessage, getAzureSendStatus, EmailSendError } from '../../lib/emailProvider';
+import { classifyFailure } from '../../lib/sendEngine';
 import { encryptSecret } from '../../lib/secrets';
 import { replyThreadingHeaders } from '../../lib/replyThreading';
 
@@ -162,6 +163,19 @@ describe('Azure send: one POST under the Operation-Id, and acceptance is final (
       name: 'EmailSendError', message: 'Recipient address rejected.', code: 'InvalidRecipient',
     });
     expect(hits.map((h) => h.method)).toEqual(['POST', 'GET']);
+  });
+
+  it('reports ACS dropping a send for a suppressed recipient in a shape the send engine bounces (stats A4)', async () => {
+    reply = (method) =>
+      method === 'POST'
+        ? accepted
+        : status('Failed', { error: { code: 'EmailDroppedAllRecipientsSuppressed', message: 'Message dropped because all recipients were suppressed' } });
+
+    const err = await send().catch((e) => e);
+
+    expect(err).toBeInstanceOf(EmailSendError);
+    expect(err).toMatchObject({ code: 'EmailDroppedAllRecipientsSuppressed', message: 'Message dropped because all recipients were suppressed' });
+    expect(classifyFailure(err)).toBe('hard');
   });
 });
 

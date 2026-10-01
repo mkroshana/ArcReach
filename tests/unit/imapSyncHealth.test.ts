@@ -62,7 +62,10 @@ vi.mock('../../lib/db', () => ({
 import { prisma } from '../../lib/db';
 import { encryptSecret } from '../../lib/secrets';
 import { getActiveImapAccounts, imapSyncFailureMessage, syncMailboxReplies } from '../../lib/imapService';
-import { IMAP_SYNC_LABELS, MICROSOFT_IMAP_NOTE, imapSyncState, isMicrosoftImapHost, mailboxRepliesFigure, replyCountUnknown, replySyncState, stopOnReplyWarning } from '../../lib/imapSyncStatus';
+import {
+  IMAP_SYNC_LABELS, MICROSOFT_IMAP_NOTE, imapSyncState, isMicrosoftImapHost, mailboxRepliesFigure, replyCountUnknown, replySyncState, stopOnReplyWarning,
+  otherReplyTo, unreadReplyToNote, unreadReplyTos,
+} from '../../lib/imapSyncStatus';
 
 const mocked = prisma as any;
 
@@ -299,7 +302,10 @@ describe('stopOnReplyWarning (M21)', () => {
   });
 
   it('warns when no mailbox in the pool syncs replies, saying why', () => {
-    expect(stopOnReplyWarning(true, [off])).toMatch(/^No mailbox that receives this campaign's replies has IMAP set up, so replies are not read and Pause Sequence on Reply cannot pause anyone\./);
+    expect(stopOnReplyWarning(true, [off])).toBe(
+      "No mailbox that receives this campaign's replies has reply sync on, so replies are not read and Pause Sequence on Reply cannot pause anyone. "
+      + 'Add IMAP details to a sender mailbox on the Accounts page.',
+    );
     expect(stopOnReplyWarning(true, [off, failing])).toMatch(/^Reply sync is failing on every mailbox/);
     expect(stopOnReplyWarning(true, [off, waiting])).toMatch(/^No mailbox that receives this campaign's replies has finished a reply sync yet/);
   });
@@ -308,6 +314,34 @@ describe('stopOnReplyWarning (M21)', () => {
     const sender = { ...off, replyTo: 'OK@acme.test ' };
     expect(stopOnReplyWarning(true, [sender], [sender, ok])).toBeNull();
     expect(stopOnReplyWarning(true, [{ ...off, replyTo: 'failing@acme.test' }], [off, failing])).toMatch(/^Reply sync is failing/);
+  });
+
+  it('warns, naming the address, when the Reply-To is not a mailbox with reply sync on, even though the sender syncs (stats A13)', () => {
+    // HR Leads Initial: it sends from one spelling and its Reply-To is another, which is not a mailbox.
+    const chui = { ...ok, emailAddress: 'chui@thejobshelpers.com', replyTo: 'chui@thejobhelpers.com' };
+    expect(stopOnReplyWarning(true, [chui])).toBe(
+      "No mailbox that receives this campaign's replies has reply sync on, so replies are not read and Pause Sequence on Reply cannot pause anyone. "
+      + 'Replies to emails from chui@thejobshelpers.com go to the Reply-To address chui@thejobhelpers.com, which is not a mailbox in ArcReach with reply sync on. '
+      + 'Set up reply sync for that address, or change the Reply-To, on the Accounts page.',
+    );
+    // A Paused mailbox with IMAP details as the Reply-To is not synced either, so it is named too.
+    const paused = { ...ok, emailAddress: 'paused@acme.test', status: 'Paused' };
+    expect(stopOnReplyWarning(true, [{ ...ok, replyTo: 'paused@acme.test' }], [ok, paused]))
+      .toContain('go to the Reply-To address paused@acme.test, which is not a mailbox in ArcReach with reply sync on.');
+    // Another sender's failing sync is still the lead reason, with the unread address after it.
+    const warning = stopOnReplyWarning(true, [chui, failing]);
+    expect(warning).toMatch(/^Reply sync is failing on every mailbox/);
+    expect(warning).toContain('go to the Reply-To address chui@thejobhelpers.com, which is not a mailbox in ArcReach with reply sync on.');
+  });
+
+  it('also suggests adding IMAP details when the pool has a sender with no other Reply-To, which would read its own replies', () => {
+    const chui = { ...ok, emailAddress: 'chui@thejobshelpers.com', replyTo: 'chui@thejobhelpers.com' };
+    expect(stopOnReplyWarning(true, [chui, off])).toMatch(
+      / Set up reply sync for that address, change the Reply-To, or add IMAP details to a sender mailbox that has no other Reply-To, on the Accounts page\.$/,
+    );
+    // Only Reply-To addresses that are not read: no sender's own IMAP details would help.
+    const sam = { ...off, emailAddress: 'sam@acme.test', replyTo: 'help@acme.test' };
+    expect(stopOnReplyWarning(true, [chui, sam])).toMatch(/ Set up reply sync for those addresses, or change the Reply-To, on the Accounts page\.$/);
   });
 });
 
@@ -328,6 +362,83 @@ describe('replySyncState', () => {
 
   it('counts the mailbox a sender sets as Reply-To', () => {
     expect(replySyncState([{ ...off, replyTo: 'ok@acme.test' }], [off, ok])).toBe('ok');
+  });
+
+  it("is off when a sender's Reply-To is not a mailbox with reply sync on, whatever the sender's own sync (stats A13)", () => {
+    const chui = { ...ok, emailAddress: 'chui@thejobshelpers.com', replyTo: 'chui@thejobhelpers.com' };
+    expect(imapSyncState(chui)).toBe('ok');
+    expect(replySyncState([chui])).toBe('off');
+    // The Reply-To is a mailbox, but one without IMAP details, or one that is not Active.
+    expect(replySyncState([{ ...ok, replyTo: 'off@acme.test' }], [ok, off])).toBe('off');
+    expect(replySyncState([{ ...ok, replyTo: 'paused@acme.test' }], [ok, { ...ok, emailAddress: 'paused@acme.test', status: 'Paused' }])).toBe('off');
+    // So the campaign's reply count is unknown, not 0.
+    expect(replyCountUnknown(replySyncState([chui]), 0)).toBe(true);
+  });
+
+  it("is the Reply-To mailbox's state, not the sender's, when the Reply-To is set up", () => {
+    expect(replySyncState([{ ...ok, replyTo: 'waiting@acme.test' }], [ok, waiting])).toBe('waiting');
+    expect(replySyncState([{ ...ok, replyTo: 'failing@acme.test' }], [ok, failing])).toBe('failing');
+    // Matched trimmed and case-insensitively.
+    expect(replySyncState([{ ...failing, replyTo: '  OK@ACME.test ' }], [failing, ok])).toBe('ok');
+  });
+
+  it("is the sender's own state when its Reply-To is its own address or blank", () => {
+    expect(replySyncState([{ ...ok, replyTo: ' OK@Acme.test' }])).toBe('ok');
+    expect(replySyncState([{ ...ok, replyTo: '   ' }])).toBe('ok');
+    expect(replySyncState([{ ...ok, replyTo: null }])).toBe('ok');
+  });
+
+  it('stays the best of the pool, so another sender that syncs its own replies still makes it ok', () => {
+    expect(replySyncState([ok, { ...ok, emailAddress: 'chui@thejobshelpers.com', replyTo: 'chui@thejobhelpers.com' }])).toBe('ok');
+  });
+});
+
+describe('unreadReplyTos and unreadReplyToNote (stats A13)', () => {
+  const imap = { status: 'Active', imapHost: 'imap.example.com', imapPort: 993, imapUser: 'u', imapPass: '********' };
+  const ok = { ...imap, emailAddress: 'ok@acme.test', imapLastSyncAt: '2026-09-30T08:00:00Z' };
+  const failing = { ...imap, emailAddress: 'failing@acme.test', imapLastSyncError: 'Timed out' };
+  const waiting = { ...imap, emailAddress: 'waiting@acme.test' };
+  const off = { emailAddress: 'off@acme.test', status: 'Active' };
+
+  it('names each Reply-To address that is not a mailbox with reply sync on, with the senders that set it', () => {
+    const pool = [
+      { ...ok, emailAddress: 'chui@thejobshelpers.com', replyTo: ' chui@thejobhelpers.com ' },
+      { ...off, emailAddress: 'sam@thejobshelpers.com', replyTo: 'CHUI@thejobhelpers.com' },
+      { ...ok, emailAddress: 'lee@acme.test', replyTo: 'off@acme.test' },
+    ];
+    expect(unreadReplyTos(pool, [...pool, off])).toEqual([
+      { address: 'chui@thejobhelpers.com', senders: ['chui@thejobshelpers.com', 'sam@thejobshelpers.com'] },
+      { address: 'off@acme.test', senders: ['lee@acme.test'] },
+    ]);
+  });
+
+  it('leaves out a Reply-To mailbox with reply sync on (even pending or failing), and a sender with no other Reply-To', () => {
+    const pool = [
+      { ...off, emailAddress: 'a@acme.test', replyTo: 'OK@acme.test' },
+      { ...off, emailAddress: 'b@acme.test', replyTo: 'waiting@acme.test' },
+      { ...off, emailAddress: 'c@acme.test', replyTo: 'failing@acme.test' },
+      { ...off, emailAddress: 'd@acme.test', replyTo: 'D@acme.test' },
+      off,
+    ];
+    expect(unreadReplyTos(pool, [...pool, ok, waiting, failing])).toEqual([]);
+  });
+
+  it('says where the replies go, or nothing when every Reply-To is read', () => {
+    expect(unreadReplyToNote([])).toBeNull();
+    expect(unreadReplyToNote([
+      { address: 'chui@thejobhelpers.com', senders: ['chui@thejobshelpers.com', 'sam@thejobshelpers.com'] },
+      { address: 'help@acme.test', senders: [] },
+    ])).toBe(
+      'Replies to emails from chui@thejobshelpers.com, sam@thejobshelpers.com go to the Reply-To address chui@thejobhelpers.com, which is not a mailbox in ArcReach with reply sync on. '
+      + 'Replies to emails go to the Reply-To address help@acme.test, which is not a mailbox in ArcReach with reply sync on.',
+    );
+  });
+
+  it("gives a mailbox's Reply-To, trimmed, only when it is another address, as the campaign's Senders tab names it", () => {
+    expect(otherReplyTo({ emailAddress: 'chui@thejobshelpers.com', replyTo: ' chui@thejobhelpers.com ' })).toBe('chui@thejobhelpers.com');
+    expect(otherReplyTo({ emailAddress: 'chui@thejobshelpers.com', replyTo: ' CHUI@thejobshelpers.com' })).toBeNull();
+    expect(otherReplyTo({ emailAddress: 'chui@thejobshelpers.com', replyTo: '  ' })).toBeNull();
+    expect(otherReplyTo({ emailAddress: 'chui@thejobshelpers.com', replyTo: null })).toBeNull();
   });
 });
 

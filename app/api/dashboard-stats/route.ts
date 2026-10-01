@@ -54,7 +54,10 @@ export async function GET(req: NextRequest) {
       dailyEngagement(prisma, scope, periods),
       prisma.senderAccount.findMany({
         where: scope.kind === 'owner' ? { userId: scope.userId } : {},
-        select: { status: true, imapHost: true, imapPort: true, imapUser: true, imapPass: true, imapLastSyncAt: true, imapLastSyncError: true },
+        select: {
+          emailAddress: true, replyTo: true,
+          status: true, imapHost: true, imapPort: true, imapUser: true, imapPass: true, imapLastSyncAt: true, imapLastSyncError: true,
+        },
       }),
       countEngagedBeforeBotFilterFix(prisma, scope, periods.current),
       countEngagedBeforeBotFilterFix(prisma, scope, periods.prior),
@@ -63,7 +66,11 @@ export async function GET(req: NextRequest) {
     // 'off' when no mailbox has reply sync on (lib/imapSyncStatus), so no
     // reply is ever read: a 0 then means replies are not read, not that nobody
     // replied, and the page shows the Replies card's count as unknown and the
-    // funnel leaves Replied out.
+    // funnel leaves Replied out. A mailbox whose Reply-To is another address
+    // counts by that address's mailbox, 'off' when it is not one of these, so
+    // 'off' also covers mailboxes that have IMAP set up and sync when their
+    // replies all go to a Reply-To address that is not read: the page's note
+    // says both.
     const replySync = replySyncState(mailboxes);
 
     // 2. Percentage change against the prior period

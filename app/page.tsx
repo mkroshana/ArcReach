@@ -28,8 +28,12 @@ const DELIVERY_CHIP: Record<string, { label: string; color: string }> = {
   DISABLED: { label: 'Sending Disabled', color: 'warning.main' },
 };
 
-/** The Replies card's note while no mailbox has reply sync on, so no reply is read. */
-const REPLY_SYNC_OFF_NOTE = 'No active mailbox has IMAP set up, so replies are not read and are missing from these counts. Add IMAP details to a mailbox on the Accounts page.';
+/**
+ * The Replies card's note while no mailbox that receives replies has reply sync on, so no reply is read: none
+ * has IMAP set up, or the only ones that do send their replies to a Reply-To address that is not read.
+ */
+const REPLY_SYNC_OFF_NOTE =
+  "No mailbox that receives replies has reply sync on, so replies are not read and are missing from these counts. Replies to a mailbox's emails go to its Reply-To address when it has one, which is read only if it is a mailbox with reply sync on. On the Accounts page, set up reply sync on a mailbox, or check each mailbox's Reply-To.";
 
 const gridSx = (cols: number) => ({
   display: 'grid',
@@ -208,7 +212,7 @@ export default function Dashboard() {
   const deliveryDetail = DELIVERY_CHIP[systemStatus?.deliveryStatus]
     ? deliveryStatusText(systemStatus.deliveryStatus, systemStatus.sendingProblem, systemStatus.workerHeartbeat)
     : !systemStatus && loading ? '' : 'The system status could not be read.';
-  // With reply sync off on every mailbox no reply is read, so a 0 means replies are not read, not that nobody replied.
+  // With reply sync off on every mailbox that receives replies no reply is read, so a 0 means replies are not read, not that nobody replied.
   const replySyncOff = stats?.replySync === 'off';
   const repliesUnknown = replyCountUnknown(stats?.replySync, stats?.totalReplies);
   // Opens and clicks recorded before the current bot filter include security-scanner hits: on the rate cards when

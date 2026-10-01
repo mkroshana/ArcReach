@@ -68,7 +68,7 @@ type ReplyRow = { id: string; campaignId: string | null; senderAccountId: string
 
 let dispatches: DispatchRow[];
 let replies: ReplyRow[];
-/** Each mailbox's IMAP columns a test sets; with none its reply sync is off. */
+/** Each mailbox's IMAP columns (or Reply-To) a test sets; with none its reply sync is off. */
 let imap: Record<string, Record<string, unknown>>;
 
 /** A step-1 send of cmp-1 from mb-1 that ACS accepted yesterday, by default. */
@@ -135,10 +135,12 @@ beforeEach(() => {
   fake.emailDispatch.findFirst.mockImplementation(async (args: any) => firstRow(dispatches, args, DISPATCH_RELATIONS));
   fake.inboundResponse.count.mockImplementation(async ({ where }: any) => countRows(replies, where, REPLY_RELATIONS));
   // The campaign page names the mailboxes its sends came from; the dashboard reads their reply sync.
-  fake.senderAccount.findMany.mockImplementation(async ({ where }: any) =>
+  // Only the `select`ed columns come back, as from Prisma.
+  fake.senderAccount.findMany.mockImplementation(async ({ where, select }: any) =>
     Object.values(MAILBOXES)
-      .map((m) => ({ ...m, emailAddress: `${m.id}@acme.test`, name: null, status: 'Active', ...imap[m.id] }))
-      .filter((m) => matchesWhere(m, where)));
+      .map((m) => ({ ...m, emailAddress: `${m.id}@acme.test`, name: null, status: 'Active', replyTo: null, ...imap[m.id] }))
+      .filter((m) => matchesWhere(m, where))
+      .map((m: Record<string, unknown>) => (select ? Object.fromEntries(Object.keys(select).map((key) => [key, m[key]])) : m)));
   fake.$queryRaw.mockResolvedValue([]);
 });
 
@@ -479,6 +481,21 @@ describe('the dashboard says replies are not read while no mailbox has reply syn
     expect((await dashboard()).stats.replySync).toBe('ok');
     mockedSession.mockResolvedValue(ADMIN);
     expect((await dashboard()).stats.replySync).toBe('ok');
+  });
+
+  it('is off while the only mailbox that syncs has a Reply-To that is not a mailbox, so its replies land there unread (stats A13)', async () => {
+    addDispatch({ id: 'd1' });
+    // As in HR Leads Initial, the only mailbox that syncs has a Reply-To that is a different address and
+    // not a mailbox (here in odd case and with spacing), so replies to its emails are never read.
+    imap['mb-1'] = { ...IMAP, imapLastSyncAt: at(0), replyTo: 'Sales@Elsewhere.test ' };
+
+    expect(await shown()).toEqual({
+      replySync: 'off', totalReplies: 0,
+      stages: [['Sent', 1], ['Opened', 0], ['Clicked', 0], ['Meeting Booked', 0]],
+    });
+    // A Reply-To of its own address is read by its own sync.
+    imap['mb-1'] = { ...IMAP, imapLastSyncAt: at(0), replyTo: ' MB-1@acme.test' };
+    expect((await shown()).replySync).toBe('ok');
   });
 
   it('still counts the replies recorded before reply sync was turned off', async () => {

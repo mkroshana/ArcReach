@@ -13,7 +13,7 @@ import {
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import { isHtmlTemplate } from '@/lib/personalize';
-import { replyCountUnknown, replySyncState, type ImapSyncState } from '@/lib/imapSyncStatus';
+import { replyCountUnknown, replySyncState, unreadReplyToNote, unreadReplyTos, type ImapSyncState } from '@/lib/imapSyncStatus';
 import { bounceFigure, noReportsFor, type BounceCounts, type BounceFigure } from '@/lib/bounceStats';
 import { deliveryRateNote, deliveryRateText, funnelDeliveredNote, noReportRows, noReportsNotes, type NoReportsNotes } from '@/lib/deliveryStats';
 import { ENROLLMENT_STATES, FAILED_BEFORE_STATUS_CHECK_FIX_NOTE, STOPPED_ACTIVE_STATE, nextSendText } from '@/lib/campaignProgress';
@@ -55,7 +55,7 @@ const dateTime = (at: Date) =>
 const REPLY_SYNC_NOTES: Record<Exclude<ImapSyncState, 'ok'>, { short: string; long: string }> = {
   off: {
     short: 'Reply sync off',
-    long: "No mailbox that receives this campaign's replies has IMAP set up, so replies are not read and are missing from these counts.",
+    long: "No mailbox that receives this campaign's replies has reply sync on, so replies are not read and are missing from these counts.",
   },
   waiting: {
     short: 'Reply sync pending',
@@ -102,14 +102,16 @@ function bounceNote(figure: BounceFigure, notes: NoReportsNotes, noReportsNote: 
 
 /**
  * The reply-sync state of the mailboxes that receive a campaign's replies (its
- * primary and pool mailboxes, and their Reply-To mailboxes), from `mailboxes`
- * as GET /api/accounts lists them; null when that list did not load.
+ * primary and pool mailboxes, or their Reply-To addresses), from `mailboxes`
+ * as GET /api/accounts lists them, with the note naming a Reply-To address
+ * that is not read (lib/imapSyncStatus); null when that list did not load.
  */
-function campaignReplySync(campaign: any, mailboxes: any[] | null): ImapSyncState | null {
+function campaignReplySync(campaign: any, mailboxes: any[] | null): { state: ImapSyncState; unreadReplyToNote: string | null } | null {
   if (!mailboxes) return null;
   const ids = new Set<string>([campaign.senderAccountId, ...(campaign.senders ?? []).map((s: any) => s.senderAccountId)]);
   const pool = mailboxes.filter((m) => ids.has(m.id));
-  return pool.length > 0 ? replySyncState(pool, mailboxes) : null;
+  if (pool.length === 0) return null;
+  return { state: replySyncState(pool, mailboxes), unreadReplyToNote: unreadReplyToNote(unreadReplyTos(pool, mailboxes)) };
 }
 
 /** What the Analytics tab and the Sequence tab's step lines need to say which numbers can't be trusted. */
@@ -120,6 +122,8 @@ export type AnalyticsCaveats = {
   noReports: NoReportsNotes;
   /** Why replies may be missing, or null when a receiving mailbox syncs (or the mailboxes did not load). */
   replySync: Exclude<ImapSyncState, 'ok'> | null;
+  /** What the page says about `replySync`, naming any Reply-To address that is not read; null with it. */
+  replySyncNote: { short: string; long: string } | null;
   trackOpens: boolean;
   trackClicks: boolean;
   /** The campaign's counted opens, and clicks, include hits recorded before the current bot filter (lib/botFilter BOT_FILTER_FIX_AT). */
@@ -131,10 +135,14 @@ export function analyticsCaveats(campaign: any, mailboxes: any[] | null): Analyt
   const delivery = campaign?.telemetry?.delivery;
   const beforeBotFilterFix = campaign?.telemetry?.engagedBeforeBotFilterFix;
   const sync = campaignReplySync(campaign, mailboxes);
+  const replySync = sync && sync.state !== 'ok' ? sync.state : null;
   return {
     noDeliveryReports: !!delivery && delivery.accepted > 0 && delivery.reported === 0,
     noReports: noReportsNotes(delivery ?? { reported: 0, noReport: 0 }),
-    replySync: sync && sync !== 'ok' ? sync : null,
+    replySync,
+    replySyncNote: replySync
+      ? { short: REPLY_SYNC_NOTES[replySync].short, long: [REPLY_SYNC_NOTES[replySync].long, sync?.unreadReplyToNote].filter(Boolean).join(' ') }
+      : null,
     trackOpens: campaign?.trackOpens !== false,
     trackClicks: campaign?.trackClicks !== false,
     opensBeforeBotFilterFix: (beforeBotFilterFix?.opened ?? 0) > 0,
@@ -356,7 +364,7 @@ export function StepStatStrip({ stats, htmlStep, caveats }: { stats: any; htmlSt
     ...(noReports ? [] : [{ label: 'Delivered', value: deliveryRateText(stats.deliveryRate, stats.reported) }]),
     { label: 'Opened', value: opensGap ?? `${stats.openRate}%`, caveat: !opensGap && caveats.opensBeforeBotFilterFix ? BEFORE_BOT_FILTER_FIX_NOTE : null },
     { label: 'Clicked', value: clicksGap ?? `${stats.clickRate}%`, caveat: !clicksGap && caveats.clicksBeforeBotFilterFix ? BEFORE_BOT_FILTER_FIX_NOTE : null },
-    { label: 'Replied', value: `${stats.replyRate}%`, caveat: caveats.replySync ? REPLY_SYNC_NOTES[caveats.replySync].long : null },
+    { label: 'Replied', value: `${stats.replyRate}%`, caveat: caveats.replySyncNote?.long ?? null },
     { label: 'Unsubscribed', value: count(stats.unsubscribed) },
     {
       label: 'Bounced',
@@ -392,7 +400,7 @@ export default function CampaignAnalytics({ campaign, mailboxes }: { campaign: a
   const stepStats: any[] = t.stepStats ?? [];
   const mailboxStats: any[] = t.mailboxes ?? [];
   const caveats = analyticsCaveats(campaign, mailboxes);
-  const replyNote = caveats.replySync ? REPLY_SYNC_NOTES[caveats.replySync] : null;
+  const replyNote = caveats.replySyncNote;
   // With reply sync off, a reply count of 0 shows as unknown, and the funnel leaves Replied out.
   const repliesUnknown = replyCountUnknown(caveats.replySync, t.replies);
   const repliedLeadsUnknown = replyCountUnknown(caveats.replySync, progress.repliedLeads);

@@ -8,7 +8,7 @@ import { getGlobalSettings } from '@/lib/settings';
 import { getVerifiedDomains, unverifiedSenderMessage } from '@/lib/azureDomains';
 import { getEffectiveDailyCap, senderCapDispatchWhere } from '@/lib/sendEngine';
 import {
-  type MetricsScope, countEngagedBeforeBotFilterFix, countHardBounces, countReplies, countReported, percent, sendSummary,
+  type MetricsScope, countEngagedBeforeBotFilterFix, countHardBounces, countReplies, percent, sendSummary,
 } from '@/lib/engagementMetrics';
 import { type FieldRule, fieldRules, isPlainObject, pickUpdateFields } from '@/lib/updateAllowList';
 
@@ -75,14 +75,14 @@ export async function GET() {
       // The mailbox's campaign sends that ACS accepted, their opens, clicks and
       // hard bounces (at send time or reported), defined in lib/engagementMetrics
       // as on the campaign pages and the dashboard. `reported`: how many a
-      // delivery report arrived for; with none, the page shows Delivered as unknown.
+      // delivery report arrived for, the delivery rate's base; with none, the
+      // page shows Delivered as unknown.
       // engagedBeforeBotFilterFix: the opened and clicked emails with hits recorded
       // before BOT_FILTER_FIX_AT, which include security-scanner hits, so the page
       // can say so.
       const scope: MetricsScope = { kind: 'mailbox', senderAccountId: account.id };
-      const [sends, reported, bounced, replies, engagedBeforeBotFilterFix] = await Promise.all([
+      const [sends, bounced, replies, engagedBeforeBotFilterFix] = await Promise.all([
         sendSummary(prisma, scope),
-        countReported(prisma, scope),
         countHardBounces(prisma, scope),
         countReplies(prisma, scope),
         countEngagedBeforeBotFilterFix(prisma, scope),
@@ -96,7 +96,7 @@ export async function GET() {
         sentLast24Hours,
         sentTotal: sends.sent,
         delivered: sends.delivered,
-        reported,
+        reported: sends.reported,
         opens: sends.opened,
         clicks: sends.clicked,
         engagedBeforeBotFilterFix,

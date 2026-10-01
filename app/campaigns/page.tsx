@@ -52,6 +52,9 @@ const statusColorMap = { Active: 'success', Draft: 'default', Paused: 'warning',
 /** Why a step card shows Delivered as unknown. */
 const NO_DELIVERY_REPORTS_NOTE = 'No delivery reports have arrived for these emails, so how many were delivered is not known.';
 
+/** Why a step card's Delivered names the emails a delivery report arrived for. */
+const PARTLY_REPORTED_NOTE = 'Delivered counts only the emails a delivery report arrived for. Azure does not report on emails sent before delivery reports were connected.';
+
 export default function CampaignsPage() {
   const router = useRouter();
   const [campaigns, setCampaigns] = useState<DbCampaign[]>([]);
@@ -479,7 +482,9 @@ export default function CampaignsPage() {
                                     const sentLeads = stats?.leads || 0;
                                     const deliveredCount = stats?.delivered || 0;
                                     // With no delivery report for any of its emails, Delivered is unknown rather than 0.
-                                    const deliveryUnknown = (stats?.reported || 0) === 0;
+                                    // Else it counts only the emails a report arrived for, so the card names them.
+                                    const reportedCount = stats?.reported || 0;
+                                    const deliveryUnknown = reportedCount === 0;
                                     const failedCount = stats?.failed || 0;
                                     const totalEnrolled = campaign.enrollmentSummary?.total || 0;
                                     // The share of enrolled leads the step reached: leads, not emails, so a
@@ -507,6 +512,7 @@ export default function CampaignsPage() {
                                                   <Box component="span" tabIndex={0} aria-label="No delivery reports" sx={{ fontWeight: 800, color: 'text.secondary' }}>—</Box>
                                                 </MuiTooltip>
                                               ) : <Box component="span" sx={{ fontWeight: 800, color: 'success.main' }}>{deliveredCount}</Box>}</Stack>}
+                                              {sentCount > 0 && !deliveryUnknown && reportedCount < sentCount && <Box component="span" sx={{ fontSize: 9, color: 'text.secondary', textAlign: 'right' }} title={PARTLY_REPORTED_NOTE}>of {reportedCount} reported</Box>}
                                               {failedCount > 0 && <Stack direction="row" sx={{ justifyContent: 'space-between', fontSize: 9 }}><Box component="span" sx={{ color: 'text.secondary' }}>Failed:</Box><Box component="span" sx={{ fontWeight: 800, color: 'error.main' }}>{failedCount}</Box></Stack>}
                                               {sentCount > 0 && <Stack direction="row" sx={{ justifyContent: 'space-between', fontSize: 9 }}><Box component="span" sx={{ color: 'text.secondary' }}>Progress:</Box><Box component="span" sx={{ fontWeight: 800, color: 'primary.main' }}>{progressPercent}%</Box></Stack>}
                                             </Box>

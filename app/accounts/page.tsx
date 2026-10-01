@@ -11,6 +11,7 @@ import {
 import { TableSkeleton } from '@/components/Skeleton';
 import { IMAP_SYNC_LABELS, MICROSOFT_IMAP_NOTE, imapSyncState, isMicrosoftImapHost } from '@/lib/imapSyncStatus';
 import { BEFORE_BOT_FILTER_FIX_NOTE } from '@/lib/botFilter';
+import { deliveryRateText } from '@/lib/deliveryStats';
 import { useToast } from '@/components/Toast';
 import { LoadError, loadErrorMessage, readJsonList, readJsonObject, responseErrorMessage } from '@/lib/apiResponse';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -574,7 +575,7 @@ export default function AccountsPage() {
                   { title: 'Total Sent', value: selectedWarmupAccount.sentTotal ?? 0, desc: 'All campaigns' },
                   deliveryUnknown(selectedWarmupAccount)
                     ? { title: 'Delivered', value: '—', desc: 'No delivery reports for these emails' }
-                    : { title: 'Delivered', value: selectedWarmupAccount.delivered ?? 0, desc: `${selectedWarmupAccount.deliveryRate ?? 0}% delivery rate` },
+                    : { title: 'Delivered', value: selectedWarmupAccount.delivered ?? 0, desc: deliveryRateText(selectedWarmupAccount.deliveryRate, selectedWarmupAccount.reported) },
                   { title: 'Unique Opens', value: selectedWarmupAccount.opens ?? 0, desc: `${selectedWarmupAccount.openRate ?? 0}% open rate`, caveat: engagedBeforeBotFilterFix(selectedWarmupAccount, 'opened') ? BEFORE_BOT_FILTER_FIX_NOTE : null },
                   { title: 'Unique Clicks', value: selectedWarmupAccount.clicks ?? 0, desc: `${selectedWarmupAccount.clickRate ?? 0}% click rate`, caveat: engagedBeforeBotFilterFix(selectedWarmupAccount, 'clicked') ? BEFORE_BOT_FILTER_FIX_NOTE : null },
                   { title: 'Replies', value: selectedWarmupAccount.replies ?? 0, desc: `${selectedWarmupAccount.replyRate ?? 0}% reply rate` },

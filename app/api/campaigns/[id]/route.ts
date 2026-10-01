@@ -99,6 +99,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     // campaign's sequence sends, defined in lib/engagementMetrics as on the
     // dashboard and the Accounts page, and counted in the database.
     // Total Sent Requests counts every attempt, retries and failures included.
+    // Delivery rate: delivered emails of those a delivery report arrived for,
+    // so emails sent before delivery reports were connected never dilute it.
     // Bounced: hard bounces, reported by the delivery webhook or at send time,
     // and their rate: bouncedInRate (all but the send-time bounces from before
     // delivery reports arrived) of the emails whose outcome is known (bounceBase).
@@ -111,7 +113,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     // so the page can say so, and the leads they came from (campaignLeadTotals),
     // since a lead often opens several of the campaign's emails.
     // The steps and mailboxes break the same sends down with every measure,
-    // and the delivery breakdown says what delivery reports said about them.
+    // and the delivery breakdown says what delivery reports said about them,
+    // and which of those with none were sent before reports were connected.
     const scope: MetricsScope = { kind: 'campaign', campaignId: id };
     const trendWindow = metricsWindow(TREND_DAYS);
     const [
@@ -167,9 +170,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
     // Delivered is a stage only once a delivery report arrived for one of the
     // campaign's emails; until then its 0 is not a measurement, so it is left out.
+    // It is left out too while some were sent before delivery reports were
+    // connected: those never get one, so Delivered would read far below Opened.
     const funnel = engagementFunnel({
       sent: sends.sent,
-      delivered: delivery.reported > 0 ? sends.delivered : undefined,
+      delivered: delivery.reported > 0 && delivery.sentBeforeReports === 0 ? sends.delivered : undefined,
       opened: sends.opened,
       clicked: sends.clicked,
       replies: repliesCount,

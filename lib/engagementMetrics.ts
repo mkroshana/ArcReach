@@ -17,6 +17,11 @@ import { BOT_FILTER_FIX_AT } from '@/lib/botFilter';
  *   or clicked, and hits lib/botFilter judged automated never count. Those
  *   recorded before BOT_FILTER_FIX_AT went through an older filter and include
  *   security-scanner hits; countEngagedBeforeBotFilterFix finds them.
+ * - Delivered: a delivery report said the email was delivered. Delivery rate:
+ *   delivered emails over the emails any delivery report arrived for, so the
+ *   emails with none never dilute it: those sent before delivery reports were
+ *   connected (before the first email a report arrived for), which Azure never
+ *   reports on, and those whose report has not arrived.
  * - Open and click rates: opened or clicked emails over the emails that
  *   reached the recipient: delivered where a delivery report says so, else
  *   sent. An email a report says was not delivered (bounced, suppressed,
@@ -219,8 +224,15 @@ async function reportsReachedWhere(
 export type SendSummary = {
   sent: number;
   delivered: number;
+  /**
+   * Sent emails any delivery report arrived for: the delivery rate's base.
+   * With none, the delivered count is not a measurement, so pages show it as
+   * unknown rather than 0.
+   */
+  reported: number;
   opened: number;
   clicked: number;
+  /** `delivered` of `reported`. */
   deliveryRate: number;
   openRate: number;
   clickRate: number;
@@ -229,9 +241,10 @@ export type SendSummary = {
 /** A scope's sends and their delivery, opens and clicks, of the emails sent in `sentAt` when given. */
 export async function sendSummary(client: MetricsClient, scope: MetricsScope, sentAt?: Period): Promise<SendSummary> {
   const sent = sentWhere(scope, sentAt);
-  const [sentCount, delivered, reached, opened, clicked] = await Promise.all([
+  const [sentCount, delivered, reported, reached, opened, clicked] = await Promise.all([
     client.emailDispatch.count({ where: sent }),
     client.emailDispatch.count({ where: { AND: [sent, DELIVERED] } }),
+    client.emailDispatch.count({ where: { AND: [sent, REPORTED] } }),
     client.emailDispatch.count({ where: { AND: [sent, REACHED] } }),
     client.emailDispatch.count({ where: { AND: [sent, OPENED] } }),
     client.emailDispatch.count({ where: { AND: [sent, CLICKED] } }),
@@ -239,9 +252,10 @@ export async function sendSummary(client: MetricsClient, scope: MetricsScope, se
   return {
     sent: sentCount,
     delivered,
+    reported,
     opened,
     clicked,
-    deliveryRate: percent(delivered, sentCount),
+    deliveryRate: percent(delivered, reported),
     openRate: percent(opened, reached),
     clickRate: percent(clicked, reached),
   };
@@ -250,14 +264,6 @@ export async function sendSummary(client: MetricsClient, scope: MetricsScope, se
 /** A scope's sequence send attempts, whatever became of them: retries and failures included. */
 export function countSendAttempts(client: MetricsClient, scope: MetricsScope): Promise<number> {
   return client.emailDispatch.count({ where: { AND: [scopeWhere(scope), SEQUENCE_SEND] } });
-}
-
-/**
- * A scope's sends any delivery report arrived for. With none, its delivered
- * count is not a measurement, so pages show it as unknown rather than 0.
- */
-export function countReported(client: MetricsClient, scope: MetricsScope): Promise<number> {
-  return client.emailDispatch.count({ where: { AND: [sentWhere(scope), REPORTED] } });
 }
 
 /** A scope's hard bounces, those that happened in `period` when given. */
@@ -353,6 +359,7 @@ export type StepMetrics = {
   failed: number;
   opened: number;
   clicked: number;
+  /** `delivered` of `reported`. */
   deliveryRate: number;
   openRate: number;
   clickRate: number;
@@ -368,7 +375,7 @@ export type StepMetrics = {
   bouncedInRate: number;
   bounceBase: number;
   unsubscribeRate: number;
-  /** Sent emails any delivery report arrived for. With none, `delivered` and its rate say nothing yet. */
+  /** Sent emails any delivery report arrived for: the delivery rate's base. With none, `delivered` and its rate say nothing. */
   reported: number;
   /** The leads the sent emails went to, each once however many times it was sent the email. */
   leads: number;
@@ -377,14 +384,16 @@ export type StepMetrics = {
   replyRate: number;
 };
 
-/** Which measures a breakdown loads; the others are left 0. Sent, delivered and failed always load. */
+/**
+ * Which measures a breakdown loads; the others are left 0. Sent, delivered,
+ * failed and how many emails a delivery report arrived for (the delivery
+ * rate's base) always load.
+ */
 export type SendMetricsOptions = {
   /** Opens and clicks. */
   engagement?: boolean;
-  /** Hard bounces, unsubscribes and how many emails a delivery report arrived for. */
+  /** Hard bounces and unsubscribes. */
   health?: boolean;
-  /** Only how many emails a delivery report arrived for (`health` loads it too). */
-  reports?: boolean;
   /** Leads emailed, counted once each. */
   leads?: boolean;
   /** Leads who replied; their rate needs `leads` too. */
@@ -460,7 +469,8 @@ async function repliedLeadsBy(client: MetricsClient, campaignIds: string[], grou
 /**
  * The sequence sends of `campaignIds` broken down by campaign and `group`,
  * with the same definitions as the campaign totals: sent, delivered and
- * failed attempts, and the measures `options` asks for.
+ * failed attempts, how many a delivery report arrived for, and the measures
+ * `options` asks for.
  */
 async function sendCountsBy(
   client: MetricsClient,
@@ -483,9 +493,11 @@ async function sendCountsBy(
     ]))
     : Promise.resolve([[], []]);
 
-  const [byStatus, delivered, reached, opened, clicked, bounced, [bouncedInRate, bounceBase], unsubscribed, reported, leads, replied] = await Promise.all([
+  const [byStatus, delivered, reported, reached, opened, clicked, bounced, [bouncedInRate, bounceBase], unsubscribed, leads, replied] = await Promise.all([
     client.emailDispatch.groupBy({ by: ['campaignId', group, 'status'], where: sends, _count: { id: true } }),
     countBy({ AND: [sent, DELIVERED] }),
+    // The delivery rate's base.
+    countBy({ AND: [sent, REPORTED] }),
     countIf(options.engagement, { AND: [sent, REACHED] }),
     countIf(options.engagement, { AND: [sent, OPENED] }),
     countIf(options.engagement, { AND: [sent, CLICKED] }),
@@ -493,7 +505,6 @@ async function sendCountsBy(
     countIf(options.health, { AND: [sends, hardBounceWhere()] }),
     rated,
     countIf(options.health, { AND: [sends, { events: { some: { eventType: UNSUBSCRIBE_EVENT } } }] }),
-    countIf(options.health || options.reports, { AND: [sent, REPORTED] }),
     options.leads ? distinctLeadsBy(client, campaignIds, group) : Promise.resolve([]),
     options.replies ? repliedLeadsBy(client, campaignIds, group) : Promise.resolve([]),
   ]);
@@ -517,6 +528,7 @@ async function sendCountsBy(
     else if (row.status === 'Failed') at(row.campaignId, row[group] ?? null).failed += row._count.id;
   }
   add('delivered', delivered as GroupRow[]);
+  add('reported', reported as GroupRow[]);
   add('reached', reached as GroupRow[]);
   add('opened', opened as GroupRow[]);
   add('clicked', clicked as GroupRow[]);
@@ -524,7 +536,6 @@ async function sendCountsBy(
   add('bouncedInRate', bouncedInRate as GroupRow[]);
   add('bounceBase', bounceBase as GroupRow[]);
   add('unsubscribed', unsubscribed as GroupRow[]);
-  add('reported', reported as GroupRow[]);
   for (const row of leads) at(row.campaignId, row.value ?? null).leads += Number(row.leads);
   for (const row of replied) at(row.campaignId, row.value ?? null).replied += Number(row.leads);
   return groups;
@@ -538,7 +549,7 @@ function sendMetrics(c: SendCounts = NO_SENDS): StepMetrics {
     failed: c.failed,
     opened: c.opened,
     clicked: c.clicked,
-    deliveryRate: percent(c.delivered, c.sent),
+    deliveryRate: percent(c.delivered, c.reported),
     openRate: percent(c.opened, c.reached),
     clickRate: percent(c.clicked, c.reached),
     bounced: c.bounced,
@@ -556,9 +567,9 @@ function sendMetrics(c: SendCounts = NO_SENDS): StepMetrics {
 
 /**
  * Per-step sends of each of `campaignIds`, with the same definitions as the
- * campaign totals: sent, delivered and failed attempts always, and the
- * measures `options` asks for (left 0 without them). Returns a lookup by
- * campaign and step.
+ * campaign totals: sent, delivered and failed attempts and how many a
+ * delivery report arrived for always, and the measures `options` asks for
+ * (left 0 without them). Returns a lookup by campaign and step.
  */
 export async function stepMetrics(
   client: MetricsClient,
@@ -601,24 +612,52 @@ export type DeliveryBreakdown = {
   hardBounced: number;
   /** Any other reported status. */
   otherReported: number;
+  /**
+   * No report arrived, and sent since `reportsSince`, or at any time when no
+   * report has arrived for any email.
+   */
   noReport: number;
+  /** No report arrived, and sent before `reportsSince`: Azure will not report on these. */
+  sentBeforeReports: number;
+  /**
+   * When the first email any delivery report arrived for was sent
+   * (firstReportedSentAt), which the emails with none are split by. Null when
+   * no report has arrived for any email, or when every email here has one, as
+   * it is then not looked up.
+   */
+  reportsSince: Date | null;
 };
+
+/**
+ * When the first email any delivery report arrived for was sent, of every
+ * dispatch (mailbox tests included), or null when no report has arrived for
+ * any. Delivery reports were connected about then: an email sent before it
+ * gets no report, as Azure does not report on it afterwards. Read in send
+ * order from the sentAt and deliveryStatus index, so it stops at that email.
+ */
+async function firstReportedSentAt(client: MetricsClient): Promise<Date | null> {
+  const first = await client.emailDispatch.findFirst({ where: REPORTED, orderBy: { sentAt: 'asc' }, select: { sentAt: true } });
+  return first?.sentAt ?? null;
+}
 
 /**
  * What delivery reports (lib/deliveryReport) said about a scope's sequence
  * emails ACS accepted: a bounce by its type, else the report's status. Emails
  * no report has arrived for are counted apart, so a scope with no reports at
- * all shows that rather than nothing delivered.
+ * all shows that rather than nothing delivered: those sent before delivery
+ * reports were connected (firstReportedSentAt), which never get one, apart
+ * from those sent since.
  */
 export async function deliveryBreakdown(client: MetricsClient, scope: MetricsScope): Promise<DeliveryBreakdown> {
+  const sent = sentWhere(scope);
   const rows = await client.emailDispatch.groupBy({
     by: ['deliveryStatus', 'bounceType'],
-    where: sentWhere(scope),
+    where: sent,
     _count: { id: true },
   });
   const breakdown: DeliveryBreakdown = {
     accepted: 0, reported: 0, delivered: 0, expanded: 0, spam: 0, quarantined: 0,
-    softBounced: 0, hardBounced: 0, otherReported: 0, noReport: 0,
+    softBounced: 0, hardBounced: 0, otherReported: 0, noReport: 0, sentBeforeReports: 0, reportsSince: null,
   };
   for (const row of rows) {
     const count = row._count.id;
@@ -632,7 +671,16 @@ export async function deliveryBreakdown(client: MetricsClient, scope: MetricsSco
     else if (row.deliveryStatus === 'Quarantined') breakdown.quarantined += count;
     else breakdown.otherReported += count;
   }
-  breakdown.reported = breakdown.accepted - breakdown.noReport;
+  if (breakdown.noReport > 0) {
+    breakdown.reportsSince = await firstReportedSentAt(client);
+    if (breakdown.reportsSince) {
+      breakdown.sentBeforeReports = await client.emailDispatch.count({
+        where: { AND: [sent, { deliveryStatus: null, bounceType: null, sentAt: { lt: breakdown.reportsSince } }] },
+      });
+      breakdown.noReport -= breakdown.sentBeforeReports;
+    }
+  }
+  breakdown.reported = breakdown.accepted - breakdown.noReport - breakdown.sentBeforeReports;
   return breakdown;
 }
 

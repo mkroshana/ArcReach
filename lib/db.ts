@@ -144,7 +144,7 @@ export const db = {
         where: { campaignId: { in: ids }, status: 'Active' },
         _count: { id: true },
       }),
-      stepMetrics(prisma, ids, { leads: true, reports: true }),
+      stepMetrics(prisma, ids, { leads: true }),
     ]);
 
     return campaigns.map(({ timezone, sendSchedule, ...c }) => {

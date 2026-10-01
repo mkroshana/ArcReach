@@ -387,6 +387,10 @@ model EmailDispatch {
   @@index([campaignId, stepOrder, status])
   // Serves the reconciler's scan for stale 'Sending' rows, oldest first (lib/sendReconciler).
   @@index([status, sentAt])
+  // Serves the first email any delivery report arrived for (lib/engagementMetrics
+  // firstReportedSentAt): read in send order from the index alone, without
+  // fetching each earlier email's row to check it has no report.
+  @@index([sentAt, deliveryStatus])
 }
 
 model EmailEvent {

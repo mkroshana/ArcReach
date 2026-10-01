@@ -63,26 +63,6 @@ export function countRows(rows: any[], where: any, relations: Relations = {}): n
 }
 
 /**
- * A findFirst: the first row matching `where` in `orderBy` order (one field,
- * nulls last), with only the `select`ed fields when given, or null.
- */
-export function firstRow(
-  rows: any[],
-  args: { where?: any; orderBy?: Record<string, 'asc' | 'desc'>; select?: Record<string, boolean> },
-  relations: Relations = {},
-) {
-  const [field, direction] = Object.entries(args.orderBy ?? {})[0] ?? [];
-  const sorted = rows.filter((row) => matchesWhere(row, args.where, relations));
-  if (field) {
-    const sign = direction === 'desc' ? -1 : 1;
-    sorted.sort((a, b) => (a[field] == null ? 1 : b[field] == null ? -1 : a[field] < b[field] ? -sign : a[field] > b[field] ? sign : 0));
-  }
-  const first = sorted[0];
-  if (!first) return null;
-  return args.select ? Object.fromEntries(Object.keys(args.select).map((key) => [key, first[key]])) : first;
-}
-
-/**
  * A groupBy with `_count: { id: true }` over the rows matching `where`, and the
  * `_min` of the fields it names, null where every row's is null, as Prisma gives it.
  */

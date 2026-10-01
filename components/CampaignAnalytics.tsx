@@ -15,7 +15,7 @@ import { alpha } from '@mui/material/styles';
 import { isHtmlTemplate } from '@/lib/personalize';
 import { replyCountUnknown, replySyncState, unreadReplyToNote, unreadReplyTos, type ImapSyncState } from '@/lib/imapSyncStatus';
 import { bounceFigure, noReportsFor, type BounceCounts, type BounceFigure } from '@/lib/bounceStats';
-import { deliveryRateNote, deliveryRateText, funnelDeliveredNote, noReportRows, noReportsNotes, type NoReportsNotes } from '@/lib/deliveryStats';
+import { deliveryRateText, noReportsNote } from '@/lib/deliveryStats';
 import { ENROLLMENT_STATES, FAILED_BEFORE_STATUS_CHECK_FIX_NOTE, STOPPED_ACTIVE_STATE, nextSendText } from '@/lib/campaignProgress';
 import { BEFORE_BOT_FILTER_FIX_NOTE } from '@/lib/botFilter';
 import { timeAgo } from '@/lib/systemStatus';
@@ -25,12 +25,12 @@ import { useTheme as useAppTheme } from '@/components/ThemeProvider';
  * The campaign page's Analytics tab: what GET /api/campaigns/[id] reports in
  * its telemetry, defined in lib/engagementMetrics as on the dashboard. A
  * number that depends on something not set up says so instead of showing a
- * misleading zero: deliveries need Azure delivery reports (emails sent before
- * they were connected never get one, so the delivery rate is of the emails a
- * report arrived for, lib/deliveryStats), replies need reply sync on the
- * mailboxes that receive them, and opens and clicks need tracking on and an
- * HTML step. Opens and clicks recorded before the current bot filter
- * include security-scanner hits, so where they are counted the page says so.
+ * misleading zero: deliveries need Azure delivery reports (the delivery rate
+ * is of the emails a report arrived for, lib/deliveryStats), replies need
+ * reply sync on the mailboxes that receive them, and opens and clicks need
+ * tracking on and an HTML step. Opens and clicks recorded before the current
+ * bot filter include security-scanner hits, so where they are counted the page
+ * says so.
  */
 
 /** A count as the page shows it: 1,284. */
@@ -67,13 +67,9 @@ const REPLY_SYNC_NOTES: Record<Exclude<ImapSyncState, 'ok'>, { short: string; lo
   },
 };
 
-/**
- * Why a bounce count without delivery reports has no rate. It says "yet" only
- * while no report has arrived for any email: once delivery reports are
- * connected, the emails sent before then never get one.
- */
-const sendTimeBouncesNote = (reportsConnected: boolean) =>
-  `No delivery reports have arrived for these emails, so only the bounces found when sending are counted, and there is no bounce rate${reportsConnected ? '' : ' yet'}.`;
+/** Why a bounce count without delivery reports has no rate. */
+const SEND_TIME_BOUNCES_NOTE =
+  'No delivery reports have arrived for these emails, so only the bounces found when sending are counted, and there is no bounce rate yet.';
 
 /** Why a campaign's failed count is high when it has failed attempts from before the send-engine fix. */
 const FAILED_SENDS_BEFORE_FIX_NOTE =
@@ -84,15 +80,14 @@ const BOUNCED_DEFINITION =
 
 /**
  * The note on a bounce figure (lib/bounceStats), or null when it needs none.
- * `noReportsNote` says why its emails have no delivery report: the campaign's
- * or the row's note from `notes` (lib/deliveryStats).
+ * `noReports` says why its emails have no delivery report (lib/deliveryStats).
  */
-function bounceNote(figure: BounceFigure, notes: NoReportsNotes, noReportsNote: string): string | null {
+function bounceNote(figure: BounceFigure, noReports: string): string | null {
   switch (figure.note) {
     case 'noReports':
-      return noReportsNote;
+      return noReports;
     case 'sendTimeOnly':
-      return sendTimeBouncesNote(notes.connected);
+      return SEND_TIME_BOUNCES_NOTE;
     case 'leftOutOfRate':
       return `Includes ${count(figure.leftOutOfRate)} found when sending before delivery reports arrived. They are left out of the rate: the other emails sent then never get a report, so their bounces are not known.`;
     default:
@@ -118,8 +113,11 @@ function campaignReplySync(campaign: any, mailboxes: any[] | null): { state: Ima
 export type AnalyticsCaveats = {
   /** Emails were accepted but no delivery report arrived for any of them. */
   noDeliveryReports: boolean;
-  /** Why emails show no delivery figures: none arrived yet, or they were sent before delivery reports were connected. */
-  noReports: NoReportsNotes;
+  /**
+   * Why emails show no delivery figures (lib/deliveryStats noReportsNote): none of the campaign's emails has a
+   * report yet, or a step's or mailbox's have none yet while others do.
+   */
+  noReports: string;
   /** Why replies may be missing, or null when a receiving mailbox syncs (or the mailboxes did not load). */
   replySync: Exclude<ImapSyncState, 'ok'> | null;
   /** What the page says about `replySync`, naming any Reply-To address that is not read; null with it. */
@@ -138,7 +136,7 @@ export function analyticsCaveats(campaign: any, mailboxes: any[] | null): Analyt
   const replySync = sync && sync.state !== 'ok' ? sync.state : null;
   return {
     noDeliveryReports: !!delivery && delivery.accepted > 0 && delivery.reported === 0,
-    noReports: noReportsNotes(delivery ?? { reported: 0, noReport: 0 }),
+    noReports: noReportsNote(delivery ?? { reported: 0 }),
     replySync,
     replySyncNote: replySync
       ? { short: REPLY_SYNC_NOTES[replySync].short, long: [REPLY_SYNC_NOTES[replySync].long, sync?.unreadReplyToNote].filter(Boolean).join(' ') }
@@ -217,8 +215,8 @@ function deliveredCell(row: { delivered: number; deliveryRate: number; reported:
  */
 function bouncedCell(row: BounceCounts, caveats: AnalyticsCaveats): ReactNode {
   const figure = bounceFigure(row, caveats);
-  if (figure.count === null) return <NoReports note={caveats.noReports.row} />;
-  const note = bounceNote(figure, caveats.noReports, caveats.noReports.row);
+  if (figure.count === null) return <NoReports note={caveats.noReports} />;
+  const note = bounceNote(figure, caveats.noReports);
   return (
     <>
       {count(figure.count)}
@@ -370,7 +368,7 @@ export function StepStatStrip({ stats, htmlStep, caveats }: { stats: any; htmlSt
       label: 'Bounced',
       value: bounces.count === null ? '—' : count(bounces.count),
       // The strip shows no bounce rate, so what the rate leaves out needs no note here.
-      caveat: bounces.note === 'leftOutOfRate' ? null : bounceNote(bounces, caveats.noReports, caveats.noReports.row),
+      caveat: bounces.note === 'leftOutOfRate' ? null : bounceNote(bounces, caveats.noReports),
     },
     ...(stats.failed > 0 ? [{ label: 'Failed', value: count(stats.failed) }] : []),
   ];
@@ -396,7 +394,7 @@ export default function CampaignAnalytics({ campaign, mailboxes }: { campaign: a
   const { theme: colorMode } = useAppTheme();
   const t = campaign?.telemetry ?? {};
   const progress = t.progress ?? { enrolled: 0, byStatus: {}, contacted: 0, repliedLeads: 0, emailsLeft: 0, dueNow: 0, nextDueAt: null, lastSentAt: null };
-  const delivery = t.delivery ?? { accepted: 0, reported: 0, noReport: 0, sentBeforeReports: 0, reportsSince: null };
+  const delivery = t.delivery ?? { accepted: 0, reported: 0, noReport: 0 };
   const stepStats: any[] = t.stepStats ?? [];
   const mailboxStats: any[] = t.mailboxes ?? [];
   const caveats = analyticsCaveats(campaign, mailboxes);
@@ -405,10 +403,6 @@ export default function CampaignAnalytics({ campaign, mailboxes }: { campaign: a
   const repliesUnknown = replyCountUnknown(caveats.replySync, t.replies);
   const repliedLeadsUnknown = replyCountUnknown(caveats.replySync, progress.repliedLeads);
   const funnel = (t.funnel ?? []).filter((stage: any) => !(repliesUnknown && stage.name === 'Replied'));
-  // Why the funnel leaves a stage out: Delivered while some emails were sent before delivery reports were connected
-  // (the API leaves it out), and Replied while reply sync is off.
-  const funnelCaption = [funnelDeliveredNote(delivery), repliesUnknown ? 'Replied is left out while reply sync is off.' : null]
-    .filter(Boolean).join(' ') || undefined;
   const stopped = campaign?.status === 'Stopped';
   const now = new Date();
   // Opens and clicks in the validated categorical slots 1 and 2 (light and dark steps), each named in the legend.
@@ -423,13 +417,10 @@ export default function CampaignAnalytics({ campaign, mailboxes }: { campaign: a
   const emailTiles = [
     { title: 'Total Sent Requests', value: count(t.sentRequests), icon: SendHorizontal, color: '#64748b', sub: 'Includes retries & failures' },
     { title: 'Emails Sent', value: count(t.sent), icon: Send, color: '#2563EB', sub: `Accepted by provider, to ${count(progress.contacted)} leads` },
-    // The rate is of the emails a delivery report arrived for, so those sent before reports were connected never dilute it.
+    // The rate is of the emails a delivery report arrived for, so those whose report has not arrived never dilute it.
     caveats.noDeliveryReports
-      ? { title: 'Delivered', value: '—', icon: CheckCircle2, color: '#059669', sub: caveats.noReports.short, caveat: caveats.noReports.campaign }
-      : {
-        title: 'Delivered', value: count(t.delivered), icon: CheckCircle2, color: '#059669', sub: deliveryRateText(t.deliveryRate, delivery.reported),
-        caveat: deliveryRateNote(delivery),
-      },
+      ? { title: 'Delivered', value: '—', icon: CheckCircle2, color: '#059669', sub: 'No delivery reports yet', caveat: caveats.noReports }
+      : { title: 'Delivered', value: count(t.delivered), icon: CheckCircle2, color: '#059669', sub: deliveryRateText(t.deliveryRate, delivery.reported) },
     {
       title: 'Unique Opens', value: count(t.opens), icon: Mail, color: '#2563EB', sub: caveats.trackOpens ? `${t.openRate ?? 0}% open rate${fromLeads(t.opens, t.openedLeads)}` : 'Open tracking is off',
       caveat: opensNote,
@@ -453,8 +444,8 @@ export default function CampaignAnalytics({ campaign, mailboxes }: { campaign: a
     bounced: t.bounced, bouncedInRate: t.bouncedInRate, bounceRate: t.bounceRate, bounceBase: t.bounceBase,
   }, caveats);
   const bouncedSub = bounces.rate ? `${bounces.rate} of ${count(t.bounceBase)} with a known outcome`
-    : bounces.note === 'noReports' ? caveats.noReports.short
-      : bounces.note === 'sendTimeOnly' ? `Found when sending; no reports${caveats.noReports.connected ? '' : ' yet'}`
+    : bounces.note === 'noReports' ? 'No delivery reports yet'
+      : bounces.note === 'sendTimeOnly' ? 'Found when sending; no reports yet'
         : 'No bounce rate yet';
   // Failed attempts from before the send-engine fix include accepted emails whose status check failed.
   const failedBeforeFix = (t.failedBeforeStatusCheckFix ?? 0) > 0;
@@ -465,7 +456,7 @@ export default function CampaignAnalytics({ campaign, mailboxes }: { campaign: a
     },
     {
       title: 'Bounced', value: bounces.count === null ? '—' : count(bounces.count), icon: AlertTriangle, color: '#D97706', sub: bouncedSub,
-      caveat: bounceNote(bounces, caveats.noReports, caveats.noReports.campaign),
+      caveat: bounceNote(bounces, caveats.noReports),
     },
     { title: 'Unsubscribed', value: count(t.unsubscribed), icon: UserMinus, color: '#64748b', sub: 'Opted out of mailings' },
   ];
@@ -493,9 +484,10 @@ export default function CampaignAnalytics({ campaign, mailboxes }: { campaign: a
     ...(delivery.expanded > 0 ? [{ key: 'expanded', label: 'Expanded List', description: "A distribution list was expanded; its members' reports are counted on their own.", value: delivery.expanded }] : []),
     ...(delivery.otherReported > 0 ? [{ key: 'other', label: 'Other', description: 'Another delivery report status.', value: delivery.otherReported }] : []),
   ];
-  // No report, counted apart from those shares: sent before delivery reports were connected (Azure will not report
-  // on these), or none received since.
-  const unreportedRows: BarRow[] = noReportRows(delivery);
+  // No report yet, counted apart from those shares.
+  const unreportedRows: BarRow[] = [
+    { key: 'none', label: 'No Report Received', description: 'No delivery report has arrived for it.', value: delivery.noReport },
+  ];
 
   const waitingTitle = stopped ? 'Stopped Here' : 'Waiting';
   const waitingDefinition = stopped
@@ -537,7 +529,7 @@ export default function CampaignAnalytics({ campaign, mailboxes }: { campaign: a
             ) : delivery.reported === 0 ? (
               <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', color: 'warning.main' }}>
                 <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 2 }} />
-                <Typography variant="caption" sx={{ fontWeight: 600 }}>{caveats.noReports.campaign}</Typography>
+                <Typography variant="caption" sx={{ fontWeight: 600 }}>{caveats.noReports}</Typography>
               </Stack>
             ) : (
               <>
@@ -605,7 +597,7 @@ export default function CampaignAnalytics({ campaign, mailboxes }: { campaign: a
                           <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontWeight: 400 }}>to {count(s.leads)} leads</Typography>
                         )}
                       </TableCell>
-                      <TableCell>{noReportsFor(s, caveats) ? <NoReports note={caveats.noReports.row} /> : deliveredCell(s)}</TableCell>
+                      <TableCell>{noReportsFor(s, caveats) ? <NoReports note={caveats.noReports} /> : deliveredCell(s)}</TableCell>
                       <TableCell>{opensGap ? <Gap label={opensGap} /> : rated(s.opened, s.openRate)}</TableCell>
                       <TableCell>{clicksGap ? <Gap label={clicksGap} /> : rated(s.clicked, s.clickRate)}</TableCell>
                       <TableCell>{rated(s.replied, s.replyRate)}</TableCell>
@@ -661,7 +653,7 @@ export default function CampaignAnalytics({ campaign, mailboxes }: { campaign: a
                       {count(m.sent)}
                       {m.leads > 0 && <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontWeight: 400 }}>to {count(m.leads)} leads</Typography>}
                     </TableCell>
-                    <TableCell>{noReportsFor(m, caveats) ? <NoReports note={caveats.noReports.row} /> : deliveredCell(m)}</TableCell>
+                    <TableCell>{noReportsFor(m, caveats) ? <NoReports note={caveats.noReports} /> : deliveredCell(m)}</TableCell>
                     <TableCell>{!caveats.trackOpens && m.opened === 0 ? <Gap label="Off" /> : rated(m.opened, m.openRate)}</TableCell>
                     <TableCell>{rated(m.replied, m.replyRate)}</TableCell>
                     <TableCell>{bouncedCell(m, caveats)}</TableCell>
@@ -699,7 +691,7 @@ export default function CampaignAnalytics({ campaign, mailboxes }: { campaign: a
 
         <Card>
           <CardContent>
-            <SectionTitle caption={funnelCaption}>Conversion Funnel</SectionTitle>
+            <SectionTitle caption={repliesUnknown ? 'Replied is left out while reply sync is off.' : undefined}>Conversion Funnel</SectionTitle>
             <Box sx={{ height: 220 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart layout="vertical" data={funnel} margin={{ top: 5, right: 5, left: 10, bottom: 5 }}>

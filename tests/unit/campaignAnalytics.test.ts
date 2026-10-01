@@ -10,7 +10,7 @@ import { NextRequest } from 'next/server';
  * belong; the SQL itself is run against Postgres by the integration checks.
  */
 const fake = vi.hoisted(() => {
-  const methods = ['findUnique', 'findFirst', 'findMany', 'count', 'groupBy'];
+  const methods = ['findUnique', 'findMany', 'count', 'groupBy'];
   const model = () => Object.fromEntries(methods.map((n) => [n, vi.fn()]));
   return {
     campaign: model(),
@@ -37,7 +37,7 @@ import { GET as getCampaign } from '../../app/api/campaigns/[id]/route';
 import { STATUS_CHECK_FIX_AT, campaignLeadTotals, countEngagedBeforeBotFilterFix, deliveryBreakdown, mailboxMetrics, stepMetrics } from '../../lib/engagementMetrics';
 import { BOT_FILTER_FIX_AT } from '../../lib/botFilter';
 import { emailsLeft, nextSendText } from '../../lib/campaignProgress';
-import { countRows, firstRow, groupRows } from './helpers/prismaWhere';
+import { countRows, groupRows } from './helpers/prismaWhere';
 
 const USER = { id: 'user-1', name: 'User', email: 'user@example.com', role: 'USER' as const };
 const NOW = new Date('2026-09-30T12:00:00.000Z');
@@ -109,7 +109,6 @@ beforeEach(() => {
   fake.campaign.findUnique.mockResolvedValue(CAMPAIGN);
   fake.emailDispatch.count.mockImplementation(async ({ where }: any) => countRows(dispatches, where, DISPATCH_RELATIONS));
   fake.emailDispatch.groupBy.mockImplementation(async (args: any) => groupRows(dispatches, args, DISPATCH_RELATIONS));
-  fake.emailDispatch.findFirst.mockImplementation(async (args: any) => firstRow(dispatches, args, DISPATCH_RELATIONS));
   fake.campaignEnrollment.count.mockImplementation(async ({ where }: any) => countRows(enrollments, where, ENROLLMENT_RELATIONS));
   fake.campaignEnrollment.groupBy.mockImplementation(async (args: any) => groupRows(enrollments, args, ENROLLMENT_RELATIONS));
   fake.inboundResponse.count.mockResolvedValue(0);
@@ -244,10 +243,9 @@ describe('what delivery reports said', () => {
     addDispatch({ id: 'failed', status: 'Failed' });
     addDispatch({ id: 'unibox', stepOrder: null, deliveryStatus: 'Delivered' });
 
-    // Sent with the reported ones, so after delivery reports were connected.
     expect(await deliveryBreakdown(fake as any, { kind: 'campaign', campaignId: 'cmp-1' })).toEqual({
       accepted: 8, reported: 6, delivered: 1, expanded: 1, spam: 1, quarantined: 1,
-      softBounced: 1, hardBounced: 1, otherReported: 0, noReport: 2, sentBeforeReports: 0, reportsSince: hoursAgo(48),
+      softBounced: 1, hardBounced: 1, otherReported: 0, noReport: 2,
     });
   });
 
@@ -257,7 +255,7 @@ describe('what delivery reports said', () => {
 
     const { delivery } = await telemetry();
 
-    expect(delivery).toMatchObject({ accepted: 2, reported: 0, noReport: 2, sentBeforeReports: 0, reportsSince: null, delivered: 0 });
+    expect(delivery).toMatchObject({ accepted: 2, reported: 0, noReport: 2, delivered: 0 });
   });
 });
 

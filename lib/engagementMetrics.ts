@@ -23,9 +23,7 @@ import { BOT_FILTER_FIX_AT } from '@/lib/botFilter';
  *   deliveredAt set, so Delivered goes by the status, as deliveryBreakdown
  *   does, and the email counts under that later outcome alone, never as both.
  *   Delivery rate: delivered emails over the emails any delivery report
- *   arrived for, so the emails with none never dilute it: those sent before
- *   delivery reports were connected (before the first email a report arrived
- *   for), which Azure never reports on, and those whose report has not arrived.
+ *   arrived for, so the emails whose report has not arrived never dilute it.
  * - Open and click rates: opened or clicked emails over the emails that
  *   reached the recipient: delivered where a delivery report says so, else
  *   sent. An email a report says was not delivered (bounced, suppressed,
@@ -617,52 +615,24 @@ export type DeliveryBreakdown = {
   hardBounced: number;
   /** Any other reported status. */
   otherReported: number;
-  /**
-   * No report arrived, and sent since `reportsSince`, or at any time when no
-   * report has arrived for any email.
-   */
   noReport: number;
-  /** No report arrived, and sent before `reportsSince`: Azure will not report on these. */
-  sentBeforeReports: number;
-  /**
-   * When the first email any delivery report arrived for was sent
-   * (firstReportedSentAt), which the emails with none are split by. Null when
-   * no report has arrived for any email, or when every email here has one, as
-   * it is then not looked up.
-   */
-  reportsSince: Date | null;
 };
-
-/**
- * When the first email any delivery report arrived for was sent, of every
- * dispatch (mailbox tests included), or null when no report has arrived for
- * any. Delivery reports were connected about then: an email sent before it
- * gets no report, as Azure does not report on it afterwards. Read in send
- * order from the sentAt and deliveryStatus index, so it stops at that email.
- */
-async function firstReportedSentAt(client: MetricsClient): Promise<Date | null> {
-  const first = await client.emailDispatch.findFirst({ where: REPORTED, orderBy: { sentAt: 'asc' }, select: { sentAt: true } });
-  return first?.sentAt ?? null;
-}
 
 /**
  * What delivery reports (lib/deliveryReport) said about a scope's sequence
  * emails ACS accepted: a bounce by its type, else the report's status. Emails
  * no report has arrived for are counted apart, so a scope with no reports at
- * all shows that rather than nothing delivered: those sent before delivery
- * reports were connected (firstReportedSentAt), which never get one, apart
- * from those sent since.
+ * all shows that rather than nothing delivered.
  */
 export async function deliveryBreakdown(client: MetricsClient, scope: MetricsScope): Promise<DeliveryBreakdown> {
-  const sent = sentWhere(scope);
   const rows = await client.emailDispatch.groupBy({
     by: ['deliveryStatus', 'bounceType'],
-    where: sent,
+    where: sentWhere(scope),
     _count: { id: true },
   });
   const breakdown: DeliveryBreakdown = {
     accepted: 0, reported: 0, delivered: 0, expanded: 0, spam: 0, quarantined: 0,
-    softBounced: 0, hardBounced: 0, otherReported: 0, noReport: 0, sentBeforeReports: 0, reportsSince: null,
+    softBounced: 0, hardBounced: 0, otherReported: 0, noReport: 0,
   };
   for (const row of rows) {
     const count = row._count.id;
@@ -676,16 +646,7 @@ export async function deliveryBreakdown(client: MetricsClient, scope: MetricsSco
     else if (row.deliveryStatus === 'Quarantined') breakdown.quarantined += count;
     else breakdown.otherReported += count;
   }
-  if (breakdown.noReport > 0) {
-    breakdown.reportsSince = await firstReportedSentAt(client);
-    if (breakdown.reportsSince) {
-      breakdown.sentBeforeReports = await client.emailDispatch.count({
-        where: { AND: [sent, { deliveryStatus: null, bounceType: null, sentAt: { lt: breakdown.reportsSince } }] },
-      });
-      breakdown.noReport -= breakdown.sentBeforeReports;
-    }
-  }
-  breakdown.reported = breakdown.accepted - breakdown.noReport - breakdown.sentBeforeReports;
+  breakdown.reported = breakdown.accepted - breakdown.noReport;
   return breakdown;
 }
 

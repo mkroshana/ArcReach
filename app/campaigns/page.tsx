@@ -53,7 +53,7 @@ const statusColorMap = { Active: 'success', Draft: 'default', Paused: 'warning',
 const NO_DELIVERY_REPORTS_NOTE = 'No delivery reports have arrived for these emails, so how many were delivered is not known.';
 
 /** Why a step card's Delivered names the emails a delivery report arrived for. */
-const PARTLY_REPORTED_NOTE = 'Delivered counts only the emails a delivery report arrived for. Azure does not report on emails sent before delivery reports were connected.';
+const PARTLY_REPORTED_NOTE = 'Delivered counts only the emails a delivery report arrived for. No delivery report has arrived for the others yet.';
 
 export default function CampaignsPage() {
   const router = useRouter();

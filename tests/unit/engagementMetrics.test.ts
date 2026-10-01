@@ -7,7 +7,7 @@ import { NextRequest } from 'next/server';
  * checks the numbers every page shows for the same rows.
  */
 const fake = vi.hoisted(() => {
-  const methods = ['findUnique', 'findFirst', 'findMany', 'count', 'groupBy'];
+  const methods = ['findUnique', 'findMany', 'count', 'groupBy'];
   const model = () => Object.fromEntries(methods.map((n) => [n, vi.fn()]));
   return {
     campaign: model(),
@@ -37,7 +37,7 @@ import { GET as getAccounts } from '../../app/api/accounts/route';
 import { dailyEngagement, deliveryBreakdown, healthSummary, metricsWindow, percent, stepMetrics } from '../../lib/engagementMetrics';
 import { BOT_FILTER_FIX_AT } from '../../lib/botFilter';
 import { mailboxRepliesFigure } from '../../lib/imapSyncStatus';
-import { countRows, firstRow, groupRows, matchesWhere } from './helpers/prismaWhere';
+import { countRows, groupRows, matchesWhere } from './helpers/prismaWhere';
 
 const mockedSession = vi.mocked(getSession);
 const USER = { id: 'user-1', name: 'User', email: 'user@example.com', role: 'USER' as const };
@@ -132,7 +132,6 @@ beforeEach(() => {
   }));
   fake.emailDispatch.count.mockImplementation(async ({ where }: any) => countRows(dispatches, where, DISPATCH_RELATIONS));
   fake.emailDispatch.groupBy.mockImplementation(async (args: any) => groupRows(dispatches, args, DISPATCH_RELATIONS));
-  fake.emailDispatch.findFirst.mockImplementation(async (args: any) => firstRow(dispatches, args, DISPATCH_RELATIONS));
   fake.inboundResponse.count.mockImplementation(async ({ where }: any) => countRows(replies, where, REPLY_RELATIONS));
   // The campaign page names the mailboxes its sends came from; the dashboard reads their reply sync.
   // Only the `select`ed columns come back, as from Prisma.
@@ -282,12 +281,11 @@ describe('Delivered is unknown, not 0, until a delivery report arrives (stats A1
 
 describe('the delivery rate is of the emails a delivery report arrived for (stats A3)', () => {
   /**
-   * Before delivery reports were connected: 20 accepted emails, on both steps,
-   * that never get a report. Then a mailbox test, the first email a report
-   * arrived for, and the campaign resumes: 10 emails reported (9 delivered, 1
-   * hard bounce) and 1 whose report has not arrived.
+   * 20 accepted emails, on both steps, no delivery report has arrived for. Then
+   * a mailbox test a report arrived for, and 11 more of the campaign's emails:
+   * 10 reported (9 delivered, 1 hard bounce) and 1 whose report has not arrived.
    */
-  function resumedAfterReports() {
+  function partlyReported() {
     for (let i = 1; i <= 20; i++) addDispatch({ id: `old-${i}`, stepOrder: (i % 2) + 1, sentAt: at(20) });
     addDispatch({ id: 'mailbox-test', leadId: null, campaignId: null, stepOrder: null, sentAt: at(3), deliveredAt: at(3), deliveryStatus: 'Delivered' });
     for (let i = 1; i <= 9; i++) addDispatch({ id: `new-${i}`, deliveredAt: at(1), deliveryStatus: 'Delivered' });
@@ -296,75 +294,47 @@ describe('the delivery rate is of the emails a delivery report arrived for (stat
   }
 
   it('leaves out the emails no report arrived for, on the campaign, each step, each mailbox and the Accounts page', async () => {
-    resumedAfterReports();
+    partlyReported();
 
     // Over every email sent, 9 of 31 would read 29%.
     const telemetry = await campaignTelemetry();
     expect(telemetry).toMatchObject({ sent: 31, delivered: 9, deliveryRate: 90 });
     expect(telemetry.stepStats[0]).toMatchObject({ sent: 21, delivered: 9, reported: 10, deliveryRate: 90 });
-    // Only old emails: nothing reported, so the page shows Delivered as unknown, not 0%.
+    // Nothing reported, so the page shows Delivered as unknown, not 0%.
     expect(telemetry.stepStats[1]).toMatchObject({ sent: 10, delivered: 0, reported: 0, deliveryRate: 0 });
     expect(telemetry.mailboxes[0]).toMatchObject({ senderAccountId: 'mb-1', sent: 31, reported: 10, deliveryRate: 90 });
     // The mailbox test is not a campaign send, so it counts nowhere.
     expect(await mailbox()).toMatchObject({ sentTotal: 31, delivered: 9, reported: 10, deliveryRate: 90 });
   });
 
-  it('splits the emails with no report by whether they were sent before the first email a report arrived for', async () => {
-    resumedAfterReports();
+  it('counts every email with no report as not received, whenever it was sent', async () => {
+    partlyReported();
 
     const { delivery } = await campaignTelemetry();
-    expect(delivery).toMatchObject({
-      accepted: 31, reported: 10, delivered: 9, hardBounced: 1, sentBeforeReports: 20, noReport: 1,
-      // The mailbox test: delivery reports are connected for every email, whatever sent it.
-      reportsSince: at(3).toISOString(),
+    expect(delivery).toEqual({
+      accepted: 31, reported: 10, delivered: 9, expanded: 0, spam: 0, quarantined: 0,
+      softBounced: 0, hardBounced: 1, otherReported: 0, noReport: 21,
     });
   });
 
-  it('leaves the funnel\'s Delivered stage out while some emails were sent before the first email a report arrived for', async () => {
-    resumedAfterReports();
+  it("draws the funnel's Delivered stage once a report has arrived for one of the campaign's emails, however many have none", async () => {
+    partlyReported();
 
-    // Drawn, Delivered would read 9 of the 31 sent: the 20 old emails never get a report.
     const { funnel } = await campaignTelemetry();
     expect(funnel.map((s: any) => [s.name, s.value])).toEqual([
-      ['Sent', 31], ['Opened', 0], ['Clicked', 0], ['Replied', 0], ['Meeting Booked', 0],
+      ['Sent', 31], ['Delivered', 9], ['Opened', 0], ['Clicked', 0], ['Replied', 0], ['Meeting Booked', 0],
     ]);
   });
 
-  it('keeps the funnel\'s Delivered stage when every email was sent since the first email a report arrived for', async () => {
-    addDispatch({ id: 'mailbox-test', leadId: null, campaignId: null, stepOrder: null, sentAt: at(3), deliveredAt: at(3), deliveryStatus: 'Delivered' });
-    for (let i = 1; i <= 9; i++) addDispatch({ id: `new-${i}`, deliveredAt: at(1), deliveryStatus: 'Delivered' });
-    // Its report has not arrived: it may still, so the stage stays.
-    addDispatch({ id: 'new-unreported' });
-
-    const { funnel, delivery } = await campaignTelemetry();
-    expect(delivery).toMatchObject({ reported: 9, noReport: 1, sentBeforeReports: 0, reportsSince: at(3).toISOString() });
-    expect(funnel.map((s: any) => [s.name, s.value])).toEqual([
-      ['Sent', 10], ['Delivered', 9], ['Opened', 0], ['Clicked', 0], ['Replied', 0], ['Meeting Booked', 0],
-    ]);
-  });
-
-  it('keeps every email with no report as not received while no report has arrived for any email', async () => {
-    addDispatch({ id: 'd1', sentAt: at(20) });
-    addDispatch({ id: 'd2' });
-
-    const { delivery } = await campaignTelemetry();
-    expect(delivery).toMatchObject({ accepted: 2, reported: 0, noReport: 2, sentBeforeReports: 0, reportsSince: null });
-  });
-
-  it('looks up the first reported email in send order, and only when some email has no report', async () => {
+  it('counts the breakdown with one grouped query, whenever the emails with no report were sent', async () => {
     const scope = { kind: 'campaign' as const, campaignId: 'cmp-1' };
-    addDispatch({ id: 'reported', deliveredAt: at(1), deliveryStatus: 'Delivered' });
-
-    expect(await deliveryBreakdown(fake as any, scope)).toMatchObject({ reported: 1, noReport: 0, sentBeforeReports: 0, reportsSince: null });
-    expect(fake.emailDispatch.findFirst).not.toHaveBeenCalled();
-
-    // Sent the day before it, and another campaign's from then: before reports were connected.
     addDispatch({ id: 'earlier', sentAt: at(2) });
+    addDispatch({ id: 'reported', deliveredAt: at(1), deliveryStatus: 'Delivered' });
     addDispatch({ id: 'theirs', campaignId: 'cmp-2', senderAccountId: 'mb-2', sentAt: at(2) });
-    expect(await deliveryBreakdown(fake as any, scope)).toMatchObject({ reported: 1, noReport: 0, sentBeforeReports: 1, reportsSince: at(1) });
-    expect(fake.emailDispatch.findFirst).toHaveBeenCalledWith({
-      where: { deliveryStatus: { not: null } }, orderBy: { sentAt: 'asc' }, select: { sentAt: true },
-    });
+
+    expect(await deliveryBreakdown(fake as any, scope)).toMatchObject({ accepted: 2, reported: 1, delivered: 1, noReport: 1 });
+    expect(fake.emailDispatch.groupBy).toHaveBeenCalledTimes(1);
+    expect(fake.emailDispatch.count).not.toHaveBeenCalled();
   });
 });
 

@@ -76,7 +76,7 @@ const FAILED_SENDS_BEFORE_FIX_NOTE =
   'Before 30 Sep 2026, an email whose status check failed after Azure accepted it was also recorded as failed. Many of those were delivered.';
 
 const BOUNCED_DEFINITION =
-  'Hard bounces: reported by Azure or found when sending. The rate is of the emails whose outcome is known: those a delivery report arrived for, and those that bounced when sending once reports were arriving.';
+  'Hard bounces: reported by Azure or found when sending. The rate is of the emails whose outcome is known: those a delivery report arrived for, and those that bounced when sending.';
 
 /**
  * The note on a bounce figure (lib/bounceStats), or null when it needs none.
@@ -88,8 +88,6 @@ function bounceNote(figure: BounceFigure, noReports: string): string | null {
       return noReports;
     case 'sendTimeOnly':
       return SEND_TIME_BOUNCES_NOTE;
-    case 'leftOutOfRate':
-      return `Includes ${count(figure.leftOutOfRate)} found when sending before delivery reports arrived. They are left out of the rate: the other emails sent then never get a report, so their bounces are not known.`;
     default:
       return null;
   }
@@ -210,8 +208,8 @@ function deliveredCell(row: { delivered: number; deliveryRate: number; reported:
 
 /**
  * A step's or mailbox's hard bounces as bounceFigure (lib/bounceStats) works
- * them out: '—' while unknown, else the count with a note when it has no rate
- * or its rate leaves bounces out, and the rate on a line below it.
+ * them out: '—' while unknown, else the count with a note when it has no rate,
+ * and the rate on a line below it.
  */
 function bouncedCell(row: BounceCounts, caveats: AnalyticsCaveats): ReactNode {
   const figure = bounceFigure(row, caveats);
@@ -364,12 +362,7 @@ export function StepStatStrip({ stats, htmlStep, caveats }: { stats: any; htmlSt
     { label: 'Clicked', value: clicksGap ?? `${stats.clickRate}%`, caveat: !clicksGap && caveats.clicksBeforeBotFilterFix ? BEFORE_BOT_FILTER_FIX_NOTE : null },
     { label: 'Replied', value: `${stats.replyRate}%`, caveat: caveats.replySyncNote?.long ?? null },
     { label: 'Unsubscribed', value: count(stats.unsubscribed) },
-    {
-      label: 'Bounced',
-      value: bounces.count === null ? '—' : count(bounces.count),
-      // The strip shows no bounce rate, so what the rate leaves out needs no note here.
-      caveat: bounces.note === 'leftOutOfRate' ? null : bounceNote(bounces, caveats.noReports),
-    },
+    { label: 'Bounced', value: bounces.count === null ? '—' : count(bounces.count), caveat: bounceNote(bounces, caveats.noReports) },
     ...(stats.failed > 0 ? [{ label: 'Failed', value: count(stats.failed) }] : []),
   ];
   return (
@@ -438,10 +431,9 @@ export default function CampaignAnalytics({ campaign, mailboxes }: { campaign: a
   ];
   // As the step and mailbox rows (bounceFigure): with no delivery report, a bounce count of 0 shows as unknown and
   // the bounces found when sending show with no rate. The rate is of the emails whose outcome is known, so
-  // unreported emails do not dilute it, and the bounces from before reports arrived do not inflate it.
+  // unreported emails do not dilute it.
   const bounces = bounceFigure({
-    sent: t.sent ?? 0, reported: delivery.reported ?? 0,
-    bounced: t.bounced, bouncedInRate: t.bouncedInRate, bounceRate: t.bounceRate, bounceBase: t.bounceBase,
+    sent: t.sent ?? 0, reported: delivery.reported ?? 0, bounced: t.bounced, bounceRate: t.bounceRate, bounceBase: t.bounceBase,
   }, caveats);
   const bouncedSub = bounces.rate ? `${bounces.rate} of ${count(t.bounceBase)} with a known outcome`
     : bounces.note === 'noReports' ? 'No delivery reports yet'

@@ -11,7 +11,6 @@ export type BounceCounts = {
   /** Sent emails a delivery report arrived for. */
   reported: number;
   bounced?: number | null;
-  bouncedInRate?: number | null;
   bounceRate?: number | null;
   bounceBase?: number | null;
 };
@@ -28,8 +27,7 @@ export function noReportsFor(row: { sent: number; reported: number }, campaign: 
 /**
  * A bounce rate (to two decimals, from lib/engagementMetrics) as the page
  * shows it: '0.03%', or '<0.01%' for bounces too few to show at two decimals,
- * so a rate with a bounce in it never reads '0%'. `bounced` is the bounces
- * the rate counts.
+ * so a rate with a bounce in it never reads '0%'.
  */
 export function bounceRateText(bounced: number | null | undefined, rate: number | null | undefined): string {
   return (bounced ?? 0) > 0 && (rate ?? 0) < 0.01 ? '<0.01%' : `${rate ?? 0}%`;
@@ -44,37 +42,26 @@ export type BounceFigure = {
    * What the page says about the figure: 'noReports' when the count is
    * unknown (no delivery report arrived, and nothing bounced when sending);
    * 'sendTimeOnly' when only bounces found when sending are counted, with no
-   * rate; 'leftOutOfRate' when the rate leaves out some bounces found when
-   * sending, from before delivery reports arrived; else null.
+   * rate; else null.
    */
-  note: 'noReports' | 'sendTimeOnly' | 'leftOutOfRate' | null;
-  /** With a rate, how many of the bounces it leaves out; else 0. */
-  leftOutOfRate: number;
+  note: 'noReports' | 'sendTimeOnly' | null;
 };
 
 /**
  * What the page shows for a campaign's, step's or mailbox's hard bounces:
  * - no delivery report arrived for its emails: '—' when nothing bounced when
  *   sending, else the bounces found when sending, with no rate;
- * - no email whose outcome is known (bounceBase 0, as when Azure accepted
- *   none of them): the count, with no rate;
+ * - no email a delivery report arrived for (as when Azure accepted none of
+ *   them): the count, with no rate, so bounces found when sending never read
+ *   as 100%;
  * - else the count and its rate, of the emails whose outcome is known.
  */
 export function bounceFigure(row: BounceCounts, campaign: { noDeliveryReports: boolean }): BounceFigure {
   const bounced = row.bounced ?? 0;
   const noReports = noReportsFor(row, campaign);
-  if (noReports || !row.bounceBase) {
-    if (bounced > 0) return { count: bounced, rate: null, note: 'sendTimeOnly', leftOutOfRate: 0 };
-    return noReports
-      ? { count: null, rate: null, note: 'noReports', leftOutOfRate: 0 }
-      : { count: 0, rate: null, note: null, leftOutOfRate: 0 };
+  if (noReports || !row.reported || !row.bounceBase) {
+    if (bounced > 0) return { count: bounced, rate: null, note: 'sendTimeOnly' };
+    return noReports ? { count: null, rate: null, note: 'noReports' } : { count: 0, rate: null, note: null };
   }
-  const inRate = row.bouncedInRate ?? 0;
-  const leftOutOfRate = Math.max(0, bounced - inRate);
-  return {
-    count: bounced,
-    rate: bounceRateText(inRate, row.bounceRate),
-    note: leftOutOfRate > 0 ? 'leftOutOfRate' : null,
-    leftOutOfRate,
-  };
+  return { count: bounced, rate: bounceRateText(bounced, row.bounceRate), note: null };
 }

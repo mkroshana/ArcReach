@@ -157,7 +157,7 @@ describe("each step's stats use the campaign's definitions", () => {
       opened: 1, openRate: 50, clicked: 0,
       // Hard bounces d2 and d3, over the emails whose outcome is known: the 3
       // reported (d1, d2, d5) and the 1 bounced at send time, not d4 (stats A5).
-      bounced: 2, bouncedInRate: 2, bounceBase: 4, bounceRate: 50,
+      bounced: 2, bounceBase: 4, bounceRate: 50,
       unsubscribed: 1, unsubscribeRate: 25,
       replied: 1, replyRate: 25,
     });

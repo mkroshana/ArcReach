@@ -102,8 +102,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     // Delivery rate: delivered emails of those a delivery report arrived for,
     // so emails whose report has not arrived never dilute it.
     // Bounced: hard bounces, reported by the delivery webhook or at send time,
-    // and their rate: bouncedInRate (all but the send-time bounces from before
-    // delivery reports arrived) of the emails whose outcome is known (bounceBase).
+    // and their rate of the emails whose outcome is known (bounceBase).
     // Failed: send attempts the provider refused or that errored, and those
     // made before STATUS_CHECK_FIX_AT, which also include accepted emails whose
     // status check failed, so the page can say so.
@@ -296,7 +295,6 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       clickRate: sends.clickRate,
       replyRate: percent(leadTotals.replied, leadTotals.contacted),
       bounceRate: health.bounceRate,
-      bouncedInRate: health.bouncedInRate,
       bounceBase: health.bounceBase,
       trend,
       trendEngagedBeforeBotFilterFix,

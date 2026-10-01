@@ -166,7 +166,7 @@ To keep email open and link click metrics accurate and prevent security scanners
 - **Apple Mail Privacy Protection**: MPP's proxy fetches every pixel when the email arrives, opened or not, under the bare `Mozilla/5.0` user agent, so those fetches are machine opens. Gmail Image Proxy and YahooMailProxy fetch the pixel only when a person opens the email, so they count.
 - **Removal of Implicit Opens**: The click tracking endpoint does not auto-generate an open event upon registering a click.
 - **HEAD Requests**: Link checkers' HEAD requests to the tracking endpoints are answered but never recorded as opens or clicks.
-- **Sent Links Only**: The click endpoint records a click and redirects only when its `url` is exactly one of the links that email sent; anything else, or a click whose dispatch is gone, gets a neutral Link Unavailable page.
+- **Sent Links Only**: The click endpoint records a click and redirects only when its `url` is exactly one of the links that email sent; anything else gets a neutral Link Unavailable page. A click whose dispatch is gone (mail sent before the 2026-10 campaign history reset) records nothing and redirects only to jobpromax.com, thejobhelpers.com, calendly.com or their subdomains (`PRE_RESET_LINK_DOMAINS` in `lib/emailTracking.ts`); any other url gets the same page.
 
 ---
 

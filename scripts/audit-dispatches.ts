@@ -18,7 +18,8 @@
  *     earliest. It never deletes a row with events, a Failed, Sending or
  *     Unknown row (a retried step leaves a Failed attempt before its Sent row),
  *     or a row whose step is only inferred. A deleted row's tracked links show
- *     Link Unavailable; its unsubscribe link still works.
+ *     Link Unavailable unless they go to a PRE_RESET_LINK_DOMAINS domain
+ *     (lib/emailTracking); its unsubscribe link still works.
  * Each write re-checks its row: a backfill only sets a step that is still
  * empty, and a delete only takes a row still Sent with no events. Neither flag
  * leaves anything a later --fix would delete, so running it again is safe.

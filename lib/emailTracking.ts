@@ -113,6 +113,38 @@ export function sentClickTargets(body: string | null | undefined, dispatchId: st
 }
 
 /**
+ * The domains emails sent before the 2026-10 campaign history reset linked to.
+ * The reset deleted those emails' dispatches, so the click route can no longer
+ * check a click on them against the links the email sent; when a click's
+ * dispatch is gone it still redirects to these domains and their subdomains
+ * (see onPreResetLinkDomain), and to nothing else.
+ */
+export const PRE_RESET_LINK_DOMAINS: readonly string[] = ['jobpromax.com', 'thejobhelpers.com', 'calendly.com'];
+
+/**
+ * Whether `url`, an absolute http(s) URL, is on one of PRE_RESET_LINK_DOMAINS
+ * or a subdomain of one, and carries no credentials. The parsed hostname must
+ * equal the domain or end in '.' + domain, so jobpromax.com.evil.test,
+ * evil-jobpromax.com and https://jobpromax.com@evil.test never match. False for
+ * anything that does not parse, including a relative URL.
+ */
+export function onPreResetLinkDomain(url: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+  if (parsed.username || parsed.password) return false;
+
+  const host = parsed.hostname.toLowerCase();
+  // No empty label: .jobpromax.com and jobpromax.com. are not hosts emails linked to.
+  if (host.split('.').some((label) => label === '')) return false;
+  return PRE_RESET_LINK_DOMAINS.some((domain) => host === domain || host.endsWith(`.${domain}`));
+}
+
+/**
  * The unsubscribe link for a signed token (lib/unsubscribeLink):
  * /api/unsubscribe?token=<token>. GET shows a confirmation page, and POST, from
  * its button or a mail client's one-click unsubscribe, unsubscribes.

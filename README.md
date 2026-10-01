@@ -95,8 +95,11 @@ Each outbound email writes an `EmailDispatch` row. To keep the campaign metrics
   Step only queue leads (mark them due); the send engine sends them. Run Now
   queues leads that are due or that the campaign has not emailed yet, never a
   follow-up before its wait days pass; Send Step queues every lead at its step.
-- `deliveredAt` is stamped by the Azure delivery webhook for the "Delivered" metric.
-  The webhook records every ACS delivery status in `deliveryStatus`. A hard
+- `deliveredAt` is stamped by the Azure delivery webhook when a report says
+  Delivered. The webhook records every ACS delivery status in `deliveryStatus`.
+  The "Delivered" metric counts the emails whose `deliveryStatus` is Delivered
+  and that have no bounce, so an email a later report bounces or files as spam
+  (which leaves `deliveredAt` set) counts under that outcome alone. A hard
   bounce sets `bounceType` `hard` with `bouncedAt` and puts the address on the
   suppression list; a soft bounce sets `bounceType` `soft` and leaves the lead
   mailable. Suppressed is always hard. A Failed is hard only when its reason

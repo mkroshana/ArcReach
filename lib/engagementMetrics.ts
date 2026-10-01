@@ -17,11 +17,15 @@ import { BOT_FILTER_FIX_AT } from '@/lib/botFilter';
  *   or clicked, and hits lib/botFilter judged automated never count. Those
  *   recorded before BOT_FILTER_FIX_AT went through an older filter and include
  *   security-scanner hits; countEngagedBeforeBotFilterFix finds them.
- * - Delivered: a delivery report said the email was delivered. Delivery rate:
- *   delivered emails over the emails any delivery report arrived for, so the
- *   emails with none never dilute it: those sent before delivery reports were
- *   connected (before the first email a report arrived for), which Azure never
- *   reports on, and those whose report has not arrived.
+ * - Delivered: a delivery report said the email was delivered and none since
+ *   bounced it or filed it as spam: its delivery status is Delivered and it
+ *   has no bounce. Such a later report replaces the status but leaves
+ *   deliveredAt set, so Delivered goes by the status, as deliveryBreakdown
+ *   does, and the email counts under that later outcome alone, never as both.
+ *   Delivery rate: delivered emails over the emails any delivery report
+ *   arrived for, so the emails with none never dilute it: those sent before
+ *   delivery reports were connected (before the first email a report arrived
+ *   for), which Azure never reports on, and those whose report has not arrived.
  * - Open and click rates: opened or clicked emails over the emails that
  *   reached the recipient: delivered where a delivery report says so, else
  *   sent. An email a report says was not delivered (bounced, suppressed,
@@ -77,7 +81,8 @@ const UNDELIVERED_STATUSES = ['Bounced', 'Suppressed', 'Failed', 'Quarantined', 
 export const SEQUENCE_SEND: Prisma.EmailDispatchWhereInput = { stepOrder: { not: null } };
 
 const SENT: Prisma.EmailDispatchWhereInput = { status: 'Sent' };
-const DELIVERED: Prisma.EmailDispatchWhereInput = { deliveredAt: { not: null } };
+/** Delivered, and no later report bounced it or filed it as spam, which leaves deliveredAt set (see the module comment). */
+const DELIVERED: Prisma.EmailDispatchWhereInput = { deliveryStatus: 'Delivered', bounceType: null };
 /** A delivery report arrived for the email; until one does, its delivered count says nothing. */
 const REPORTED: Prisma.EmailDispatchWhereInput = { deliveryStatus: { not: null } };
 const OPENED: Prisma.EmailDispatchWhereInput = { events: { some: { eventType: { in: [OPEN_EVENT, CLICK_EVENT] } } } };

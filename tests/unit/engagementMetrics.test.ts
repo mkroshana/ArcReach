@@ -206,7 +206,7 @@ describe('open and click rates have one definition on every page (M30, L8)', () 
   });
 
   it('gives the campaigns list the per-step sends the campaign page shows', async () => {
-    addDispatch({ id: 'd1', deliveredAt: at(1) });
+    addDispatch({ id: 'd1', deliveredAt: at(1), deliveryStatus: 'Delivered' });
     addDispatch({ id: 'd2', status: 'Failed' });
     addDispatch({ id: 'd3', stepOrder: 2 });
     addDispatch({ id: 'd4', stepOrder: 2, status: 'Sending' });
@@ -365,6 +365,52 @@ describe('the delivery rate is of the emails a delivery report arrived for (stat
     expect(fake.emailDispatch.findFirst).toHaveBeenCalledWith({
       where: { deliveryStatus: { not: null } }, orderBy: { sentAt: 'asc' }, select: { sentAt: true },
     });
+  });
+});
+
+describe('an email counted Delivered is not also counted as Bounced or Spam (stats A14)', () => {
+  /**
+   * Five emails a Delivered report arrived for, four of them followed by
+   * another report, as a distribution list's members' reports can be. Each
+   * later report replaces the status and leaves deliveredAt set, as the
+   * webhook does (webhook.test).
+   */
+  function deliveredThenReported() {
+    addDispatch({ id: 'delivered', deliveredAt: at(1), deliveryStatus: 'Delivered', events: [event('open')] });
+    addDispatch({ id: 'then-spam', deliveredAt: at(1), deliveryStatus: 'FilteredSpam' });
+    addDispatch({ id: 'then-held', deliveredAt: at(1), deliveryStatus: 'Quarantined' });
+    addDispatch({ id: 'then-soft', deliveredAt: at(1), deliveryStatus: 'Failed', bounceType: 'soft', bouncedAt: at(1) });
+    addDispatch({ id: 'then-hard', deliveredAt: at(1), deliveryStatus: 'Bounced', bounceType: 'hard', bouncedAt: at(1) });
+  }
+
+  it('counts each email under its last outcome alone, on the campaign, its funnel, each step, each mailbox and the Accounts page', async () => {
+    deliveredThenReported();
+
+    // Counted by deliveredAt, Delivered read 5 of 5 (100%) beside 1 bounced, 1 spam and 1 quarantined.
+    const telemetry = await campaignTelemetry();
+    expect(telemetry).toMatchObject({ sent: 5, delivered: 1, deliveryRate: 20, bounced: 1 });
+    expect(telemetry.delivery).toMatchObject({
+      accepted: 5, reported: 5, delivered: 1, spam: 1, quarantined: 1, softBounced: 1, hardBounced: 1,
+    });
+    const { delivered, spam, quarantined, softBounced, hardBounced, reported } = telemetry.delivery;
+    expect(delivered + spam + quarantined + softBounced + hardBounced).toBe(reported);
+    expect(telemetry.funnel.find((s: any) => s.name === 'Delivered')).toMatchObject({ value: 1 });
+    expect(telemetry.stepStats[0]).toMatchObject({ sent: 5, delivered: 1, reported: 5, deliveryRate: 20 });
+    expect(telemetry.mailboxes[0]).toMatchObject({ senderAccountId: 'mb-1', delivered: 1, reported: 5, deliveryRate: 20 });
+    expect(await mailbox()).toMatchObject({ sentTotal: 5, delivered: 1, reported: 5, deliveryRate: 20 });
+    const listed = await stepMetrics(fake as any, ['cmp-1']);
+    expect(listed('cmp-1', 1)).toMatchObject({ sent: 5, delivered: 1, reported: 5 });
+  });
+
+  it('leaves them out of the open rate\'s base too, as any email a report says was not delivered, unless a person opened it', async () => {
+    deliveredThenReported();
+
+    // Counted by deliveredAt, all 5 were in the base: 1 opened of 5 = 20%.
+    expect(await campaignTelemetry()).toMatchObject({ opens: 1, openRate: 100 });
+
+    // An open proves the email arrived, whatever the last report said.
+    dispatches.find((d) => d.id === 'then-spam')!.events.push(event('open'));
+    expect(await campaignTelemetry()).toMatchObject({ delivered: 1, opens: 2, openRate: 100 });
   });
 });
 

@@ -415,6 +415,41 @@ describe('webhook delivery reports map every ACS status (H20)', () => {
   });
 });
 
+describe('a report after Delivered replaces its status, which the Delivered metric goes by (stats A14)', () => {
+  it.each([
+    ['FilteredSpam', undefined, null],
+    ['Quarantined', undefined, null],
+    ['Failed', '421 4.4.2 Connection dropped.', 'soft'],
+    ['Bounced', undefined, 'hard'],
+  ])('%s leaves deliveredAt set, so lib/engagementMetrics counts the email by its new status alone', async (status, statusMessage, bounceType) => {
+    addDispatch({ id: 'd-1' });
+
+    await post([report('op-d-1', 'Delivered')]);
+    const res = await post([report('op-d-1', status, statusMessage)]);
+
+    expect(res.status).toBe(200);
+    expect(dispatch('d-1')).toMatchObject({ deliveryStatus: status, deliveredAt: new Date(ATTEMPTED_AT), bounceType });
+  });
+
+  it('still suppresses the lead on a hard bounce after Delivered', async () => {
+    addDispatch({ id: 'd-1' });
+
+    await post([report('op-d-1', 'Delivered')]);
+    await post([report('op-d-1', 'Bounced')]);
+
+    expectHardBounce('d-1', 'Bounced');
+  });
+
+  it('sets the status back to Delivered when a Delivered report follows a spam one', async () => {
+    addDispatch({ id: 'd-1' });
+
+    await post([report('op-d-1', 'FilteredSpam')]);
+    await post([report('op-d-1', 'Delivered')]);
+
+    expect(dispatch('d-1')).toMatchObject({ deliveryStatus: 'Delivered', deliveredAt: new Date(ATTEMPTED_AT), bounceType: null });
+  });
+});
+
 describe('webhook matching and Event Grid retries (M27)', () => {
   it('finds a campaign send by its operation id when the report arrives before the send is recorded', async () => {
     // Still Sending: the dispatch carries its synthetic id and the stored operation id.

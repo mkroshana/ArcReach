@@ -34,7 +34,7 @@ vi.mock('../../lib/session', () => ({
 
 import { getSession } from '../../lib/session';
 import { GET as getCampaign } from '../../app/api/campaigns/[id]/route';
-import { deliveryBreakdown, mailboxMetrics, stepMetrics } from '../../lib/engagementMetrics';
+import { campaignLeadTotals, deliveryBreakdown, mailboxMetrics, stepMetrics } from '../../lib/engagementMetrics';
 import { emailsLeft, nextSendText } from '../../lib/campaignProgress';
 import { countRows, groupRows } from './helpers/prismaWhere';
 
@@ -150,12 +150,13 @@ describe("each step's stats use the campaign's definitions", () => {
 
     expect(stepStats[0]).toMatchObject({
       stepOrder: 1, sent: 4, failed: 1, leads: 4,
-      // Reports arrived for d1, d2 and d5; none yet for d4.
-      delivered: 1, deliveryRate: 25, reported: 3,
+      // Reports arrived for d1, d2 and d5, and none for d4: the rate is of those 3 (stats A3).
+      delivered: 1, deliveryRate: 33.3, reported: 3,
       // Reached: d1 (delivered) and d4 (no report); d2 and d5 bounced.
       opened: 1, openRate: 50, clicked: 0,
-      // Hard bounces d2 and d3, over the 4 sent and the 1 bounced at send time.
-      bounced: 2, bounceRate: 40,
+      // Hard bounces d2 and d3, over the emails whose outcome is known: the 3
+      // reported (d1, d2, d5) and the 1 bounced at send time, not d4 (stats A5).
+      bounced: 2, bounceBase: 4, bounceRate: 50,
       unsubscribed: 1, unsubscribeRate: 25,
       replied: 1, replyRate: 25,
     });
@@ -211,7 +212,7 @@ describe('the mailboxes a campaign sent from', () => {
       [null, null, 0, 1],
     ]);
     expect(mailboxes[0]).toMatchObject({ opened: 1, openRate: 50, leads: 2, replied: 0 });
-    expect(mailboxes[1]).toMatchObject({ bounced: 1, bounceRate: 100, replied: 1, replyRate: 100 });
+    expect(mailboxes[1]).toMatchObject({ bounced: 1, bounceBase: 1, bounceRate: 100, replied: 1, replyRate: 100 });
     // The addresses are looked up only for the mailboxes the sends recorded.
     expect(fake.senderAccount.findMany.mock.calls[0][0].where).toEqual({ id: { in: ['mb-1', 'mb-2'] } });
   });
@@ -254,6 +255,103 @@ describe('what delivery reports said', () => {
     const { delivery } = await telemetry();
 
     expect(delivery).toMatchObject({ accepted: 2, reported: 0, noReport: 2, delivered: 0 });
+  });
+});
+
+describe('failed send attempts', () => {
+  it("counts every failed attempt of the campaign's sequence, whenever it was made, with no before-and-after split", async () => {
+    addDispatch({ id: 'old', status: 'Failed', sentAt: hoursAgo(24 * 60) });
+    addDispatch({ id: 'new', leadId: 'lead-2', stepOrder: 2, status: 'Failed', sentAt: hoursAgo(1) });
+    // Accepted, not a sequence send, or another campaign's: not counted.
+    addDispatch({ id: 'sent', leadId: 'lead-3' });
+    addDispatch({ id: 'unibox', stepOrder: null, status: 'Failed' });
+    addDispatch({ id: 'other', campaignId: 'cmp-2', status: 'Failed' });
+
+    const t = await telemetry();
+
+    expect(t.failed).toBe(2);
+    expect(t).not.toHaveProperty('failedBeforeStatusCheckFix');
+  });
+});
+
+describe('opens and clicks', () => {
+  it("counts every opened and clicked email of the campaign's sequence, whenever the hit was recorded, with no before-and-after split", async () => {
+    // Clicked, which counts as opened too, 60 days ago; opened an hour ago.
+    addDispatch({ id: 'old', sentAt: hoursAgo(24 * 60), events: [{ eventType: 'click', timestamp: hoursAgo(24 * 60 - 1) }] });
+    addDispatch({ id: 'new', leadId: 'lead-2', stepOrder: 2, sentAt: hoursAgo(2), events: [{ eventType: 'open', timestamp: hoursAgo(1) }] });
+    // Not counted: a machine hit, a failed attempt, a Unibox reply and another campaign's email.
+    addDispatch({ id: 'machine', leadId: 'lead-3', events: [event('machine_open')] });
+    addDispatch({ id: 'failed', leadId: 'lead-4', status: 'Failed', events: [event('open')] });
+    addDispatch({ id: 'unibox', stepOrder: null, events: [event('click')] });
+    addDispatch({ id: 'other', campaignId: 'cmp-2', events: [event('click')] });
+
+    const t = await telemetry();
+
+    expect(t).toMatchObject({ opens: 2, clicks: 1 });
+    expect(t).not.toHaveProperty('engagedBeforeBotFilterFix');
+    expect(t).not.toHaveProperty('trendEngagedBeforeBotFilterFix');
+  });
+});
+
+describe('the leads the opened and clicked emails came from (stats A8)', () => {
+  it('gives the Unique Opens and Unique Clicks tiles the leads their emails came from, each once', async () => {
+    // lead-1 opened three emails, one of them only by a click; lead-2 opened one.
+    addDispatch({ id: 'd1', events: [event('open')] });
+    addDispatch({ id: 'd2', stepOrder: 2, events: [event('open'), event('open')] });
+    addDispatch({ id: 'd3', stepOrder: 3, events: [event('click')] });
+    addDispatch({ id: 'd4', leadId: 'lead-2', events: [event('open')] });
+    // A machine hit opens nothing.
+    addDispatch({ id: 'd5', leadId: 'lead-3', events: [event('machine_click')] });
+    raw.totals = [{ contacted: 3, opened: 2, clicked: 1, replied: 0, firstSentAt: hoursAgo(48), lastSentAt: hoursAgo(48) }];
+
+    const t = await telemetry();
+
+    expect(t).toMatchObject({ opens: 4, openedLeads: 2, clicks: 1, clickedLeads: 1 });
+    expect(t.progress.contacted).toBe(3);
+  });
+
+  it("counts them in the lead totals' one query, over the accepted sequence emails and a person's opens and clicks only", async () => {
+    raw.totals = [{ contacted: 20608, opened: 2131, clicked: 1173, replied: 0, firstSentAt: null, lastSentAt: null }];
+
+    expect(await campaignLeadTotals(fake as any, 'cmp-1')).toMatchObject({ contacted: 20608, opened: 2131, clicked: 1173 });
+
+    expect(fake.$queryRaw).toHaveBeenCalledTimes(1);
+    const [query] = fake.$queryRaw.mock.calls[0];
+    for (const clause of [
+      'COUNT(DISTINCT d."leadId") FILTER (WHERE e."eventType" IS NOT NULL)::int AS "opened"',
+      'COUNT(DISTINCT d."leadId") FILTER (WHERE e."eventType" = $2)::int AS "clicked"',
+      'LEFT JOIN "EmailEvent" e',
+      'ON e."messageId" = d."messageId" AND e."eventType" IN ($3,$4)',
+      `d."stepOrder" IS NOT NULL AND d."status" = 'Sent'`,
+    ]) {
+      expect(sqlText(query)).toContain(clause);
+    }
+    // Only a person's opens and clicks are joined, so machine hits, bounces and unsubscribes open nothing.
+    expect(query.values).toEqual(['cmp-1', 'click', 'open', 'click', 'cmp-1']);
+  });
+
+  it('counts no leads for a campaign with no sends', async () => {
+    expect(await campaignLeadTotals(fake as any, 'cmp-1')).toEqual({
+      contacted: 0, opened: 0, clicked: 0, replied: 0, firstSentAt: null, lastSentAt: null,
+    });
+  });
+});
+
+describe('the reply rate counts leads, as every other reply figure does (stats A12)', () => {
+  it('gives the leads who replied of the leads contacted, so a lead who replies more than once counts once', async () => {
+    // Four emails to two leads; lead-1 replied three times.
+    addDispatch({ id: 'd1' });
+    addDispatch({ id: 'd2', stepOrder: 2 });
+    addDispatch({ id: 'd3', stepOrder: 3 });
+    addDispatch({ id: 'd4', leadId: 'lead-2' });
+    fake.inboundResponse.count.mockResolvedValue(3);
+    raw.totals = [{ contacted: 2, opened: 0, clicked: 0, replied: 1, firstSentAt: hoursAgo(48), lastSentAt: hoursAgo(48) }];
+
+    const t = await telemetry();
+
+    // Old tile: 3 replies / 4 emails = 75%, against Lead Progress's 1 of 2 contacted leads.
+    expect(t).toMatchObject({ sent: 4, replies: 3, replyRate: 50 });
+    expect(t.progress).toMatchObject({ contacted: 2, repliedLeads: 1 });
   });
 });
 

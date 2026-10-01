@@ -12,6 +12,9 @@
  *                      etc.). An Azure send ACS accepted is never reported as
  *                      an EmailSendError just because its status could not be
  *                      read afterwards.
+ *   EmailSendUnconfirmedError — ACS did not confirm how the send ended within
+ *                      AZURE_SEND_TIMEOUT_MS, so it may or may not have gone
+ *                      out; it is neither sent nor failed.
  */
 import { randomUUID } from 'crypto';
 import { EmailClient, type EmailMessage, type EmailSendOptionalParams } from '@azure/communication-email';
@@ -35,6 +38,42 @@ export class EmailSendError extends Error {
     this.name = 'EmailSendError';
     this.statusCode = details.statusCode;
     this.code = details.code;
+  }
+}
+
+/**
+ * Longest an Azure send waits on ACS, from the POST to the end of its status
+ * polls. ACS confirms a healthy send within seconds, but the polls have no end
+ * of their own: they go on while ACS reports the send Running, waiting between
+ * polls as long as its Retry-After asks, and a status poll once hung for about
+ * an hour. Past this the send is given up on as unconfirmed. 60 s is two
+ * send-worker ticks, and a tenth of the 10 minutes after which a send claim
+ * lapses (SEND_CLAIM_TTL_MS) and a Sending dispatch is reconciled as
+ * interrupted (STALE_SENDING_MS), so neither happens to a send still waiting.
+ */
+export const AZURE_SEND_TIMEOUT_MS = 60_000;
+
+/**
+ * An Azure send given up on after its timeout without ACS confirming how it
+ * ended: the POST got no answer in time, or ACS accepted it and its status
+ * polls did not finish. The email may have gone out, so it is neither a
+ * failure nor safe to send again. The send engine leaves its dispatch Sending,
+ * which lib/sendReconciler settles by asking ACS under `operationId`.
+ */
+export class EmailSendUnconfirmedError extends Error {
+  /** The ACS Operation-Id the send was made under. */
+  operationId: string;
+  /** Whether ACS accepted the POST before the send was given up on. */
+  accepted: boolean;
+  constructor(operationId: string, accepted: boolean, timeoutMs: number) {
+    super(
+      accepted
+        ? `Azure Communication Services accepted the email but did not report its final status within ${timeoutMs / 1000} seconds; it has most likely gone out.`
+        : `Azure Communication Services did not answer the send within ${timeoutMs / 1000} seconds; the email may or may not have gone out.`
+    );
+    this.name = 'EmailSendUnconfirmedError';
+    this.operationId = operationId;
+    this.accepted = accepted;
   }
 }
 
@@ -141,13 +180,14 @@ export function azureSettingsProblem(settings: ProviderSettings | null | undefin
 
 export async function sendMessage(
   input: MessageInput,
-  settings: ProviderSettings | null | undefined
+  settings: ProviderSettings | null | undefined,
+  timeoutMs = AZURE_SEND_TIMEOUT_MS
 ): Promise<SendResult> {
   const provider = settings?.activeProvider;
   const { to, subject, body, isHtml, sender, headers } = input;
 
   if (provider === 'AZURE') {
-    return sendViaAzure({ to, subject, body, isHtml, sender, headers, operationId: input.operationId }, settings!);
+    return sendViaAzure({ to, subject, body, isHtml, sender, headers, operationId: input.operationId }, settings!, timeoutMs);
   }
 
   // No settings row, DISABLED, or a retired value (MOCK, SMTP, GOOGLE,
@@ -159,7 +199,8 @@ async function sendViaAzure(
   input: {
     to: string; subject: string; body: string; isHtml: boolean; sender: SenderInput; headers?: Record<string, string>; operationId?: string;
   },
-  settings: ProviderSettings
+  settings: ProviderSettings,
+  timeoutMs: number
 ): Promise<SendResult> {
   let connString: string | null | undefined;
   try {
@@ -240,12 +281,38 @@ async function sendViaAzure(
     }
   };
 
+  // The POST, every status poll and the wait between polls carry the
+  // deadline's signal, so giving up aborts the request in flight and asks ACS
+  // nothing more. The race ends the wait at the deadline even if some step
+  // ignored the signal.
+  const deadline = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const gaveUp = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      deadline.abort();
+      reject(new Error(`No final send status from Azure Communication Services within ${timeoutMs} ms.`));
+    }, timeoutMs);
+  });
+
   let result: any;
   try {
-    const poller = await emailClient.beginSend(message, { operationId, onResponse });
-    accepted = true; // beginSend resolves only once the POST was accepted
-    result = await poller.pollUntilDone();
+    result = await Promise.race([
+      (async () => {
+        const poller = await emailClient.beginSend(message, { operationId, onResponse, abortSignal: deadline.signal });
+        accepted = true; // beginSend resolves only once the POST was accepted
+        return poller.pollUntilDone({ abortSignal: deadline.signal });
+      })(),
+      gaveUp,
+    ]);
   } catch (err: any) {
+    if (deadline.signal.aborted && !refusal) {
+      // Given up on before ACS said how the send ended, so it may have gone
+      // out: reported neither sent nor failed, for the caller to settle later.
+      console.warn(
+        `[EmailProvider/Azure] Gave up on operation ${operationId} after ${timeoutMs} ms (${accepted ? 'accepted, final status unknown' : 'no answer to the send'}) | To: ${input.to}`
+      );
+      throw new EmailSendUnconfirmedError(operationId, accepted, timeoutMs);
+    }
     if (!accepted) {
       // ACS refused the POST, or no answer to it arrived: report it not sent.
       throw new EmailSendError(err?.message || 'Azure Communication Services failed to send email.', {
@@ -263,6 +330,8 @@ async function sendViaAzure(
       `[EmailProvider/Azure] Accepted as operation ${operationId}, final status unknown: ${err?.message || err} | To: ${input.to}`
     );
     return { providerMessageId: operationId };
+  } finally {
+    clearTimeout(timer);
   }
 
   if (result && result.status === 'Failed') {

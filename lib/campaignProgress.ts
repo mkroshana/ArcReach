@@ -17,7 +17,7 @@ export const ENROLLMENT_STATES: EnrollmentState[] = [
     description: 'Replied, unsubscribed, went on the suppression list, left the audience group or was paused in Unibox.',
   },
   { status: 'Bounced', label: 'Bounced', description: 'A delivery report said the address does not exist.' },
-  { status: 'Failed', label: 'Failed', description: 'Sending failed after every retry, or the address bounced when sent.' },
+  { status: 'Failed', label: 'Failed', description: 'Azure refused the address or sending errored on every retry, or the address bounced when sent.' },
   { status: 'Removed', label: 'Removed', description: 'Left the audience after the campaign had emailed them.' },
 ];
 

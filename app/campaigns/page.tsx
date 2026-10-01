@@ -42,11 +42,18 @@ interface DbCampaign {
   // Server-side aggregates — raw enrollment/dispatch rows are never shipped
   // (payloads at scale OOM'd the server).
   // `leads`: the leads the step's sent emails reached, each once however often it got the step.
-  stepStats?: { stepOrder: number; active: number; sent: number; delivered: number; failed: number; leads: number }[];
+  // `reported`: its sent emails a delivery report arrived for; with none, `delivered` is unknown, not 0.
+  stepStats?: { stepOrder: number; active: number; sent: number; delivered: number; reported: number; failed: number; leads: number }[];
   enrollmentSummary?: { total: number; active: number; completed: number };
 }
 
 const statusColorMap = { Active: 'success', Draft: 'default', Paused: 'warning', Stopped: 'error' } as const;
+
+/** Why a step card shows Delivered as unknown. */
+const NO_DELIVERY_REPORTS_NOTE = 'No delivery reports have arrived for these emails, so how many were delivered is not known.';
+
+/** Why a step card's Delivered names the emails a delivery report arrived for. */
+const PARTLY_REPORTED_NOTE = 'Delivered counts only the emails a delivery report arrived for. No delivery report has arrived for the others yet.';
 
 export default function CampaignsPage() {
   const router = useRouter();
@@ -470,12 +477,19 @@ export default function CampaignsPage() {
                                     const activeLeadsCount = stats?.active || 0;
                                     const isActiveStep = activeLeadsCount > 0;
                                     const sentCount = stats?.sent || 0;
+                                    // The leads the step's sent emails went to, each once: fewer than the
+                                    // emails where a lead got the step more than once.
+                                    const sentLeads = stats?.leads || 0;
                                     const deliveredCount = stats?.delivered || 0;
+                                    // With no delivery report for any of its emails, Delivered is unknown rather than 0.
+                                    // Else it counts only the emails a report arrived for, so the card names them.
+                                    const reportedCount = stats?.reported || 0;
+                                    const deliveryUnknown = reportedCount === 0;
                                     const failedCount = stats?.failed || 0;
                                     const totalEnrolled = campaign.enrollmentSummary?.total || 0;
                                     // The share of enrolled leads the step reached: leads, not emails, so a
                                     // step sent to a lead twice never counts it twice.
-                                    const progressPercent = totalEnrolled > 0 ? Math.round(((stats?.leads || 0) / totalEnrolled) * 100) : 0;
+                                    const progressPercent = totalEnrolled > 0 ? Math.round((sentLeads / totalEnrolled) * 100) : 0;
                                     return (
                                       <Stack key={step.id} sx={{ alignItems: 'center', textAlign: 'center', gap: 0.75, position: 'relative', width: 150 }}>
                                         <Chip size="small" label={`${activeLeadsCount} ${stopped ? 'stopped' : 'active'}`} color={isActiveStep ? 'primary' : 'default'} variant={isActiveStep ? 'filled' : 'outlined'} sx={{ height: 18, fontSize: 9, fontWeight: 800 }} />
@@ -492,7 +506,13 @@ export default function CampaignsPage() {
                                             <Box sx={{ mt: 0.75, pt: 0.75, borderTop: 1, borderColor: 'divider', display: 'flex', flexDirection: 'column', gap: 0.25 }}>
                                               <Stack direction="row" sx={{ justifyContent: 'space-between', fontSize: 9 }}><Box component="span" sx={{ color: 'text.secondary' }}>{stopped ? 'Stopped here:' : 'To send:'}</Box><Box component="span" sx={{ fontWeight: 800, color: activeLeadsCount > 0 ? 'warning.main' : 'text.disabled' }}>{activeLeadsCount}</Box></Stack>
                                               <Stack direction="row" sx={{ justifyContent: 'space-between', fontSize: 9 }}><Box component="span" sx={{ color: 'text.secondary' }}>Sent:</Box><Box component="span" sx={{ fontWeight: 800 }}>{sentCount}</Box></Stack>
-                                              {sentCount > 0 && <Stack direction="row" sx={{ justifyContent: 'space-between', fontSize: 9 }}><Box component="span" sx={{ color: 'text.secondary' }}>Delivered:</Box><Box component="span" sx={{ fontWeight: 800, color: 'success.main' }}>{deliveredCount}</Box></Stack>}
+                                              {sentLeads > 0 && sentLeads !== sentCount && <Box component="span" sx={{ fontSize: 9, color: 'text.secondary', textAlign: 'right' }} title="Some leads got this step more than once. Progress counts each lead once.">to {sentLeads} {sentLeads === 1 ? 'lead' : 'leads'}</Box>}
+                                              {sentCount > 0 && <Stack direction="row" sx={{ justifyContent: 'space-between', fontSize: 9 }}><Box component="span" sx={{ color: 'text.secondary' }}>Delivered:</Box>{deliveryUnknown ? (
+                                                <MuiTooltip title={NO_DELIVERY_REPORTS_NOTE}>
+                                                  <Box component="span" tabIndex={0} aria-label="No delivery reports" sx={{ fontWeight: 800, color: 'text.secondary' }}>—</Box>
+                                                </MuiTooltip>
+                                              ) : <Box component="span" sx={{ fontWeight: 800, color: 'success.main' }}>{deliveredCount}</Box>}</Stack>}
+                                              {sentCount > 0 && !deliveryUnknown && reportedCount < sentCount && <Box component="span" sx={{ fontSize: 9, color: 'text.secondary', textAlign: 'right' }} title={PARTLY_REPORTED_NOTE}>of {reportedCount} reported</Box>}
                                               {failedCount > 0 && <Stack direction="row" sx={{ justifyContent: 'space-between', fontSize: 9 }}><Box component="span" sx={{ color: 'text.secondary' }}>Failed:</Box><Box component="span" sx={{ fontWeight: 800, color: 'error.main' }}>{failedCount}</Box></Stack>}
                                               {sentCount > 0 && <Stack direction="row" sx={{ justifyContent: 'space-between', fontSize: 9 }}><Box component="span" sx={{ color: 'text.secondary' }}>Progress:</Box><Box component="span" sx={{ fontWeight: 800, color: 'primary.main' }}>{progressPercent}%</Box></Stack>}
                                             </Box>

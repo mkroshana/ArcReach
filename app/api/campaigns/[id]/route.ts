@@ -97,9 +97,17 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     // campaign's sequence sends, defined in lib/engagementMetrics as on the
     // dashboard and the Accounts page, and counted in the database.
     // Total Sent Requests counts every attempt, retries and failures included.
-    // Bounced: hard bounces, reported by the delivery webhook or at send time.
+    // Delivery rate: delivered emails of those a delivery report arrived for,
+    // so emails whose report has not arrived never dilute it.
+    // Bounced: hard bounces, reported by the delivery webhook or at send time,
+    // and their rate of the emails whose outcome is known (bounceBase).
     // Failed: send attempts the provider refused or that errored.
     // Unsubscribed: this campaign's emails whose unsubscribe link was used.
+    // Opened and clicked emails, and the leads they came from (campaignLeadTotals),
+    // since a lead often opens several of the campaign's emails.
+    // Replies: the human replies the campaign received. Reply rate: the leads
+    // who replied of the leads contacted, as Lead Progress and the step and
+    // mailbox rows count it, so a lead who replies twice counts once.
     // The steps and mailboxes break the same sends down with every measure,
     // and the delivery breakdown says what delivery reports said about them.
     const scope: MetricsScope = { kind: 'campaign', campaignId: id };
@@ -148,9 +156,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       }
     });
 
+    // Delivered is a stage only once a delivery report arrived for one of the
+    // campaign's emails; until then its 0 is not a measurement, so it is left out.
     const funnel = engagementFunnel({
       sent: sends.sent,
-      delivered: sends.delivered,
+      delivered: delivery.reported > 0 ? sends.delivered : undefined,
       opened: sends.opened,
       clicked: sends.clicked,
       replies: repliesCount,
@@ -259,6 +269,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       delivered: sends.delivered,
       opens: sends.opened,
       clicks: sends.clicked,
+      openedLeads: leadTotals.opened,
+      clickedLeads: leadTotals.clicked,
       replies: repliesCount,
       bounced: health.bounced,
       failed: health.failed,
@@ -266,8 +278,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       deliveryRate: sends.deliveryRate,
       openRate: sends.openRate,
       clickRate: sends.clickRate,
-      replyRate: percent(repliesCount, sends.sent),
+      replyRate: percent(leadTotals.replied, leadTotals.contacted),
       bounceRate: health.bounceRate,
+      bounceBase: health.bounceBase,
       trend,
       funnel,
       sentiment: sentimentBreakdown,

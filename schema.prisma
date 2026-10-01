@@ -255,11 +255,13 @@ model SuppressedEmail {
   createdAt DateTime          @default(now())
 }
 
-// Id and address of a deleted lead that had been emailed, and of each lead
-// merged into it (LeadAlias). Unsubscribe links in mail already sent carry that
-// id, so /api/unsubscribe still finds the address after the delete and puts it
-// on the suppression list. No relation to Lead, so the delete leaves it in
-// place; written by lib/leadDelete.ts on every lead delete.
+// Id and address of every deleted lead, and of each lead merged into it
+// (LeadAlias). Unsubscribe links in mail already sent carry that id, so
+// /api/unsubscribe still finds the address after the delete and puts it on the
+// suppression list. Kept for every lead, not only those with dispatches on
+// record, since a lead's dispatches can be deleted (a campaign history reset)
+// while its links stay in inboxes. No relation to Lead, so the delete leaves it
+// in place; written by lib/leadDelete.ts on every lead delete.
 model DeletedLead {
   id        String   @id // the deleted lead's id, or the id of a lead merged into it
   email     String   // the lead's address, stored trimmed and lowercased (lib/leadEmail)

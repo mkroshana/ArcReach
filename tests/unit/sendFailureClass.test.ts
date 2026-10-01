@@ -11,6 +11,7 @@ const fake = vi.hoisted(() => ({
   lead: { update: vi.fn() },
   emailDispatch: { update: vi.fn() },
   emailEvent: { create: vi.fn() },
+  suppressedEmail: { createMany: vi.fn() },
   $transaction: vi.fn(),
 }));
 
@@ -28,6 +29,8 @@ let enrollment: {
 };
 let lead: { id: string; email: string; status: string; validationStatus: string };
 let dispatch: { id: string; messageId: string; status: string };
+/** Rows added to the suppression list. */
+let suppressed: { email: string; reason: string; source: string }[];
 
 function apply(row: Record<string, any>, data: Record<string, any>) {
   for (const [key, value] of Object.entries(data)) {
@@ -81,6 +84,7 @@ beforeEach(() => {
   };
   lead = { id: 'lead-1', email: 'lead@prospect.test', status: 'Neutral', validationStatus: 'Valid' };
   dispatch = { id: 'dispatch-1', messageId: 'msg-1', status: 'Sending' };
+  suppressed = [];
 
   fake.campaign.updateMany.mockImplementation(async ({ where, data }: any) => {
     const hit = where.id === campaign.id && where.status === campaign.status;
@@ -90,6 +94,10 @@ beforeEach(() => {
   fake.campaignEnrollment.update.mockImplementation(async ({ data }: any) => apply(enrollment, data));
   fake.lead.update.mockImplementation(async ({ data }: any) => Object.assign(lead, data));
   fake.emailDispatch.update.mockImplementation(async ({ data }: any) => Object.assign(dispatch, data));
+  fake.suppressedEmail.createMany.mockImplementation(async ({ data }: any) => {
+    suppressed.push(...data);
+    return { count: data.length };
+  });
   fake.$transaction.mockImplementation(async (writes: Promise<unknown>[]) => Promise.all(writes));
 });
 
@@ -254,5 +262,42 @@ describe('a soft failure backs off through every retry delay before failing the 
 
     expect(enrollment).toMatchObject({ status: 'Failed', nextActionDate: null, lastBounceType: 'soft' });
     expect(lead.validationStatus).toBe('Risky');
+  });
+});
+
+describe('ACS dropping a send for a suppressed recipient is a hard bounce on the first attempt (stats A4)', () => {
+  it.each<[string, () => Error]>([
+    ["ACS's error code and wording", () => new EmailSendError('Message dropped because all recipients were suppressed', { code: 'EmailDroppedAllRecipientsSuppressed' })],
+    [
+      "the old engine's long-running-operation text",
+      () => new Error('The long-running operation has failed. EmailDroppedAllRecipientsSuppressed. Message dropped because all recipients were suppressed'),
+    ],
+  ])('on %s: suppresses the address and bounces the lead instead of retrying', async (_label, makeError) => {
+    enrollment.retryCount = 0;
+    const err = makeError();
+
+    expect(await fail(err)).toEqual({ action: 'continue' });
+
+    expect(campaign).toMatchObject({ status: 'Active', pausedUntil: null, pauseReason: null });
+    expect(enrollment).toMatchObject({
+      status: 'Failed', retryCount: 0, quotaFailures: 0, nextActionDate: null, lastBounceType: 'hard', lastError: err.message,
+      claimToken: null, claimedAt: null,
+    });
+    expect(lead).toMatchObject({ status: 'Bounced', validationStatus: 'Invalid' });
+    expect(suppressed).toEqual([{ email: 'lead@prospect.test', reason: 'HardBounce', source: 'send-engine' }]);
+    expect(fake.emailEvent.create).toHaveBeenCalledTimes(1);
+    expect(fake.emailEvent.create).toHaveBeenCalledWith({ data: { messageId: 'msg-1', eventType: 'bounce' } });
+    expect(dispatch.status).toBe('Failed');
+  });
+
+  it('still retries a timeout as a soft failure, leaving the address unsuppressed', async () => {
+    enrollment.retryCount = 0;
+
+    expect(await fail(new Error('Connection timed out ETIMEDOUT'))).toEqual({ action: 'continue' });
+
+    expect(enrollment).toMatchObject({ status: 'Active', retryCount: 1, lastBounceType: 'soft' });
+    expect(suppressed).toEqual([]);
+    expect(fake.lead.update).not.toHaveBeenCalled();
+    expect(fake.emailEvent.create).not.toHaveBeenCalled();
   });
 });

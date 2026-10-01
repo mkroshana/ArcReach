@@ -331,6 +331,35 @@ describe('sendEngine', () => {
       expect(classifyFailure(new Error('5.1.1 Invalid email address'))).toBe('hard');
     });
 
+    it('should classify ACS dropping a send for a suppressed recipient as hard, by its error code (stats A4)', () => {
+      // What the provider throws now: ACS's own error code and message.
+      expect(classifyFailure(new EmailSendError('Message dropped because all recipients were suppressed', { code: 'EmailDroppedAllRecipientsSuppressed' }))).toBe('hard');
+      // The code decides whatever the message says, in any case.
+      expect(classifyFailure(new EmailSendError('Azure Communication Services reported send status: Failed.', { code: 'EmailDroppedAllRecipientsSuppressed' }))).toBe('hard');
+      expect(classifyFailure(new EmailSendError('Refused.', { code: 'EMAILDROPPEDALLRECIPIENTSSUPPRESSED' }))).toBe('hard');
+    });
+
+    it('should classify ACS dropping a send for a suppressed recipient as hard, by its wording without a code (stats A4)', () => {
+      // The old engine's long-running-operation text, as stored in CampaignEnrollment.lastError.
+      expect(classifyFailure(new Error(
+        'The long-running operation has failed. EmailDroppedAllRecipientsSuppressed. Message dropped because all recipients were suppressed'
+      ))).toBe('hard');
+      expect(classifyFailure(new Error('Message dropped because all recipients were suppressed'))).toBe('hard');
+      expect(classifyFailure({ message: 'MESSAGE DROPPED BECAUSE ALL RECIPIENTS WERE SUPPRESSED.' })).toBe('hard');
+      expect(classifyFailure(new Error('Send refused: emaildroppedallrecipientssuppressed'))).toBe('hard');
+    });
+
+    it('should keep throttling, network errors and timeouts off the suppressed-recipient hard bounce (stats A4)', () => {
+      expect(classifyFailure(new EmailSendError('Slow down.', { statusCode: 429, code: 'TooManyRequests' }))).toBe('quota');
+      expect(classifyFailure(new EmailSendError('read ECONNRESET', { code: 'ECONNRESET' }))).toBe('soft');
+      expect(classifyFailure(new EmailSendError('getaddrinfo ENOTFOUND acs.test', { code: 'ENOTFOUND' }))).toBe('soft');
+      expect(classifyFailure(new EmailSendError('The operation was aborted due to timeout', { code: 'REQUEST_SEND_ERROR' }))).toBe('soft');
+      expect(classifyFailure(new Error('Connection timed out ETIMEDOUT'))).toBe('soft');
+      expect(classifyFailure(new EmailSendError('Service is down.', { statusCode: 503, code: 'ServiceUnavailable' }))).toBe('soft');
+      // "suppressed" alone is not the refusal.
+      expect(classifyFailure(new Error('Duplicate message suppressed'))).toBe('soft');
+    });
+
     it('should classify response codes 400-499 as soft failures', () => {
       expect(classifyFailure({ message: 'SMTP error', responseCode: 421 })).toBe('soft');
       expect(classifyFailure({ message: 'SMTP error', responseCode: 451 })).toBe('soft');

@@ -31,6 +31,7 @@ const db = vi.hoisted(() => {
     if ('in' in cond) return cond.in.map(fold).includes(fold(value));
     if ('notIn' in cond) return !cond.notIn.includes(value);
     if ('gt' in cond) return value > cond.gt;
+    if ('not' in cond) return cond.not === null ? value != null : value !== cond.not;
     throw new Error(`Unmodelled filter: ${JSON.stringify(cond)}`);
   }
 
@@ -49,14 +50,11 @@ const db = vi.hoisted(() => {
     });
   }
 
-  /** A copy of `row` with the relations `select` names: a lead's aliases and dispatch count, an alias's lead. */
+  /** A copy of `row` with the relations `select` names: a lead's aliases, an alias's lead. */
   function withRelations(table: string, row: Row, select: Row | undefined): Row {
     const out = { ...row };
     if (table === 'lead' && select?.aliases) {
       out.aliases = tables.leadAlias.filter((a) => a.leadId === row.id).map((a) => ({ id: a.id }));
-    }
-    if (table === 'lead' && select?._count) {
-      out._count = { dispatches: tables.emailDispatch.filter((d) => d.leadId === row.id).length };
     }
     if (table === 'leadAlias' && select?.lead) {
       const lead = tables.lead.find((l) => l.id === row.leadId);
@@ -348,10 +346,11 @@ describe('unsubscribe links of deleted leads (H18)', () => {
     expect((await deleteLeads(makeReq('DELETE', '/api/leads?all=true'))).status).toBe(200);
     expect(db.tables.lead).toHaveLength(0);
     expect(db.tables.leadAlias).toHaveLength(0);
-    // Only the emailed lead, and the lead merged into it, leave their ids behind
+    // Every deleted lead, and the lead merged into it, leave their ids behind
     expect(deletedIds()).toEqual([
       { id: 'jane', email: 'jane@acme.com' },
       { id: 'jane-merged', email: 'jane@acme.com' },
+      { id: 'bob', email: 'bob@acme.com' },
     ]);
 
     const res = await unsubscribe(makeReq('POST', '/api/unsubscribe?id=jane'));
@@ -408,14 +407,20 @@ describe('unsubscribe links of deleted leads (H18)', () => {
     expect(db.tables.suppressedEmail.map((row) => row.email)).toEqual(['grouped@acme.com']);
   });
 
-  it('keeps nothing for a lead that was never emailed, whose id then finds no record', async () => {
-    addLead('never', 'never@acme.com');
+  it('keeps the id of a lead with no emails on record, as after a campaign history reset, so its old link still works', async () => {
+    addLead('reset', 'reset@acme.com');
+    emailed('reset');
+    // The reset deletes the campaign's emails and keeps the lead, whose link is still in an inbox
+    db.tables.emailDispatch = [];
 
-    expect((await deleteLeads(makeReq('DELETE', '/api/leads?id=never'))).status).toBe(200);
+    expect((await deleteLeads(makeReq('DELETE', '/api/leads?id=reset'))).status).toBe(200);
 
-    expect(db.tables.deletedLead).toHaveLength(0);
-    expect((await unsubscribe(makeReq('POST', '/api/unsubscribe?id=never'))).status).toBe(404);
-    expect(db.tables.suppressedEmail).toHaveLength(0);
+    expect(db.tables.lead).toHaveLength(0);
+    expect(deletedIds()).toEqual([{ id: 'reset', email: 'reset@acme.com' }]);
+    const res = await unsubscribe(makeReq('POST', '/api/unsubscribe?id=reset'));
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('<strong>reset@acme.com</strong> has been removed');
+    expect(db.tables.suppressedEmail).toEqual([{ email: 'reset@acme.com', reason: 'Unsubscribed', source: 'unsubscribe-link' }]);
   });
 });
 

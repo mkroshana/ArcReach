@@ -20,8 +20,9 @@ export const NOT_FOUND_RETRY_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 /**
  * Settles dispatches left 'Sending' by a send that was interrupted (process
  * crash, restart or deploy between recording the dispatch and recording the
- * outcome). Each one older than STALE_SENDING_MS is checked with ACS under its
- * stored operation id:
+ * outcome) or that ACS did not confirm within AZURE_SEND_TIMEOUT_MS (see
+ * EmailSendUnconfirmedError). Each one older than STALE_SENDING_MS is checked
+ * with ACS under its stored operation id:
  *  - NotStarted, Running or Succeeded: ACS has it, so it is recorded Sent and
  *    the enrollment advanced exactly as after a normal send.
  *  - Failed or Canceled: handled as a failed send (retry, bounce or pause).

@@ -14,6 +14,13 @@ import { Prisma, type PrismaClient } from '@prisma/client';
  *   means it was opened even when its pixel was blocked. Clicked: a person
  *   clicked a link in it. Each email counts once however often it was opened
  *   or clicked, and hits lib/botFilter judged automated never count.
+ * - Delivered: a delivery report said the email was delivered and none since
+ *   bounced it or filed it as spam: its delivery status is Delivered and it
+ *   has no bounce. Such a later report replaces the status but leaves
+ *   deliveredAt set, so Delivered goes by the status, as deliveryBreakdown
+ *   does, and the email counts under that later outcome alone, never as both.
+ *   Delivery rate: delivered emails over the emails any delivery report
+ *   arrived for, so the emails whose report has not arrived never dilute it.
  * - Open and click rates: opened or clicked emails over the emails that
  *   reached the recipient: delivered where a delivery report says so, else
  *   sent. An email a report says was not delivered (bounced, suppressed,
@@ -21,6 +28,10 @@ import { Prisma, type PrismaClient } from '@prisma/client';
  *   person opened it, so a rate never passes 100%.
  * - Bounced: hard bounces, reported by the delivery webhook (at bouncedAt) or
  *   found at send time (a Failed dispatch with a 'bounce' event, at its time).
+ * - Bounce rate: hard bounces over the emails whose outcome is known, those a
+ *   delivery report arrived for and those bounced at send time, so emails no
+ *   report has arrived for never dilute it. To two decimals, so a small rate
+ *   does not round to 0.
  * - Failed: send attempts that failed (status Failed), at the attempt.
  * - Unsubscribed: emails whose unsubscribe link was used, at the time it was
  *   ('unsubscribe' event, recorded by /api/unsubscribe).
@@ -58,7 +69,10 @@ const UNDELIVERED_STATUSES = ['Bounced', 'Suppressed', 'Failed', 'Quarantined', 
 export const SEQUENCE_SEND: Prisma.EmailDispatchWhereInput = { stepOrder: { not: null } };
 
 const SENT: Prisma.EmailDispatchWhereInput = { status: 'Sent' };
-const DELIVERED: Prisma.EmailDispatchWhereInput = { deliveredAt: { not: null } };
+/** Delivered, and no later report bounced it or filed it as spam, which leaves deliveredAt set (see the module comment). */
+const DELIVERED: Prisma.EmailDispatchWhereInput = { deliveryStatus: 'Delivered', bounceType: null };
+/** A delivery report arrived for the email; until one does, its delivered count says nothing. */
+const REPORTED: Prisma.EmailDispatchWhereInput = { deliveryStatus: { not: null } };
 const OPENED: Prisma.EmailDispatchWhereInput = { events: { some: { eventType: { in: [OPEN_EVENT, CLICK_EVENT] } } } };
 const CLICKED: Prisma.EmailDispatchWhereInput = { events: { some: { eventType: CLICK_EVENT } } };
 /** The open and click rates' base: delivered, or not reported undelivered, or opened (which proves delivery). */
@@ -71,10 +85,13 @@ export function metricsScopeFor(session: { id: string; role: string }): Extract<
   return session.role === 'ADMIN' ? { kind: 'all' } : { kind: 'owner', userId: session.id };
 }
 
-/** `part` as a percentage of `whole`, to one decimal; 0 when there is nothing to divide by. */
-export function percent(part: number, whole: number): number {
-  return whole > 0 ? Number(((part / whole) * 100).toFixed(1)) : 0;
+/** `part` as a percentage of `whole`, to `decimals` places (one by default); 0 when there is nothing to divide by. */
+export function percent(part: number, whole: number, decimals = 1): number {
+  return whole > 0 ? Number(((part / whole) * 100).toFixed(decimals)) : 0;
 }
+
+/** Bounce rates are small, so they keep two decimals: 1 bounce in 5,000 emails is 0.02%, not 0%. */
+const BOUNCE_RATE_DECIMALS = 2;
 
 /**
  * The dispatches a scope covers. A sequence send belongs to its campaign's
@@ -136,11 +153,29 @@ function hardBounceWhere(period?: Period): Prisma.EmailDispatchWhereInput {
   };
 }
 
+/**
+ * The bounce rate's base: the emails whose outcome is known, those ACS
+ * accepted that a delivery report arrived for (sent in `period` when given)
+ * and the hard bounces (in `period`), reported or found at send time. An
+ * email no report has arrived for may yet bounce, so it is left out rather
+ * than counted as not bounced.
+ */
+function bounceBaseWhere(period?: Period): Prisma.EmailDispatchWhereInput {
+  return { OR: [{ AND: [SENT, REPORTED, period ? { sentAt: period } : {}] }, hardBounceWhere(period)] };
+}
+
 export type SendSummary = {
   sent: number;
   delivered: number;
+  /**
+   * Sent emails any delivery report arrived for: the delivery rate's base.
+   * With none, the delivered count is not a measurement, so pages show it as
+   * unknown rather than 0.
+   */
+  reported: number;
   opened: number;
   clicked: number;
+  /** `delivered` of `reported`. */
   deliveryRate: number;
   openRate: number;
   clickRate: number;
@@ -149,9 +184,10 @@ export type SendSummary = {
 /** A scope's sends and their delivery, opens and clicks, of the emails sent in `sentAt` when given. */
 export async function sendSummary(client: MetricsClient, scope: MetricsScope, sentAt?: Period): Promise<SendSummary> {
   const sent = sentWhere(scope, sentAt);
-  const [sentCount, delivered, reached, opened, clicked] = await Promise.all([
+  const [sentCount, delivered, reported, reached, opened, clicked] = await Promise.all([
     client.emailDispatch.count({ where: sent }),
     client.emailDispatch.count({ where: { AND: [sent, DELIVERED] } }),
+    client.emailDispatch.count({ where: { AND: [sent, REPORTED] } }),
     client.emailDispatch.count({ where: { AND: [sent, REACHED] } }),
     client.emailDispatch.count({ where: { AND: [sent, OPENED] } }),
     client.emailDispatch.count({ where: { AND: [sent, CLICKED] } }),
@@ -159,9 +195,10 @@ export async function sendSummary(client: MetricsClient, scope: MetricsScope, se
   return {
     sent: sentCount,
     delivered,
+    reported,
     opened,
     clicked,
-    deliveryRate: percent(delivered, sentCount),
+    deliveryRate: percent(delivered, reported),
     openRate: percent(opened, reached),
     clickRate: percent(clicked, reached),
   };
@@ -187,26 +224,31 @@ export function countReplies(client: MetricsClient, scope: MetricsScope, receive
   });
 }
 
-export type HealthSummary = { bounced: number; failed: number; unsubscribed: number; bounceRate: number };
+export type HealthSummary = {
+  bounced: number; failed: number; unsubscribed: number; bounceRate: number;
+  /** The emails the bounce rate is of: those a delivery report arrived for, and the hard bounces. */
+  bounceBase: number;
+};
 
 /**
  * A scope's hard bounces, failed send attempts and unsubscribes, those that
- * happened in `period` when given. The bounce rate is of the emails sent or
- * bounced at send time.
+ * happened in `period` when given. The bounce rate is of the emails whose
+ * outcome is known (bounceBaseWhere), to two decimals.
  */
 export async function healthSummary(client: MetricsClient, scope: MetricsScope, period?: Period): Promise<HealthSummary> {
   const sequence = { AND: [scopeWhere(scope), SEQUENCE_SEND] };
   const [bounced, bounceBase, failed, unsubscribed] = await Promise.all([
     countHardBounces(client, scope, period),
-    client.emailDispatch.count({
-      where: { AND: [sequence, { OR: [{ ...SENT, ...(period && { sentAt: period }) }, hardBounceWhere(period)] }] },
-    }),
+    client.emailDispatch.count({ where: { AND: [sequence, bounceBaseWhere(period)] } }),
     client.emailDispatch.count({ where: { AND: [sequence, { status: 'Failed' }, period ? { sentAt: period } : {}] } }),
     client.emailDispatch.count({
       where: { AND: [sequence, { events: { some: { eventType: UNSUBSCRIBE_EVENT, ...(period && { timestamp: period }) } } }] },
     }),
   ]);
-  return { bounced, failed, unsubscribed, bounceRate: percent(bounced, bounceBase) };
+  return {
+    bounced, failed, unsubscribed, bounceBase,
+    bounceRate: percent(bounced, bounceBase, BOUNCE_RATE_DECIMALS),
+  };
 }
 
 export type StepMetrics = {
@@ -215,15 +257,18 @@ export type StepMetrics = {
   failed: number;
   opened: number;
   clicked: number;
+  /** `delivered` of `reported`. */
   deliveryRate: number;
   openRate: number;
   clickRate: number;
   /** Hard bounces (as healthSummary counts them) and emails whose unsubscribe link was used. */
   bounced: number;
   unsubscribed: number;
+  /** `bounced` of `bounceBase`, the emails whose outcome is known, as healthSummary counts them; to two decimals. */
   bounceRate: number;
+  bounceBase: number;
   unsubscribeRate: number;
-  /** Sent emails any delivery report arrived for. With none, `delivered` and its rate say nothing yet. */
+  /** Sent emails any delivery report arrived for: the delivery rate's base. With none, `delivered` and its rate say nothing. */
   reported: number;
   /** The leads the sent emails went to, each once however many times it was sent the email. */
   leads: number;
@@ -232,11 +277,15 @@ export type StepMetrics = {
   replyRate: number;
 };
 
-/** Which measures a breakdown loads; the others are left 0. Sent, delivered and failed always load. */
+/**
+ * Which measures a breakdown loads; the others are left 0. Sent, delivered,
+ * failed and how many emails a delivery report arrived for (the delivery
+ * rate's base) always load.
+ */
 export type SendMetricsOptions = {
   /** Opens and clicks. */
   engagement?: boolean;
-  /** Hard bounces, unsubscribes and how many emails a delivery report arrived for. */
+  /** Hard bounces and unsubscribes. */
   health?: boolean;
   /** Leads emailed, counted once each. */
   leads?: boolean;
@@ -313,7 +362,8 @@ async function repliedLeadsBy(client: MetricsClient, campaignIds: string[], grou
 /**
  * The sequence sends of `campaignIds` broken down by campaign and `group`,
  * with the same definitions as the campaign totals: sent, delivered and
- * failed attempts, and the measures `options` asks for.
+ * failed attempts, how many a delivery report arrived for, and the measures
+ * `options` asks for.
  */
 async function sendCountsBy(
   client: MetricsClient,
@@ -328,17 +378,18 @@ async function sendCountsBy(
   const countIf = (wanted: boolean | undefined, where: Prisma.EmailDispatchWhereInput) =>
     wanted ? countBy(where) : Promise.resolve([]);
 
-  const [byStatus, delivered, reached, opened, clicked, bounced, bounceBase, unsubscribed, reported, leads, replied] = await Promise.all([
+  const [byStatus, delivered, reported, reached, opened, clicked, bounced, bounceBase, unsubscribed, leads, replied] = await Promise.all([
     client.emailDispatch.groupBy({ by: ['campaignId', group, 'status'], where: sends, _count: { id: true } }),
     countBy({ AND: [sent, DELIVERED] }),
+    // The delivery rate's base.
+    countBy({ AND: [sent, REPORTED] }),
     countIf(options.engagement, { AND: [sent, REACHED] }),
     countIf(options.engagement, { AND: [sent, OPENED] }),
     countIf(options.engagement, { AND: [sent, CLICKED] }),
-    // As healthSummary: hard bounces, over the emails sent or bounced at send time.
+    // As healthSummary: hard bounces, over the emails whose outcome is known.
     countIf(options.health, { AND: [sends, hardBounceWhere()] }),
-    countIf(options.health, { AND: [sends, { OR: [SENT, hardBounceWhere()] }] }),
+    countIf(options.health, { AND: [sends, bounceBaseWhere()] }),
     countIf(options.health, { AND: [sends, { events: { some: { eventType: UNSUBSCRIBE_EVENT } } }] }),
-    countIf(options.health, { AND: [sent, { deliveryStatus: { not: null } }] }),
     options.leads ? distinctLeadsBy(client, campaignIds, group) : Promise.resolve([]),
     options.replies ? repliedLeadsBy(client, campaignIds, group) : Promise.resolve([]),
   ]);
@@ -362,13 +413,13 @@ async function sendCountsBy(
     else if (row.status === 'Failed') at(row.campaignId, row[group] ?? null).failed += row._count.id;
   }
   add('delivered', delivered as GroupRow[]);
+  add('reported', reported as GroupRow[]);
   add('reached', reached as GroupRow[]);
   add('opened', opened as GroupRow[]);
   add('clicked', clicked as GroupRow[]);
   add('bounced', bounced as GroupRow[]);
   add('bounceBase', bounceBase as GroupRow[]);
   add('unsubscribed', unsubscribed as GroupRow[]);
-  add('reported', reported as GroupRow[]);
   for (const row of leads) at(row.campaignId, row.value ?? null).leads += Number(row.leads);
   for (const row of replied) at(row.campaignId, row.value ?? null).replied += Number(row.leads);
   return groups;
@@ -382,12 +433,13 @@ function sendMetrics(c: SendCounts = NO_SENDS): StepMetrics {
     failed: c.failed,
     opened: c.opened,
     clicked: c.clicked,
-    deliveryRate: percent(c.delivered, c.sent),
+    deliveryRate: percent(c.delivered, c.reported),
     openRate: percent(c.opened, c.reached),
     clickRate: percent(c.clicked, c.reached),
     bounced: c.bounced,
     unsubscribed: c.unsubscribed,
-    bounceRate: percent(c.bounced, c.bounceBase),
+    bounceRate: percent(c.bounced, c.bounceBase, BOUNCE_RATE_DECIMALS),
+    bounceBase: c.bounceBase,
     unsubscribeRate: percent(c.unsubscribed, c.sent),
     reported: c.reported,
     leads: c.leads,
@@ -398,9 +450,9 @@ function sendMetrics(c: SendCounts = NO_SENDS): StepMetrics {
 
 /**
  * Per-step sends of each of `campaignIds`, with the same definitions as the
- * campaign totals: sent, delivered and failed attempts always, and the
- * measures `options` asks for (left 0 without them). Returns a lookup by
- * campaign and step.
+ * campaign totals: sent, delivered and failed attempts and how many a
+ * delivery report arrived for always, and the measures `options` asks for
+ * (left 0 without them). Returns a lookup by campaign and step.
  */
 export async function stepMetrics(
   client: MetricsClient,
@@ -481,6 +533,13 @@ export async function deliveryBreakdown(client: MetricsClient, scope: MetricsSco
 export type CampaignLeadTotals = {
   /** Leads ACS accepted at least one of the campaign's sequence emails for. */
   contacted: number;
+  /**
+   * Of those, the leads with an email sendSummary counts as opened (and as
+   * clicked), each once however many of their emails were: the people the
+   * opened and clicked emails came from.
+   */
+  opened: number;
+  clicked: number;
   /** Leads who sent the campaign a human reply (the replies countReplies counts), each once. */
   replied: number;
   /** When its first and latest accepted sequence emails were sent; null before any. */
@@ -488,23 +547,37 @@ export type CampaignLeadTotals = {
   lastSentAt: Date | null;
 };
 
-type LeadTotalsRow = { contacted: number; replied: number; firstSentAt: Date | null; lastSentAt: Date | null };
+type LeadTotalsRow = {
+  contacted: number; opened: number; clicked: number; replied: number; firstSentAt: Date | null; lastSentAt: Date | null;
+};
 
-/** A campaign's lead-level totals, in one query. */
+/**
+ * A campaign's lead-level totals, in one query. Each accepted sequence email
+ * is joined to a person's opens and clicks on it (not the machine hits
+ * lib/botFilter recorded), which repeats the email once per hit but leaves the
+ * counts of distinct leads, and the first and latest send, as they are.
+ */
 export async function campaignLeadTotals(client: MetricsClient, campaignId: string): Promise<CampaignLeadTotals> {
   const [row] = await client.$queryRaw<LeadTotalsRow[]>(Prisma.sql`
     SELECT
       (SELECT COUNT(DISTINCT r."leadId") FROM "InboundResponse" r
         WHERE r."campaignId" = ${campaignId} AND r."autoReply" IS NULL)::int AS "replied",
-      t."contacted", t."firstSentAt", t."lastSentAt"
+      t."contacted", t."opened", t."clicked", t."firstSentAt", t."lastSentAt"
     FROM (
-      SELECT COUNT(DISTINCT d."leadId")::int AS "contacted", MIN(d."sentAt") AS "firstSentAt", MAX(d."sentAt") AS "lastSentAt"
+      SELECT COUNT(DISTINCT d."leadId")::int AS "contacted",
+             COUNT(DISTINCT d."leadId") FILTER (WHERE e."eventType" IS NOT NULL)::int AS "opened",
+             COUNT(DISTINCT d."leadId") FILTER (WHERE e."eventType" = ${CLICK_EVENT})::int AS "clicked",
+             MIN(d."sentAt") AS "firstSentAt", MAX(d."sentAt") AS "lastSentAt"
       FROM "EmailDispatch" d
+      LEFT JOIN "EmailEvent" e
+        ON e."messageId" = d."messageId" AND e."eventType" IN (${Prisma.join([OPEN_EVENT, CLICK_EVENT])})
       WHERE d."campaignId" = ${campaignId} AND d."stepOrder" IS NOT NULL AND d."status" = 'Sent'
     ) t
   `);
   return {
     contacted: Number(row?.contacted ?? 0),
+    opened: Number(row?.opened ?? 0),
+    clicked: Number(row?.clicked ?? 0),
     replied: Number(row?.replied ?? 0),
     firstSentAt: row?.firstSentAt ?? null,
     lastSentAt: row?.lastSentAt ?? null,
@@ -606,14 +679,15 @@ export type FunnelStage = { name: string; value: number; unit: 'Emails' | 'Repli
 /**
  * The conversion funnel's stages, each with the unit it counts, which the
  * charts show: sends, deliveries, opens and clicks are emails, replies are
- * replies received, and meetings booked are leads. Delivered only when given.
+ * replies received, and meetings booked are leads. Delivered and Replied only
+ * when given.
  */
 export function engagementFunnel(counts: {
   sent: number;
   delivered?: number;
   opened: number;
   clicked: number;
-  replies: number;
+  replies?: number;
   meetingsBooked: number;
 }): FunnelStage[] {
   return [
@@ -621,7 +695,7 @@ export function engagementFunnel(counts: {
     ...(counts.delivered === undefined ? [] : [{ name: 'Delivered', value: counts.delivered, unit: 'Emails' as const }]),
     { name: 'Opened', value: counts.opened, unit: 'Emails' },
     { name: 'Clicked', value: counts.clicked, unit: 'Emails' },
-    { name: 'Replied', value: counts.replies, unit: 'Replies' },
+    ...(counts.replies === undefined ? [] : [{ name: 'Replied', value: counts.replies, unit: 'Replies' as const }]),
     { name: 'Meeting Booked', value: counts.meetingsBooked, unit: 'Leads' },
   ];
 }

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { engagementBotReason, LINK_BURST_SECONDS, MACHINE_EVENT_TYPE } from '@/lib/botFilter';
-import { clickTarget, sentClickTargets } from '@/lib/emailTracking';
+import { clickTarget, onPreResetLinkDomain, sentClickTargets } from '@/lib/emailTracking';
 import { hasValidSession } from '@/lib/session';
 
 // The page is self-contained: inline styles only, no scripts, external
@@ -15,8 +15,8 @@ const HTML_HEADERS = {
 
 /**
  * The neutral page for a link this endpoint will not follow: its dispatch is
- * gone, or its url is not one of the links that email sent. It names no app
- * and links nowhere.
+ * gone and its url is not on a pre-reset link domain, or its url is not one of
+ * the links that email sent. It names no app and links nowhere.
  */
 function linkUnavailable(status = 404, message = 'This link is no longer available.'): NextResponse {
   return new NextResponse(
@@ -74,10 +74,11 @@ function redirectUrl(target: string): string | null {
  *
  * Public endpoint. Redirects to the target, and records the click, only when
  * the target is exactly one of the links this dispatch's email sent (see
- * sentClickTargets): anything else, or a dispatch that is gone, gets the
- * neutral page, records nothing and redirects nowhere. `record` is false for
- * HEAD and for a signed-in user of the app, which answer the same without
- * recording.
+ * sentClickTargets): anything else gets the neutral page, records nothing and
+ * redirects nowhere. A click whose dispatch is gone (mail sent before the
+ * campaign history reset) records nothing, and redirects only to a url on one
+ * of PRE_RESET_LINK_DOMAINS (lib/emailTracking). `record` is false for HEAD and
+ * for a signed-in user of the app, which answer the same without recording.
  */
 async function trackClick(
   req: NextRequest,
@@ -109,6 +110,13 @@ async function trackClick(
   }
 
   if (!dispatch) {
+    // Mail sent before the campaign history reset has no dispatch to check the
+    // link against: redirect, recording nothing, only to the domains it linked to.
+    const fallback = redirectUrl(target);
+    if (fallback && onPreResetLinkDomain(fallback)) {
+      console.log(`[Track Click] Dispatch not found: ${dispatchId}; redirecting to a pre-reset link domain.`);
+      return NextResponse.redirect(fallback, 302);
+    }
     console.log(`[Track Click] Dispatch not found: ${dispatchId}`);
     return linkUnavailable();
   }

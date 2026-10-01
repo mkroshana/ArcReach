@@ -33,7 +33,7 @@ vi.mock('../../lib/session', () => ({
 }));
 
 import { getSession } from '../../lib/session';
-import { matchesWhere } from './helpers/prismaWhere';
+import { groupRows, matchesWhere } from './helpers/prismaWhere';
 import { GET as getCampaigns, PUT as putCampaign, DELETE as deleteCampaign } from '../../app/api/campaigns/route';
 
 const mockedSession = vi.mocked(getSession);
@@ -164,11 +164,32 @@ describe('GET /api/campaigns returns list fields only (M40)', () => {
 
     const [campaign] = await (await getCampaigns()).json();
 
-    expect(campaign.stepStats[0]).toEqual({ stepOrder: 1, active: 0, sent: 5, delivered: 0, failed: 0, leads: 3 });
+    expect(campaign.stepStats[0]).toEqual({ stepOrder: 1, active: 0, sent: 5, delivered: 0, reported: 0, failed: 0, leads: 3 });
     expect(campaign.stepStats[1]).toMatchObject({ sent: 0, leads: 0 });
     // One grouped query for every campaign's steps, not one per campaign.
     expect(fake.$queryRaw).toHaveBeenCalledTimes(1);
     expect(fake.$queryRaw.mock.calls[0][0].values).toEqual(['cmp-1']);
+  });
+
+  it('reports how many of each step\'s sent emails a delivery report arrived for, so a step with none shows Delivered as unknown, not 0 (stats A1)', async () => {
+    const dispatches = [
+      // Step 1: a report arrived for one of its two sent emails.
+      { id: 'd1', campaignId: 'cmp-1', stepOrder: 1, status: 'Sent', deliveredAt: new Date('2026-09-30T15:00:00Z'), deliveryStatus: 'Delivered' },
+      { id: 'd2', campaignId: 'cmp-1', stepOrder: 1, status: 'Sent', deliveredAt: null, deliveryStatus: null },
+      // Step 2: sent before delivery reports, so none will arrive; a failed attempt is not a send.
+      { id: 'd3', campaignId: 'cmp-1', stepOrder: 2, status: 'Sent', deliveredAt: null, deliveryStatus: null },
+      { id: 'd4', campaignId: 'cmp-1', stepOrder: 2, status: 'Failed', deliveredAt: null, deliveryStatus: null },
+      // Another user's campaign.
+      { id: 'd5', campaignId: 'cmp-2', stepOrder: 1, status: 'Sent', deliveredAt: new Date('2026-09-30T15:00:00Z'), deliveryStatus: 'Delivered' },
+    ];
+    fake.emailDispatch.groupBy.mockImplementation(async (args: any) => groupRows(dispatches, args));
+
+    const [campaign] = await (await getCampaigns()).json();
+
+    expect(campaign.stepStats.map((s: any) => [s.stepOrder, s.sent, s.delivered, s.reported, s.failed])).toEqual([
+      [1, 2, 1, 1, 0],
+      [2, 1, 0, 0, 1],
+    ]);
   });
 
   it('lists every campaign for an ADMIN, still without bodies', async () => {

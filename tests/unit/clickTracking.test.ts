@@ -11,7 +11,7 @@ vi.mock('../../lib/db', () => ({
 import { prisma } from '../../lib/db';
 import { GET as clickGet, HEAD as clickHead } from '../../app/api/track/click/[dispatchId]/route';
 import { GET as openGet, HEAD as openHead } from '../../app/api/track/open/[dispatchId]/route';
-import { applyEmailTracking } from '../../lib/emailTracking';
+import { applyEmailTracking, onPreResetLinkDomain, PRE_RESET_LINK_DOMAINS } from '../../lib/emailTracking';
 import { signSession } from '../../lib/session';
 import * as jose from 'jose';
 
@@ -169,7 +169,7 @@ describe('missing dispatches and relative links (M33)', () => {
   it('shows the neutral page, not the app, when the dispatch is gone', async () => {
     mocked.emailDispatch.findUnique.mockResolvedValue(null);
 
-    const res = await clickGet(request('https://calendly.com/acme/demo', 'GET', 'd-gone'), ctx('d-gone'));
+    const res = await clickGet(request('https://acme.test/offer?utm_source=email&utm_campaign=q4', 'GET', 'd-gone'), ctx('d-gone'));
 
     expectNeutralPage(res);
     expect(await res.text()).toContain('Link Unavailable');
@@ -192,6 +192,126 @@ describe('missing dispatches and relative links (M33)', () => {
     expect(mocked.emailEvent.create).toHaveBeenCalledWith({
       data: { messageId: 'm-1', eventType: 'click', clickedUrl: '/pricing' },
     });
+  });
+});
+
+describe('links in mail sent before the campaign history reset (reset D2)', () => {
+  const GONE = 'd-gone';
+
+  beforeEach(() => {
+    mocked.emailDispatch.findUnique.mockResolvedValue(null);
+  });
+
+  it.each([
+    ['the domain itself', 'https://jobpromax.com/', 'https://jobpromax.com/'],
+    ['a www subdomain', 'https://www.jobpromax.com/jobs?utm_source=email', 'https://www.jobpromax.com/jobs?utm_source=email'],
+    ['thejobhelpers.com', 'https://thejobhelpers.com/hr', 'https://thejobhelpers.com/hr'],
+    ['a Calendly booking link', 'https://calendly.com/steve-jpm/30min', 'https://calendly.com/steve-jpm/30min'],
+    ['a deeper subdomain', 'https://app.calendly.com/s/abc', 'https://app.calendly.com/s/abc'],
+    ['plain http', 'http://www.thejobhelpers.com/', 'http://www.thejobhelpers.com/'],
+    ['an upper-case host', 'https://WWW.JobProMax.COM/Jobs', 'https://www.jobpromax.com/Jobs'],
+    ['a port', 'https://jobpromax.com:8443/x', 'https://jobpromax.com:8443/x'],
+    ['an &amp; left in a link sent before the M32 fix', 'https://www.jobpromax.com/?utm_source=email&amp;utm_campaign=jpm', 'https://www.jobpromax.com/?utm_source=email&utm_campaign=jpm'],
+  ])('redirects %s with a 302 and records nothing', async (_label, url, location) => {
+    const res = await clickGet(request(url, 'GET', GONE), ctx(GONE));
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe(location);
+    expect(mocked.emailEvent.findFirst).not.toHaveBeenCalled();
+    expect(mocked.emailEvent.create).not.toHaveBeenCalled();
+  });
+
+  it('redirects a protocol-relative link the way the route resolves it, against APP_URL', async () => {
+    process.env.APP_URL = 'https://arcreach.example.test';
+
+    const res = await clickGet(request('//www.jobpromax.com/jobs', 'GET', GONE), ctx(GONE));
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('https://www.jobpromax.com/jobs');
+  });
+
+  it('redirects to the url it checked, so a backslash cannot carry the browser to another host', async () => {
+    const res = await clickGet(request('https://jobpromax.com\\@evil.test/', 'GET', GONE), ctx(GONE));
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('https://jobpromax.com/@evil.test/');
+  });
+
+  it('answers HEAD the same way, recording nothing', async () => {
+    const res = await clickHead(request('https://calendly.com/steve-jpm/30min', 'HEAD', GONE), ctx(GONE));
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('https://calendly.com/steve-jpm/30min');
+    expect(mocked.emailEvent.create).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a look-alike with the domain as a subdomain', 'https://jobpromax.com.evil.test/'],
+    ['a look-alike ending in the domain without a dot', 'https://evil-jobpromax.com/'],
+    ['a look-alike with no separator', 'https://notcalendly.com/'],
+    ['a look-alike with a Cyrillic letter', 'https://jоbpromax.com/'],
+    ['an ideographic full stop', 'https://jobpromax.com。evil.test/'],
+    ['another host', 'https://example.com/offer'],
+    ['the domain in the path', 'https://evil.test/jobpromax.com'],
+    ['the domain in the query', 'https://evil.test/?next=https://jobpromax.com/'],
+    ['a javascript: url', 'javascript:alert(1)'],
+    ['a javascript: url naming the domain', 'javascript://jobpromax.com/%0Aalert(1)'],
+    ['a data: url', 'data:text/html,<script>alert(1)</script>'],
+    ['an ftp: url', 'ftp://jobpromax.com/file'],
+    ['the domain as the username', 'https://jobpromax.com@evil.test/'],
+    ['the domain and an encoded slash as the username', 'https://jobpromax.com%2F@evil.test/'],
+    ['credentials on an allowed host', 'https://user:secret@www.jobpromax.com/'],
+    ['a username on an allowed host', 'https://evil.test@calendly.com/'],
+    ['a leading dot', 'https://.jobpromax.com/'],
+    ['a trailing dot', 'https://jobpromax.com./'],
+    ['an empty host', 'https://'],
+    ['an invalid port', 'https://jobpromax.com:99999/'],
+    ['a bracketed name', 'https://[jobpromax.com]/'],
+    ['a bare domain with no scheme', 'jobpromax.com'],
+    ['a relative link, which resolves to the app', '/pricing'],
+    ['an arbitrary value', '1'],
+  ])('shows the neutral page and records nothing for %s', async (_label, url) => {
+    process.env.APP_URL = 'https://arcreach.example.test';
+
+    const res = await clickGet(request(url, 'GET', GONE), ctx(GONE));
+
+    expectNeutralPage(res);
+    expect(await res.text()).toContain('Link Unavailable');
+    expect(mocked.emailEvent.create).not.toHaveBeenCalled();
+  });
+
+  it('keeps the stored-body check as the only rule while the dispatch exists', async () => {
+    storeDispatch();
+
+    expectNeutralPage(await clickGet(request('https://www.jobpromax.com/'), ctx()));
+    expectNeutralPage(await clickGet(request('https://calendly.com/someone-else'), ctx()));
+    expect(mocked.emailEvent.create).not.toHaveBeenCalled();
+
+    const res = await clickGet(request('https://calendly.com/acme/demo'), ctx());
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toBe('https://calendly.com/acme/demo');
+    expect(mocked.emailEvent.create).toHaveBeenCalledWith({
+      data: { messageId: 'm-1', eventType: 'click', clickedUrl: 'https://calendly.com/acme/demo' },
+    });
+  });
+
+  it('still shows the try-again page when the dispatch cannot be looked up', async () => {
+    mocked.emailDispatch.findUnique.mockRejectedValue(new Error('db down'));
+
+    expectNeutralPage(await clickGet(request('https://www.jobpromax.com/', 'GET', GONE), ctx(GONE)), 503);
+  });
+});
+
+describe('the pre-reset link domain check', () => {
+  it('allows exactly the domains old mail linked to', () => {
+    expect(PRE_RESET_LINK_DOMAINS).toEqual(['jobpromax.com', 'thejobhelpers.com', 'calendly.com']);
+  });
+
+  it('accepts only absolute http(s) urls', () => {
+    expect(onPreResetLinkDomain('https://www.jobpromax.com/')).toBe(true);
+    expect(onPreResetLinkDomain('//www.jobpromax.com/')).toBe(false);
+    expect(onPreResetLinkDomain('/jobs')).toBe(false);
+    expect(onPreResetLinkDomain('mailto:steve@jobpromax.com')).toBe(false);
   });
 });
 

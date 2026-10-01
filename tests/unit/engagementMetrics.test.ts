@@ -34,8 +34,10 @@ import { getSession } from '../../lib/session';
 import { GET as getCampaign } from '../../app/api/campaigns/[id]/route';
 import { GET as getDashboardStats } from '../../app/api/dashboard-stats/route';
 import { GET as getAccounts } from '../../app/api/accounts/route';
-import { dailyEngagement, metricsWindow, stepMetrics } from '../../lib/engagementMetrics';
-import { countRows, groupRows } from './helpers/prismaWhere';
+import { dailyEngagement, deliveryBreakdown, healthSummary, metricsWindow, percent, stepMetrics } from '../../lib/engagementMetrics';
+import { mailboxRepliesFigure } from '../../lib/imapSyncStatus';
+import { bounceFigure } from '../../lib/bounceStats';
+import { countRows, groupRows, matchesWhere } from './helpers/prismaWhere';
 
 const mockedSession = vi.mocked(getSession);
 const USER = { id: 'user-1', name: 'User', email: 'user@example.com', role: 'USER' as const };
@@ -66,6 +68,8 @@ type ReplyRow = { id: string; campaignId: string | null; senderAccountId: string
 
 let dispatches: DispatchRow[];
 let replies: ReplyRow[];
+/** Each mailbox's IMAP columns (or Reply-To) a test sets; with none its reply sync is off. */
+let imap: Record<string, Record<string, unknown>>;
 
 /** A step-1 send of cmp-1 from mb-1 that ACS accepted yesterday, by default. */
 function addDispatch(row: Partial<DispatchRow> & { id: string }) {
@@ -99,9 +103,10 @@ async function dashboard(range: number | string = 7) {
   return res.json();
 }
 
-async function mailbox(id = 'mb-1') {
+/** The mailbox as GET /api/accounts lists it, with any other `columns` (its address, Reply-To or IMAP details) as stored. */
+async function mailbox(id = 'mb-1', columns: Record<string, unknown> = {}) {
   vi.mocked(db.getAccounts).mockResolvedValue([
-    { id, dailyLimit: 50, warmupEnabled: false, warmupStartedAt: null, warmupLimit: 10, warmupRamp: 2, imapPass: null },
+    { id, dailyLimit: 50, warmupEnabled: false, warmupStartedAt: null, warmupLimit: 10, warmupRamp: 2, imapPass: null, ...columns },
   ] as any);
   const res = await getAccounts();
   expect(res.status).toBe(200);
@@ -115,6 +120,7 @@ beforeEach(() => {
   mockedSession.mockResolvedValue(USER);
   dispatches = [];
   replies = [];
+  imap = {};
   for (const model of [fake.campaign, fake.campaignEnrollment, fake.emailDispatch, fake.inboundResponse, fake.lead]) {
     model.count.mockResolvedValue(0);
     model.groupBy.mockResolvedValue([]);
@@ -127,9 +133,13 @@ beforeEach(() => {
   fake.emailDispatch.count.mockImplementation(async ({ where }: any) => countRows(dispatches, where, DISPATCH_RELATIONS));
   fake.emailDispatch.groupBy.mockImplementation(async (args: any) => groupRows(dispatches, args, DISPATCH_RELATIONS));
   fake.inboundResponse.count.mockImplementation(async ({ where }: any) => countRows(replies, where, REPLY_RELATIONS));
-  // The campaign page names the mailboxes its sends came from.
-  fake.senderAccount.findMany.mockImplementation(async ({ where }: any) =>
-    Object.values(MAILBOXES).filter((m) => where.id.in.includes(m.id)).map((m) => ({ id: m.id, emailAddress: `${m.id}@acme.test`, name: null })));
+  // The campaign page names the mailboxes its sends came from; the dashboard reads their reply sync.
+  // Only the `select`ed columns come back, as from Prisma.
+  fake.senderAccount.findMany.mockImplementation(async ({ where, select }: any) =>
+    Object.values(MAILBOXES)
+      .map((m) => ({ ...m, emailAddress: `${m.id}@acme.test`, name: null, status: 'Active', replyTo: null, ...imap[m.id] }))
+      .filter((m) => matchesWhere(m, where))
+      .map((m: Record<string, unknown>) => (select ? Object.fromEntries(Object.keys(select).map((key) => [key, m[key]])) : m)));
   fake.$queryRaw.mockResolvedValue([]);
 });
 
@@ -156,10 +166,11 @@ describe('open and click rates have one definition on every page (M30, L8)', () 
   it('divides opens and clicks by the emails delivered or not reported undelivered, so partial delivery reports never push a rate past 100%', async () => {
     tenSends();
 
-    // Old campaign page: 3 pixel opens / 2 delivered = 150%.
+    // Old campaign page: 3 pixel opens / 2 delivered = 150%. Delivered: 2 of
+    // the 4 emails a delivery report arrived for (d1, d2, d9, d10) (stats A3).
     const telemetry = await campaignTelemetry();
     expect(telemetry).toMatchObject({
-      sent: 10, delivered: 2, opens: 4, clicks: 2, deliveryRate: 20, openRate: 50, clickRate: 25,
+      sent: 10, delivered: 2, opens: 4, clicks: 2, deliveryRate: 50, openRate: 50, clickRate: 25,
     });
     expect(telemetry.stepStats[0]).toMatchObject({ stepOrder: 1, sent: 10, delivered: 2, opened: 4, clicked: 2, openRate: 50, clickRate: 25 });
 
@@ -184,16 +195,17 @@ describe('open and click rates have one definition on every page (M30, L8)', () 
       { name: 'Meeting Booked', value: 0, unit: 'Leads' },
     ]);
 
+    // No delivery report arrived, so the campaign funnel has no Delivered stage either (stats A2).
     const telemetry = await campaignTelemetry();
     expect(telemetry.funnel.map((s: any) => [s.name, s.value, s.unit])).toEqual([
-      ['Sent', 3, 'Emails'], ['Delivered', 0, 'Emails'], ['Opened', 2, 'Emails'], ['Clicked', 2, 'Emails'],
+      ['Sent', 3, 'Emails'], ['Opened', 2, 'Emails'], ['Clicked', 2, 'Emails'],
       ['Replied', 1, 'Replies'], ['Meeting Booked', 0, 'Leads'],
     ]);
     expect(telemetry).toMatchObject({ opens: 2, clicks: 2, openRate: 66.7, clickRate: 66.7 });
   });
 
   it('gives the campaigns list the per-step sends the campaign page shows', async () => {
-    addDispatch({ id: 'd1', deliveredAt: at(1) });
+    addDispatch({ id: 'd1', deliveredAt: at(1), deliveryStatus: 'Delivered' });
     addDispatch({ id: 'd2', status: 'Failed' });
     addDispatch({ id: 'd3', stepOrder: 2 });
     addDispatch({ id: 'd4', stepOrder: 2, status: 'Sending' });
@@ -205,6 +217,382 @@ describe('open and click rates have one definition on every page (M30, L8)', () 
       expect({ sent, delivered, failed }).toEqual({ sent: step.sent, delivered: step.delivered, failed: step.failed });
     }
     expect(stepStats.map((s: any) => [s.sent, s.delivered, s.failed])).toEqual([[1, 1, 1], [1, 0, 0]]);
+  });
+});
+
+describe('Delivered is unknown, not 0, until a delivery report arrives (stats A1)', () => {
+  it('gives the campaigns list and the Accounts page how many sent emails a delivery report arrived for', async () => {
+    // Sent before delivery reports, so none arrived.
+    addDispatch({ id: 'd1' });
+    addDispatch({ id: 'd2', stepOrder: 2 });
+    addDispatch({ id: 'failed', status: 'Failed' });
+    // Another mailbox's report says nothing about mb-1's emails.
+    addDispatch({ id: 'theirs', campaignId: 'cmp-2', senderAccountId: 'mb-2', deliveredAt: at(1), deliveryStatus: 'Delivered' });
+
+    expect(await mailbox()).toMatchObject({ sentTotal: 2, delivered: 0, reported: 0 });
+    let listed = await stepMetrics(fake as any, ['cmp-1']);
+    expect([1, 2].map((step) => listed('cmp-1', step).reported)).toEqual([0, 0]);
+
+    // A report that the email was not delivered is still a report, so that step's 0 delivered is measured.
+    addDispatch({ id: 'd3', stepOrder: 2, deliveryStatus: 'Bounced', bounceType: 'soft', bouncedAt: at(1) });
+    addDispatch({ id: 'd4', deliveredAt: at(1), deliveryStatus: 'Delivered' });
+
+    expect(await mailbox()).toMatchObject({ sentTotal: 4, delivered: 1, reported: 2 });
+    listed = await stepMetrics(fake as any, ['cmp-1']);
+    const counts = (step: number) => {
+      const { sent, delivered, reported } = listed('cmp-1', step);
+      return { sent, delivered, reported };
+    };
+    expect([counts(1), counts(2)]).toEqual([{ sent: 2, delivered: 1, reported: 1 }, { sent: 2, delivered: 0, reported: 1 }]);
+    // The count the campaign page's step rows load with the rest of their health measures.
+    const { stepStats } = await campaignTelemetry();
+    expect(stepStats.map((s: any) => s.reported)).toEqual([1, 1]);
+  });
+
+  it("always loads the reported count, the delivery rate's base, with one grouped count (stats A3)", async () => {
+    addDispatch({ id: 'd1', deliveredAt: at(1), deliveryStatus: 'Delivered' });
+
+    const plain = await stepMetrics(fake as any, ['cmp-1']);
+    expect(plain('cmp-1', 1)).toMatchObject({ sent: 1, delivered: 1, reported: 1, deliveryRate: 100 });
+    // By status, delivered and reported: one grouped count each.
+    expect(fake.emailDispatch.groupBy).toHaveBeenCalledTimes(3);
+    expect(fake.emailDispatch.count).not.toHaveBeenCalled();
+    expect(fake.$queryRaw).not.toHaveBeenCalled();
+  });
+
+  it('leaves the campaign funnel\'s Delivered stage out until a report arrives for one of its emails, then draws it (stats A2)', async () => {
+    // Sent before delivery reports, so none arrived.
+    addDispatch({ id: 'd1', events: [event('open')] });
+    addDispatch({ id: 'd2' });
+    // Another campaign's report says nothing about cmp-1's emails.
+    addDispatch({ id: 'theirs', campaignId: 'cmp-2', senderAccountId: 'mb-2', deliveredAt: at(1), deliveryStatus: 'Delivered' });
+    const stages = async () => (await campaignTelemetry()).funnel.map((s: any) => [s.name, s.value]);
+
+    expect(await stages()).toEqual([['Sent', 2], ['Opened', 1], ['Clicked', 0], ['Replied', 0], ['Meeting Booked', 0]]);
+
+    // A report that the email was not delivered is still a report, so the stage's 0 is now measured.
+    addDispatch({ id: 'd3', deliveryStatus: 'Bounced', bounceType: 'soft', bouncedAt: at(1) });
+    expect(await stages()).toEqual([['Sent', 3], ['Delivered', 0], ['Opened', 1], ['Clicked', 0], ['Replied', 0], ['Meeting Booked', 0]]);
+
+    addDispatch({ id: 'd4', deliveredAt: at(1), deliveryStatus: 'Delivered' });
+    expect(await stages()).toEqual([['Sent', 4], ['Delivered', 1], ['Opened', 1], ['Clicked', 0], ['Replied', 0], ['Meeting Booked', 0]]);
+  });
+});
+
+describe('the delivery rate is of the emails a delivery report arrived for (stats A3)', () => {
+  /**
+   * 20 accepted emails, on both steps, no delivery report has arrived for. Then
+   * a mailbox test a report arrived for, and 11 more of the campaign's emails:
+   * 10 reported (9 delivered, 1 hard bounce) and 1 whose report has not arrived.
+   */
+  function partlyReported() {
+    for (let i = 1; i <= 20; i++) addDispatch({ id: `old-${i}`, stepOrder: (i % 2) + 1, sentAt: at(20) });
+    addDispatch({ id: 'mailbox-test', leadId: null, campaignId: null, stepOrder: null, sentAt: at(3), deliveredAt: at(3), deliveryStatus: 'Delivered' });
+    for (let i = 1; i <= 9; i++) addDispatch({ id: `new-${i}`, deliveredAt: at(1), deliveryStatus: 'Delivered' });
+    addDispatch({ id: 'new-hard', deliveryStatus: 'Bounced', bounceType: 'hard', bouncedAt: at(1) });
+    addDispatch({ id: 'new-unreported' });
+  }
+
+  it('leaves out the emails no report arrived for, on the campaign, each step, each mailbox and the Accounts page', async () => {
+    partlyReported();
+
+    // Over every email sent, 9 of 31 would read 29%.
+    const telemetry = await campaignTelemetry();
+    expect(telemetry).toMatchObject({ sent: 31, delivered: 9, deliveryRate: 90 });
+    expect(telemetry.stepStats[0]).toMatchObject({ sent: 21, delivered: 9, reported: 10, deliveryRate: 90 });
+    // Nothing reported, so the page shows Delivered as unknown, not 0%.
+    expect(telemetry.stepStats[1]).toMatchObject({ sent: 10, delivered: 0, reported: 0, deliveryRate: 0 });
+    expect(telemetry.mailboxes[0]).toMatchObject({ senderAccountId: 'mb-1', sent: 31, reported: 10, deliveryRate: 90 });
+    // The mailbox test is not a campaign send, so it counts nowhere.
+    expect(await mailbox()).toMatchObject({ sentTotal: 31, delivered: 9, reported: 10, deliveryRate: 90 });
+  });
+
+  it('counts every email with no report as not received, whenever it was sent', async () => {
+    partlyReported();
+
+    const { delivery } = await campaignTelemetry();
+    expect(delivery).toEqual({
+      accepted: 31, reported: 10, delivered: 9, expanded: 0, spam: 0, quarantined: 0,
+      softBounced: 0, hardBounced: 1, otherReported: 0, noReport: 21,
+    });
+  });
+
+  it("draws the funnel's Delivered stage once a report has arrived for one of the campaign's emails, however many have none", async () => {
+    partlyReported();
+
+    const { funnel } = await campaignTelemetry();
+    expect(funnel.map((s: any) => [s.name, s.value])).toEqual([
+      ['Sent', 31], ['Delivered', 9], ['Opened', 0], ['Clicked', 0], ['Replied', 0], ['Meeting Booked', 0],
+    ]);
+  });
+
+  it('counts the breakdown with one grouped query, whenever the emails with no report were sent', async () => {
+    const scope = { kind: 'campaign' as const, campaignId: 'cmp-1' };
+    addDispatch({ id: 'earlier', sentAt: at(2) });
+    addDispatch({ id: 'reported', deliveredAt: at(1), deliveryStatus: 'Delivered' });
+    addDispatch({ id: 'theirs', campaignId: 'cmp-2', senderAccountId: 'mb-2', sentAt: at(2) });
+
+    expect(await deliveryBreakdown(fake as any, scope)).toMatchObject({ accepted: 2, reported: 1, delivered: 1, noReport: 1 });
+    expect(fake.emailDispatch.groupBy).toHaveBeenCalledTimes(1);
+    expect(fake.emailDispatch.count).not.toHaveBeenCalled();
+  });
+});
+
+describe('an email counted Delivered is not also counted as Bounced or Spam (stats A14)', () => {
+  /**
+   * Five emails a Delivered report arrived for, four of them followed by
+   * another report, as a distribution list's members' reports can be. Each
+   * later report replaces the status and leaves deliveredAt set, as the
+   * webhook does (webhook.test).
+   */
+  function deliveredThenReported() {
+    addDispatch({ id: 'delivered', deliveredAt: at(1), deliveryStatus: 'Delivered', events: [event('open')] });
+    addDispatch({ id: 'then-spam', deliveredAt: at(1), deliveryStatus: 'FilteredSpam' });
+    addDispatch({ id: 'then-held', deliveredAt: at(1), deliveryStatus: 'Quarantined' });
+    addDispatch({ id: 'then-soft', deliveredAt: at(1), deliveryStatus: 'Failed', bounceType: 'soft', bouncedAt: at(1) });
+    addDispatch({ id: 'then-hard', deliveredAt: at(1), deliveryStatus: 'Bounced', bounceType: 'hard', bouncedAt: at(1) });
+  }
+
+  it('counts each email under its last outcome alone, on the campaign, its funnel, each step, each mailbox and the Accounts page', async () => {
+    deliveredThenReported();
+
+    // Counted by deliveredAt, Delivered read 5 of 5 (100%) beside 1 bounced, 1 spam and 1 quarantined.
+    const telemetry = await campaignTelemetry();
+    expect(telemetry).toMatchObject({ sent: 5, delivered: 1, deliveryRate: 20, bounced: 1 });
+    expect(telemetry.delivery).toMatchObject({
+      accepted: 5, reported: 5, delivered: 1, spam: 1, quarantined: 1, softBounced: 1, hardBounced: 1,
+    });
+    const { delivered, spam, quarantined, softBounced, hardBounced, reported } = telemetry.delivery;
+    expect(delivered + spam + quarantined + softBounced + hardBounced).toBe(reported);
+    expect(telemetry.funnel.find((s: any) => s.name === 'Delivered')).toMatchObject({ value: 1 });
+    expect(telemetry.stepStats[0]).toMatchObject({ sent: 5, delivered: 1, reported: 5, deliveryRate: 20 });
+    expect(telemetry.mailboxes[0]).toMatchObject({ senderAccountId: 'mb-1', delivered: 1, reported: 5, deliveryRate: 20 });
+    expect(await mailbox()).toMatchObject({ sentTotal: 5, delivered: 1, reported: 5, deliveryRate: 20 });
+    const listed = await stepMetrics(fake as any, ['cmp-1']);
+    expect(listed('cmp-1', 1)).toMatchObject({ sent: 5, delivered: 1, reported: 5 });
+  });
+
+  it('leaves them out of the open rate\'s base too, as any email a report says was not delivered, unless a person opened it', async () => {
+    deliveredThenReported();
+
+    // Counted by deliveredAt, all 5 were in the base: 1 opened of 5 = 20%.
+    expect(await campaignTelemetry()).toMatchObject({ opens: 1, openRate: 100 });
+
+    // An open proves the email arrived, whatever the last report said.
+    dispatches.find((d) => d.id === 'then-spam')!.events.push(event('open'));
+    expect(await campaignTelemetry()).toMatchObject({ delivered: 1, opens: 2, openRate: 100 });
+  });
+});
+
+describe('the bounce rate is of the emails whose outcome is known, to two decimals (stats A5)', () => {
+  it('leaves out the emails no delivery report arrived for, so they never dilute the rate, on the campaign, each step and each mailbox', async () => {
+    // No report arrived for these yet: each may still bounce.
+    for (let i = 1; i <= 6; i++) addDispatch({ id: `old-${i}` });
+    addDispatch({ id: 'delivered-1', deliveredAt: at(1), deliveryStatus: 'Delivered' });
+    addDispatch({ id: 'delivered-2', deliveredAt: at(1), deliveryStatus: 'Delivered' });
+    addDispatch({ id: 'hard', deliveryStatus: 'Bounced', bounceType: 'hard', bouncedAt: at(1) });
+    // A soft bounce is a known outcome that is not a hard bounce.
+    addDispatch({ id: 'soft', deliveryStatus: 'Bounced', bounceType: 'soft', bouncedAt: at(1) });
+    // Refused when sending: a known outcome with no report.
+    addDispatch({ id: 'at-send', status: 'Failed', events: [event('bounce')] });
+    // Failed for another reason: its outcome is not a bounce, nor a send.
+    addDispatch({ id: 'failed', status: 'Failed', events: [event('send_failed')] });
+
+    // The old base, every email sent plus the send-time bounce, read 2 of 11 = 18.2%.
+    const telemetry = await campaignTelemetry();
+    expect(telemetry).toMatchObject({ sent: 10, bounced: 2, bounceBase: 5, bounceRate: 40 });
+    expect(telemetry.stepStats[0]).toMatchObject({ sent: 10, bounced: 2, bounceBase: 5, bounceRate: 40 });
+    expect(telemetry.mailboxes[0]).toMatchObject({ senderAccountId: 'mb-1', bounced: 2, bounceBase: 5, bounceRate: 40 });
+  });
+
+  it('counts every bounce found when sending in the rate, so one from before the first delivery report is not left out of it', async () => {
+    // A new campaign's first address is refused when sending, before a
+    // delivery report arrived for any of its emails; reports arrive for the next.
+    addDispatch({ id: 'refused-first', status: 'Failed', sentAt: at(3, 9), events: [event('bounce', at(3, 9))] });
+    addDispatch({ id: 'delivered-1', sentAt: at(3, 10), deliveredAt: at(3, 10), deliveryStatus: 'Delivered' });
+    addDispatch({ id: 'delivered-2', sentAt: at(2), deliveredAt: at(2), deliveryStatus: 'Delivered' });
+    addDispatch({ id: 'hard', sentAt: at(2), deliveryStatus: 'Bounced', bounceType: 'hard', bouncedAt: at(2) });
+    // Step 2: one address refused when sending, and no report yet for the email it sent.
+    addDispatch({ id: 'refused-step-2', stepOrder: 2, status: 'Failed', events: [event('bounce')] });
+    addDispatch({ id: 'unreported-step-2', stepOrder: 2 });
+
+    // The 3 reported emails and the 2 refused when sending: 3 bounces in 5.
+    const telemetry = await campaignTelemetry();
+    expect(telemetry).toMatchObject({ sent: 4, bounced: 3, bounceBase: 5, bounceRate: 60 });
+    expect(telemetry.mailboxes[0]).toMatchObject({ senderAccountId: 'mb-1', bounced: 3, bounceBase: 5, bounceRate: 60 });
+    // Step 1's rate counts its early refusal: 2 in 4, not 1 in 3.
+    expect(telemetry.stepStats[0]).toMatchObject({ reported: 3, bounced: 2, bounceBase: 4, bounceRate: 50 });
+
+    // The page shows each rate with nothing left out of it.
+    const campaign = { noDeliveryReports: false };
+    expect(bounceFigure({ ...telemetry, reported: telemetry.delivery.reported }, campaign)).toEqual({ count: 3, rate: '60%', note: null });
+    expect(bounceFigure(telemetry.stepStats[0], campaign)).toEqual({ count: 2, rate: '50%', note: null });
+    // No report arrived for step 2's emails, so its refusal shows with no rate, not as 100%.
+    expect(telemetry.stepStats[1]).toMatchObject({ reported: 0, bounced: 1, bounceBase: 1, bounceRate: 100 });
+    expect(bounceFigure(telemetry.stepStats[1], campaign)).toEqual({ count: 1, rate: null, note: 'sendTimeOnly' });
+  });
+
+  it('keeps two decimals, so a few bounces in many emails do not read 0%', async () => {
+    addDispatch({ id: 'hard', deliveryStatus: 'Bounced', bounceType: 'hard', bouncedAt: at(1) });
+    addDispatch({ id: 'delivered-1', deliveredAt: at(1), deliveryStatus: 'Delivered' });
+    addDispatch({ id: 'delivered-2', deliveredAt: at(1), deliveryStatus: 'Delivered' });
+
+    // Other rates keep one decimal.
+    expect(await campaignTelemetry()).toMatchObject({ bounced: 1, bounceBase: 3, bounceRate: 33.33, deliveryRate: 66.7 });
+    // 52 bounces in 187,852 emails is 0.03%, which one decimal rounds to 0.
+    expect(percent(52, 187_852, 2)).toBe(0.03);
+    expect(percent(52, 187_852)).toBe(0);
+  });
+
+  it('counts a period\'s base by when the reported emails were sent and when the bounces happened', async () => {
+    const period = { gte: at(6, 0), lte: NOW };
+    addDispatch({ id: 'reported-in', deliveredAt: at(1), deliveryStatus: 'Delivered' });
+    addDispatch({ id: 'reported-before', sentAt: at(20), deliveredAt: at(20), deliveryStatus: 'Delivered' });
+    addDispatch({ id: 'unreported-in' });
+    // Sent before the period, bounced in it.
+    addDispatch({ id: 'bounced-in', sentAt: at(20), deliveryStatus: 'Bounced', bounceType: 'hard', bouncedAt: at(2) });
+
+    expect(await healthSummary(fake as any, { kind: 'campaign', campaignId: 'cmp-1' }, period))
+      .toMatchObject({ bounced: 1, bounceBase: 2, bounceRate: 50 });
+  });
+});
+
+describe('the dashboard says replies are not read while no mailbox has reply sync on (stats A11)', () => {
+  const IMAP = { imapHost: 'imap.acme.test', imapPort: 993, imapUser: 'sales@acme.test', imapPass: 'encrypted' };
+
+  /** What the dashboard says about replies: its reply-sync state, the count, and the funnel's stages. */
+  async function shown() {
+    const { stats, funnel } = await dashboard();
+    return { replySync: stats.replySync, totalReplies: stats.totalReplies, stages: funnel.map((s: any) => [s.name, s.value]) };
+  }
+
+  it('leaves Replied out of the funnel while no mailbox reads replies, and draws its 0 once one does', async () => {
+    addDispatch({ id: 'd1' });
+
+    expect(await shown()).toEqual({
+      replySync: 'off', totalReplies: 0,
+      stages: [['Sent', 1], ['Opened', 0], ['Clicked', 0], ['Meeting Booked', 0]],
+    });
+
+    // A paused mailbox is never synced, whatever its IMAP details.
+    imap['mb-1'] = { ...IMAP, status: 'Paused' };
+    expect((await shown()).replySync).toBe('off');
+
+    // IMAP saved and not synced yet: replies are read from now on, so the 0 is a count.
+    imap['mb-1'] = IMAP;
+    expect(await shown()).toEqual({
+      replySync: 'waiting', totalReplies: 0,
+      stages: [['Sent', 1], ['Opened', 0], ['Clicked', 0], ['Replied', 0], ['Meeting Booked', 0]],
+    });
+  });
+
+  it("reads the reply sync of the mailboxes whose replies it counts: the user's own, or every one for admins", async () => {
+    imap['mb-2'] = { ...IMAP, imapLastSyncAt: at(0) };
+
+    expect((await dashboard()).stats.replySync).toBe('off');
+    expect(fake.senderAccount.findMany).toHaveBeenLastCalledWith(expect.objectContaining({ where: { userId: 'user-1' } }));
+    mockedSession.mockResolvedValue(OTHER_USER);
+    expect((await dashboard()).stats.replySync).toBe('ok');
+    mockedSession.mockResolvedValue(ADMIN);
+    expect((await dashboard()).stats.replySync).toBe('ok');
+  });
+
+  it('is off while the only mailbox that syncs has a Reply-To that is not a mailbox, so its replies land there unread (stats A13)', async () => {
+    addDispatch({ id: 'd1' });
+    // As in HR Leads Initial, the only mailbox that syncs has a Reply-To that is a different address and
+    // not a mailbox (here in odd case and with spacing), so replies to its emails are never read.
+    imap['mb-1'] = { ...IMAP, imapLastSyncAt: at(0), replyTo: 'Sales@Elsewhere.test ' };
+
+    expect(await shown()).toEqual({
+      replySync: 'off', totalReplies: 0,
+      stages: [['Sent', 1], ['Opened', 0], ['Clicked', 0], ['Meeting Booked', 0]],
+    });
+    // A Reply-To of its own address is read by its own sync.
+    imap['mb-1'] = { ...IMAP, imapLastSyncAt: at(0), replyTo: ' MB-1@acme.test' };
+    expect((await shown()).replySync).toBe('ok');
+  });
+
+  it('still counts the replies recorded before reply sync was turned off', async () => {
+    replies.push({ id: 'r1', campaignId: 'cmp-1', senderAccountId: 'mb-1', receivedAt: at(0) });
+
+    const { stats, funnel } = await dashboard();
+    expect(stats).toMatchObject({ replySync: 'off', totalReplies: 1 });
+    expect(funnel).toContainEqual({ name: 'Replied', value: 1, unit: 'Replies' });
+  });
+});
+
+describe('the Accounts page gives replies per 100 emails sent, not a reply rate of leads (stats A12)', () => {
+  /** A mailbox's address and IMAP details, its reply sync last succeeding today. */
+  const synced = (id: string) => ({
+    emailAddress: `${id}@acme.test`, status: 'Active',
+    imapHost: 'imap.acme.test', imapPort: 993, imapUser: `${id}@acme.test`, imapPass: 'encrypted', imapLastSyncAt: at(0),
+  });
+
+  it("counts the replies that arrived in the mailbox, a Reply-To's included, per 100 of the emails it sent", async () => {
+    addDispatch({ id: 'd1' });
+    addDispatch({ id: 'd2', stepOrder: 2 });
+    addDispatch({ id: 'd3', leadId: 'lead-2' });
+    addDispatch({ id: 'd4', leadId: 'lead-3' });
+    addDispatch({ id: 'theirs', campaignId: 'cmp-2', senderAccountId: 'mb-2', leadId: 'lead-4' });
+    replies.push(
+      { id: 'r1', campaignId: 'cmp-1', senderAccountId: 'mb-1', receivedAt: at(0) },
+      // mb-1 is mb-2's Reply-To: it answers an email mb-2 sent, to a lead mb-1 never contacted.
+      { id: 'r2', campaignId: 'cmp-2', senderAccountId: 'mb-1', receivedAt: at(0) },
+    );
+
+    const mb1 = await mailbox('mb-1', synced('mb-1'));
+    expect(mb1).toMatchObject({ sentTotal: 4, replies: 2, repliesPer100Sent: 50 });
+    expect(mb1).not.toHaveProperty('replyRate');
+    const mb2 = await mailbox('mb-2', { ...synced('mb-2'), replyTo: 'mb-1@acme.test' });
+    expect(mb2).toMatchObject({ sentTotal: 1, replies: 0, repliesPer100Sent: 0 });
+
+    // On the page: mb-1's replies answer mb-2's emails too, so it gives no figure per 100 of its own;
+    // mb-2's replies are counted on mb-1, so its 0 per 100 would say its lead never replied.
+    expect(mailboxRepliesFigure(mb1, [mb1, mb2])).toEqual({
+      count: 2, sub: 'Reply-To for 1 mailbox',
+      caveat: 'This mailbox is the Reply-To address of mb-2@acme.test, so its count includes replies to their emails.',
+    });
+    expect(mailboxRepliesFigure(mb2, [mb1, mb2])).toEqual({
+      count: 0, sub: 'Replies go to mb-1@acme.test',
+      caveat: "Replies to this mailbox's emails go to its Reply-To address, mb-1@acme.test, so they are not counted here.",
+    });
+    // Without the Reply-To, mb-1's figure is of its own emails.
+    expect(mailboxRepliesFigure(mb1, [mb1])).toEqual({ count: 2, sub: '50 replies per 100 emails sent', caveat: null });
+  });
+
+  it('gives no figure per 100 emails for a mailbox that sent none, rather than 0', async () => {
+    // mb-1 only receives replies, as mb-2's Reply-To: none answers an email of its own.
+    addDispatch({ id: 'theirs', campaignId: 'cmp-2', senderAccountId: 'mb-2', leadId: 'lead-4' });
+    replies.push({ id: 'r1', campaignId: 'cmp-2', senderAccountId: 'mb-1', receivedAt: at(0) });
+
+    const inbox = await mailbox('mb-1', synced('mb-1'));
+    expect(inbox).toMatchObject({ sentTotal: 0, replies: 1, repliesPer100Sent: null });
+    expect(mailboxRepliesFigure(inbox).sub).toBe('No campaign emails sent from this mailbox');
+    const sender = await mailbox('mb-2', { ...synced('mb-2'), replyTo: 'mb-1@acme.test' });
+    expect(mailboxRepliesFigure(inbox, [inbox, sender])).toMatchObject({ count: 1, sub: 'Reply-To for 1 mailbox' });
+
+    // A new mailbox: reply sync works, nothing sent or received yet.
+    replies.length = 0;
+    expect(mailboxRepliesFigure(await mailbox('mb-1', synced('mb-1')))).toEqual({
+      count: 0, sub: 'No campaign emails sent from this mailbox', caveat: null,
+    });
+  });
+});
+
+describe('the dashboard and the Accounts page count every open and click, whenever it was recorded', () => {
+  it('give no before-and-after split of them', async () => {
+    // This period's email opened; the prior period's clicked, which counts as opened too.
+    addDispatch({ id: 'current', events: [event('open')] });
+    addDispatch({ id: 'prior', leadId: 'lead-2', sentAt: at(10), events: [event('click', at(10, 13))] });
+
+    const { stats } = await dashboard();
+    expect(stats.averageOpenRate).toBe(100);
+    expect(stats).not.toHaveProperty('engagedBeforeBotFilterFix');
+    expect(stats).not.toHaveProperty('priorEngagedBeforeBotFilterFix');
+
+    const mb1 = await mailbox('mb-1');
+    expect(mb1).toMatchObject({ opens: 2, clicks: 1 });
+    expect(mb1).not.toHaveProperty('engagedBeforeBotFilterFix');
   });
 });
 
@@ -232,7 +620,12 @@ describe('only campaign sequence sends ACS accepted count as sent (L7, M38)', ()
     addDispatch({ id: 'soft', status: 'Failed', sentAt: at(0), events: [event('send_failed', at(0))] });
 
     expect(await mailbox()).toMatchObject({ sentTotal: 1, bounced: 1 });
-    expect(await campaignTelemetry()).toMatchObject({ sent: 1, bounced: 1, failed: 2, bounceRate: 50 });
+    // No report arrived for any of the campaign's emails, so the page shows the
+    // bounce found when sending with no rate, not as 100% (stats A5).
+    const telemetry = await campaignTelemetry();
+    expect(telemetry).toMatchObject({ sent: 1, bounced: 1, failed: 2, bounceBase: 1, bounceRate: 100 });
+    expect(bounceFigure({ ...telemetry, reported: telemetry.delivery.reported }, { noDeliveryReports: true }))
+      .toEqual({ count: 1, rate: null, note: 'sendTimeOnly' });
     expect((await dashboard()).stats).toMatchObject({ bounced: 1, failed: 2 });
   });
 });

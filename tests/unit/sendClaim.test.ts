@@ -43,7 +43,7 @@ vi.mock('../../lib/emailProvider', async (importOriginal) => ({
 import { getSession } from '../../lib/session';
 import { getGlobalSettings } from '../../lib/settings';
 import { checkGlobalRateLimits } from '../../lib/rateLimits';
-import { sendMessage, getAzureSendStatus } from '../../lib/emailProvider';
+import { sendMessage, getAzureSendStatus, EmailSendUnconfirmedError, AZURE_SEND_TIMEOUT_MS } from '../../lib/emailProvider';
 import { processDueEmails, BOOKKEEPING_RETRIES, MAX_SEND_ATTEMPTS, SENDER_CAP_WINDOW_MS } from '../../lib/sendEngine';
 import { matchesWhere } from './helpers/prismaWhere';
 import { SEND_CLAIM_TTL_MS, claimEnrollmentForSend, releaseEnrollmentClaim, sendableEnrollmentWhere } from '../../lib/sendEligibility';
@@ -1099,6 +1099,86 @@ describe('sends interrupted by a crash are reconciled with ACS (H6)', () => {
 
     expect(mockedStatus).not.toHaveBeenCalled();
     expect(dispatches[0].status).toBe('Sending');
+  });
+});
+
+describe('a send ACS does not confirm in time is left Sending for the reconciler, never failed or sent again (stats S11)', () => {
+  const staleAt = () => new Date(Date.now() - STALE_SENDING_MS - 60_000);
+  /** sendMessage giving up on ACS after its timeout, under the operation id it was given. */
+  const unconfirmed = (accepted: boolean) => async (input: { operationId?: string }) => {
+    throw new EmailSendUnconfirmedError(input.operationId!, accepted, AZURE_SEND_TIMEOUT_MS);
+  };
+
+  it('gives up on ACS long before the send claim lapses or the reconciler would take the dispatch for an interrupted send', () => {
+    expect(AZURE_SEND_TIMEOUT_MS).toBeLessThanOrEqual(SEND_CLAIM_TTL_MS / 10);
+    expect(AZURE_SEND_TIMEOUT_MS).toBeLessThanOrEqual(STALE_SENDING_MS / 10);
+  });
+
+  it.each([
+    ['accepted the send but gave no final status', true],
+    ['never answered the POST', false],
+  ])('leaves the dispatch Sending under its operation id when ACS %s in time, records no failure, and ends the cycle', async (_label, accepted) => {
+    addLead('lead-2');
+    mockedSend.mockImplementationOnce(unconfirmed(accepted));
+
+    await processDueEmails();
+
+    expect(mockedSend).toHaveBeenCalledTimes(1);
+    const { operationId } = mockedSend.mock.calls[0][0];
+    expect(dispatches).toHaveLength(1);
+    expect(dispatches[0]).toMatchObject({ leadId: 'lead-1', stepOrder: 1, status: 'Sending', operationId });
+    expect(fake.emailDispatch.update).not.toHaveBeenCalled();
+    expect(fake.lead.update).not.toHaveBeenCalled();
+    expect(campaign.status).toBe('Active');
+    expect(enrollmentOf('lead-1')).toMatchObject({
+      status: 'Active', currentSequenceStep: 1, retryCount: 0, lastError: null, nextActionDate: PAST, claimToken: null, claimedAt: null,
+    });
+    // The cycle ended rather than wait on ACS again for the next lead.
+    expect(enrollmentOf('lead-2')).toMatchObject({ currentSequenceStep: 1, nextActionDate: PAST });
+
+    // The next cycle sends the next lead but leaves the unconfirmed step alone.
+    await processDueEmails();
+    expect(mockedSend.mock.calls.map(([msg]) => msg.to)).toEqual(['lead-1@prospect.test', 'lead-2@prospect.test']);
+    expect(dispatches.filter((d) => d.leadId === 'lead-1')).toHaveLength(1);
+  });
+
+  it('records the send Sent and advances the enrollment once ACS reports it accepted, without sending it again', async () => {
+    mockedSend.mockImplementationOnce(unconfirmed(true));
+    await processDueEmails();
+    const { operationId } = mockedSend.mock.calls[0][0];
+    dispatches[0].sentAt = staleAt();
+    mockedStatus.mockResolvedValue({ status: 'Succeeded' });
+
+    await reconcileStaleSendingDispatches();
+
+    expect(mockedStatus).toHaveBeenCalledWith(operationId, expect.anything());
+    expect(dispatches).toHaveLength(1);
+    expect(dispatches[0]).toMatchObject({ status: 'Sent', messageId: operationId });
+    expect(enrollmentOf('lead-1')).toMatchObject({ currentSequenceStep: 2, retryCount: 0, claimToken: null });
+
+    await processDueEmails();
+    expect(mockedSend).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends the step again only once ACS says it never received the send', async () => {
+    mockedSend.mockImplementationOnce(unconfirmed(false));
+    await processDueEmails();
+    const first = mockedSend.mock.calls[0][0].operationId;
+
+    // Until the reconciler has asked ACS, the step is not sent again.
+    await processDueEmails();
+    expect(mockedSend).toHaveBeenCalledTimes(1);
+
+    dispatches[0].sentAt = staleAt();
+    mockedStatus.mockResolvedValue({ status: 'NotFound' });
+    await reconcileStaleSendingDispatches();
+    expect(mockedStatus).toHaveBeenCalledWith(first, expect.anything());
+    expect(dispatches).toHaveLength(0);
+
+    await processDueEmails();
+    expect(mockedSend).toHaveBeenCalledTimes(2);
+    expect(mockedSend.mock.calls[1][0].operationId).not.toBe(first);
+    expect(dispatches).toEqual([expect.objectContaining({ status: 'Sent', stepOrder: 1 })]);
   });
 });
 

@@ -6,10 +6,12 @@ import Link from 'next/link';
 import {
   Plus, CheckCircle2, AlertCircle, Mail, Flame, ArrowLeft, Sliders,
   ChevronRight, Gauge, User, Activity, Save, Send, Loader2, Trash2, Eye, EyeOff, ShieldAlert,
-  MailCheck, MailWarning, MailX, Clock, Settings, RefreshCw,
+  MailCheck, MailWarning, MailX, Clock, Settings, RefreshCw, AlertTriangle,
 } from 'lucide-react';
 import { TableSkeleton } from '@/components/Skeleton';
-import { IMAP_SYNC_LABELS, MICROSOFT_IMAP_NOTE, imapSyncState, isMicrosoftImapHost } from '@/lib/imapSyncStatus';
+import { IMAP_SYNC_LABELS, MICROSOFT_IMAP_NOTE, imapSyncState, isMicrosoftImapHost, mailboxRepliesFigure } from '@/lib/imapSyncStatus';
+import { deliveryRateText } from '@/lib/deliveryStats';
+import { bounceFigure } from '@/lib/bounceStats';
 import { useToast } from '@/components/Toast';
 import { LoadError, loadErrorMessage, readJsonList, readJsonObject, responseErrorMessage } from '@/lib/apiResponse';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -117,6 +119,58 @@ function ReplySyncChip({ account, withTooltip = true }: { account: any; withTool
   const Icon = REPLY_SYNC_ICONS[state];
   const chip = <Chip size="small" icon={<Icon size={11} />} label={IMAP_SYNC_LABELS[state]} color={REPLY_SYNC_COLORS[state]} variant="outlined" sx={{ fontWeight: 700, fontSize: 10 }} />;
   return withTooltip ? <MuiTooltip title={replySyncDetail(account)}>{chip}</MuiTooltip> : chip;
+}
+
+const NO_DELIVERY_REPORTS_NOTE = "No delivery reports have arrived for this mailbox's emails, so how many were delivered is not known.";
+
+/** Whether the mailbox sent emails but no delivery report arrived for any of them, so its Delivered is unknown rather than 0. */
+function deliveryUnknown(account: any): boolean {
+  return (account.sentTotal ?? 0) > 0 && (account.reported ?? 0) === 0;
+}
+
+const NO_BOUNCE_REPORTS_NOTE = "No delivery reports have arrived for this mailbox's emails and none bounced when sending, so how many bounced is not known.";
+
+/**
+ * Whether the mailbox's Bounced is unknown rather than 0 (bounceFigure, as the campaign page's mailbox rows):
+ * it sent emails, no delivery report arrived for any of them and none bounced when sending.
+ */
+function bouncesUnknown(account: any): boolean {
+  const row = { sent: account.sentTotal ?? 0, reported: account.reported ?? 0, bounced: account.bounced };
+  // The mailbox's own emails decide it, as noReportsFor does for a mailbox row.
+  return bounceFigure(row, { noDeliveryReports: false }).count === null;
+}
+
+/** A tile of the mailbox's deliverability stats; a `caveat` shows as a warning mark beside its description. */
+type StatTile = { title: string; value: string | number; desc: string; caveat?: string | null };
+
+/** The mailbox's Replies tile (mailboxRepliesFigure): '—' where its count is unknown. */
+function repliesTile(account: any, accounts: any[]) {
+  const { count, sub, caveat } = mailboxRepliesFigure(account, accounts);
+  return { title: 'Replies', value: count ?? '—', desc: sub, caveat };
+}
+
+/** A small warning mark with its reason on hover and focus. */
+function CaveatMark({ note }: { note: string }) {
+  return (
+    <MuiTooltip title={note} arrow>
+      <Box component="span" tabIndex={0} aria-label={note} sx={{ display: 'inline-flex', color: 'warning.main', verticalAlign: 'middle', ml: 0.5 }}>
+        <AlertTriangle size={12} />
+      </Box>
+    </MuiTooltip>
+  );
+}
+
+/** A mailbox row's Replies, as its Replies tile (mailboxRepliesFigure): '—' where the count is unknown, and its caveat as a warning mark. */
+function RowReplies({ account, accounts }: { account: any; accounts: any[] }) {
+  const { count, caveat } = mailboxRepliesFigure(account, accounts);
+  return (
+    <span>Replies: {count === null ? (
+      // Unknown only while the mailbox's own reply sync is off, which replySyncDetail explains.
+      <MuiTooltip title={replySyncDetail(account)}>
+        <Box component="strong" tabIndex={0} aria-label="Reply sync off">—</Box>
+      </MuiTooltip>
+    ) : <strong>{count}</strong>}{caveat && <CaveatMark note={caveat} />}</span>
+  );
 }
 
 export default function AccountsPage() {
@@ -469,11 +523,19 @@ export default function AccountsPage() {
                               <Typography variant="caption" sx={{ color: 'text.secondary' }}>{account.name} • {account.provider}</Typography>
                               <Stack direction="row" spacing={1.5} sx={{ mt: 0.5, fontFamily: 'monospace', fontSize: 9, color: 'text.secondary', flexWrap: 'wrap' }}>
                                 <span>Sent: <strong>{account.sentTotal ?? 0}</strong></span>
-                                <span>Delivered: <Box component="strong" sx={{ color: 'success.main' }}>{account.delivered ?? 0}</Box></span>
+                                <span>Delivered: {deliveryUnknown(account) ? (
+                                  <MuiTooltip title={NO_DELIVERY_REPORTS_NOTE}>
+                                    <Box component="strong" tabIndex={0} aria-label="No delivery reports">—</Box>
+                                  </MuiTooltip>
+                                ) : <><Box component="strong" sx={{ color: 'success.main' }}>{account.delivered ?? 0}</Box> ({deliveryRateText(account.deliveryRate, account.reported)})</>}</span>
                                 <span>Opens: <strong>{account.opens ?? 0}</strong> ({account.openRate ?? 0}%)</span>
                                 <span>Clicks: <strong>{account.clicks ?? 0}</strong> ({account.clickRate ?? 0}%)</span>
-                                <span>Replies: <strong>{account.replies ?? 0}</strong></span>
-                                <span>Bounces: <Box component="strong" sx={{ color: 'error.main' }}>{account.bounced ?? 0}</Box></span>
+                                <RowReplies account={account} accounts={accounts} />
+                                <span>Bounces: {bouncesUnknown(account) ? (
+                                  <MuiTooltip title={NO_BOUNCE_REPORTS_NOTE}>
+                                    <Box component="strong" tabIndex={0} aria-label="No delivery reports">—</Box>
+                                  </MuiTooltip>
+                                ) : <Box component="strong" sx={{ color: 'error.main' }}>{account.bounced ?? 0}</Box>}</span>
                               </Stack>
                             </Box>
                           </Stack>
@@ -544,16 +606,21 @@ export default function AccountsPage() {
               <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)', md: 'repeat(6, 1fr)' }, gap: 2 }}>
                 {[
                   { title: 'Total Sent', value: selectedWarmupAccount.sentTotal ?? 0, desc: 'All campaigns' },
-                  { title: 'Delivered', value: selectedWarmupAccount.delivered ?? 0, desc: `${selectedWarmupAccount.deliveryRate ?? 0}% delivery rate` },
+                  deliveryUnknown(selectedWarmupAccount)
+                    ? { title: 'Delivered', value: '—', desc: 'No delivery reports for these emails' }
+                    : { title: 'Delivered', value: selectedWarmupAccount.delivered ?? 0, desc: deliveryRateText(selectedWarmupAccount.deliveryRate, selectedWarmupAccount.reported) },
                   { title: 'Unique Opens', value: selectedWarmupAccount.opens ?? 0, desc: `${selectedWarmupAccount.openRate ?? 0}% open rate` },
                   { title: 'Unique Clicks', value: selectedWarmupAccount.clicks ?? 0, desc: `${selectedWarmupAccount.clickRate ?? 0}% click rate` },
-                  { title: 'Replies', value: selectedWarmupAccount.replies ?? 0, desc: `${selectedWarmupAccount.replyRate ?? 0}% reply rate` },
-                  { title: 'Bounced', value: selectedWarmupAccount.bounced ?? 0, desc: 'Hard bounces' },
-                ].map((s, idx) => (
+                  // Per 100 emails sent where that means something, not a share of leads: replies to this mailbox may answer another mailbox's emails.
+                  repliesTile(selectedWarmupAccount, accounts),
+                  bouncesUnknown(selectedWarmupAccount)
+                    ? { title: 'Bounced', value: '—', desc: 'No delivery reports for these emails', caveat: NO_BOUNCE_REPORTS_NOTE }
+                    : { title: 'Bounced', value: selectedWarmupAccount.bounced ?? 0, desc: 'Hard bounces' },
+                ].map((s: StatTile, idx) => (
                   <Box key={idx} sx={{ p: 1.5, bgcolor: 'action.hover', borderRadius: '12px', border: 1, borderColor: 'divider' }}>
                     <Typography variant="overline" sx={{ color: 'text.secondary', fontWeight: 700, fontSize: 9 }}>{s.title}</Typography>
                     <Typography variant="h6" sx={{ fontWeight: 700, fontFamily: 'monospace' }}>{s.value.toLocaleString()}</Typography>
-                    <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: 9, display: 'block' }}>{s.desc}</Typography>
+                    <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: 9, display: 'block' }}>{s.desc}{s.caveat && <CaveatMark note={s.caveat} />}</Typography>
                   </Box>
                 ))}
               </Box>

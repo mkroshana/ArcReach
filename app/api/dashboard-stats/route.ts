@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { UnauthorizedError, unauthorizedResponse } from '@/lib/sessionError';
+import { replyCountUnknown, replySyncState } from '@/lib/imapSyncStatus';
 import {
   countReplies,
   dailyEngagement,
@@ -38,15 +39,34 @@ export async function GET(req: NextRequest) {
     // bounces, failed attempts, unsubscribes and replies that happened in it
     // (lib/engagementMetrics defines each, as on the campaign and Accounts
     // pages). All counted in the database, the daily trend included: loading
-    // every dispatch in the period here OOM'd the server.
-    const [current, prior, health, totalReplies, priorReplies, trends] = await Promise.all([
+    // every dispatch in the period here OOM'd the server. And the reply sync
+    // of the mailboxes whose replies are counted: the user's, or every one
+    // for admins.
+    const [current, prior, health, totalReplies, priorReplies, trends, mailboxes] = await Promise.all([
       sendSummary(prisma, scope, periods.current),
       sendSummary(prisma, scope, periods.prior),
       healthSummary(prisma, scope, periods.current),
       countReplies(prisma, scope, periods.current),
       countReplies(prisma, scope, periods.prior),
       dailyEngagement(prisma, scope, periods),
+      prisma.senderAccount.findMany({
+        where: scope.kind === 'owner' ? { userId: scope.userId } : {},
+        select: {
+          emailAddress: true, replyTo: true,
+          status: true, imapHost: true, imapPort: true, imapUser: true, imapPass: true, imapLastSyncAt: true, imapLastSyncError: true,
+        },
+      }),
     ]);
+
+    // 'off' when no mailbox has reply sync on (lib/imapSyncStatus), so no
+    // reply is ever read: a 0 then means replies are not read, not that nobody
+    // replied, and the page shows the Replies card's count as unknown and the
+    // funnel leaves Replied out. A mailbox whose Reply-To is another address
+    // counts by that address's mailbox, 'off' when it is not one of these, so
+    // 'off' also covers mailboxes that have IMAP set up and sync when their
+    // replies all go to a Reply-To address that is not read: the page's note
+    // says both.
+    const replySync = replySyncState(mailboxes);
 
     // 2. Percentage change against the prior period
     const calculateDelta = (value: number, priorValue: number): number => {
@@ -97,7 +117,7 @@ export async function GET(req: NextRequest) {
       sent: current.sent,
       opened: current.opened,
       clicked: current.clicked,
-      replies: totalReplies,
+      replies: replyCountUnknown(replySync, totalReplies) ? undefined : totalReplies,
       meetingsBooked: meetingBookedCount
     });
 
@@ -132,6 +152,7 @@ export async function GET(req: NextRequest) {
       stats: {
         totalSent: current.sent,
         totalReplies,
+        replySync,
         averageOpenRate: current.openRate,
         averageClickRate: current.clickRate,
         failed: health.failed,

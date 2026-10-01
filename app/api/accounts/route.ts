@@ -72,7 +72,14 @@ export async function GET() {
 
       // The mailbox's campaign sends that ACS accepted, their opens, clicks and
       // hard bounces (at send time or reported), defined in lib/engagementMetrics
-      // as on the campaign pages and the dashboard.
+      // as on the campaign pages and the dashboard. `reported`: how many a
+      // delivery report arrived for, the delivery rate's base; with none, the
+      // page shows Delivered as unknown.
+      // Replies: the human replies that arrived in this mailbox, which may answer
+      // another mailbox's emails (its Reply-To), so they are no share of the leads
+      // this mailbox contacted, as a campaign's reply rate is. They are given per
+      // 100 emails this mailbox sent instead (repliesPer100Sent), null when it sent
+      // none, and the page says when even that means little (mailboxRepliesFigure).
       const scope: MetricsScope = { kind: 'mailbox', senderAccountId: account.id };
       const [sends, bounced, replies] = await Promise.all([
         sendSummary(prisma, scope),
@@ -88,6 +95,7 @@ export async function GET() {
         sentLast24Hours,
         sentTotal: sends.sent,
         delivered: sends.delivered,
+        reported: sends.reported,
         opens: sends.opened,
         clicks: sends.clicked,
         replies,
@@ -95,7 +103,7 @@ export async function GET() {
         deliveryRate: sends.deliveryRate,
         openRate: sends.openRate,
         clickRate: sends.clickRate,
-        replyRate: percent(replies, sends.sent),
+        repliesPer100Sent: sends.sent > 0 ? percent(replies, sends.sent) : null,
         effectiveDailyCap
       };
     }));

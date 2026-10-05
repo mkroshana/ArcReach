@@ -368,6 +368,7 @@ export default function LeadsPage() {
       { checked: 0, total: selection ? ids.length : null, valid: 0, risky: 0, invalid: 0 };
     setIsVerifying(true);
     setVerifyProgress({ ...progress });
+    // Why the check stopped, as a sentence: the server's error, or that the request failed
     let failure: string | null = null;
     // The next batch of selected ids, or the address the server's next batch of every lead starts after
     let offset = 0;
@@ -382,7 +383,7 @@ export default function LeadsPage() {
         });
         const data: any = await res.json().catch(() => ({}));
         if (!res.ok) {
-          failure = data.error || `the server answered ${res.status}`;
+          failure = data.error || `The server answered ${res.status}.`;
           break;
         }
         progress.checked += data.checked;
@@ -397,7 +398,7 @@ export default function LeadsPage() {
         setVerifyProgress({ ...progress });
       } while (selection ? offset < ids.length : after !== null);
     } catch (err) {
-      failure = 'the request failed';
+      failure = 'The request failed.';
       console.error(err);
     } finally {
       setIsVerifying(false);
@@ -405,7 +406,7 @@ export default function LeadsPage() {
     }
 
     if (failure) {
-      showToast(`Domain MX check stopped after ${checkedOf(progress)} leads because ${failure}. ${describeDomainCheck(progress)}`, 'error');
+      showToast(`Domain MX check stopped after ${checkedOf(progress)} leads. ${failure} ${describeDomainCheck(progress)}`, 'error');
     } else if (!selection && progress.checked === 0) {
       showToast('No leads are Unverified or Risky.');
     } else {

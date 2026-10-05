@@ -42,7 +42,7 @@
 5. **Lead CRM** ([app/leads](file:///d:/Development/ArcReach/app/leads))
    - A paged lead directory with search and status filters, lead groups, a cross-check of leads in several groups, and Suppressed and Archived tabs.
    - CSV import with column mapping (optionally into a group), CSV export, and each lead's activity timeline of sent emails and replies.
-   - Check Domain MX looks up each lead's email domain: a domain that does not exist, or that declares it accepts no mail (a null MX record), marks the lead Invalid, and a failed lookup Risky. It never contacts a mail server, so it cannot confirm that a mailbox exists.
+   - Check Domain MX looks up each lead's email domain: a domain that does not exist, or that declares it accepts no mail (a null MX record), marks the lead Invalid, and a failed lookup Risky. When no DNS server answers at all, it stops without changing any lead. It never contacts a mail server, so it cannot confirm that a mailbox exists.
    - Unsubscribed, hard-bounced and Invalid addresses go on a suppression list and are never emailed again, even when re-imported.
 
 6. **Unified Inbox (Unibox)** ([app/unibox](file:///d:/Development/ArcReach/app/unibox))
@@ -211,6 +211,7 @@ To keep email open and link click metrics accurate and prevent security scanners
    - **`WEBHOOK_SECRET`**: Secret the Event Grid webhook checks in the `X-ArcReach-Webhook-Secret` header.
    - **`UNSUBSCRIBE_SECRET`**: Signs the unsubscribe link in every campaign email. Keep it once set: changing it breaks the links in email already sent.
    - **`SEND_WORKER_ENABLED`**: `true` starts the background worker that sends campaign email and syncs IMAP replies (see How the Email Send Engine Works). Leave it `false` or unset locally, so `npm run dev` never sends, even against a shared database; only the Azure App Service sets it to `true`.
+   - **`DOMAIN_CHECK_DNS_SERVERS`**: Optional. DNS server IP addresses, separated by commas (e.g. `10.0.0.1`, or `1.1.1.1,8.8.8.8`), that Check Domain MX asks instead of the system's. Only for a machine where the check stops with "No DNS server answered" because Node cannot find the system's DNS servers; leave it unset elsewhere.
    - *How to Generate the Secrets*: `openssl rand -hex 32`, or `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Left empty locally, `SESSION_SECRET`, `SECRETS_KEY` and `UNSUBSCRIBE_SECRET` fall back to dev values published in this repository, and the webhook refuses every request. In production the server refuses to start while `SESSION_SECRET`, `SECRETS_KEY` or `UNSUBSCRIBE_SECRET` is unset, shorter than 32 characters, contains `placeholder` or `change_me`, or is an example or dev fallback value published in this repository, and the webhook refuses every request while `WEBHOOK_SECRET` is a placeholder or a published example.
 
 

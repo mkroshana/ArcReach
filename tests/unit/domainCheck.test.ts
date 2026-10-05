@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { checkDomainMx, checkDomains, emailDomain, type DomainResolver } from '../../lib/domainCheck';
+import { checkDomainMx, checkDomains, dnsUnreachable, emailDomain, type DomainCheckStatus, type DomainResolver } from '../../lib/domainCheck';
 
 type Answer = unknown[] | string;
 
@@ -8,11 +8,11 @@ type Answer = unknown[] | string;
  * fails with); a domain with no entry fails as NXDOMAIN (ENOTFOUND) does. It
  * logs each lookup and how many were in flight at the most.
  */
-function fakeResolver(answers: Record<string, { mx?: Answer; a?: Answer }>) {
+function fakeResolver(answers: Record<string, { mx?: Answer; a?: Answer; ns?: Answer }>) {
   const lookups: string[] = [];
   let inFlight = 0;
   let maxInFlight = 0;
-  const answer = async (type: 'mx' | 'a', domain: string) => {
+  const answer = async (type: 'mx' | 'a' | 'ns', domain: string) => {
     lookups.push(`${type} ${domain}`);
     inFlight++;
     maxInFlight = Math.max(maxInFlight, inFlight);
@@ -25,6 +25,7 @@ function fakeResolver(answers: Record<string, { mx?: Answer; a?: Answer }>) {
   const resolver = {
     resolveMx: (domain: string) => answer('mx', domain),
     resolve4: (domain: string) => answer('a', domain),
+    resolveNs: (zone: string) => answer('ns', zone),
   } as DomainResolver;
   return { resolver, lookups, maxInFlight: () => maxInFlight };
 }
@@ -125,6 +126,39 @@ describe('checkDomains (H36)', () => {
 
     expect((await checkDomains(resolver, [])).size).toBe(0);
     expect(lookups).toEqual([]);
+  });
+});
+
+describe('dnsUnreachable', () => {
+  const COM_ZONE = { 'com.': { ns: ['a.gtld-servers.net'] } };
+  const statuses = (byDomain: Record<string, DomainCheckStatus>) => new Map(Object.entries(byDomain));
+
+  it('is false, without a lookup, when no domain was looked up', async () => {
+    const { resolver, lookups } = fakeResolver({});
+
+    expect(await dnsUnreachable(resolver, statuses({}))).toBe(false);
+    expect(lookups).toEqual([]);
+  });
+
+  it.each(['Valid', 'Invalid'] as const)('is false, without a lookup, when a domain came back %s: a DNS server answered', async (certain) => {
+    const { resolver, lookups } = fakeResolver({});
+
+    expect(await dnsUnreachable(resolver, statuses({ 'flaky.test': 'Risky', 'answered.test': certain }))).toBe(false);
+    expect(lookups).toEqual([]);
+  });
+
+  it('is false when every domain is Risky but the com zone still resolves', async () => {
+    const { resolver, lookups } = fakeResolver(COM_ZONE);
+
+    expect(await dnsUnreachable(resolver, statuses({ 'flaky.test': 'Risky', 'parked.test': 'Risky' }))).toBe(false);
+    expect(lookups).toEqual(['ns com.']);
+  });
+
+  it.each(['ECONNREFUSED', 'ETIMEOUT', 'ESERVFAIL'])('is true when every domain is Risky and the com zone lookup fails with %s', async (code) => {
+    const { resolver, lookups } = fakeResolver({ 'com.': { ns: code } });
+
+    expect(await dnsUnreachable(resolver, statuses({ 'flaky.test': 'Risky' }))).toBe(true);
+    expect(lookups).toEqual(['ns com.']);
   });
 });
 

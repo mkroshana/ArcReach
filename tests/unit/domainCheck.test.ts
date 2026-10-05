@@ -46,6 +46,20 @@ describe('checkDomainMx (H36)', () => {
     expect(lookups).toEqual(['mx gone.test']);
   });
 
+  it.each(['', '.'])('is Invalid when the only MX record is a null MX (exchange %j), without an A lookup', async (exchange) => {
+    const { resolver, lookups } = fakeResolver({ 'no-mail.test': { mx: [{ exchange, priority: 0 }], a: ['192.0.2.1'] } });
+
+    expect(await checkDomainMx(resolver, 'no-mail.test')).toBe('Invalid');
+    expect(lookups).toEqual(['mx no-mail.test']);
+  });
+
+  it('is Valid when a null MX is published next to a usable MX record', async () => {
+    const { resolver, lookups } = fakeResolver({ 'mixed.test': { mx: [{ exchange: '', priority: 0 }, ...MX] } });
+
+    expect(await checkDomainMx(resolver, 'mixed.test')).toBe('Valid');
+    expect(lookups).toEqual(['mx mixed.test']);
+  });
+
   it.each(['ETIMEOUT', 'ESERVFAIL', 'EREFUSED', 'ECONNREFUSED', 'ECANCELLED', ''])(
     'is Risky when the MX lookup fails with %j, without an A lookup',
     async (code) => {

@@ -154,7 +154,7 @@ function describeDomainCheck(counts: DomainCheckCounts): string {
   const found = [
     counts.valid > 0 ? `${counts.valid} Valid (the domain has MX records, or an A record in their place; mailboxes are not checked)` : '',
     counts.risky > 0 ? `${counts.risky} Risky (the DNS lookup failed or found no MX or A record; run the check again to retry them)` : '',
-    counts.invalid > 0 ? `${counts.invalid} Invalid (the domain does not exist or the address is malformed)` : '',
+    counts.invalid > 0 ? `${counts.invalid} Invalid (the domain does not exist or accepts no mail, or the address is malformed)` : '',
   ].filter(Boolean);
   return found.length > 0 ? `${found.join(', ')}.` : 'No leads were checked.';
 }

@@ -98,8 +98,8 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // An address whose domain does not exist, or that is malformed, stays
-      // suppressed even if its lead is deleted and imported again
+      // An address whose domain does not exist or accepts no mail, or that is
+      // malformed, stays suppressed even if its lead is deleted and imported again
       await suppressEmails(
         tx,
         results.filter((r) => r.failedCheck).map((r) => ({ email: r.email, reason: 'Invalid' as const })),

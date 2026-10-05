@@ -5,7 +5,8 @@
  * contacts a mail server, so a Valid lead's mailbox may still not exist.
  *
  * - Valid: the domain has MX records, or an A record in their place.
- * - Invalid: the domain does not exist (NXDOMAIN) or the address or domain is
+ * - Invalid: the domain does not exist (NXDOMAIN), its only MX record is a
+ *   null MX (RFC 7505: it accepts no mail), or the address or domain is
  *   malformed. Only these are certain, so only they suppress the address.
  * - Risky: the lookup failed (a timeout, SERVFAIL, a refused query) or the
  *   domain has neither MX nor A records. The check picks Risky leads up again,
@@ -43,6 +44,11 @@ function errorCode(err: unknown): string {
   return typeof (err as { code?: unknown })?.code === 'string' ? (err as { code: string }).code : '';
 }
 
+/** A null MX (RFC 7505): the record a domain publishes to say it accepts no mail, its exchange the root name, which Node reports as ''. */
+function isNullMx(record: { exchange: string }): boolean {
+  return record.exchange === '' || record.exchange === '.';
+}
+
 /** The lowercased domain of `email`, or null when it is not one '@' between a non-empty local part and domain. */
 export function emailDomain(email: string): string | null {
   const parts = email.trim().split('@');
@@ -54,7 +60,9 @@ export function emailDomain(email: string): string | null {
 export async function checkDomainMx(resolver: DomainResolver, domain: string): Promise<DomainCheckStatus> {
   try {
     const records = await resolver.resolveMx(domain);
-    if (records.length > 0) return 'Valid';
+    if (records.some((record) => !isNullMx(record))) return 'Valid';
+    // Only a null MX: the domain says it accepts no mail, so its A record takes none either
+    if (records.length > 0) return 'Invalid';
   } catch (err) {
     const code = errorCode(err);
     if (NOT_FOUND_CODES.includes(code) || code === BAD_NAME_CODE) return 'Invalid';

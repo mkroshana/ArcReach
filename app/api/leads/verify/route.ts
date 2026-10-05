@@ -9,6 +9,7 @@ import { normalizeEmail } from '@/lib/leadEmail';
 import { REMOVED_ENROLLMENT_STATUS } from '@/lib/campaignCohort';
 import {
   checkDomains,
+  dnsUnreachable,
   DOMAIN_CHECK_BATCH_SIZE,
   emailDomain,
   type DomainCheckCounts,
@@ -24,6 +25,26 @@ import { promises as dnsPromises } from 'dns';
  */
 const resolver = new dnsPromises.Resolver({ timeout: 3000, tries: 2 });
 
+/**
+ * DOMAIN_CHECK_DNS_SERVERS names the DNS servers the check asks, as
+ * comma-separated IP addresses, for a machine where Node cannot find the
+ * system's own; unset, the resolver keeps the system's. While it names
+ * anything that is not an IP address, every check answers this error.
+ */
+const configuredDnsServers = (process.env.DOMAIN_CHECK_DNS_SERVERS ?? '').split(',').map((server) => server.trim()).filter(Boolean);
+let dnsServersError: string | null = null;
+if (configuredDnsServers.length > 0) {
+  try {
+    resolver.setServers(configuredDnsServers);
+  } catch {
+    dnsServersError = 'DOMAIN_CHECK_DNS_SERVERS must be DNS server IP addresses separated by commas.';
+  }
+}
+
+/** What a check answers, with a 503, when no DNS server answers (see dnsUnreachable). */
+const DNS_UNREACHABLE_ERROR =
+  'No DNS server answered, so no lead in this batch was checked. If the server cannot find its DNS servers, set DOMAIN_CHECK_DNS_SERVERS.';
+
 /** The deduplicated lead ids of `ids`, or null unless it is an array of 1 to DOMAIN_CHECK_BATCH_SIZE non-empty strings. */
 function parseIds(ids: unknown): string[] | null {
   if (!Array.isArray(ids) || ids.length === 0 || ids.length > DOMAIN_CHECK_BATCH_SIZE) return null;
@@ -33,6 +54,29 @@ function parseIds(ids: unknown): string[] | null {
 
 /** The leads `{ all: true }` checks: never checked, or checked without a certain answer. */
 const UNCHECKED_WHERE: Prisma.LeadWhereInput = { validationStatus: { in: ['Unverified', 'Risky'] } };
+
+/**
+ * What a check of every Unverified and Risky lead (`{ all: true }`) would take
+ * on, for the leads page to confirm before it starts one: how many leads it
+ * would check (`unchecked`), and how many campaigns enroll the leads that come
+ * back Valid, by campaign status (`validCampaigns`, e.g. { Active: 1, Draft: 2 }).
+ * Only counts, so it names no campaign the user may not see. Changes nothing.
+ */
+export async function GET() {
+  try {
+    await getSession();
+    const [unchecked, campaigns] = await Promise.all([
+      prisma.lead.count({ where: UNCHECKED_WHERE }),
+      prisma.campaign.findMany({ where: { audienceCohort: 'Valid' }, select: { status: true } }),
+    ]);
+    const validCampaigns: Record<string, number> = {};
+    for (const { status } of campaigns) validCampaigns[status] = (validCampaigns[status] ?? 0) + 1;
+    return NextResponse.json({ unchecked, validCampaigns });
+  } catch (error: any) {
+    if (error instanceof UnauthorizedError) return unauthorizedResponse();
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
 
 /**
  * Runs the domain MX check on one batch of leads and answers how many it set
@@ -45,10 +89,12 @@ const UNCHECKED_WHERE: Prisma.LeadWhereInput = { validationStatus: { in: ['Unver
  * lead once, even one the check leaves Risky. An Invalid domain puts the
  * address on the suppression list; the lead's enrollments are left as they
  * are, since the send engine never sends to an Invalid or suppressed lead.
+ * When no DNS server answers, the batch changes no lead and answers a 503.
  */
 export async function POST(req: NextRequest) {
   try {
     await getSession();
+    if (dnsServersError) return NextResponse.json({ error: dnsServersError }, { status: 500 });
     const body = await req.json().catch(() => ({}));
     const all = body?.all === true;
     const after: unknown = body?.after ?? null;
@@ -74,6 +120,10 @@ export async function POST(req: NextRequest) {
       resolver,
       targetLeads.map((lead) => emailDomain(lead.email)).filter((domain): domain is string => domain !== null),
     );
+    // Without a DNS server every lead would come back Risky, so the batch is left for a later run
+    if (await dnsUnreachable(resolver, domainStatuses)) {
+      return NextResponse.json({ error: DNS_UNREACHABLE_ERROR }, { status: 503 });
+    }
     // Suppression reasons of the target addresses, so a re-check never lifts one (see liftsSuppression)
     const suppression = await suppressionReasons(prisma, targetLeads.map((lead) => lead.email));
 
@@ -98,8 +148,8 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // An address whose domain does not exist, or that is malformed, stays
-      // suppressed even if its lead is deleted and imported again
+      // An address whose domain does not exist or accepts no mail, or that is
+      // malformed, stays suppressed even if its lead is deleted and imported again
       await suppressEmails(
         tx,
         results.filter((r) => r.failedCheck).map((r) => ({ email: r.email, reason: 'Invalid' as const })),

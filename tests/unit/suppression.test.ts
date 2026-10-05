@@ -168,7 +168,8 @@ vi.mock('../../lib/imapService', () => ({
  * error code the lookup fails with. acme.com has an MX record; etimeout.test
  * and eservfail.test fail the MX lookup with that code; a lookup with no
  * answer fails as NXDOMAIN (ENOTFOUND) does. Tests may add answers, and every
- * lookup is logged.
+ * lookup is logged. While `reachable` is false no DNS server answers: every
+ * lookup, the com zone's too, fails with ECONNREFUSED.
  */
 const dnsAnswers = vi.hoisted(() => {
   type Answer = unknown[] | string;
@@ -177,26 +178,36 @@ const dnsAnswers = vi.hoisted(() => {
     'etimeout.test': { mx: 'ETIMEOUT' },
     'eservfail.test': { mx: 'ESERVFAIL' },
   });
-  const state = { answers: defaults(), lookups: [] as string[] };
+  const state = { answers: defaults(), lookups: [] as string[], reachable: true };
   return {
     state,
     reset() {
       state.answers = defaults();
       state.lookups = [];
+      state.reachable = true;
     },
   };
 });
 
 vi.mock('dns', () => {
+  const refused = (name: string) => Object.assign(new Error(`query ECONNREFUSED ${name}`), { code: 'ECONNREFUSED' });
   const answer = async (type: 'mx' | 'a', domain: string) => {
     dnsAnswers.state.lookups.push(`${type} ${domain}`);
+    if (!dnsAnswers.state.reachable) throw refused(domain);
     const found = dnsAnswers.state.answers[domain]?.[type] ?? 'ENOTFOUND';
     if (typeof found === 'string') throw Object.assign(new Error(`query ${found} ${domain}`), { code: found });
     return found;
   };
   class Resolver {
+    // DOMAIN_CHECK_DNS_SERVERS of a developer's .env reaches the route under test; the fake answers the same either way
+    setServers() {}
     resolveMx(domain: string) { return answer('mx', domain); }
     resolve4(domain: string) { return answer('a', domain); }
+    async resolveNs(zone: string) {
+      dnsAnswers.state.lookups.push(`ns ${zone}`);
+      if (!dnsAnswers.state.reachable) throw refused(zone);
+      return ['a.gtld-servers.net'];
+    }
   }
   const promises = { Resolver };
   return { default: { promises }, promises };
@@ -206,7 +217,7 @@ import { getSession } from '../../lib/session';
 import { POST as unsubscribe } from '../../app/api/unsubscribe/route';
 import { GET as getLeads, POST as postLead, PUT as putLead, DELETE as deleteLeads } from '../../app/api/leads/route';
 import { POST as postBulk } from '../../app/api/leads/bulk/route';
-import { POST as postVerify } from '../../app/api/leads/verify/route';
+import { GET as getVerify, POST as postVerify } from '../../app/api/leads/verify/route';
 import { POST as postReactivate } from '../../app/api/leads/reactivate/route';
 import { DELETE as deleteSuppression } from '../../app/api/leads/suppression/route';
 import { DELETE as deleteGroup } from '../../app/api/leads/groups/route';
@@ -706,6 +717,77 @@ describe('domain MX check (H36)', () => {
     expect(await res.json()).toEqual({ error: 'after must be the address the previous batch answered as next.' });
     expect(dnsAnswers.state.lookups).toEqual([]);
     expect(leadById('fine')!.validationStatus).toBe('Unverified');
+  });
+
+  it.each([
+    ['the selected leads', { ids: ['one', 'two', 'malformed'] }],
+    ['every Unverified or Risky lead', { all: true }],
+  ])('answers a 503 and changes nothing for %s when no DNS server answers', async (_label, body) => {
+    dnsAnswers.state.reachable = false;
+    addLead('one', 'one@acme.com');
+    addLead('two', 'two@other.test', { validationStatus: 'Risky' });
+    addLead('malformed', 'not-an-email');
+    enroll('one', 'cmp-unverified');
+    const before = structuredClone(db.tables);
+
+    const res = await postVerify(makeReq('POST', '/api/leads/verify', body));
+
+    expect(res.status).toBe(503);
+    expect((await res.json()).error).toMatch(/^No DNS server answered, so no lead in this batch was checked\./);
+    expect(dnsAnswers.state.lookups).toContain('ns com.');
+    expect(db.tables).toEqual(before);
+  });
+
+  it('marks leads Risky, after finding the com zone, when their lookups fail but a DNS server answers', async () => {
+    addLead('flaky', 'jane@etimeout.test');
+    addLead('down', 'jane@eservfail.test');
+
+    const res = await postVerify(makeReq('POST', '/api/leads/verify', { ids: ['flaky', 'down'] }));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ checked: 2, counts: { valid: 0, risky: 2, invalid: 0 } });
+    expect(dnsAnswers.state.lookups.filter((l) => l.startsWith('ns '))).toEqual(['ns com.']);
+  });
+
+  it('counts, for the confirmation of a full check, the leads it would take on and the Valid campaigns by status, changing nothing', async () => {
+    db.tables.campaign.push(
+      { id: 'cmp-valid-draft', audienceCohort: 'Valid', status: 'Draft' },
+      { id: 'cmp-valid-draft-2', audienceCohort: 'Valid', status: 'Draft' },
+      { id: 'cmp-group', audienceCohort: 'group-1', status: 'Active' },
+    );
+    addLead('new', 'new@acme.com');
+    addLead('risky', 'risky@acme.com', { validationStatus: 'Risky' });
+    addLead('archived', 'archived@acme.com', { isArchived: true });
+    addLead('valid', 'valid@acme.com', { validationStatus: 'Valid' });
+    addLead('invalid', 'invalid@acme.com', { validationStatus: 'Invalid' });
+    const before = structuredClone(db.tables);
+
+    const res = await getVerify();
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ unchecked: 3, validCampaigns: { Active: 1, Draft: 2 } });
+    expect(dnsAnswers.state.lookups).toEqual([]);
+    expect(db.tables).toEqual(before);
+  });
+
+  it('counts no leads and no campaigns when nothing is Unverified or Risky and no campaign targets Valid leads', async () => {
+    db.tables.campaign = db.tables.campaign.filter((c) => c.audienceCohort !== 'Valid');
+    addLead('valid', 'valid@acme.com', { validationStatus: 'Valid' });
+
+    const res = await getVerify();
+
+    expect(await res.json()).toEqual({ unchecked: 0, validCampaigns: {} });
+  });
+
+  it('does not look the com zone up when a domain of the batch got a certain answer', async () => {
+    addLead('flaky', 'jane@etimeout.test');
+    addLead('fine', 'fine@acme.com');
+
+    const res = await postVerify(makeReq('POST', '/api/leads/verify', { ids: ['flaky', 'fine'] }));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ checked: 2, counts: { valid: 1, risky: 1, invalid: 0 } });
+    expect(dnsAnswers.state.lookups.filter((l) => l.startsWith('ns '))).toEqual([]);
   });
 });
 

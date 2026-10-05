@@ -5,11 +5,16 @@
  * contacts a mail server, so a Valid lead's mailbox may still not exist.
  *
  * - Valid: the domain has MX records, or an A record in their place.
- * - Invalid: the domain does not exist (NXDOMAIN) or the address or domain is
+ * - Invalid: the domain does not exist (NXDOMAIN), its only MX record is a
+ *   null MX (RFC 7505: it accepts no mail), or the address or domain is
  *   malformed. Only these are certain, so only they suppress the address.
  * - Risky: the lookup failed (a timeout, SERVFAIL, a refused query) or the
  *   domain has neither MX nor A records. The check picks Risky leads up again,
  *   so running it again retries them.
+ *
+ * A batch in which no domain gets a certain answer, while the resolver cannot
+ * answer for the com zone either, has no DNS server answering at all: the
+ * route then changes no lead instead of marking them Risky (dnsUnreachable).
  *
  * No DNS module is imported here, so the leads page can share the batch size.
  */
@@ -30,7 +35,11 @@ export type DomainCheckCounts = { valid: number; risky: number; invalid: number 
 export type DomainResolver = {
   resolveMx(domain: string): Promise<{ exchange: string; priority: number }[]>;
   resolve4(domain: string): Promise<string[]>;
+  resolveNs(zone: string): Promise<string[]>;
 };
+
+/** A zone every working DNS server answers for, fully qualified so no search domain is tried. */
+const DNS_PROBE_ZONE = 'com.';
 
 /** The domain does not exist: NXDOMAIN, which Node reports as ENOTFOUND. */
 const NOT_FOUND_CODES = ['ENOTFOUND', 'NXDOMAIN'];
@@ -41,6 +50,11 @@ const BAD_NAME_CODE = 'EBADNAME';
 
 function errorCode(err: unknown): string {
   return typeof (err as { code?: unknown })?.code === 'string' ? (err as { code: string }).code : '';
+}
+
+/** A null MX (RFC 7505): the record a domain publishes to say it accepts no mail, its exchange the root name, which Node reports as ''. */
+function isNullMx(record: { exchange: string }): boolean {
+  return record.exchange === '' || record.exchange === '.';
 }
 
 /** The lowercased domain of `email`, or null when it is not one '@' between a non-empty local part and domain. */
@@ -54,7 +68,9 @@ export function emailDomain(email: string): string | null {
 export async function checkDomainMx(resolver: DomainResolver, domain: string): Promise<DomainCheckStatus> {
   try {
     const records = await resolver.resolveMx(domain);
-    if (records.length > 0) return 'Valid';
+    if (records.some((record) => !isNullMx(record))) return 'Valid';
+    // Only a null MX: the domain says it accepts no mail, so its A record takes none either
+    if (records.length > 0) return 'Invalid';
   } catch (err) {
     const code = errorCode(err);
     if (NOT_FOUND_CODES.includes(code) || code === BAD_NAME_CODE) return 'Invalid';
@@ -86,4 +102,24 @@ export async function checkDomains(
   };
   await Promise.all(Array.from({ length: Math.min(concurrency, pending.length) }, worker));
   return results;
+}
+
+/**
+ * Whether `statuses` (checkDomains' answer for a batch) come from a resolver
+ * that reaches no DNS server, rather than from domains that are Risky: no
+ * domain got a certain answer, and the com zone's name servers cannot be
+ * looked up either. That one extra lookup is made only when every domain came
+ * back Risky.
+ */
+export async function dnsUnreachable(
+  resolver: Pick<DomainResolver, 'resolveNs'>,
+  statuses: Map<string, DomainCheckStatus>,
+): Promise<boolean> {
+  if (statuses.size === 0 || Array.from(statuses.values()).some((status) => status !== 'Risky')) return false;
+  try {
+    await resolver.resolveNs(DNS_PROBE_ZONE);
+    return false;
+  } catch {
+    return true;
+  }
 }

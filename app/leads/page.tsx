@@ -164,6 +164,27 @@ function checkedOf(progress: { checked: number; total: number | null }): string 
   return progress.total === null ? `${progress.checked}` : `${progress.checked} of ${progress.total}`;
 }
 
+/** Campaign statuses in the order the confirmation of a full check lists them; any other status follows. */
+const CAMPAIGN_STATUS_ORDER = ['Active', 'Paused', 'Draft', 'Stopped', 'Completed'];
+
+/**
+ * What a check of every Unverified or Risky lead does, for its confirmation.
+ * `validCampaigns` counts the campaigns that enroll Valid leads, by status.
+ */
+function describeFullDomainCheck(validCampaigns: Record<string, number>): string {
+  const rank = (status: string) => (CAMPAIGN_STATUS_ORDER.includes(status) ? CAMPAIGN_STATUS_ORDER.indexOf(status) : CAMPAIGN_STATUS_ORDER.length);
+  const statuses = Object.keys(validCampaigns).sort((a, b) => rank(a) - rank(b));
+  const total = statuses.reduce((sum, status) => sum + validCampaigns[status], 0);
+  const enrolls = total === 0
+    ? ''
+    : ` Leads that come back Valid are enrolled in the ${total === 1 ? 'campaign that targets' : `${total} campaigns that target`} Valid leads`
+      + ` (${statuses.map(status => `${validCampaigns[status]} ${status}`).join(', ')})`
+      + `${validCampaigns.Active ? ', and an Active campaign emails them on its schedule' : ''}.`;
+  return 'Every Unverified or Risky lead is checked, archived leads included, whatever the search and filters show.'
+    + ` The check runs in batches of ${DOMAIN_CHECK_BATCH_SIZE} and stops if this tab is closed; running it again takes the leads still unchecked.`
+    + enrolls;
+}
+
 /** Invalid emails the CSV mapping step quotes; any beyond this are only counted. */
 const MAX_QUOTED_EMAILS = 3;
 /** Longest invalid email cell the mapping step quotes in full. */
@@ -219,6 +240,8 @@ export default function LeadsPage() {
   // Domain MX check progress: leads checked so far, by result, out of the leads to check (null until the server says how many)
   const [isVerifying, setIsVerifying] = useState(false);
   const [verifyProgress, setVerifyProgress] = useState<DomainCheckCounts & { checked: number; total: number | null } | null>(null);
+  // True while the leads a check of every lead would take on are counted for its confirmation
+  const [isCountingUnchecked, setIsCountingUnchecked] = useState(false);
 
   // New Lead form state
   const [showAddLead, setShowAddLead] = useState(false);
@@ -351,17 +374,13 @@ export default function LeadsPage() {
       .catch(() => {});
   }, []);
 
-  const handleBulkVerify = async () => {
+  // Checks the selected Unverified or Risky leads `selected`, or with null every such lead the server finds
+  const runDomainCheck = async (selected: string[] | null) => {
     if (isVerifying) return;
-    
-    // The selected leads are sent by id; with none selected the server takes every Unverified or Risky lead
-    const selection = selectedLeads.length > 0;
-    const ids = selectedLeads.filter(l => l.validationStatus === 'Unverified' || l.validationStatus === 'Risky').map(l => l.id);
 
-    if (selection && ids.length === 0) {
-      showToast('None of the selected leads is Unverified or Risky.');
-      return;
-    }
+    // The selected leads are sent by id; with none selected the server takes every Unverified or Risky lead
+    const selection = selected !== null;
+    const ids = selected ?? [];
 
     // One request per batch, one after another, so each stays well inside the request timeout
     const progress: DomainCheckCounts & { checked: number; total: number | null } =
@@ -416,6 +435,48 @@ export default function LeadsPage() {
       // A checked lead may have left the status filter, and the page cannot tell which ones on other pages did
       if (selection) setSelectedLeads([]);
       reloadLeads();
+    }
+  };
+
+  const handleBulkVerify = async () => {
+    if (isVerifying || isCountingUnchecked) return;
+
+    if (selectedLeads.length > 0) {
+      const ids = selectedLeads.filter(l => l.validationStatus === 'Unverified' || l.validationStatus === 'Risky').map(l => l.id);
+      if (ids.length === 0) {
+        showToast('None of the selected leads is Unverified or Risky.');
+        return;
+      }
+      await runDomainCheck(ids);
+      return;
+    }
+
+    // A check of every lead is confirmed first: how many leads it takes on, and the campaigns its Valid leads join
+    setIsCountingUnchecked(true);
+    try {
+      const res = await fetch('/api/leads/verify');
+      const data: any = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error || 'Failed to count the leads to check.', 'error');
+      } else if (data.unchecked === 0) {
+        showToast('No leads are Unverified or Risky.');
+      } else {
+        setConfirmDialog({
+          isOpen: true,
+          title: `Check ${data.unchecked.toLocaleString('en-US')} ${data.unchecked === 1 ? 'Lead' : 'Leads'}`,
+          message: describeFullDomainCheck(data.validCampaigns),
+          confirmLabel: 'Start Check',
+          onConfirm: () => {
+            setConfirmDialog(null);
+            runDomainCheck(null);
+          },
+        });
+      }
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to count the leads to check.', 'error');
+    } finally {
+      setIsCountingUnchecked(false);
     }
   };
 
@@ -1184,7 +1245,7 @@ export default function LeadsPage() {
           
           <button 
             onClick={handleBulkVerify}
-            disabled={isVerifying || loading}
+            disabled={isVerifying || isCountingUnchecked || loading}
             className="bg-blue-600 hover:bg-blue-500 disabled:bg-blue-700 text-white px-4 py-2 rounded-lg font-semibold flex items-center gap-2 transition-colors text-xs shadow-sm"
           >
             <Globe className="w-3.5 h-3.5" />

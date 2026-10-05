@@ -114,7 +114,7 @@ describe('every API route answers a missing or revoked session with 401 (H26)', 
       .map((file) => `/api/${path.dirname(file).split(path.sep).join('/')}`)
       .filter((route) => route !== '/api/auth/logout'); // signs out whether or not the session is live
     expect(Object.keys(ROUTES).sort()).toEqual(protectedRoutes.sort());
-    expect(HANDLERS.length).toBe(40);
+    expect(HANDLERS.length).toBe(41);
   });
 
   it.each(HANDLERS)('%s returns 401, not 500, with no session cookie', async (_label, method, handler) => {

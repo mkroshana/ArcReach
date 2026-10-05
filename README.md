@@ -42,7 +42,7 @@
 5. **Lead CRM** ([app/leads](file:///d:/Development/ArcReach/app/leads))
    - A paged lead directory with search and status filters, lead groups, a cross-check of leads in several groups, and Suppressed and Archived tabs.
    - CSV import with column mapping (optionally into a group), CSV export, and each lead's activity timeline of sent emails and replies.
-   - Check Domain MX looks up each lead's email domain: a domain that does not exist, or that declares it accepts no mail (a null MX record), marks the lead Invalid, and a failed lookup Risky. When no DNS server answers at all, it stops without changing any lead. It never contacts a mail server, so it cannot confirm that a mailbox exists.
+   - Check Domain MX looks up each lead's email domain: a domain that does not exist, or that declares it accepts no mail (a null MX record), marks the lead Invalid, and a failed lookup Risky. When no DNS server answers at all, it stops without changing any lead. It never contacts a mail server, so it cannot confirm that a mailbox exists. With no lead selected it checks every Unverified or Risky lead, after a confirmation that says how many leads that is and how many campaigns enroll the ones that come back Valid.
    - Unsubscribed, hard-bounced and Invalid addresses go on a suppression list and are never emailed again, even when re-imported.
 
 6. **Unified Inbox (Unibox)** ([app/unibox](file:///d:/Development/ArcReach/app/unibox))

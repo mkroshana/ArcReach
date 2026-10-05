@@ -56,6 +56,29 @@ function parseIds(ids: unknown): string[] | null {
 const UNCHECKED_WHERE: Prisma.LeadWhereInput = { validationStatus: { in: ['Unverified', 'Risky'] } };
 
 /**
+ * What a check of every Unverified and Risky lead (`{ all: true }`) would take
+ * on, for the leads page to confirm before it starts one: how many leads it
+ * would check (`unchecked`), and how many campaigns enroll the leads that come
+ * back Valid, by campaign status (`validCampaigns`, e.g. { Active: 1, Draft: 2 }).
+ * Only counts, so it names no campaign the user may not see. Changes nothing.
+ */
+export async function GET() {
+  try {
+    await getSession();
+    const [unchecked, campaigns] = await Promise.all([
+      prisma.lead.count({ where: UNCHECKED_WHERE }),
+      prisma.campaign.findMany({ where: { audienceCohort: 'Valid' }, select: { status: true } }),
+    ]);
+    const validCampaigns: Record<string, number> = {};
+    for (const { status } of campaigns) validCampaigns[status] = (validCampaigns[status] ?? 0) + 1;
+    return NextResponse.json({ unchecked, validCampaigns });
+  } catch (error: any) {
+    if (error instanceof UnauthorizedError) return unauthorizedResponse();
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
+
+/**
  * Runs the domain MX check on one batch of leads and answers how many it set
  * Valid, Risky and Invalid. The batch is `ids` (at most
  * DOMAIN_CHECK_BATCH_SIZE), or with `{ all: true, after }` the next

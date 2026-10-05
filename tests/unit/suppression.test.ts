@@ -217,7 +217,7 @@ import { getSession } from '../../lib/session';
 import { POST as unsubscribe } from '../../app/api/unsubscribe/route';
 import { GET as getLeads, POST as postLead, PUT as putLead, DELETE as deleteLeads } from '../../app/api/leads/route';
 import { POST as postBulk } from '../../app/api/leads/bulk/route';
-import { POST as postVerify } from '../../app/api/leads/verify/route';
+import { GET as getVerify, POST as postVerify } from '../../app/api/leads/verify/route';
 import { POST as postReactivate } from '../../app/api/leads/reactivate/route';
 import { DELETE as deleteSuppression } from '../../app/api/leads/suppression/route';
 import { DELETE as deleteGroup } from '../../app/api/leads/groups/route';
@@ -747,6 +747,36 @@ describe('domain MX check (H36)', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ checked: 2, counts: { valid: 0, risky: 2, invalid: 0 } });
     expect(dnsAnswers.state.lookups.filter((l) => l.startsWith('ns '))).toEqual(['ns com.']);
+  });
+
+  it('counts, for the confirmation of a full check, the leads it would take on and the Valid campaigns by status, changing nothing', async () => {
+    db.tables.campaign.push(
+      { id: 'cmp-valid-draft', audienceCohort: 'Valid', status: 'Draft' },
+      { id: 'cmp-valid-draft-2', audienceCohort: 'Valid', status: 'Draft' },
+      { id: 'cmp-group', audienceCohort: 'group-1', status: 'Active' },
+    );
+    addLead('new', 'new@acme.com');
+    addLead('risky', 'risky@acme.com', { validationStatus: 'Risky' });
+    addLead('archived', 'archived@acme.com', { isArchived: true });
+    addLead('valid', 'valid@acme.com', { validationStatus: 'Valid' });
+    addLead('invalid', 'invalid@acme.com', { validationStatus: 'Invalid' });
+    const before = structuredClone(db.tables);
+
+    const res = await getVerify();
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ unchecked: 3, validCampaigns: { Active: 1, Draft: 2 } });
+    expect(dnsAnswers.state.lookups).toEqual([]);
+    expect(db.tables).toEqual(before);
+  });
+
+  it('counts no leads and no campaigns when nothing is Unverified or Risky and no campaign targets Valid leads', async () => {
+    db.tables.campaign = db.tables.campaign.filter((c) => c.audienceCohort !== 'Valid');
+    addLead('valid', 'valid@acme.com', { validationStatus: 'Valid' });
+
+    const res = await getVerify();
+
+    expect(await res.json()).toEqual({ unchecked: 0, validCampaigns: {} });
   });
 
   it('does not look the com zone up when a domain of the batch got a certain answer', async () => {

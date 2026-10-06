@@ -17,7 +17,7 @@ vi.mock('../../lib/session', () => ({
 import { db, prisma } from '../../lib/db';
 import { getSession } from '../../lib/session';
 import { GET as getAccounts } from '../../app/api/accounts/route';
-import { combinedDailyCapacity } from '../../lib/mailboxCapacity';
+import { combinedDailyCapacity, globalDailyCeiling } from '../../lib/mailboxCapacity';
 
 const mockedDb = db as any;
 const mockedPrisma = prisma as any;
@@ -104,11 +104,48 @@ describe('Accounts capacity figures use the caps the send engine enforces (L28)'
     const accounts = await res.json();
     expect(accounts.map((a: any) => [a.id, a.effectiveDailyCap, a.sentLast24Hours])).toEqual([['mb-1', 5, 7], ['mb-2', 35, 5]]);
     // Not 1,000 - 12 from the daily limits, and mb-1's 2 over its cap take nothing from mb-2's 30.
-    expect(combinedDailyCapacity(accounts)).toEqual({ sent: 12, cap: 40, remaining: 30 });
+    expect(combinedDailyCapacity(accounts)).toEqual({ sent: 12, cap: 40, remaining: 30, mailboxCap: 40, limitedBy: null });
   });
 
   it('falls back to the daily limit for a mailbox listed without a cap', () => {
     expect(combinedDailyCapacity([{ dailyLimit: 200, sentLast24Hours: 50 }, { dailyLimit: 100, effectiveDailyCap: 20 }]))
-      .toEqual({ sent: 50, cap: 220, remaining: 170 });
+      .toEqual({ sent: 50, cap: 220, remaining: 170, mailboxCap: 220, limitedBy: null });
+  });
+});
+
+describe('Accounts capacity figures are held to what the global rate limits allow in a day', () => {
+  // 220 mailboxes of 500 a day add up to 110,000, which 800 an hour can never send.
+  const mailboxes = [
+    ...Array.from({ length: 219 }, () => ({ dailyLimit: 500, sentLast24Hours: 0 })),
+    { dailyLimit: 500, sentLast24Hours: 6 },
+  ];
+
+  it('caps the total at 24 times the hourly limit when that is below the mailboxes\' own total', () => {
+    expect(combinedDailyCapacity(mailboxes, { minute: 80, hour: 800 }))
+      .toEqual({ sent: 6, cap: 19200, remaining: 19194, mailboxCap: 110000, limitedBy: 'hour' });
+  });
+
+  it('caps the total at 1,440 times the per-minute limit when that is the lower of the two', () => {
+    expect(combinedDailyCapacity(mailboxes, { minute: 10, hour: 800 }))
+      .toEqual({ sent: 6, cap: 14400, remaining: 14394, mailboxCap: 110000, limitedBy: 'minute' });
+    expect(globalDailyCeiling({ minute: 10, hour: null })).toEqual({ cap: 14400, per: 'minute' });
+  });
+
+  it('leaves the mailboxes\' own total when the global limits allow more than it', () => {
+    expect(combinedDailyCapacity([{ dailyLimit: 500, sentLast24Hours: 6 }], { minute: 80, hour: 800 }))
+      .toEqual({ sent: 6, cap: 500, remaining: 494, mailboxCap: 500, limitedBy: null });
+  });
+
+  it('reads a limit of 0 or null as no limit, as the send engine does', () => {
+    expect(globalDailyCeiling({ minute: 0, hour: null })).toBeNull();
+    expect(globalDailyCeiling(null)).toBeNull();
+    expect(combinedDailyCapacity(mailboxes, { minute: 0, hour: null }))
+      .toEqual({ sent: 6, cap: 110000, remaining: 109994, mailboxCap: 110000, limitedBy: null });
+  });
+
+  it('never reports less than nothing left once the last 24 hours used the global allowance up', () => {
+    const busy = [{ dailyLimit: 500, sentLast24Hours: 400 }, { dailyLimit: 500, sentLast24Hours: 100 }];
+    expect(combinedDailyCapacity(busy, { minute: null, hour: 20 }))
+      .toEqual({ sent: 500, cap: 480, remaining: 0, mailboxCap: 1000, limitedBy: 'hour' });
   });
 });

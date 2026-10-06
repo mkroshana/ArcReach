@@ -196,8 +196,9 @@ export default function AccountsPage() {
   const [globalRateLimits, setGlobalRateLimits] = useState<GlobalRateLimitValues | null>(null);
 
   const totalDailyLimit = accounts.reduce((sum, a) => sum + (a.dailyLimit || 0), 0);
-  // What the mailboxes may send now: each one's enforced cap, which warmup holds below its daily limit.
-  const dailyCapacity = combinedDailyCapacity(accounts);
+  // What the mailboxes may send now: each one's enforced cap, which warmup holds below its daily limit,
+  // and all of them together held to what the global rate limits allow in a day.
+  const dailyCapacity = combinedDailyCapacity(accounts, globalRateLimits);
   const failingSyncCount = accounts.filter(a => imapSyncState(a) === 'failing').length;
 
   const [imapHost, setImapHost] = useState('');
@@ -805,13 +806,18 @@ export default function AccountsPage() {
                   <Box sx={{ mt: 2, pt: 2, borderTop: 1, borderColor: 'divider' }}>
                     <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                       <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Combined Daily Capacity</Typography>
-                      <Typography variant="caption" sx={{ fontWeight: 700, color: 'primary.main', fontFamily: 'monospace' }}>{dailyCapacity.sent} / {dailyCapacity.cap} sent in the last 24 hours</Typography>
+                      <Typography variant="caption" sx={{ fontWeight: 700, color: 'primary.main', fontFamily: 'monospace' }}>{dailyCapacity.sent.toLocaleString()} / {dailyCapacity.cap.toLocaleString()} sent in the last 24 hours</Typography>
                     </Stack>
                     <LinearProgress variant="determinate" value={Math.min(100, dailyCapacity.cap > 0 ? (dailyCapacity.sent / dailyCapacity.cap) * 100 : 0)} sx={{ height: 6, borderRadius: 999 }} />
+                    {dailyCapacity.limitedBy && globalRateLimits && (
+                      <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 1 }}>
+                        Mailbox limits add up to {dailyCapacity.mailboxCap.toLocaleString()} a day, but the global limit of {formatRateLimit(globalRateLimits[dailyCapacity.limitedBy], dailyCapacity.limitedBy)} holds all mailboxes together to {dailyCapacity.cap.toLocaleString()}.
+                      </Typography>
+                    )}
                     <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 1.5, mt: 2, p: 1.5, borderRadius: '12px', bgcolor: 'action.hover', border: 1, borderColor: 'divider', textAlign: 'center', fontSize: 10 }}>
-                      <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Remaining</Typography><Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{dailyCapacity.remaining} / day</Typography></Box>
+                      <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Remaining</Typography><Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{dailyCapacity.remaining.toLocaleString()} / day</Typography></Box>
                       <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Mailboxes</Typography><Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{accounts.length}</Typography></Box>
-                      <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Avg / Account</Typography><Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{accounts.length > 0 ? Math.round(dailyCapacity.cap / accounts.length) : 0}</Typography></Box>
+                      <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Avg / Account</Typography><Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{accounts.length > 0 ? Math.round(dailyCapacity.mailboxCap / accounts.length).toLocaleString() : 0}</Typography></Box>
                     </Box>
                   </Box>
                 )}

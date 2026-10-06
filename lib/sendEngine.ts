@@ -3,6 +3,7 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from './db';
 import { getGlobalSettings } from './settings';
 import { checkGlobalRateLimits } from './rateLimits';
+import { type GlobalRateLimitFields, mailboxDailyLimitsOff } from './mailboxCapacity';
 import { applyEmailTracking } from './emailTracking';
 import { listUnsubscribeHeaders, signUnsubscribeToken } from './unsubscribeLink';
 import { personalizeEmail, renderEmailBody } from './personalize';
@@ -75,27 +76,43 @@ export async function pauseCampaignsOfDisabledOwners(): Promise<number> {
   return count;
 }
 
-/**
- * Calculates the daily limit for a sender based on the warmup volume ramp
- */
-export function getEffectiveDailyCap(
-  senderAccount: {
-    warmupEnabled: boolean;
-    warmupStartedAt: Date | string | null;
-    dailyLimit: number;
-    warmupLimit: number;
-    warmupRamp: number;
-  },
-  now: Date
-): number {
+/** The mailbox columns its caps are worked out from. */
+type SenderCapFields = {
+  warmupEnabled: boolean;
+  warmupStartedAt: Date | string | null;
+  dailyLimit: number;
+  warmupLimit: number;
+  warmupRamp: number;
+};
+
+/** What the warmup ramp allows a mailbox today, or null when it is not warming up. */
+function warmupRampCap(senderAccount: SenderCapFields, now: Date): number | null {
   if (!senderAccount.warmupEnabled || !senderAccount.warmupStartedAt) {
-    return senderAccount.dailyLimit;
+    return null;
   }
   const startedAt = new Date(senderAccount.warmupStartedAt);
   const elapsedMs = now.getTime() - startedAt.getTime();
   const daysActive = Math.max(0, Math.floor(elapsedMs / 86400000));
-  const currentCap = senderAccount.warmupLimit + senderAccount.warmupRamp * daysActive;
-  return Math.min(senderAccount.dailyLimit, currentCap);
+  return senderAccount.warmupLimit + senderAccount.warmupRamp * daysActive;
+}
+
+/**
+ * Calculates the daily limit for a sender based on the warmup volume ramp
+ */
+export function getEffectiveDailyCap(senderAccount: SenderCapFields, now: Date): number {
+  const ramp = warmupRampCap(senderAccount, now);
+  return ramp === null ? senderAccount.dailyLimit : Math.min(senderAccount.dailyLimit, ramp);
+}
+
+/**
+ * The cap on a mailbox's own sends in any rolling 24 hours, or null when it has none. With the
+ * mailboxes' daily limits off (a global rate limit is set, lib/mailboxCapacity
+ * mailboxDailyLimitsOff) all mailboxes share the global allowance, so only the warmup ramp
+ * caps a mailbox, and one that is not warming up has no cap of its own. Otherwise it is the
+ * mailbox's daily limit, which the warmup ramp holds it below (getEffectiveDailyCap).
+ */
+export function getMailboxCap(senderAccount: SenderCapFields, now: Date, dailyLimitsOff: boolean): number | null {
+  return dailyLimitsOff ? warmupRampCap(senderAccount, now) : getEffectiveDailyCap(senderAccount, now);
 }
 
 /** A mailbox's daily and warmup caps limit its sends in any rolling 24 hours, not per calendar day. */
@@ -118,31 +135,39 @@ export function senderCapDispatchWhere(senderAccountId: string, now: Date): Pris
 /**
  * Why a mailbox may not make one more send outside the engine (a Unibox reply
  * or a mailbox test), or null when it may. Its sends are counted against its
- * daily or warmup cap exactly as the engine counts them.
+ * daily or warmup cap exactly as the engine counts them. `globalLimits` are the
+ * global rate limits from Settings: with one set the mailbox has no daily cap,
+ * so only a warmup ramp can stop the send here.
  */
 export async function senderCapReachedReason(
-  sender: Parameters<typeof getEffectiveDailyCap>[0] & { id: string; emailAddress: string },
-  now: Date
+  sender: SenderCapFields & { id: string; emailAddress: string },
+  now: Date,
+  globalLimits?: GlobalRateLimitFields | null
 ): Promise<string | null> {
-  const cap = getEffectiveDailyCap(sender, now);
+  const dailyLimitsOff = mailboxDailyLimitsOff(globalLimits);
+  const cap = getMailboxCap(sender, now, dailyLimitsOff);
+  if (cap === null) return null;
   const sent = await prisma.emailDispatch.count({ where: senderCapDispatchWhere(sender.id, now) });
   if (sent < cap) return null;
-  // The effective cap is below the daily limit only while the warmup ramp holds it back.
-  const capName = cap < sender.dailyLimit ? 'warmup' : 'daily';
+  // The cap is below the daily limit only while the warmup ramp holds it back, and with the
+  // daily limits off the ramp is the only cap there is.
+  const capName = dailyLimitsOff || cap < sender.dailyLimit ? 'warmup' : 'daily';
   return `${sender.emailAddress} has reached its ${capName} cap of ${cap} emails in the last 24 hours. Nothing was sent; it can send again as those sends pass 24 hours old.`;
 }
 
 /**
  * When a mailbox at its cap can send again: once its cap-th newest counted
  * send leaves the 24-hour window, fewer than cap sends remain in it. `now`
- * when fewer than cap sends count (it is under its cap already), and null for
- * a cap of 0, which no send leaving the window lifts.
+ * when fewer than cap sends count (it is under its cap already) or it has no
+ * cap of its own, and null for a cap of 0, which no send leaving the window lifts.
  */
 async function senderCapacityFreesAt(
-  sender: Parameters<typeof getEffectiveDailyCap>[0] & { id: string },
-  now: Date
+  sender: SenderCapFields & { id: string },
+  now: Date,
+  dailyLimitsOff: boolean
 ): Promise<Date | null> {
-  const cap = getEffectiveDailyCap(sender, now);
+  const cap = getMailboxCap(sender, now, dailyLimitsOff);
+  if (cap === null) return now;
   if (cap <= 0) return null;
   const capthNewest = await prisma.emailDispatch.findFirst({
     where: senderCapDispatchWhere(sender.id, now),
@@ -161,11 +186,12 @@ async function senderCapacityFreesAt(
 async function poolCapacityFreesAt(
   pool: Array<any>,
   now: Date,
-  cache: Map<string, Date | null>
+  cache: Map<string, Date | null>,
+  dailyLimitsOff: boolean
 ): Promise<Date | null> {
   let earliest: Date | null = null;
   for (const sender of pool) {
-    if (!cache.has(sender.id)) cache.set(sender.id, await senderCapacityFreesAt(sender, now));
+    if (!cache.has(sender.id)) cache.set(sender.id, await senderCapacityFreesAt(sender, now, dailyLimitsOff));
     const freesAt = cache.get(sender.id) ?? null;
     if (freesAt && (!earliest || freesAt < earliest)) earliest = freesAt;
   }
@@ -253,13 +279,33 @@ async function draftCampaignWithoutSchedule(campaign: { id: string; name: string
  * Picks the sender with the maximum remaining capacity under its cap over the
  * last 24 hours (least-loaded under cap).
  * Returns null if all senders in the pool are at cap.
+ *
+ * With the mailboxes' daily limits off (`dailyLimitsOff`) there is no cap to
+ * measure most of them against, so it picks the one that sent least in the
+ * last 24 hours, passing over any at its warmup cap.
  */
 export function pickSender(
   pool: Array<any>,
   sentLast24Hours: Map<string, number>,
-  now: Date
+  now: Date,
+  dailyLimitsOff = false
 ): any | null {
   let selectedSender: any | null = null;
+
+  if (dailyLimitsOff) {
+    let fewestSent = Infinity;
+    for (const sender of pool) {
+      const cap = getMailboxCap(sender, now, true);
+      const sent = sentLast24Hours.get(sender.id) || 0;
+      if (cap !== null && sent >= cap) continue;
+      if (sent < fewestSent) {
+        fewestSent = sent;
+        selectedSender = sender;
+      }
+    }
+    return selectedSender;
+  }
+
   let maxRemaining = -1;
 
   for (const sender of pool) {
@@ -876,6 +922,8 @@ export async function processDueEmails() {
     }
     // When each mailbox found at its cap this cycle can send again.
     const senderCapacityFreesAtCache = new Map<string, Date | null>();
+    // With a global rate limit set the mailboxes share its daily allowance and have no daily limits of their own.
+    const dailyLimitsOff = mailboxDailyLimitsOff({ minute: settings?.rateLimitMinute, hour: settings?.rateLimitHour });
 
     // 2. Validate global rate limits before processing any sends
     const rateCheck = await checkGlobalRateLimits();
@@ -899,12 +947,12 @@ export async function processDueEmails() {
       // Pick a sender from the campaign's pool per send (least-loaded under cap)
       const senderPool = senderPools.get(campaign.id);
       if (!senderPool) continue; // set back to Draft (no complete schedule) or paused (no sender mailbox its owner owns) above
-      const chosenSender = pickSender(senderPool, senderSentLast24Hours, now);
+      const chosenSender = pickSender(senderPool, senderSentLast24Hours, now, dailyLimitsOff);
 
       if (!chosenSender) {
         // Wait until the first mailbox in the pool drops under its cap as its
         // sends leave the 24-hour window; with every cap at 0, check in a day.
-        const freesAt = await poolCapacityFreesAt(senderPool, now, senderCapacityFreesAtCache);
+        const freesAt = await poolCapacityFreesAt(senderPool, now, senderCapacityFreesAtCache, dailyLimitsOff);
         const deferUntil = freesAt ?? new Date(now.getTime() + SENDER_CAP_WINDOW_MS);
         console.log(`[SendEngine] All senders in pool for campaign "${campaign.name}" are at cap. Deferring lead ${lead.email} until ${deferUntil.toISOString()}.`);
         await prisma.campaignEnrollment.update({

@@ -12,6 +12,8 @@ const fake = vi.hoisted(() => {
     inboundResponse: model(),
     lead: model(),
     senderAccount: model(),
+    // No settings row: no global rate limit, so each mailbox is held to its own daily limit.
+    globalSettings: { findUnique: vi.fn(), findFirst: vi.fn() },
     $queryRaw: vi.fn(),
   };
 });

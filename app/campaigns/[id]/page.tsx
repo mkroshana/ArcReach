@@ -790,7 +790,8 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                                     <span>Provider: <Box component="strong" sx={{ color: 'text.primary' }}>{mailbox.provider}</Box></span>
                                     <Box component="strong" sx={{ color: imapSyncState(mailbox) === 'failing' ? 'error.main' : undefined }}>{IMAP_SYNC_LABELS[imapSyncState(mailbox)]}</Box>
                                     {replyTo && <span>Replies go to <Box component="strong" sx={{ color: 'text.primary', fontFamily: 'monospace' }}>{replyTo}</Box></span>}
-                                    <span>Last 24 Hours: <Box component="strong">{mailbox.sentLast24Hours} / {mailbox.effectiveDailyCap}</Box></span>
+                                    {/* No cap of its own while a global rate limit is set, unless it is warming up */}
+                                    <span>Last 24 Hours: <Box component="strong">{mailbox.sentLast24Hours}{mailbox.effectiveDailyCap != null && ` / ${mailbox.effectiveDailyCap}`}</Box></span>
                                     <span>Total: <Box component="strong">{mailbox.sentTotal}</Box></span>
                                   </Stack>
                                 </Box>

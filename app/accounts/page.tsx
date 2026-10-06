@@ -16,7 +16,7 @@ import { useToast } from '@/components/Toast';
 import { LoadError, loadErrorMessage, readJsonList, readJsonObject, responseErrorMessage } from '@/lib/apiResponse';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { MAILBOX_LIMIT_FIELDS, type MailboxLimitField, MailboxSettingsSaves, mailboxLimitInputValue } from '@/lib/mailboxSettingsSave';
-import { combinedDailyCapacity } from '@/lib/mailboxCapacity';
+import { combinedDailyCapacity, mailboxRemaining, type GlobalDailyAllowance } from '@/lib/mailboxCapacity';
 import {
   Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
   Dialog, DialogTitle, DialogContent, DialogActions, Table, TableHead, TableBody, TableRow, TableCell,
@@ -195,10 +195,22 @@ export default function AccountsPage() {
   const [editReplyTo, setEditReplyTo] = useState('');
   const [globalRateLimits, setGlobalRateLimits] = useState<GlobalRateLimitValues | null>(null);
 
+  // The daily allowance all mailboxes share while a global rate limit is set. Then the mailboxes
+  // have no daily limits of their own, and the page shows what is left of the allowance instead.
+  const [globalDaily, setGlobalDaily] = useState<GlobalDailyAllowance | null>(null);
+
   const totalDailyLimit = accounts.reduce((sum, a) => sum + (a.dailyLimit || 0), 0);
-  // What the mailboxes may send now: each one's enforced cap, which warmup holds below its daily limit,
-  // and all of them together held to what the global rate limits allow in a day.
-  const dailyCapacity = combinedDailyCapacity(accounts, globalRateLimits);
+  // With no global rate limit, what the mailboxes may send now: each one's enforced cap, which
+  // warmup holds below its daily limit.
+  const dailyCapacity = combinedDailyCapacity(accounts);
+  // A mailbox's cap for display. While a save that turns warmup on is in flight the server's cap
+  // has not arrived yet, so the ramp's Day 1 volume stands in for it when daily limits are off.
+  const currentCap = (account: any): number => account.effectiveDailyCap ?? (globalDaily ? account.warmupLimit ?? 50 : account.dailyLimit);
+  // What a mailbox may still send of the shared allowance, which only its warmup ramp holds it below.
+  const remainingOfAllowance = (account: any): number =>
+    mailboxRemaining({ sentLast24Hours: account.sentLast24Hours, effectiveDailyCap: account.warmupEnabled ? currentCap(account) : null }, globalDaily);
+  // The global limit that sets the shared allowance, as "800 / hour".
+  const globalDailySource = globalDaily ? formatRateLimit(globalDaily.limit / (globalDaily.per === 'hour' ? 24 : 1440), globalDaily.per) : '';
   const failingSyncCount = accounts.filter(a => imapSyncState(a) === 'failing').length;
 
   const [imapHost, setImapHost] = useState('');
@@ -274,6 +286,9 @@ export default function AccountsPage() {
       setSession(sessData);
       setAssignedUserId(sessData.id);
       setAccounts(await readJsonList(await fetch('/api/accounts'), 'Mailboxes'));
+      // Whether the mailboxes share a global daily allowance decides which limits the page shows.
+      const capacity = await readJsonObject(await fetch('/api/accounts/capacity'), 'Sending limits');
+      setGlobalDaily(capacity.globalDaily ?? null);
       const settingsRes = await fetch('/api/settings');
       if (settingsRes.ok) {
         const settingsData = await settingsRes.json();
@@ -470,8 +485,10 @@ export default function AccountsPage() {
           {!loadError && (
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, 1fr)' }, gap: 2 }}>
             {[
-              { label: 'Total Senders', value: loading ? '…' : `${accounts.length} Senders`, color: undefined },
-              { label: 'Combined Daily Limit', value: loading ? '…' : `${totalDailyLimit.toLocaleString()} Emails`, color: '#2563EB' },
+              { label: 'Total Senders', value: loading ? '…' : `${accounts.length} Senders`, color: undefined, note: '' },
+              globalDaily
+                ? { label: 'Global Limit Remaining', value: loading ? '…' : `${globalDaily.remaining.toLocaleString()} Emails`, color: '#2563EB', note: `Of ${globalDaily.limit.toLocaleString()} in any 24 hours (${globalDailySource}), shared by all mailboxes.` }
+                : { label: 'Combined Daily Limit', value: loading ? '…' : `${totalDailyLimit.toLocaleString()} Emails`, color: '#2563EB', note: '' },
             ].map((kpi, i) => (
               <Card key={i}>
                 <CardContent>
@@ -479,6 +496,7 @@ export default function AccountsPage() {
                     <Typography variant="overline" sx={{ color: 'text.secondary', fontWeight: 700 }}>{kpi.label}</Typography>
                   </Stack>
                   <Typography variant="h6" sx={{ fontWeight: 700, fontFamily: 'monospace', mt: 0.5, color: kpi.color }}>{kpi.value}</Typography>
+                  {kpi.note && !loading && <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>{kpi.note}</Typography>}
                 </CardContent>
               </Card>
             ))}
@@ -502,7 +520,7 @@ export default function AccountsPage() {
                     <TableRow sx={{ '& th': { fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', fontSize: 10, color: 'text.secondary' } }}>
                       <TableCell>Sender Mailbox</TableCell>
                       <TableCell>Reply Sync</TableCell>
-                      <TableCell>Daily Limit</TableCell>
+                      <TableCell>{globalDaily ? 'Remaining' : 'Daily Limit'}</TableCell>
                       <TableCell>Owner</TableCell>
                       <TableCell>Status</TableCell>
                       <TableCell align="right">Configure</TableCell>
@@ -545,7 +563,16 @@ export default function AccountsPage() {
                           <ReplySyncChip account={account} />
                         </TableCell>
                         <TableCell sx={{ fontFamily: 'monospace', fontSize: 12 }}>
-                          {account.warmupEnabled ? (
+                          {globalDaily ? (
+                            // Daily limits are off: what the mailbox may still send of the shared allowance,
+                            // which only its warmup ramp holds it below.
+                            account.warmupEnabled ? (
+                              <>
+                                <Box component="span" sx={{ color: 'warning.main', fontWeight: 700 }}>{remainingOfAllowance(account).toLocaleString()} left</Box>
+                                <Box component="span" sx={{ color: 'text.secondary' }}> / {currentCap(account).toLocaleString()} warmup cap</Box>
+                              </>
+                            ) : (<>{remainingOfAllowance(account).toLocaleString()} left</>)
+                          ) : account.warmupEnabled ? (
                             <>
                               <Box component="span" sx={{ color: 'warning.main', fontWeight: 700 }}>{account.effectiveDailyCap} now</Box>
                               <Box component="span" sx={{ color: 'text.secondary' }}> / {account.dailyLimit}</Box>
@@ -586,9 +613,11 @@ export default function AccountsPage() {
                 {selectedWarmupAccount.warmupEnabled ? (() => {
                   const startedAt = selectedWarmupAccount.warmupStartedAt ? new Date(selectedWarmupAccount.warmupStartedAt) : new Date();
                   const daysActive = Math.max(0, Math.floor((new Date().getTime() - startedAt.getTime()) / 86400000));
-                  const effectiveCap = selectedWarmupAccount.effectiveDailyCap ?? selectedWarmupAccount.dailyLimit;
-                  return <Box component="span" sx={{ color: 'warning.main', fontWeight: 600 }}>Warmup Day {daysActive + 1} · Current Cap: {effectiveCap} / {selectedWarmupAccount.dailyLimit} daily limit</Box>;
-                })() : 'Configure the daily sending limit, connection details, and credentials for this mailbox.'}
+                  const effectiveCap = currentCap(selectedWarmupAccount);
+                  return <Box component="span" sx={{ color: 'warning.main', fontWeight: 600 }}>Warmup Day {daysActive + 1} · Current Cap: {effectiveCap}{globalDaily ? '' : ` / ${selectedWarmupAccount.dailyLimit} daily limit`}</Box>;
+                })() : globalDaily
+                  ? 'Configure warmup, connection details, and credentials for this mailbox.'
+                  : 'Configure the daily sending limit, connection details, and credentials for this mailbox.'}
               </Typography>
             </Box>
             <Stack direction="row" spacing={1}>
@@ -684,7 +713,13 @@ export default function AccountsPage() {
                     <Gauge size={16} color="#2563EB" />
                     <Typography variant="overline" sx={{ fontWeight: 700 }}>Sending Limits</Typography>
                   </Stack>
-                  <TextField fullWidth size="small" label={MAILBOX_LIMIT_FIELDS.dailyLimit.label} type="number" {...limitInputProps('dailyLimit', selectedWarmupAccount.dailyLimit)} sx={{ maxWidth: 240 }} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { min: MAILBOX_LIMIT_FIELDS.dailyLimit.min } }} />
+                  {globalDaily ? (
+                    <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                      This mailbox has no daily limit of its own while a global rate limit is set. All mailboxes share {globalDaily.limit.toLocaleString()} emails in any 24 hours ({globalDailySource}), and <Box component="strong" sx={{ fontFamily: 'monospace', color: 'text.primary' }}>{remainingOfAllowance(selectedWarmupAccount).toLocaleString()}</Box> {selectedWarmupAccount.warmupEnabled ? 'are left for this mailbox under its warmup cap.' : 'are left.'}
+                    </Typography>
+                  ) : (
+                    <TextField fullWidth size="small" label={MAILBOX_LIMIT_FIELDS.dailyLimit.label} type="number" {...limitInputProps('dailyLimit', selectedWarmupAccount.dailyLimit)} sx={{ maxWidth: 240 }} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { min: MAILBOX_LIMIT_FIELDS.dailyLimit.min } }} />
+                  )}
                   <Box sx={{ mt: 2 }}><GlobalRateLimits limits={globalRateLimits} /></Box>
                 </CardContent>
               </Card>
@@ -706,7 +741,7 @@ export default function AccountsPage() {
                   {selectedWarmupAccount.warmupEnabled && (
                     <Stack spacing={2} sx={{ mt: 2 }}>
                       <Stack direction="row" spacing={2}>
-                        <TextField fullWidth size="small" label={MAILBOX_LIMIT_FIELDS.warmupLimit.label} type="number" {...limitInputProps('warmupLimit', selectedWarmupAccount.warmupLimit ?? 50)} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { min: MAILBOX_LIMIT_FIELDS.warmupLimit.min, max: selectedWarmupAccount.dailyLimit } }} />
+                        <TextField fullWidth size="small" label={MAILBOX_LIMIT_FIELDS.warmupLimit.label} type="number" {...limitInputProps('warmupLimit', selectedWarmupAccount.warmupLimit ?? 50)} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { min: MAILBOX_LIMIT_FIELDS.warmupLimit.min, max: globalDaily ? undefined : selectedWarmupAccount.dailyLimit } }} />
                         <TextField fullWidth size="small" label={MAILBOX_LIMIT_FIELDS.warmupRamp.label} type="number" {...limitInputProps('warmupRamp', selectedWarmupAccount.warmupRamp ?? 2)} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { min: MAILBOX_LIMIT_FIELDS.warmupRamp.min } }} />
                       </Stack>
                       <Card sx={{ bgcolor: (t) => alpha(t.palette.warning.main, 0.06), borderColor: (t) => alpha(t.palette.warning.main, 0.2) }}>
@@ -718,7 +753,7 @@ export default function AccountsPage() {
                               <Box component="ul" sx={{ pl: 2, m: 0, fontSize: 11, color: 'warning.main' }}>
                                 <li>Started On: <Box component="strong" sx={{ fontFamily: 'monospace' }}>{selectedWarmupAccount.warmupStartedAt ? new Date(selectedWarmupAccount.warmupStartedAt).toLocaleDateString() : 'Just now'}</Box></li>
                                 <li>Emails Sent This Ramp: <Box component="strong" sx={{ fontFamily: 'monospace' }}>{selectedWarmupAccount.warmupSent ?? 0}</Box></li>
-                                <li>Current Limit: <Box component="strong" sx={{ fontFamily: 'monospace' }}>{selectedWarmupAccount.effectiveDailyCap ?? selectedWarmupAccount.dailyLimit}</Box> emails per 24 hours</li>
+                                <li>Current Limit: <Box component="strong" sx={{ fontFamily: 'monospace' }}>{currentCap(selectedWarmupAccount)}</Box> emails per 24 hours</li>
                               </Box>
                             </Box>
                           </Stack>
@@ -800,24 +835,36 @@ export default function AccountsPage() {
                   <Activity size={14} color="#2563EB" />
                   <Typography variant="overline" sx={{ fontWeight: 700, color: 'text.secondary' }}>Sending Limits</Typography>
                 </Stack>
-                <TextField fullWidth size="small" label="Max / Day" type="number" value={dailyLimit} onChange={(e) => setDailyLimit(parseInt(e.target.value) || 10)} sx={{ maxWidth: 240 }} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { min: 10 } }} />
-                <Box sx={{ mt: 2 }}><GlobalRateLimits limits={globalRateLimits} /></Box>
-                {accounts.length > 0 && (
+                {!globalDaily && (
+                  <TextField fullWidth size="small" label="Max / Day" type="number" value={dailyLimit} onChange={(e) => setDailyLimit(parseInt(e.target.value) || 10)} sx={{ maxWidth: 240 }} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { min: 10 } }} />
+                )}
+                <Box sx={{ mt: globalDaily ? 0 : 2 }}><GlobalRateLimits limits={globalRateLimits} /></Box>
+                {globalDaily ? (
+                  <Box sx={{ mt: 2, pt: 2, borderTop: 1, borderColor: 'divider' }}>
+                    <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                      <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Global Daily Allowance</Typography>
+                      <Typography variant="caption" sx={{ fontWeight: 700, color: 'primary.main', fontFamily: 'monospace' }}>{globalDaily.sent.toLocaleString()} / {globalDaily.limit.toLocaleString()} sent in the last 24 hours</Typography>
+                    </Stack>
+                    <LinearProgress variant="determinate" value={Math.min(100, (globalDaily.sent / globalDaily.limit) * 100)} sx={{ height: 6, borderRadius: 999 }} />
+                    <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 1 }}>
+                      All mailboxes share this allowance, which is {globalDaily.per === 'hour' ? '24' : '1,440'} times the global limit of {globalDailySource}. A mailbox has no daily limit of its own while a global rate limit is set; only its warmup ramp holds it lower.
+                    </Typography>
+                    <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 1.5, mt: 2, p: 1.5, borderRadius: '12px', bgcolor: 'action.hover', border: 1, borderColor: 'divider', textAlign: 'center', fontSize: 10 }}>
+                      <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Remaining</Typography><Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{globalDaily.remaining.toLocaleString()} / day</Typography></Box>
+                      <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Mailboxes</Typography><Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{accounts.length}</Typography></Box>
+                    </Box>
+                  </Box>
+                ) : accounts.length > 0 && (
                   <Box sx={{ mt: 2, pt: 2, borderTop: 1, borderColor: 'divider' }}>
                     <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                       <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Combined Daily Capacity</Typography>
                       <Typography variant="caption" sx={{ fontWeight: 700, color: 'primary.main', fontFamily: 'monospace' }}>{dailyCapacity.sent.toLocaleString()} / {dailyCapacity.cap.toLocaleString()} sent in the last 24 hours</Typography>
                     </Stack>
                     <LinearProgress variant="determinate" value={Math.min(100, dailyCapacity.cap > 0 ? (dailyCapacity.sent / dailyCapacity.cap) * 100 : 0)} sx={{ height: 6, borderRadius: 999 }} />
-                    {dailyCapacity.limitedBy && globalRateLimits && (
-                      <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 1 }}>
-                        Mailbox limits add up to {dailyCapacity.mailboxCap.toLocaleString()} a day, but the global limit of {formatRateLimit(globalRateLimits[dailyCapacity.limitedBy], dailyCapacity.limitedBy)} holds all mailboxes together to {dailyCapacity.cap.toLocaleString()}.
-                      </Typography>
-                    )}
                     <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 1.5, mt: 2, p: 1.5, borderRadius: '12px', bgcolor: 'action.hover', border: 1, borderColor: 'divider', textAlign: 'center', fontSize: 10 }}>
                       <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Remaining</Typography><Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{dailyCapacity.remaining.toLocaleString()} / day</Typography></Box>
                       <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Mailboxes</Typography><Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{accounts.length}</Typography></Box>
-                      <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Avg / Account</Typography><Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{accounts.length > 0 ? Math.round(dailyCapacity.mailboxCap / accounts.length).toLocaleString() : 0}</Typography></Box>
+                      <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Avg / Account</Typography><Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{accounts.length > 0 ? Math.round(dailyCapacity.cap / accounts.length).toLocaleString() : 0}</Typography></Box>
                     </Box>
                   </Box>
                 )}

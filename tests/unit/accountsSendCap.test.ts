@@ -7,6 +7,7 @@ vi.mock('../../lib/db', () => ({
     emailDispatch: { count: vi.fn() },
     inboundResponse: { count: vi.fn() },
     campaignEnrollment: { count: vi.fn() },
+    globalSettings: { findUnique: vi.fn(), findFirst: vi.fn() },
   },
 }));
 
@@ -17,7 +18,8 @@ vi.mock('../../lib/session', () => ({
 import { db, prisma } from '../../lib/db';
 import { getSession } from '../../lib/session';
 import { GET as getAccounts } from '../../app/api/accounts/route';
-import { combinedDailyCapacity, globalDailyCeiling } from '../../lib/mailboxCapacity';
+import { GET as getCapacity } from '../../app/api/accounts/capacity/route';
+import { combinedDailyCapacity, globalDailyAllowance, globalDailyCeiling, mailboxDailyLimitsOff, mailboxRemaining } from '../../lib/mailboxCapacity';
 
 const mockedDb = db as any;
 const mockedPrisma = prisma as any;
@@ -36,6 +38,7 @@ function matchesValue(value: any, cond: any): boolean {
   if (cond === null || typeof cond !== 'object') return value === cond;
   if ('in' in cond) return cond.in.includes(value);
   if ('gt' in cond) return value > cond.gt;
+  if ('gte' in cond) return value >= cond.gte;
   throw new Error(`Unmodelled filter: ${JSON.stringify(cond)}`);
 }
 
@@ -48,6 +51,9 @@ beforeEach(() => {
   mockedDb.getAccounts.mockResolvedValue([
     { id: 'mb-1', dailyLimit: 50, warmupEnabled: false, warmupStartedAt: null, warmupLimit: 10, warmupRamp: 2, imapPass: null },
   ]);
+  // No settings row: no global rate limit, so each mailbox is held to its own daily limit.
+  mockedPrisma.globalSettings.findUnique.mockResolvedValue(null);
+  mockedPrisma.globalSettings.findFirst.mockResolvedValue(null);
   mockedPrisma.campaign.findMany.mockResolvedValue([]);
   mockedPrisma.inboundResponse.count.mockResolvedValue(0);
   mockedPrisma.campaignEnrollment.count.mockResolvedValue(0);
@@ -104,48 +110,89 @@ describe('Accounts capacity figures use the caps the send engine enforces (L28)'
     const accounts = await res.json();
     expect(accounts.map((a: any) => [a.id, a.effectiveDailyCap, a.sentLast24Hours])).toEqual([['mb-1', 5, 7], ['mb-2', 35, 5]]);
     // Not 1,000 - 12 from the daily limits, and mb-1's 2 over its cap take nothing from mb-2's 30.
-    expect(combinedDailyCapacity(accounts)).toEqual({ sent: 12, cap: 40, remaining: 30, mailboxCap: 40, limitedBy: null });
+    expect(combinedDailyCapacity(accounts)).toEqual({ sent: 12, cap: 40, remaining: 30 });
   });
 
   it('falls back to the daily limit for a mailbox listed without a cap', () => {
     expect(combinedDailyCapacity([{ dailyLimit: 200, sentLast24Hours: 50 }, { dailyLimit: 100, effectiveDailyCap: 20 }]))
-      .toEqual({ sent: 50, cap: 220, remaining: 170, mailboxCap: 220, limitedBy: null });
+      .toEqual({ sent: 50, cap: 220, remaining: 170 });
   });
 });
 
-describe('Accounts capacity figures are held to what the global rate limits allow in a day', () => {
-  // 220 mailboxes of 500 a day add up to 110,000, which 800 an hour can never send.
-  const mailboxes = [
-    ...Array.from({ length: 219 }, () => ({ dailyLimit: 500, sentLast24Hours: 0 })),
-    { dailyLimit: 500, sentLast24Hours: 6 },
-  ];
+describe('with a global rate limit set, the mailboxes share its daily allowance and have no daily limits of their own', () => {
+  const DAY = 24 * HOUR;
+  const GLOBAL = { id: 'global', activeProvider: 'AZURE', rateLimitMinute: 80, rateLimitHour: 800 };
 
-  it('caps the total at 24 times the hourly limit when that is below the mailboxes\' own total', () => {
-    expect(combinedDailyCapacity(mailboxes, { minute: 80, hour: 800 }))
-      .toEqual({ sent: 6, cap: 19200, remaining: 19194, mailboxCap: 110000, limitedBy: 'hour' });
+  it('GET /api/accounts reports no cap for a mailbox that is not warming up, and the ramp alone for one that is', async () => {
+    mockedPrisma.globalSettings.findUnique.mockResolvedValue(GLOBAL);
+    mockedDb.getAccounts.mockResolvedValue([
+      { id: 'mb-1', dailyLimit: 50, warmupEnabled: false, warmupStartedAt: null, warmupLimit: 10, warmupRamp: 2, imapPass: null },
+      // The fourth day of a ramp from 5 by 10 a day allows 35, which its daily limit of 20 no longer clamps.
+      { id: 'mb-2', dailyLimit: 20, warmupEnabled: true, warmupStartedAt: ago(3 * DAY + HOUR), warmupLimit: 5, warmupRamp: 10, imapPass: null },
+    ]);
+
+    const res = await getAccounts();
+
+    expect(res.status).toBe(200);
+    const accounts = await res.json();
+    expect(accounts.map((a: any) => [a.id, a.effectiveDailyCap])).toEqual([['mb-1', null], ['mb-2', 35]]);
   });
 
-  it('caps the total at 1,440 times the per-minute limit when that is the lower of the two', () => {
-    expect(combinedDailyCapacity(mailboxes, { minute: 10, hour: 800 }))
-      .toEqual({ sent: 6, cap: 14400, remaining: 14394, mailboxCap: 110000, limitedBy: 'minute' });
+  it('GET /api/accounts/capacity reports the allowance and what the last 24 hours left of it', async () => {
+    mockedPrisma.globalSettings.findUnique.mockResolvedValue(GLOBAL);
+    dispatches = [
+      { senderAccountId: 'mb-1', status: 'Sent', sentAt: ago(HOUR) },
+      { senderAccountId: 'mb-2', status: 'Failed', sentAt: ago(2 * HOUR) }, // the global limits count failed sends too
+      { senderAccountId: 'mb-1', status: 'Sent', sentAt: ago(30 * HOUR) }, // left the window
+    ];
+
+    const res = await getCapacity();
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ globalDaily: { limit: 19200, per: 'hour', sent: 2, remaining: 19198 } });
+  });
+
+  it('GET /api/accounts/capacity reports no allowance when no global rate limit is set', async () => {
+    mockedPrisma.globalSettings.findUnique.mockResolvedValue({ ...GLOBAL, rateLimitMinute: null, rateLimitHour: null });
+
+    const res = await getCapacity();
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ globalDaily: null });
+  });
+
+  it('takes the allowance from the lower of 24 times the hourly limit and 1,440 times the per-minute one', () => {
+    expect(globalDailyCeiling({ minute: 80, hour: 800 })).toEqual({ cap: 19200, per: 'hour' });
+    expect(globalDailyCeiling({ minute: 10, hour: 800 })).toEqual({ cap: 14400, per: 'minute' });
     expect(globalDailyCeiling({ minute: 10, hour: null })).toEqual({ cap: 14400, per: 'minute' });
+    expect(globalDailyAllowance({ minute: 80, hour: 800 }, 6)).toEqual({ limit: 19200, per: 'hour', sent: 6, remaining: 19194 });
+    expect(globalDailyAllowance({ minute: null, hour: 20 }, 500)).toEqual({ limit: 480, per: 'hour', sent: 500, remaining: 0 });
   });
 
-  it('leaves the mailboxes\' own total when the global limits allow more than it', () => {
-    expect(combinedDailyCapacity([{ dailyLimit: 500, sentLast24Hours: 6 }], { minute: 80, hour: 800 }))
-      .toEqual({ sent: 6, cap: 500, remaining: 494, mailboxCap: 500, limitedBy: null });
-  });
-
-  it('reads a limit of 0 or null as no limit, as the send engine does', () => {
+  it('reads a limit of 0 or null as no limit, as the send engine does, which leaves the daily limits on', () => {
     expect(globalDailyCeiling({ minute: 0, hour: null })).toBeNull();
     expect(globalDailyCeiling(null)).toBeNull();
-    expect(combinedDailyCapacity(mailboxes, { minute: 0, hour: null }))
-      .toEqual({ sent: 6, cap: 110000, remaining: 109994, mailboxCap: 110000, limitedBy: null });
+    expect(globalDailyAllowance({ minute: 0, hour: null }, 6)).toBeNull();
+    expect(mailboxDailyLimitsOff({ minute: 0, hour: null })).toBe(false);
+    expect(mailboxDailyLimitsOff({ minute: null, hour: 800 })).toBe(true);
+    expect(mailboxDailyLimitsOff({ minute: 80, hour: null })).toBe(true);
   });
 
-  it('never reports less than nothing left once the last 24 hours used the global allowance up', () => {
-    const busy = [{ dailyLimit: 500, sentLast24Hours: 400 }, { dailyLimit: 500, sentLast24Hours: 100 }];
-    expect(combinedDailyCapacity(busy, { minute: null, hour: 20 }))
-      .toEqual({ sent: 500, cap: 480, remaining: 0, mailboxCap: 1000, limitedBy: 'hour' });
+  it('gives each mailbox what is left of the allowance, and a warming one no more than its ramp leaves', () => {
+    const allowance = { limit: 19200, per: 'hour' as const, sent: 6, remaining: 19194 };
+
+    // No cap of its own: its daily limit of 500 is off, however much it sent.
+    expect(mailboxRemaining({ dailyLimit: 500, effectiveDailyCap: null, sentLast24Hours: 6 }, allowance)).toBe(19194);
+    expect(mailboxRemaining({ dailyLimit: 500, effectiveDailyCap: null, sentLast24Hours: 9000 }, allowance)).toBe(19194);
+    // Warming up: 44 left of a ramp of 50, and nothing once it is past it.
+    expect(mailboxRemaining({ dailyLimit: 500, effectiveDailyCap: 50, sentLast24Hours: 6 }, allowance)).toBe(44);
+    expect(mailboxRemaining({ dailyLimit: 500, effectiveDailyCap: 50, sentLast24Hours: 70 }, allowance)).toBe(0);
+    // The allowance has less left than the ramp does.
+    expect(mailboxRemaining({ effectiveDailyCap: 50, sentLast24Hours: 0 }, { ...allowance, sent: 19190, remaining: 10 })).toBe(10);
+  });
+
+  it('gives a mailbox what is left of its own cap when there is no allowance', () => {
+    expect(mailboxRemaining({ dailyLimit: 200, sentLast24Hours: 50 }, null)).toBe(150);
+    expect(mailboxRemaining({ dailyLimit: 200, effectiveDailyCap: 20, sentLast24Hours: 50 })).toBe(0);
   });
 });

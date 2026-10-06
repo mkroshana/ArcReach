@@ -118,6 +118,40 @@ describe('senderCapReachedReason (L2)', () => {
 
     expect(await senderCapReachedReason(STEADY, NOW)).toMatch(/^one@acme\.test has reached its daily cap of 100 emails/);
   });
+
+  it('reads global limits of null or 0 as none set, so the daily cap still applies', async () => {
+    mailboxSent['mb-1'] = 100;
+
+    expect(await senderCapReachedReason(STEADY, NOW, { minute: null, hour: 0 })).toMatch(/has reached its daily cap of 100 emails/);
+  });
+});
+
+describe('senderCapReachedReason while a global rate limit has the daily limits off', () => {
+  const GLOBAL = { minute: 10, hour: 100 };
+
+  it('allows a send from a mailbox past its daily limit, without counting its sends', async () => {
+    mailboxSent['mb-1'] = 5000;
+
+    expect(await senderCapReachedReason(STEADY, NOW, GLOBAL)).toBeNull();
+    expect(mockedPrisma.emailDispatch.count).not.toHaveBeenCalled();
+  });
+
+  it('still holds a warming mailbox to its ramp', async () => {
+    mailboxSent['mb-1'] = 49;
+    expect(await senderCapReachedReason(WARMING, NOW, GLOBAL)).toBeNull();
+
+    mailboxSent['mb-1'] = 50;
+    expect(await senderCapReachedReason(WARMING, NOW, GLOBAL)).toMatch(/^one@acme\.test has reached its warmup cap of 50 emails/);
+  });
+
+  it('lets the ramp run past the daily limit, which no longer clamps it', async () => {
+    // Day 1 of a ramp that starts at 50, on a mailbox whose daily limit is 20.
+    const lowLimit = { ...WARMING, dailyLimit: 20 };
+    mailboxSent['mb-1'] = 20;
+
+    expect(await senderCapReachedReason(lowLimit, NOW)).toMatch(/has reached its daily cap of 20 emails/);
+    expect(await senderCapReachedReason(lowLimit, NOW, GLOBAL)).toBeNull();
+  });
 });
 
 describe('POST /api/unibox/reply caps (L2)', () => {
@@ -207,7 +241,25 @@ describe('POST /api/send-email/test limits and wording (L2, L3)', () => {
     expect(mockedPrisma.emailDispatch.create).not.toHaveBeenCalled();
   });
 
-  it('refuses the test from a mailbox at its cap', async () => {
+  it('sends the test from a mailbox past its daily limit while a global rate limit is set', async () => {
+    useMailbox(STEADY);
+    mailboxSent['mb-1'] = 100;
+
+    expect((await test()).status).toBe(200);
+    expect(mockedSend).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses the test from a warming mailbox at its ramp cap while a global rate limit is set', async () => {
+    mailboxSent['mb-1'] = 50;
+
+    const res = await test();
+    expect(res.status).toBe(429);
+    expect((await res.json()).error).toMatch(/has reached its warmup cap of 50 emails/);
+    expect(mockedSend).not.toHaveBeenCalled();
+  });
+
+  it('refuses the test from a mailbox at its daily limit when no global rate limit is set', async () => {
+    mockedPrisma.globalSettings.findUnique.mockResolvedValue({ ...AZURE_SETTINGS, rateLimitMinute: null, rateLimitHour: null });
     useMailbox(STEADY);
     mailboxSent['mb-1'] = 100;
 

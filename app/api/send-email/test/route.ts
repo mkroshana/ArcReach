@@ -41,12 +41,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: sendingDisabled }, { status: 409 });
     }
 
-    // Check global outbound rate limits and the mailbox's daily and warmup caps
+    // Check global outbound rate limits and the mailbox's own cap: its warmup ramp, and its daily
+    // limit when no global rate limit is set
     const rateCheck = await checkGlobalRateLimits();
     if (!rateCheck.allowed) {
       return NextResponse.json({ success: false, error: rateCheck.reason }, { status: 429 });
     }
-    const capReached = await senderCapReachedReason(senderAccount, new Date());
+    const capReached = await senderCapReachedReason(senderAccount, new Date(), { minute: settings?.rateLimitMinute, hour: settings?.rateLimitHour });
     if (capReached) {
       return NextResponse.json({ success: false, error: capReached }, { status: 429 });
     }

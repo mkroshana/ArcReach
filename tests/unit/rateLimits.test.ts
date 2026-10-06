@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { checkGlobalRateLimits } from '../../lib/rateLimits';
+import { checkGlobalRateLimits, getGlobalDailyAllowance } from '../../lib/rateLimits';
 import { prisma } from '../../lib/db';
 
 vi.mock('../../lib/db', () => {
@@ -119,5 +119,50 @@ describe('checkGlobalRateLimits', () => {
     expect(result.allowed).toBe(false);
     expect(result.reason).toContain('Database error while checking global rate limits');
     consoleErrorSpy.mockRestore();
+  });
+});
+
+describe('getGlobalDailyAllowance', () => {
+  const NOW = new Date('2026-10-06T12:00:00Z');
+  const settings = (rateLimitMinute: number | null, rateLimitHour: number | null) => ({
+    id: 'global', activeProvider: 'AZURE', azureConnString: null, azureSenderDomain: null, azureSenderDomains: null,
+    rateLimitMinute, rateLimitHour, updatedAt: new Date(),
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('is 24 times the hourly limit, less every dispatch of the last 24 hours', async () => {
+    vi.mocked(prisma.globalSettings.findUnique).mockResolvedValue(settings(80, 800));
+    vi.mocked(prisma.emailDispatch.count).mockResolvedValue(6);
+
+    expect(await getGlobalDailyAllowance(NOW)).toEqual({ limit: 19200, per: 'hour', sent: 6, remaining: 19194 });
+    // Counted as the hourly and per-minute checks count: any mailbox, any outcome.
+    expect(prisma.emailDispatch.count).toHaveBeenCalledWith({ where: { sentAt: { gte: new Date('2026-10-05T12:00:00Z') } } });
+  });
+
+  it('is 1,440 times the per-minute limit when that allows less', async () => {
+    vi.mocked(prisma.globalSettings.findUnique).mockResolvedValue(settings(10, 800));
+    vi.mocked(prisma.emailDispatch.count).mockResolvedValue(0);
+
+    expect(await getGlobalDailyAllowance(NOW)).toEqual({ limit: 14400, per: 'minute', sent: 0, remaining: 14400 });
+  });
+
+  it('never has less than nothing left', async () => {
+    vi.mocked(prisma.globalSettings.findUnique).mockResolvedValue(settings(null, 20));
+    vi.mocked(prisma.emailDispatch.count).mockResolvedValue(500);
+
+    expect(await getGlobalDailyAllowance(NOW)).toEqual({ limit: 480, per: 'hour', sent: 500, remaining: 0 });
+  });
+
+  it('is null with neither limit set or no settings yet, without counting anything', async () => {
+    vi.mocked(prisma.globalSettings.findUnique).mockResolvedValue(settings(null, 0));
+    expect(await getGlobalDailyAllowance(NOW)).toBeNull();
+
+    vi.mocked(prisma.globalSettings.findUnique).mockResolvedValue(null);
+    vi.mocked(prisma.globalSettings.findFirst).mockResolvedValue(null);
+    expect(await getGlobalDailyAllowance(NOW)).toBeNull();
+    expect(prisma.emailDispatch.count).not.toHaveBeenCalled();
   });
 });

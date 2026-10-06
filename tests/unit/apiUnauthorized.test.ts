@@ -33,6 +33,7 @@ vi.mock('../../lib/db', () => ({
 import { prisma, db } from '../../lib/db';
 import { signSession } from '../../lib/session';
 import * as accounts from '../../app/api/accounts/route';
+import * as accountsCapacity from '../../app/api/accounts/capacity/route';
 import * as campaigns from '../../app/api/campaigns/route';
 import * as campaign from '../../app/api/campaigns/[id]/route';
 import * as campaignRun from '../../app/api/campaigns/[id]/run/route';
@@ -61,6 +62,7 @@ type Handler = (req: NextRequest, ctx: { params: Promise<{ id: string }> }) => P
 /** Every session-protected API handler, by route and method. */
 const ROUTES: Record<string, Record<string, unknown>> = {
   '/api/accounts': accounts,
+  '/api/accounts/capacity': accountsCapacity,
   '/api/campaigns': campaigns,
   '/api/campaigns/[id]': campaign,
   '/api/campaigns/[id]/run': campaignRun,
@@ -114,7 +116,7 @@ describe('every API route answers a missing or revoked session with 401 (H26)', 
       .map((file) => `/api/${path.dirname(file).split(path.sep).join('/')}`)
       .filter((route) => route !== '/api/auth/logout'); // signs out whether or not the session is live
     expect(Object.keys(ROUTES).sort()).toEqual(protectedRoutes.sort());
-    expect(HANDLERS.length).toBe(41);
+    expect(HANDLERS.length).toBe(42);
   });
 
   it.each(HANDLERS)('%s returns 401, not 500, with no session cookie', async (_label, method, handler) => {

@@ -400,7 +400,7 @@ export default function SettingsPage() {
               <Card>
                 <CardContent sx={{ p: 3 }}>
                   <Typography variant="overline" sx={{ fontWeight: 700 }}>Global Sending Rate Limits</Typography>
-                  <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 2 }}>Caps total outbound volume across all campaigns and sender mailboxes. Choose No Limit to leave a period uncapped.</Typography>
+                  <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 2 }}>Caps total outbound volume across all campaigns and sender mailboxes. Choose No Limit to leave a period uncapped. While either limit is set, mailboxes have no daily limits of their own: together they share 24 times the hourly limit in any 24 hours (or 1,440 times the per-minute limit, if that is lower), and only a warmup ramp holds a mailbox below that. With both set to No Limit, each mailbox is held to its own daily limit.</Typography>
                   <form onSubmit={handleSaveRateLimits}>
                     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
                       <RateLimitField per="minute" input={rateLimitMinute} error={rateLimitErrors.minute}

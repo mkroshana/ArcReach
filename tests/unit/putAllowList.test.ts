@@ -17,6 +17,7 @@ vi.mock('../../lib/db', () => ({
     campaign: { findMany: vi.fn(), findFirst: vi.fn() },
     campaignEnrollment: { updateMany: vi.fn() },
     suppressedEmail: { findMany: vi.fn() },
+    globalSettings: { findUnique: vi.fn(), findFirst: vi.fn() },
     $transaction: vi.fn(),
   },
 }));

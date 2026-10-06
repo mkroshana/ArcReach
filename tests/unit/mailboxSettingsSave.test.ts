@@ -10,6 +10,7 @@ vi.mock('../../lib/db', () => ({
     senderAccount: { findUnique: vi.fn() },
     emailDispatch: { count: vi.fn() },
     inboundResponse: { count: vi.fn() },
+    globalSettings: { findUnique: vi.fn(), findFirst: vi.fn() },
   },
 }));
 

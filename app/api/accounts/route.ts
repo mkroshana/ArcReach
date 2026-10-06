@@ -6,7 +6,8 @@ import { UnauthorizedError, unauthorizedResponse } from '@/lib/sessionError';
 import { MASKED_SECRET, encryptSecret } from '@/lib/secrets';
 import { getGlobalSettings } from '@/lib/settings';
 import { getVerifiedDomains, unverifiedSenderMessage } from '@/lib/azureDomains';
-import { getEffectiveDailyCap, senderCapDispatchWhere } from '@/lib/sendEngine';
+import { getMailboxCap, senderCapDispatchWhere } from '@/lib/sendEngine';
+import { mailboxDailyLimitsOff } from '@/lib/mailboxCapacity';
 import { type MetricsScope, countHardBounces, countReplies, percent, sendSummary } from '@/lib/engagementMetrics';
 import { type FieldRule, fieldRules, isPlainObject, pickUpdateFields } from '@/lib/updateAllowList';
 
@@ -54,6 +55,12 @@ function mailboxInUseMessage(total: number, visibleNames: string[]): string {
     `Switch ${one ? 'that campaign' : 'those campaigns'} to another mailbox or delete ${one ? 'it' : 'them'} first.`;
 }
 
+/** Whether the global rate limits in Settings have the mailboxes' own daily limits off. */
+async function mailboxDailyLimitsAreOff(): Promise<boolean> {
+  const settings = await getGlobalSettings();
+  return mailboxDailyLimitsOff({ minute: settings?.rateLimitMinute, hour: settings?.rateLimitHour });
+}
+
 export async function GET() {
   try {
     const session = await getSession();
@@ -62,6 +69,9 @@ export async function GET() {
     const accounts = await db.getAccounts(session.id, session.role);
     
     const now = new Date();
+    // With a global rate limit set the mailboxes share its daily allowance (GET
+    // /api/accounts/capacity) and have no daily limits of their own.
+    const dailyLimitsOff = await mailboxDailyLimitsAreOff();
 
     const accountsWithStats = await Promise.all(accounts.map(async (account) => {
       // Counted as the send engine counts the mailbox's daily and warmup cap:
@@ -87,8 +97,10 @@ export async function GET() {
         countReplies(prisma, scope),
       ]);
 
-      // The cap the send engine enforces: the warmup ramp while it holds the mailbox below its daily limit.
-      const effectiveDailyCap = getEffectiveDailyCap(account, now);
+      // The cap the send engine enforces on the mailbox's own sends: the warmup ramp while it
+      // holds the mailbox below its daily limit, and null when it has none (its daily limit is
+      // off and it is not warming up).
+      const effectiveDailyCap = getMailboxCap(account, now, dailyLimitsOff);
 
       return {
         ...redactAccount(account),
@@ -262,7 +274,7 @@ export async function PUT(req: NextRequest) {
     const updated = await db.updateAccount(id, updates);
     // The Accounts page merges this into the mailbox it shows, keeping the stats GET counted;
     // the effective cap is the one figure a limit or warmup change moves, so it is sent too.
-    return NextResponse.json({ ...redactAccount(updated), effectiveDailyCap: getEffectiveDailyCap(updated, new Date()) });
+    return NextResponse.json({ ...redactAccount(updated), effectiveDailyCap: getMailboxCap(updated, new Date(), await mailboxDailyLimitsAreOff()) });
   } catch (error: any) {
     if (error instanceof UnauthorizedError) return unauthorizedResponse();
     return NextResponse.json({ error: error.message }, { status: 500 });

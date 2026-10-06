@@ -76,8 +76,9 @@ export async function POST(req: NextRequest) {
     }
     const senderAccount = found.account;
 
-    // A reply counts toward the mailbox's daily and warmup caps like any engine send
-    const capReached = await senderCapReachedReason(senderAccount, new Date());
+    // A reply counts toward the mailbox's own cap like any engine send: its warmup ramp, and its
+    // daily limit when no global rate limit is set
+    const capReached = await senderCapReachedReason(senderAccount, new Date(), { minute: settings?.rateLimitMinute, hour: settings?.rateLimitHour });
     if (capReached) {
       return NextResponse.json({ error: capReached }, { status: 429 });
     }

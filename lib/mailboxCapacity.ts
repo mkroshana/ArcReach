@@ -1,9 +1,13 @@
 /**
- * The combined sending capacity of the mailboxes GET /api/accounts returns, as the send engine
- * enforces it. Kept free of server imports so the Accounts page can use it.
+ * How much the mailboxes GET /api/accounts returns may send, as the send engine enforces it.
+ * Kept free of server imports so the Accounts page can use it.
  */
 
-/** The mailbox fields capacity is read from: effectiveDailyCap is getEffectiveDailyCap's cap. */
+/**
+ * The mailbox fields capacity is read from. effectiveDailyCap is the cap on the mailbox's own
+ * sends (lib/sendEngine getMailboxCap): null when it has none, which is only while the global
+ * rate limits have its daily limit off and it is not warming up.
+ */
 export interface MailboxCapacityFields {
   dailyLimit?: number | null;
   effectiveDailyCap?: number | null;
@@ -30,40 +34,66 @@ export function globalDailyCeiling(limits?: GlobalRateLimitFields | null): { cap
 }
 
 /**
+ * Whether the mailboxes' own daily limits are off. With a global rate limit set, the day's
+ * allowance it gives (globalDailyCeiling) is the one daily limit and every mailbox shares it;
+ * only a warmup ramp still holds a mailbox below it. With neither limit set, each mailbox is
+ * held to its own daily limit as before.
+ */
+export function mailboxDailyLimitsOff(limits?: GlobalRateLimitFields | null): boolean {
+  return globalDailyCeiling(limits) !== null;
+}
+
+/**
+ * The shared daily allowance while the mailboxes' own limits are off: `limit` emails in any 24
+ * hours, set by the global limit named in `per`, of which `sent` went out in the last 24 hours.
+ */
+export interface GlobalDailyAllowance {
+  limit: number;
+  per: 'minute' | 'hour';
+  sent: number;
+  remaining: number;
+}
+
+/**
+ * The shared daily allowance under `limits`, or null when neither is set. `sentLast24Hours` is
+ * every send the global limits count over the last 24 hours (lib/rateLimits), whatever its mailbox.
+ */
+export function globalDailyAllowance(limits: GlobalRateLimitFields | null | undefined, sentLast24Hours: number): GlobalDailyAllowance | null {
+  const ceiling = globalDailyCeiling(limits);
+  if (!ceiling) return null;
+  return { limit: ceiling.cap, per: ceiling.per, sent: sentLast24Hours, remaining: Math.max(0, ceiling.cap - sentLast24Hours) };
+}
+
+/**
+ * What one mailbox may still send in the current 24 hours: what is left of its own cap, held to
+ * what is left of the shared allowance when there is one. A mailbox with no cap of its own (its
+ * daily limit off and no warmup) has the whole of the allowance's remainder.
+ */
+export function mailboxRemaining(mailbox: MailboxCapacityFields, allowance?: GlobalDailyAllowance | null): number {
+  const sent = mailbox.sentLast24Hours ?? 0;
+  // Without an allowance the mailbox's own limit always applies, so a missing cap falls back to it.
+  const cap = allowance ? mailbox.effectiveDailyCap ?? null : mailbox.effectiveDailyCap ?? mailbox.dailyLimit ?? 0;
+  const own = cap === null ? Infinity : Math.max(0, cap - sent);
+  return allowance ? Math.min(own, allowance.remaining) : own;
+}
+
+/**
+ * The mailboxes' own caps added up, for when no global limit is set and each is held to its own.
  * Each mailbox may send up to its effective cap (the warmup ramp while it is below the daily
  * limit) in any rolling 24 hours, and its sends in the last 24 hours count toward it. `remaining`
  * adds up what each mailbox has left, so one over its cap (after a lowered limit or a restarted
  * ramp) takes nothing from the others.
- *
- * The global rate limits apply to all mailboxes together, so `cap` and `remaining` are held to
- * what those allow in a day (globalDailyCeiling). `mailboxCap` is the mailboxes' own total, and
- * `limitedBy` names the global limit when it is the lower of the two. The global limits also
- * count failed sends, which `sent` leaves out, so `remaining` is an upper bound.
  */
-export function combinedDailyCapacity(
-  mailboxes: MailboxCapacityFields[],
-  globalLimits?: GlobalRateLimitFields | null
-): { sent: number; cap: number; remaining: number; mailboxCap: number; limitedBy: 'minute' | 'hour' | null } {
+export function combinedDailyCapacity(mailboxes: MailboxCapacityFields[]): { sent: number; cap: number; remaining: number } {
   let sent = 0;
-  let mailboxCap = 0;
-  let mailboxRemaining = 0;
+  let cap = 0;
+  let remaining = 0;
   for (const mailbox of mailboxes) {
-    const cap = mailbox.effectiveDailyCap ?? mailbox.dailyLimit ?? 0;
+    const mailboxCap = mailbox.effectiveDailyCap ?? mailbox.dailyLimit ?? 0;
     const mailboxSent = mailbox.sentLast24Hours ?? 0;
     sent += mailboxSent;
-    mailboxCap += cap;
-    mailboxRemaining += Math.max(0, cap - mailboxSent);
+    cap += mailboxCap;
+    remaining += Math.max(0, mailboxCap - mailboxSent);
   }
-
-  const ceiling = globalDailyCeiling(globalLimits);
-  if (!ceiling) return { sent, cap: mailboxCap, remaining: mailboxRemaining, mailboxCap, limitedBy: null };
-
-  const limited = ceiling.cap < mailboxCap;
-  return {
-    sent,
-    cap: limited ? ceiling.cap : mailboxCap,
-    remaining: Math.min(mailboxRemaining, Math.max(0, ceiling.cap - sent)),
-    mailboxCap,
-    limitedBy: limited ? ceiling.per : null,
-  };
+  return { sent, cap, remaining };
 }

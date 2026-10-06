@@ -1503,6 +1503,37 @@ describe('per-mailbox caps count real sends over a rolling 24 hours (M10, M11)',
     expect(mockedSend).toHaveBeenCalledTimes(1);
   });
 
+  describe('while a global rate limit is set, so the mailboxes share its daily allowance', () => {
+    beforeEach(() => {
+      vi.mocked(getGlobalSettings).mockResolvedValue({
+        id: 'global', activeProvider: 'AZURE', azureConnString: 'enc:v1:conn', azureSenderDomains: ['acme.test'],
+        rateLimitMinute: 80, rateLimitHour: 800,
+      } as any);
+    });
+
+    it('sends from a mailbox past its daily limit, which is off', async () => {
+      campaign.senderAccount = { ...SENDER, dailyLimit: 1 };
+      addDispatch({ status: 'Sent', leadId: 'lead-other', sentAt: ago(HOUR) });
+      addDispatch({ status: 'Sent', leadId: 'lead-other', sentAt: ago(2 * HOUR) });
+
+      await processDueEmails();
+
+      expect(mockedSend).toHaveBeenCalledTimes(1);
+      expect(enrollmentOf('lead-1').currentSequenceStep).toBe(2);
+    });
+
+    it('still defers a warming mailbox at its ramp cap until a send leaves the window', async () => {
+      campaign.senderAccount = { ...SENDER, warmupEnabled: true, warmupStartedAt: ago(HOUR), warmupLimit: 2, warmupRamp: 5 };
+      addDispatch({ status: 'Sent', leadId: 'lead-other', sentAt: ago(20 * HOUR) });
+      addDispatch({ status: 'Sent', leadId: 'lead-other', sentAt: ago(10 * HOUR) });
+
+      await processDueEmails();
+
+      expect(mockedSend).not.toHaveBeenCalled();
+      expect(enrollmentOf('lead-1').nextActionDate).toEqual(new Date(ago(20 * HOUR).getTime() + SENDER_CAP_WINDOW_MS));
+    });
+  });
+
   it('defers until enough sends leave the window to drop under a warmup cap already exceeded', async () => {
     campaign.senderAccount = { ...SENDER, warmupEnabled: true, warmupStartedAt: ago(HOUR), warmupLimit: 2, warmupRamp: 5 };
     addDispatch({ status: 'Sent', leadId: 'lead-other', sentAt: ago(20 * HOUR) });

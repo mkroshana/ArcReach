@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { checkSendingWindow, getEffectiveDailyCap, resolveCampaignSenders, pickSender, classifyFailure } from '../../lib/sendEngine';
+import { checkSendingWindow, getEffectiveDailyCap, getMailboxCap, resolveCampaignSenders, pickSender, classifyFailure } from '../../lib/sendEngine';
 import { personalizeEmail } from '../../lib/personalize';
 import { sendMessage, EmailConfigError, EmailSendError } from '../../lib/emailProvider';
 
@@ -123,6 +123,34 @@ describe('sendEngine', () => {
     });
   });
 
+  describe('getMailboxCap', () => {
+    const sender = {
+      warmupEnabled: true,
+      warmupStartedAt: new Date('2026-06-01T12:00:00Z'),
+      dailyLimit: 200,
+      warmupLimit: 50,
+      warmupRamp: 10
+    };
+    const day5 = new Date('2026-06-06T15:00:00Z');
+    const day29 = new Date('2026-06-30T12:00:00Z');
+
+    it('is the effective daily cap while the daily limits apply', () => {
+      expect(getMailboxCap(sender, day5, false)).toBe(100);
+      expect(getMailboxCap(sender, day29, false)).toBe(200);
+      expect(getMailboxCap({ ...sender, warmupEnabled: false }, day5, false)).toBe(200);
+    });
+
+    it('is the warmup ramp alone with the daily limits off, which the daily limit no longer clamps', () => {
+      expect(getMailboxCap(sender, day5, true)).toBe(100);
+      expect(getMailboxCap(sender, day29, true)).toBe(340); // 50 + 10 * 29
+    });
+
+    it('is null with the daily limits off for a mailbox that is not warming up', () => {
+      expect(getMailboxCap({ ...sender, warmupEnabled: false }, day5, true)).toBeNull();
+      expect(getMailboxCap({ ...sender, warmupStartedAt: null }, day5, true)).toBeNull();
+    });
+  });
+
   describe('resolveCampaignSenders', () => {
     it('should return primary sender when pool is empty', () => {
       const campaign = {
@@ -237,6 +265,29 @@ describe('sendEngine', () => {
 
       const picked = pickSender(pool, sentToday, now);
       expect(picked).toBeNull();
+    });
+
+    describe('with the mailboxes\' daily limits off', () => {
+      it('picks the sender that sent least in the last 24 hours, whatever its daily limit', () => {
+        // A is far past its daily limit of 100, which no longer applies.
+        expect(pickSender(pool, new Map([['sender-a', 500], ['sender-b', 60]]), now, true)?.id).toBe('sender-b');
+        expect(pickSender(pool, new Map([['sender-a', 30], ['sender-b', 60]]), now, true)?.id).toBe('sender-a');
+      });
+
+      it('takes the first of two that sent the same', () => {
+        expect(pickSender(pool, new Map(), now, true)?.id).toBe('sender-a');
+      });
+
+      it('passes over a warming sender at its ramp cap, even though it sent least', () => {
+        // B's ramp allows 70; A has no cap of its own.
+        expect(pickSender(pool, new Map([['sender-a', 900], ['sender-b', 70]]), now, true)?.id).toBe('sender-a');
+      });
+
+      it('returns null only when every sender is warming up and at its ramp cap', () => {
+        const warmingA = { ...senderB, id: 'sender-a' };
+        expect(pickSender([warmingA, senderB], new Map([['sender-a', 70], ['sender-b', 70]]), now, true)).toBeNull();
+        expect(pickSender([senderA], new Map([['sender-a', 1000000]]), now, true)?.id).toBe('sender-a');
+      });
     });
   });
 

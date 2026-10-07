@@ -9,8 +9,10 @@
  *   null MX (RFC 7505: it accepts no mail), or the address or domain is
  *   malformed. Only these are certain, so only they suppress the address.
  * - Risky: the lookup failed (a timeout, SERVFAIL, a refused query) or the
- *   domain has neither MX nor A records. The check picks Risky leads up again,
- *   so running it again retries them.
+ *   domain has neither MX nor A records, both times it was checked: a domain
+ *   that comes back Risky is checked once more after the others of its batch
+ *   (recheckRiskyDomains). The check picks Risky leads up again, so running
+ *   it again retries them.
  *
  * A batch in which no domain gets a certain answer, while the resolver cannot
  * answer for the com zone either, has no DNS server answering at all: the
@@ -122,4 +124,23 @@ export async function dnsUnreachable(
   } catch {
     return true;
   }
+}
+
+/**
+ * `statuses` (checkDomains' answer for a batch) with each Risky domain checked
+ * once more, its second answer replacing the first. A lookup that timed out or
+ * failed at the resolver often has its answer a moment later, once the
+ * resolver has heard from the domain's name servers, so one failed lookup does
+ * not leave a lead Risky. Called after dnsUnreachable, so nothing is looked up
+ * twice while no DNS server answers.
+ */
+export async function recheckRiskyDomains(
+  resolver: DomainResolver,
+  statuses: Map<string, DomainCheckStatus>,
+  concurrency = DOMAIN_CHECK_CONCURRENCY,
+): Promise<Map<string, DomainCheckStatus>> {
+  const risky = Array.from(statuses.keys()).filter((domain) => statuses.get(domain) === 'Risky');
+  if (risky.length === 0) return statuses;
+  const second = await checkDomains(resolver, risky, concurrency);
+  return new Map(Array.from(statuses, ([domain, status]) => [domain, second.get(domain) ?? status]));
 }

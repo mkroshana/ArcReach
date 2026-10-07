@@ -169,7 +169,8 @@ vi.mock('../../lib/imapService', () => ({
  * and eservfail.test fail the MX lookup with that code; a lookup with no
  * answer fails as NXDOMAIN (ENOTFOUND) does. Tests may add answers, and every
  * lookup is logged. While `reachable` is false no DNS server answers: every
- * lookup, the com zone's too, fails with ECONNREFUSED.
+ * lookup, the com zone's too, fails with ECONNREFUSED. A domain in
+ * `timesOutOnce` fails its next MX lookup with ETIMEOUT and answers after it.
  */
 const dnsAnswers = vi.hoisted(() => {
   type Answer = unknown[] | string;
@@ -178,13 +179,14 @@ const dnsAnswers = vi.hoisted(() => {
     'etimeout.test': { mx: 'ETIMEOUT' },
     'eservfail.test': { mx: 'ESERVFAIL' },
   });
-  const state = { answers: defaults(), lookups: [] as string[], reachable: true };
+  const state = { answers: defaults(), lookups: [] as string[], reachable: true, timesOutOnce: new Set<string>() };
   return {
     state,
     reset() {
       state.answers = defaults();
       state.lookups = [];
       state.reachable = true;
+      state.timesOutOnce = new Set();
     },
   };
 });
@@ -194,6 +196,9 @@ vi.mock('dns', () => {
   const answer = async (type: 'mx' | 'a', domain: string) => {
     dnsAnswers.state.lookups.push(`${type} ${domain}`);
     if (!dnsAnswers.state.reachable) throw refused(domain);
+    if (type === 'mx' && dnsAnswers.state.timesOutOnce.delete(domain)) {
+      throw Object.assign(new Error(`query ETIMEOUT ${domain}`), { code: 'ETIMEOUT' });
+    }
     const found = dnsAnswers.state.answers[domain]?.[type] ?? 'ENOTFOUND';
     if (typeof found === 'string') throw Object.assign(new Error(`query ${found} ${domain}`), { code: found });
     return found;
@@ -734,8 +739,34 @@ describe('domain MX check (H36)', () => {
 
     expect(res.status).toBe(503);
     expect((await res.json()).error).toMatch(/^No DNS server answered, so no lead in this batch was checked\./);
-    expect(dnsAnswers.state.lookups).toContain('ns com.');
+    // Each domain once and then the com zone: nothing is looked up a second time
+    expect([...dnsAnswers.state.lookups].sort()).toEqual(['mx acme.com', 'mx other.test', 'ns com.']);
     expect(db.tables).toEqual(before);
+  });
+
+  it('marks a lead Valid when the first lookup of its domain times out and the second answers', async () => {
+    dnsAnswers.state.timesOutOnce.add('acme.com');
+    addLead('slow', 'slow@acme.com');
+    addLead('gone', 'gone@no-mx.test');
+
+    const res = await postVerify(makeReq('POST', '/api/leads/verify', { ids: ['slow', 'gone'] }));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ checked: 2, counts: { valid: 1, risky: 0, invalid: 1 } });
+    expect(leadById('slow')!.validationStatus).toBe('Valid');
+    // The Risky domain twice, the domain with a certain answer once
+    expect([...dnsAnswers.state.lookups].sort()).toEqual(['mx acme.com', 'mx acme.com', 'mx no-mx.test']);
+  });
+
+  it('looks a batch of only failed lookups up again once the com zone shows a DNS server answers', async () => {
+    dnsAnswers.state.timesOutOnce.add('acme.com');
+    addLead('slow', 'slow@acme.com');
+
+    const res = await postVerify(makeReq('POST', '/api/leads/verify', { ids: ['slow'] }));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ checked: 1, counts: { valid: 1, risky: 0, invalid: 0 } });
+    expect(dnsAnswers.state.lookups).toEqual(['mx acme.com', 'ns com.', 'mx acme.com']);
   });
 
   it('marks leads Risky, after finding the com zone, when their lookups fail but a DNS server answers', async () => {

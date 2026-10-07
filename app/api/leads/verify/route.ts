@@ -12,6 +12,7 @@ import {
   dnsUnreachable,
   DOMAIN_CHECK_BATCH_SIZE,
   emailDomain,
+  recheckRiskyDomains,
   type DomainCheckCounts,
   type DomainCheckStatus,
 } from '@/lib/domainCheck';
@@ -90,6 +91,8 @@ export async function GET() {
  * address on the suppression list; the lead's enrollments are left as they
  * are, since the send engine never sends to an Invalid or suppressed lead.
  * When no DNS server answers, the batch changes no lead and answers a 503.
+ * A domain that comes back Risky is checked a second time before its leads
+ * are marked, so one failed lookup does not leave them Risky.
  */
 export async function POST(req: NextRequest) {
   try {
@@ -116,14 +119,16 @@ export async function POST(req: NextRequest) {
     });
 
     // Each distinct domain is looked up once, however many leads share it
-    const domainStatuses = await checkDomains(
+    const firstStatuses = await checkDomains(
       resolver,
       targetLeads.map((lead) => emailDomain(lead.email)).filter((domain): domain is string => domain !== null),
     );
     // Without a DNS server every lead would come back Risky, so the batch is left for a later run
-    if (await dnsUnreachable(resolver, domainStatuses)) {
+    if (await dnsUnreachable(resolver, firstStatuses)) {
       return NextResponse.json({ error: DNS_UNREACHABLE_ERROR }, { status: 503 });
     }
+    // A lookup that failed is often answered a moment later, so the Risky domains get a second one
+    const domainStatuses = await recheckRiskyDomains(resolver, firstStatuses);
     // Suppression reasons of the target addresses, so a re-check never lifts one (see liftsSuppression)
     const suppression = await suppressionReasons(prisma, targetLeads.map((lead) => lead.email));
 

@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { checkDomainMx, checkDomains, dnsUnreachable, emailDomain, type DomainCheckStatus, type DomainResolver } from '../../lib/domainCheck';
+import {
+  checkDomainMx, checkDomains, dnsUnreachable, emailDomain, recheckRiskyDomains, type DomainCheckStatus, type DomainResolver,
+} from '../../lib/domainCheck';
 
 type Answer = unknown[] | string;
 
@@ -159,6 +161,60 @@ describe('dnsUnreachable', () => {
 
     expect(await dnsUnreachable(resolver, statuses({ 'flaky.test': 'Risky' }))).toBe(true);
     expect(lookups).toEqual(['ns com.']);
+  });
+});
+
+describe('recheckRiskyDomains', () => {
+  const statuses = (byDomain: Record<string, DomainCheckStatus>) => new Map(Object.entries(byDomain));
+
+  it('checks each Risky domain once more and keeps its second answer, asking for no other domain', async () => {
+    const { resolver, lookups } = fakeResolver({
+      'slow.test': { mx: MX },
+      'gone-after-all.test': { mx: 'ENOTFOUND' },
+      'still-flaky.test': { mx: 'ETIMEOUT' },
+      'parked.test': { mx: 'ENODATA', a: 'ENODATA' },
+      // Would fail now, but it had its answer the first time
+      'acme.com': { mx: 'ETIMEOUT' },
+    });
+
+    const result = await recheckRiskyDomains(resolver, statuses({
+      'slow.test': 'Risky',
+      'gone-after-all.test': 'Risky',
+      'still-flaky.test': 'Risky',
+      'parked.test': 'Risky',
+      'acme.com': 'Valid',
+      'gone.test': 'Invalid',
+    }));
+
+    expect(Object.fromEntries(result)).toEqual({
+      'slow.test': 'Valid',
+      'gone-after-all.test': 'Invalid',
+      'still-flaky.test': 'Risky',
+      'parked.test': 'Risky',
+      'acme.com': 'Valid',
+      'gone.test': 'Invalid',
+    });
+    expect([...lookups].sort()).toEqual([
+      'a parked.test', 'mx gone-after-all.test', 'mx parked.test', 'mx slow.test', 'mx still-flaky.test',
+    ]);
+  });
+
+  it('makes no lookup when no domain is Risky', async () => {
+    const { resolver, lookups } = fakeResolver({});
+    const first = statuses({ 'acme.com': 'Valid', 'gone.test': 'Invalid' });
+
+    expect(Object.fromEntries(await recheckRiskyDomains(resolver, first))).toEqual({ 'acme.com': 'Valid', 'gone.test': 'Invalid' });
+    expect(lookups).toEqual([]);
+  });
+
+  it('keeps at most `concurrency` lookups in flight', async () => {
+    const domains = Array.from({ length: 30 }, (_, i) => `d${i}.test`);
+    const { resolver, maxInFlight } = fakeResolver(Object.fromEntries(domains.map((d) => [d, { mx: MX }])));
+
+    const result = await recheckRiskyDomains(resolver, statuses(Object.fromEntries(domains.map((d) => [d, 'Risky' as const]))), 4);
+
+    expect(Array.from(result.values()).every((status) => status === 'Valid')).toBe(true);
+    expect(maxInFlight()).toBe(4);
   });
 });
 

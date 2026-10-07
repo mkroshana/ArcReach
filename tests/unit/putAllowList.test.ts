@@ -264,13 +264,14 @@ describe('PUT /api/accounts', () => {
 
   it('accepts the credentials form payload, skipping a masked secret and encrypting a new one', async () => {
     const masked = await putAccount(makeReq('/api/accounts', {
-      id: 'acc-1', replyTo: null, imapHost: 'imap.example.com', imapPort: 993, imapUser: 'u', imapPass: MASKED_SECRET,
+      id: 'acc-1', replyTo: 'replies@example.com', replyToName: 'Steve Miller', imapHost: 'imap.example.com', imapPort: 993, imapUser: 'u', imapPass: MASKED_SECRET,
     }));
     expect(masked.status).toBe(200);
     const [id, kept] = mockedDb.updateAccount.mock.calls[0];
     expect(id).toBe('acc-1');
     expect(kept).not.toHaveProperty('imapPass');
     expect(kept.imapPort).toBe(993);
+    expect(kept.replyToName).toBe('Steve Miller');
 
     const res = await putAccount(makeReq('/api/accounts', {
       id: 'acc-1', replyTo: null, imapHost: null, imapPort: null, imapUser: null, imapPass: 'new-imap-pass',

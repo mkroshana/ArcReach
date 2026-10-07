@@ -361,7 +361,8 @@ describe('ArcReach Live API Integration Tests', () => {
         provider: 'Google Workspace',
         dailyLimit: 500,
         warmupEnabled: false,
-        replyTo: 'reply-test@example.com'
+        replyTo: 'reply-test@example.com',
+        replyToName: 'Reply Test'
       };
 
       // Create
@@ -375,6 +376,7 @@ describe('ArcReach Live API Integration Tests', () => {
       toCleanUp.accountIds.add(created.id);
       expect(created).toHaveProperty('id');
       expect(created.replyTo).toBe('reply-test@example.com');
+      expect(created.replyToName).toBe('Reply Test');
       createdAccountId = created.id;
 
       // Update limits and reputation status
@@ -383,7 +385,8 @@ describe('ArcReach Live API Integration Tests', () => {
         name: 'Updated Test Sender',
         warmupEnabled: true,
         dailyLimit: 400,
-        replyTo: 'reply-updated@example.com'
+        replyTo: 'reply-updated@example.com',
+        replyToName: 'Reply Updated'
       };
       const updateRes = await testFetch(`${BASE_URL}/api/accounts`, {
         method: 'PUT',
@@ -394,6 +397,7 @@ describe('ArcReach Live API Integration Tests', () => {
       const updated = await updateRes.json();
       expect(updated.warmupEnabled).toBe(true);
       expect(updated.replyTo).toBe('reply-updated@example.com');
+      expect(updated.replyToName).toBe('Reply Updated');
 
       // Clean up / Delete
       const deleteRes = await testFetch(`${BASE_URL}/api/accounts?id=${createdAccountId}`, {

@@ -58,6 +58,16 @@ function PwField(props: { label: string; value: string; onChange: (v: string) =>
   );
 }
 
+/** The name recipients see beside the Reply-To address. It is sent only with one, so the field is off until `replyTo` is filled in. */
+function ReplyToNameField(props: { value: string; onChange: (v: string) => void; replyTo: string; sx?: object }) {
+  return (
+    <TextField size="small" label="Reply-To Name (Optional)" value={props.value} onChange={(e) => props.onChange(e.target.value)}
+      disabled={!props.replyTo} placeholder="My Company Support" sx={props.sx} slotProps={{ htmlInput: { maxLength: 100 } }}
+      helperText={props.replyTo ? 'Recipients see this name beside the Reply-To address.' : 'Needs a Reply-To address.'}
+    />
+  );
+}
+
 /** Why there are no SMTP fields: Azure sends every email, so per-mailbox SMTP details would never be used. */
 function SmtpNotUsedNote() {
   return (
@@ -192,7 +202,9 @@ export default function AccountsPage() {
   const [assignedUserId, setAssignedUserId] = useState('');
   const [dailyLimit, setDailyLimit] = useState(500);
   const [replyTo, setReplyTo] = useState('');
+  const [replyToName, setReplyToName] = useState('');
   const [editReplyTo, setEditReplyTo] = useState('');
+  const [editReplyToName, setEditReplyToName] = useState('');
   const [globalRateLimits, setGlobalRateLimits] = useState<GlobalRateLimitValues | null>(null);
 
   // The daily allowance all mailboxes share while a global rate limit is set. Then the mailboxes
@@ -245,6 +257,7 @@ export default function AccountsPage() {
     setEditImapPass(account.imapPass || '');
     setEditImapAllowSelfSigned(!!account.imapAllowSelfSigned);
     setEditReplyTo(account.replyTo || '');
+    setEditReplyToName(account.replyToName || '');
   };
 
   // Only opening a mailbox resets its forms: a limit or warmup save replaces the open mailbox
@@ -367,7 +380,7 @@ export default function AccountsPage() {
       const res = await fetch('/api/accounts', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          emailAddress, name: senderName, replyTo: replyTo || null, provider, userId: assignedUserId,
+          emailAddress, name: senderName, replyTo: replyTo || null, replyToName: replyTo ? replyToName.trim() || null : null, provider, userId: assignedUserId,
           dailyLimit: Number(dailyLimit),
           imapHost: imapHost || null, imapPort: imapPort ? Number(imapPort) : null, imapUser: imapUser || null, imapPass: imapPass || null,
           imapAllowSelfSigned,
@@ -376,7 +389,7 @@ export default function AccountsPage() {
       if (!res.ok) { const data = await res.json().catch(() => ({})); throw new Error(data.error || 'Failed to connect email account'); }
       await loadData();
       setIsAddOpen(false);
-      setEmailAddress(''); setSenderName(''); setReplyTo(''); setProvider('Google Workspace');
+      setEmailAddress(''); setSenderName(''); setReplyTo(''); setReplyToName(''); setProvider('Google Workspace');
       setDailyLimit(500);
       setImapHost(''); setImapPort(''); setImapUser(''); setImapPass('');
       showToast('Mailbox connected successfully');
@@ -394,7 +407,7 @@ export default function AccountsPage() {
       const res = await fetch('/api/accounts', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          id, replyTo: editReplyTo || null,
+          id, replyTo: editReplyTo || null, replyToName: editReplyTo ? editReplyToName.trim() || null : null,
           imapHost: editImapHost || null, imapPort: editImapPort ? Number(editImapPort) : null, imapUser: editImapUser || null, imapPass: editImapPass || null,
           imapAllowSelfSigned: editImapAllowSelfSigned,
         }),
@@ -668,6 +681,7 @@ export default function AccountsPage() {
                 <form onSubmit={handleSaveAccountCredentials}>
                   <Stack spacing={2}>
                     <TextField size="small" label="Reply-To Address (Optional)" type="email" placeholder="replies@mycompany.com" value={editReplyTo} onChange={(e) => setEditReplyTo(e.target.value)} sx={{ maxWidth: 360 }} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
+                    <ReplyToNameField value={editReplyToName} onChange={setEditReplyToName} replyTo={editReplyTo} sx={{ maxWidth: 360 }} />
                     <SmtpNotUsedNote />
                     {/* Any mailbox can sync replies over IMAP, whatever its provider label */}
                     <Card variant="outlined" sx={{ bgcolor: 'action.hover' }}>
@@ -782,7 +796,8 @@ export default function AccountsPage() {
               <TextField label="Sender Email Address" type="email" required value={emailAddress} onChange={(e) => setEmailAddress(e.target.value)} size="small" placeholder="outreach@mycompany.com" slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
               <TextField label="Internal Label" required value={senderName} onChange={(e) => setSenderName(e.target.value)} size="small" placeholder="Sales Outreach" helperText="Shown only in ArcReach. Recipients see the From name set on the sender username in Azure." />
               <TextField label="Reply-To (Optional)" type="email" value={replyTo} onChange={(e) => setReplyTo(e.target.value)} size="small" placeholder="replies@mycompany.com" slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-              <FormControl size="small">
+              <ReplyToNameField value={replyToName} onChange={setReplyToName} replyTo={replyTo} />
+              <FormControl size="small" sx={{ gridColumn: { md: '1 / -1' } }}>
                 <InputLabel>Email Provider</InputLabel>
                 <Select label="Email Provider" value={provider} onChange={(e) => handleProviderChange(e.target.value)}>
                   <MenuItem value="Google Workspace">Google Workspace</MenuItem>

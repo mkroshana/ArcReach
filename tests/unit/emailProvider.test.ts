@@ -96,6 +96,30 @@ describe('sendMessage', () => {
     expect(message.replyTo).toEqual([{ address: 'inbox@thejobshelpers.com' }]);
   });
 
+  it('AZURE names the Reply-To address when the sender has a Reply-To name, and only then', async () => {
+    beginSend.mockResolvedValue({ pollUntilDone: async () => ({ id: 'azure-id-3', status: 'Succeeded' }) });
+    const settings = {
+      activeProvider: 'AZURE',
+      azureConnString: encryptSecret('endpoint=https://x;accesskey=y'),
+      azureSenderDomains: ['thejobshelpers.com'],
+    };
+    const replyToOf = async (fields: { replyTo: string | null; replyToName: string | null }) => {
+      await sendMessage({ to: 'lead@x.com', subject: 's', body: 'b', isHtml: false, sender: { ...sender, ...fields } }, settings);
+      return beginSend.mock.lastCall![0].replyTo;
+    };
+
+    expect(await replyToOf({ replyTo: 'inbox@thejobshelpers.com', replyToName: 'Steve Miller' }))
+      .toEqual([{ address: 'inbox@thejobshelpers.com', displayName: 'Steve Miller' }]);
+    // A name is kept on one line: a line break would end the header.
+    expect(await replyToOf({ replyTo: 'inbox@thejobshelpers.com', replyToName: '  Steve\r\nMiller ' }))
+      .toEqual([{ address: 'inbox@thejobshelpers.com', displayName: 'Steve Miller' }]);
+    // A blank name sends the bare address, as before.
+    expect(await replyToOf({ replyTo: 'inbox@thejobshelpers.com', replyToName: '   ' }))
+      .toEqual([{ address: 'inbox@thejobshelpers.com' }]);
+    // A name with no Reply-To address is not sent: replies go to the From address.
+    expect(await replyToOf({ replyTo: null, replyToName: 'Steve Miller' })).toBeUndefined();
+  });
+
   it('AZURE without verified domains throws EmailConfigError', async () => {
     await expect(
       sendMessage(

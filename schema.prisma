@@ -54,6 +54,8 @@ model SenderAccount {
   emailAddress    String            @unique
   name            String?           // Matches UI displayed sender name
   replyTo         String?
+  // The name recipients see beside the Reply-To address; sent only with a replyTo.
+  replyToName     String?
   provider        String
   status          String            @default("Active")
   

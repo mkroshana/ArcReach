@@ -109,6 +109,8 @@ export interface ProviderSettings {
 export interface SenderInput {
   emailAddress: string;
   replyTo?: string | null;
+  /** The name shown beside the Reply-To address; without one, mail apps show the part before the @. */
+  replyToName?: string | null;
 }
 
 export interface MessageInput {
@@ -255,10 +257,12 @@ async function sendViaAzure(
   }
 
   // Only set Reply-To when one is explicitly configured; otherwise omit the
-  // header so replies go to the From address by default.
+  // header so replies go to the From address by default. Its name is sent
+  // only with it, on one line, since a line break would end the header.
   const replyTo = input.sender.replyTo?.trim();
   if (replyTo) {
-    message.replyTo = [{ address: replyTo }];
+    const displayName = input.sender.replyToName?.replace(/\s+/g, ' ').trim();
+    message.replyTo = [displayName ? { address: replyTo, displayName } : { address: replyTo }];
   }
 
   const operationId = input.operationId ?? randomUUID();

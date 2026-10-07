@@ -2,15 +2,19 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { FileText, Search, Plus, Eye, Copy, Check, Trash2, ArrowRight, X, RefreshCw } from 'lucide-react';
+import { FileText, Search, Plus, Eye, Copy, Check, Trash2, ArrowRight, X, RefreshCw, Upload, AlertTriangle } from 'lucide-react';
 import VariableToolbar from '@/components/VariableToolbar';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { personalizePreview, previewEmailBody } from '@/lib/personalize';
 import { loadErrorMessage, readJsonList } from '@/lib/apiResponse';
 import {
+  readEmailFile, importRefusal, sortImportedEmails, importWaitDays, sequenceTemplate, separateTemplates,
+  DEFAULT_IMPORT_WAIT_DAYS, type ImportedEmail, type ImportedTemplate,
+} from '@/lib/templateImport';
+import {
   Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
   ToggleButtonGroup, ToggleButton, Snackbar, Alert, AlertTitle, InputAdornment, CircularProgress,
-  Tooltip as MuiTooltip,
+  Tooltip as MuiTooltip, Dialog, DialogTitle, DialogContent, DialogActions,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 
@@ -32,6 +36,20 @@ export default function TemplatesPage() {
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const [confirmState, setConfirmState] = useState<{ title: string; message: string; confirmLabel: string; onConfirm: () => void } | null>(null);
+
+  // Import HTML Files: the files picked and read, in file-name order, and the
+  // files that were refused. Both stay set while the dialog closes.
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importEmails, setImportEmails] = useState<ImportedEmail[]>([]);
+  const [importRefused, setImportRefused] = useState<{ fileName: string; reason: string }[]>([]);
+  const [importMode, setImportMode] = useState<'sequence' | 'separate'>('sequence');
+  const [importName, setImportName] = useState('');
+  const [importCategory, setImportCategory] = useState('Cold Outreach');
+  const [importWait, setImportWait] = useState(String(DEFAULT_IMPORT_WAIT_DAYS));
+  const [importError, setImportError] = useState('');
+  const [importing, setImporting] = useState(false);
+  const importingRef = useRef(false);
 
   const showToast = (message: string) => {
     setToastMessage(message);
@@ -197,6 +215,104 @@ export default function TemplatesPage() {
     selectTemplate(newT);
   };
 
+  const handleImportFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = ''; // so picking the same files again fires a change
+    if (files.length === 0) return;
+
+    const emails: ImportedEmail[] = [];
+    const refused: { fileName: string; reason: string }[] = [];
+    for (const file of files) {
+      // Refused by name or size before its bytes are loaded
+      const refusal = importRefusal(file.name, file.size);
+      if (refusal) { refused.push({ fileName: file.name, reason: refusal }); continue; }
+      try {
+        const result = readEmailFile(file.name, new Uint8Array(await file.arrayBuffer()));
+        if (result.ok) emails.push(result.email);
+        else refused.push({ fileName: result.fileName, reason: result.reason });
+      } catch (err) {
+        console.error(err);
+        refused.push({ fileName: file.name, reason: 'The file could not be read.' });
+      }
+    }
+
+    const sorted = sortImportedEmails(emails);
+    setImportEmails(sorted);
+    setImportRefused(refused);
+    setImportMode('sequence');
+    // One file names its template; a sequence of several needs a name typed.
+    setImportName(sorted.length === 1 ? sorted[0].name : '');
+    setImportCategory('Cold Outreach');
+    setImportWait(String(DEFAULT_IMPORT_WAIT_DAYS));
+    setImportError('');
+    setImportOpen(true);
+  };
+
+  const closeImport = () => {
+    if (!importingRef.current) setImportOpen(false);
+  };
+
+  // One file, or several kept together, make one template; otherwise one template per file.
+  const importAsOne = importEmails.length <= 1 || importMode === 'sequence';
+  const importNames = importAsOne ? [importName.trim()] : importEmails.map(email => email.name);
+  const importNameClashes = importNames.filter(name => name && templates.some(t => String(t.name).trim().toLowerCase() === name.toLowerCase()));
+
+  const runImport = async () => {
+    if (importEmails.length === 0 || importingRef.current) return;
+    if (importAsOne && !importName.trim()) return;
+    const category = importCategory.trim() || 'Cold Outreach';
+    const one = importAsOne ? sequenceTemplate(importEmails, importName, category, importWait) : null;
+    const drafts: ImportedTemplate[] = one ? [one] : separateTemplates(importEmails, category);
+
+    importingRef.current = true;
+    setImporting(true);
+    setImportError('');
+    // The library lists the newest template first, so the last file is created
+    // first and the set reads in file order, now and after a reload.
+    const created: any[] = [];
+    let failure = '';
+    let remaining = drafts.length;
+    while (remaining > 0) {
+      try {
+        const res = await fetch('/api/templates', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(drafts[remaining - 1]),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          failure = err.error || `The server answered ${res.status}.`;
+          break;
+        }
+        created.unshift(await res.json());
+        remaining--;
+      } catch (err) {
+        console.error(err);
+        failure = 'Connection error.';
+        break;
+      }
+    }
+    importingRef.current = false;
+    setImporting(false);
+
+    if (created.length > 0) {
+      setTemplates(prev => [...created, ...prev]);
+      selectTemplate(created[0]);
+    }
+    if (failure) {
+      // Only separate templates can stop part-way: the files still to import stay listed, so Import retries those alone.
+      if (created.length > 0) setImportEmails(importEmails.slice(0, remaining));
+      setImportError(created.length > 0
+        ? `Imported ${created.length} of ${drafts.length} templates, then "${drafts[remaining - 1].name}" failed: ${failure} The files listed below were not imported.`
+        : `Nothing was imported: ${failure}`);
+      return;
+    }
+    setImportOpen(false);
+    showToast(one
+      ? `Imported "${one.name}" with ${one.steps.length} ${one.steps.length === 1 ? 'step' : 'steps'}.`
+      : `Imported ${created.length} templates.`);
+  };
+
   const bodyPreview = previewResolved && editingTemplate ? previewEmailBody(editingTemplate.steps?.[activeStepIndex]?.body || '') : null;
 
   return (
@@ -211,7 +327,11 @@ export default function TemplatesPage() {
           <Typography variant="h4" sx={{ fontWeight: 700 }}>Copy Library</Typography>
           <Typography variant="body2" sx={{ color: 'text.secondary' }}>Write and manage reusable email templates with personalization variables and Spintax.</Typography>
         </Box>
-        <Button variant="contained" startIcon={<Plus size={16} />} onClick={createNewTemplate} disabled={!!loadError}>Create Template</Button>
+        <Stack direction="row" spacing={1}>
+          <input ref={fileInputRef} type="file" accept=".html,.htm,text/html" multiple hidden onChange={handleImportFiles} />
+          <Button variant="outlined" startIcon={<Upload size={16} />} onClick={() => fileInputRef.current?.click()} disabled={!!loadError}>Import HTML</Button>
+          <Button variant="contained" startIcon={<Plus size={16} />} onClick={createNewTemplate} disabled={!!loadError}>Create Template</Button>
+        </Stack>
       </Stack>
 
       {loadError ? (
@@ -464,6 +584,131 @@ export default function TemplatesPage() {
         </Box>
       </Box>
       )}
+
+      {/* Import HTML Files */}
+      <Dialog open={importOpen} onClose={closeImport} maxWidth="sm" fullWidth slotProps={{ paper: { sx: { borderRadius: '20px' } } }}>
+        <form onSubmit={(e) => { e.preventDefault(); runImport(); }}>
+          <DialogTitle>
+            <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
+              <Upload size={20} color="#2563EB" />
+              <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Import HTML Files</Typography>
+            </Stack>
+          </DialogTitle>
+          <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {importError && <Alert severity="error">{importError}</Alert>}
+
+            {importRefused.length > 0 && (
+              <Alert severity="warning">
+                <AlertTitle>{importRefused.length === 1 ? '1 File Was Not Read' : `${importRefused.length} Files Were Not Read`}</AlertTitle>
+                {importRefused.map((file, idx) => (
+                  <Typography key={idx} variant="caption" sx={{ display: 'block' }}>{file.fileName}: {file.reason}</Typography>
+                ))}
+              </Alert>
+            )}
+
+            {importEmails.length === 0 ? (
+              <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                None of the files picked can be imported. Pick .html or .htm files, one per email.
+              </Typography>
+            ) : (
+              <>
+                {importEmails.length > 1 && (
+                  <Box>
+                    <ToggleButtonGroup value={importMode} exclusive fullWidth size="small" disabled={importing} onChange={(_, v) => v && setImportMode(v)}>
+                      <ToggleButton value="sequence" sx={{ fontWeight: 700 }}>One Template, {importEmails.length} Steps</ToggleButton>
+                      <ToggleButton value="separate" sx={{ fontWeight: 700 }}>{importEmails.length} Separate Templates</ToggleButton>
+                    </ToggleButtonGroup>
+                    <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 1 }}>
+                      {importMode === 'sequence'
+                        ? 'The files become the steps of one template, in file-name order. Use Template on a campaign then fills every step at once.'
+                        : 'Each file becomes its own single-step template, named after the file.'}
+                    </Typography>
+                  </Box>
+                )}
+
+                {importAsOne && (
+                  <TextField
+                    label="Template Name" required size="small" autoFocus
+                    placeholder="e.g. Win-Back Emails"
+                    value={importName} onChange={(e) => setImportName(e.target.value)} disabled={importing}
+                  />
+                )}
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                  <TextField
+                    fullWidth size="small" label="Category" placeholder="e.g. Cold Outreach"
+                    value={importCategory} onChange={(e) => setImportCategory(e.target.value)} disabled={importing}
+                    slotProps={{ htmlInput: { list: 'import-categories-list' } }}
+                  />
+                  <datalist id="import-categories-list">
+                    {Array.from(new Set(templates.map(t => t.category))).map(cat => (<option key={cat} value={cat} />))}
+                  </datalist>
+                  {importAsOne && importEmails.length > 1 && (
+                    <TextField
+                      fullWidth size="small" type="number" label="Days Between Steps"
+                      value={importWait} onChange={(e) => setImportWait(e.target.value)}
+                      onBlur={() => setImportWait(String(importWaitDays(importWait)))} disabled={importing}
+                      slotProps={{ htmlInput: { min: 1 } }}
+                    />
+                  )}
+                </Stack>
+                {importAsOne && importEmails.length > 1 && (
+                  <Typography variant="caption" sx={{ color: 'text.secondary', mt: -1 }}>
+                    Step 1 is sent on enrollment. Each later step waits this many days after the one before it; any step&apos;s wait can be changed after the import.
+                  </Typography>
+                )}
+
+                <Box sx={{ maxHeight: 280, overflowY: 'auto', border: 1, borderColor: 'divider', borderRadius: '12px' }}>
+                  {importEmails.map((email, idx) => (
+                    <Stack key={`${idx}-${email.fileName}`} direction="row" spacing={1.5} sx={{ alignItems: 'flex-start', px: 1.5, py: 1.25, borderTop: idx === 0 ? 0 : 1, borderColor: 'divider' }}>
+                      {importAsOne && importEmails.length > 1 && (
+                        <Chip size="small" label={`Step ${idx + 1}`} sx={{ height: 20, fontSize: 10, fontWeight: 700, flexShrink: 0, mt: 0.25 }} />
+                      )}
+                      <Box sx={{ minWidth: 0, flex: 1 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap title={email.subject}>{email.subject}</Typography>
+                        <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace', display: 'block' }} noWrap title={email.fileName}>{email.fileName}</Typography>
+                        {!email.subjectFromTitle && (
+                          <Typography variant="caption" sx={{ color: 'warning.main', display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.25 }}>
+                            <AlertTriangle size={12} style={{ flexShrink: 0 }} /> No &lt;title&gt; in the file, so the file name is used as the subject.
+                          </Typography>
+                        )}
+                        {email.hasUnreadableText && (
+                          <Typography variant="caption" sx={{ color: 'warning.main', display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.25 }}>
+                            <AlertTriangle size={12} style={{ flexShrink: 0 }} /> Some characters could not be read and would be sent as {'\uFFFD'}. Save the file as UTF-8 and import it again.
+                          </Typography>
+                        )}
+                      </Box>
+                    </Stack>
+                  ))}
+                </Box>
+                <Typography variant="caption" sx={{ color: 'text.secondary', mt: -1 }}>
+                  Each subject is its file&apos;s &lt;title&gt;. The whole file becomes the email body, unchanged.
+                </Typography>
+
+                {importNameClashes.length > 0 && (
+                  <Alert severity="info">
+                    {importNameClashes.length === 1
+                      ? `A template named "${importNameClashes[0]}" is already in the library.`
+                      : `${importNameClashes.length} of these names are already in the library.`}{' '}
+                    The import adds new templates and leaves the existing ones as they are.
+                  </Alert>
+                )}
+              </>
+            )}
+          </DialogContent>
+          <DialogActions sx={{ p: 2 }}>
+            <Button color="inherit" onClick={closeImport} disabled={importing}>{importEmails.length === 0 ? 'Close' : 'Cancel'}</Button>
+            {importEmails.length > 0 && (
+              <Button
+                type="submit" variant="contained"
+                startIcon={importing ? <CircularProgress size={16} color="inherit" /> : <Upload size={16} />}
+                disabled={importing || (importAsOne && !importName.trim())}
+              >
+                {importAsOne ? 'Import Template' : `Import ${importEmails.length} Templates`}
+              </Button>
+            )}
+          </DialogActions>
+        </form>
+      </Dialog>
 
       <ConfirmDialog
         isOpen={!!confirmState}

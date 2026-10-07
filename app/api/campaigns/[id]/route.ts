@@ -196,7 +196,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
     // Where the campaign's leads are: every enrollment by status, and the Active
     // ones (still to get a step) by the step they wait for, with the earliest
-    // next send date and how many are due now.
+    // and latest next send date and how many are due now.
     const now = new Date();
     const [enrollmentsByStatus, activeByStep, dueByStep] = await Promise.all([
       prisma.campaignEnrollment.groupBy({
@@ -209,6 +209,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         where: { campaignId: id, status: 'Active' },
         _count: { id: true },
         _min: { nextActionDate: true },
+        _max: { nextActionDate: true },
       }),
       prisma.campaignEnrollment.groupBy({
         by: ['currentSequenceStep'],
@@ -228,6 +229,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         active: waiting?._count.id ?? 0,
         due: dueByStep.find((d) => d.currentSequenceStep === s.stepOrder)?._count.id ?? 0,
         nextDueAt: waiting?._min.nextActionDate ?? null,
+        // The latest of them, from which the page works out the earliest the sequence can finish.
+        lastDueAt: waiting?._max.nextActionDate ?? null,
         ...stepCounts(id, s.stepOrder),
       };
     });

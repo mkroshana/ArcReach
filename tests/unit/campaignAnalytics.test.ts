@@ -387,6 +387,8 @@ describe("where the campaign's leads are", () => {
       [2, 1, 1, hoursAgo(5).toISOString()],
       [3, 0, 0, null],
     ]);
+    // The latest send date of each step's waiting leads, for the Timing panel's earliest finish.
+    expect(stepStats.map((s: any) => s.lastDueAt)).toEqual([hoursAgo(-20).toISOString(), hoursAgo(5).toISOString(), null]);
   });
 
   it('shows no totals, and no next send, for a campaign with no enrollments or sends', async () => {

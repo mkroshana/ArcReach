@@ -10,7 +10,7 @@ import { personalizeEmail, renderEmailBody } from './personalize';
 import { sendMessage, sendingDisabledReason, EmailSendUnconfirmedError } from './emailProvider';
 import { sendableEnrollmentWhere, claimEnrollmentForSend, releaseEnrollmentClaim, RELEASED_CLAIM } from './sendEligibility';
 import { suppressEmail } from './suppression';
-import { type SendSchedule, SCHEDULE_DAYS, hasSendingSchedule, isValidTimezone, minutesOfDay, parseSendSchedule } from './sendSchedule';
+import { checkSendingWindow, hasSendingSchedule, nextWindowOpening } from './sendSchedule';
 import type { PauseReason } from './campaignPause';
 
 /** Most due auto-resumes one call ends; any others are ended by the next send cycle's call. */
@@ -1147,100 +1147,5 @@ export async function processDueEmails() {
   }
 }
 
-const MINUTE_MS = 60_000;
-const MINUTES_PER_DAY = 24 * 60;
-
-type LocalTime = { day: string; minute: number };
-
-/** Reads an instant's weekday ('Mon'..'Sun') and minute of the day in `timezone`, or null for an unknown timezone. */
-function localClock(timezone: unknown): ((at: number) => LocalTime) | null {
-  if (!isValidTimezone(timezone)) return null;
-  const format = new Intl.DateTimeFormat('en-US', {
-    timeZone: timezone, weekday: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
-  });
-  return (at) => {
-    const parts = format.formatToParts(at);
-    const part = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
-    return { day: part('weekday'), minute: (Number(part('hour')) % 24) * 60 + Number(part('minute')) };
-  };
-}
-
-/** A stored schedule (a JSON value, or legacy JSON text) as a complete window, or null when it is not one. */
-function storedSchedule(schedule: unknown): SendSchedule | null {
-  return parseSendSchedule(typeof schedule === 'string' ? JSON.parse(schedule) : schedule);
-}
-
-/**
- * Whether the window is open at a local weekday and minute; both bounds are
- * inclusive to the minute. A window running past midnight belongs to the day
- * it opens on: Mon 22:00-06:00 sends from Monday 22:00 until Tuesday 06:00.
- */
-function windowOpenAt(sched: SendSchedule, local: LocalTime): boolean {
-  const start = minutesOfDay(sched.window.start);
-  const end = minutesOfDay(sched.window.end);
-  if (start <= end) {
-    return local.minute >= start && local.minute <= end && sched.days.includes(local.day);
-  }
-  if (local.minute >= start) return sched.days.includes(local.day);
-  if (local.minute <= end) {
-    const previousDay = SCHEDULE_DAYS[(SCHEDULE_DAYS.indexOf(local.day) + 6) % 7];
-    return sched.days.includes(previousDay);
-  }
-  return false;
-}
-
-/**
- * Whether `now` is inside the campaign's sending window in its timezone. No
- * saved schedule, a schedule with no days or a missing or malformed HH:MM
- * time, an unknown timezone, or any error keeps the window closed.
- */
-export function checkSendingWindow(timezone: string, schedule: unknown, now: Date = new Date()): boolean {
-  try {
-    const sched = storedSchedule(schedule);
-    const clock = localClock(timezone);
-    if (!sched || !clock) return false;
-    return windowOpenAt(sched, clock(now.getTime()));
-  } catch (err) {
-    console.error('[SendEngine] Error in checkSendingWindow:', err);
-    return false; // fail closed: never send on a window that could not be checked
-  }
-}
-
-/**
- * The first moment at or after `from` when checkSendingWindow is open: `from`
- * itself when the window is open then, otherwise the minute it next opens in
- * the campaign's timezone, across daylight-saving changes. Null when there is
- * no schedule or the schedule or timezone is invalid, so the window never opens.
- */
-export function nextWindowOpening(timezone: string, schedule: unknown, from: Date): Date | null {
-  try {
-    const sched = storedSchedule(schedule);
-    const clock = localClock(timezone);
-    if (!sched || !clock) return null;
-    if (windowOpenAt(sched, clock(from.getTime()))) return from;
-
-    const start = minutesOfDay(sched.window.start);
-    let t = Math.floor(from.getTime() / MINUTE_MS) * MINUTE_MS;
-    // Each pass jumps to the next time the local clock reads the start time.
-    // The window only opens there, so a week of passes (plus one for a
-    // daylight-saving change) always reaches a permitted day.
-    for (let pass = 0; pass < 10; pass++) {
-      const wait = (start - clock(t).minute + MINUTES_PER_DAY) % MINUTES_PER_DAY || MINUTES_PER_DAY;
-      const next = t + wait * MINUTE_MS;
-      if (clock(next).minute !== start) {
-        // A daylight-saving change moved the clock on the way, possibly past the
-        // start time, so find the first open minute one at a time.
-        for (let at = t + MINUTE_MS; at <= next; at += MINUTE_MS) {
-          if (windowOpenAt(sched, clock(at))) return new Date(at);
-        }
-      } else if (windowOpenAt(sched, clock(next))) {
-        return new Date(next);
-      }
-      t = next;
-    }
-    return null;
-  } catch (err) {
-    console.error('[SendEngine] Error in nextWindowOpening:', err);
-    return null;
-  }
-}
+// The sending-window checks live in lib/sendSchedule, where the campaign page uses them too.
+export { checkSendingWindow, nextWindowOpening };

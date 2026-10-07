@@ -12,6 +12,7 @@ import { useToast } from '@/components/Toast';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import VariableToolbar from '@/components/VariableToolbar';
 import CampaignAnalytics, { StepStatStrip, analyticsCaveats } from '@/components/CampaignAnalytics';
+import CampaignTiming from '@/components/CampaignTiming';
 import { activationBlocker, findIncompleteSteps, queuedLeadsMessage, sequenceDurationDays } from '@/lib/campaignSteps';
 import { autoResumeNote, noScheduleOutcome, ownerDisabledNote, savedScheduleNote } from '@/lib/campaignPause';
 import { STOPPABLE_STATUSES, STOPPED_STATUS, restartConfirmMessage, stopConfirmMessage, stoppedNote } from '@/lib/campaignStop';
@@ -486,6 +487,8 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
           {failedListMessages.join(' ')} Use Template, Target CRM List and the Senders tab may be missing entries until they load.
         </Alert>
       )}
+
+      <CampaignTiming campaign={campaign} />
 
       {/* Tabs */}
       <ToggleButtonGroup value={activeTab} exclusive onChange={(_, v) => v && setActiveTab(v)} sx={{ width: 'fit-content', maxWidth: '100%', overflowX: 'auto' }}>

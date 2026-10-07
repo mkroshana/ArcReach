@@ -14,7 +14,9 @@ import {
 import { alpha } from '@mui/material/styles';
 import { autoResumeNote } from '@/lib/campaignPause';
 import { workerStatusText } from '@/lib/systemStatus';
+import { viewerTimeZone, zoneLabel, zonedClock, zonedDate } from '@/lib/campaignTiming';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { useNow } from '@/hooks/use-now';
 
 const defaultNavItems = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
@@ -59,6 +61,26 @@ function StatusRow({ label, color, text, detail }: { label: string; color: strin
     </Stack>
   );
   return detail ? <Tooltip title={detail} placement="right">{row}</Tooltip> : row;
+}
+
+/**
+ * The viewer's own time and date, to the second, with their time zone on hover.
+ * A placeholder stands in until the page has hydrated, since the server does
+ * not know the viewer's clock or zone.
+ */
+function CurrentTime() {
+  const now = useNow();
+  const zone = now ? viewerTimeZone() : '';
+  const row = (
+    <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'baseline', gap: 1, px: 1.5, py: 1, borderRadius: '14px', bgcolor: 'action.hover', border: 1, borderColor: 'divider' }}>
+      <Typography sx={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', color: 'text.secondary', textTransform: 'uppercase' }}>Your Time</Typography>
+      <Stack direction="row" spacing={0.75} sx={{ alignItems: 'baseline', minWidth: 0 }}>
+        <Typography sx={{ fontSize: 12, fontWeight: 700, fontFamily: 'monospace' }}>{now ? zonedClock(now, zone) : '--:--:--'}</Typography>
+        <Typography sx={{ fontSize: 10, fontWeight: 500, color: 'text.secondary' }} noWrap>{now ? zonedDate(now, zone) : ''}</Typography>
+      </Stack>
+    </Stack>
+  );
+  return now ? <Tooltip title={`${zone} · ${zoneLabel(now, zone)}`} placement="right">{row}</Tooltip> : row;
 }
 
 export function Sidebar() {
@@ -198,6 +220,8 @@ export function Sidebar() {
           <ListItemIcon><Settings size={18} /></ListItemIcon>
           <ListItemText primary={<Typography sx={{ fontSize: 14, fontWeight: 500 }}>Settings</Typography>} />
         </ListItemButton>
+
+        <CurrentTime />
 
         {/* System status */}
         <Box sx={{ p: 1.5, borderRadius: '14px', bgcolor: 'action.hover', border: 1, borderColor: 'divider' }}>

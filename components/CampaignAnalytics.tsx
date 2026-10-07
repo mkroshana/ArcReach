@@ -18,6 +18,8 @@ import { bounceFigure, noReportsFor, type BounceCounts, type BounceFigure } from
 import { deliveryRateText, noReportsNote } from '@/lib/deliveryStats';
 import { ENROLLMENT_STATES, STOPPED_ACTIVE_STATE, nextSendText } from '@/lib/campaignProgress';
 import { timeAgo } from '@/lib/systemStatus';
+import { bothZones, sendTime, viewerTimeZone } from '@/lib/campaignTiming';
+import { Countdown } from '@/components/CampaignTiming';
 import { useTheme as useAppTheme } from '@/components/ThemeProvider';
 
 /**
@@ -43,10 +45,6 @@ const share = (part: number, whole: number) => (whole > 0 ? Number(((part / whol
  */
 const fromLeads = (emails: number | null | undefined, leads: number | null | undefined) =>
   emails && leads ? ` · from ${count(leads)} ${leads === 1 ? 'lead' : 'leads'}` : '';
-
-/** A next send date: "Tue, 1 Oct, 09:00", in local 24-hour time. */
-const dateTime = (at: Date) =>
-  at.toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 
 /** Why a campaign's reply counts may be short, by the reply-sync state of the mailboxes that receive its replies. */
 const REPLY_SYNC_NOTES: Record<Exclude<ImapSyncState, 'ok'>, { short: string; long: string }> = {
@@ -385,6 +383,14 @@ export default function CampaignAnalytics({ campaign, mailboxes }: { campaign: a
   const funnel = (t.funnel ?? []).filter((stage: any) => !(repliesUnknown && stage.name === 'Replied'));
   const stopped = campaign?.status === 'Stopped';
   const now = new Date();
+  // Dates and times are given in the campaign's time zone and, where it reads differently, in the viewer's.
+  const viewerZone = viewerTimeZone();
+  const inBothZones = (at: Date | string) => bothZones(at, campaign?.timezone, viewerZone);
+  // A send date still to come goes out then, or when the sending window next opens after it, as the Timing panel shows it.
+  const whenSent = (dueAt: Date) => (dueAt.getTime() > now.getTime() ? sendTime(campaign?.timezone, campaign?.sendSchedule, dueAt).at : dueAt);
+  const nextSendAt = progress.nextDueAt ? whenSent(new Date(progress.nextDueAt)) : null;
+  const nextSend = campaign?.status === 'Active' && nextSendAt && nextSendAt.getTime() > now.getTime() ? inBothZones(nextSendAt) : null;
+  const lastSend = progress.lastSentAt ? inBothZones(progress.lastSentAt) : null;
   // Opens and clicks in the validated categorical slots 1 and 2 (light and dark steps), each named in the legend.
   const series = colorMode === 'dark' ? { opens: '#3987e5', clicks: '#d95926' } : { opens: '#2a78d6', clicks: '#eb6834' };
   const stepBodies = new Map<number, string>((campaign?.steps ?? []).map((s: any) => [s.stepOrder, s.body ?? '']));
@@ -470,8 +476,14 @@ export default function CampaignAnalytics({ campaign, mailboxes }: { campaign: a
               <Fact label="Contacted" value={count(progress.contacted)} sub={`${share(progress.contacted, progress.enrolled)}% of enrolled`} />
               <Fact label="Replied" value={repliedLeadsUnknown ? '—' : count(progress.repliedLeads)} sub={repliedLeadsUnknown ? replyNote?.short : `${share(progress.repliedLeads, progress.contacted)}% of contacted`} caveat={replyNote?.long} />
               <Fact label="Emails Left" value={`Up to ${count(progress.emailsLeft)}`} sub={stopped && progress.emailsLeft > 0 ? 'Sent after a restart' : undefined} />
-              <Fact label="Next Send" value={nextSendText(campaign ?? {}, progress.nextDueAt, now, dateTime)} sub={campaign?.status === 'Active' && progress.dueNow > 0 ? `${count(progress.dueNow)} leads due` : undefined} />
-              <Fact label="Last Send" value={progress.lastSentAt ? timeAgo(progress.lastSentAt, now) : 'Never'} />
+              <Fact
+                label="Next Send" value={nextSendText(campaign ?? {}, nextSendAt, now, (at) => inBothZones(at).campaign)}
+                sub={campaign?.status === 'Active' && progress.dueNow > 0 ? `${count(progress.dueNow)} leads due` : nextSend?.viewer ? `${nextSend.viewer} your time` : undefined}
+              />
+              <Fact
+                label="Last Send" value={progress.lastSentAt ? timeAgo(progress.lastSentAt, now) : 'Never'}
+                sub={lastSend ? `${lastSend.campaign}${lastSend.viewer ? ` · ${lastSend.viewer} your time` : ''}` : undefined}
+              />
             </Box>
             <BarList rows={progressRows} total={progress.enrolled} noun="enrolled leads" />
           </CardContent>
@@ -530,10 +542,12 @@ export default function CampaignAnalytics({ campaign, mailboxes }: { campaign: a
                   const htmlStep = isHtmlTemplate(stepBodies.get(s.stepOrder) ?? '');
                   const opensGap = trackingGap(caveats.trackOpens, htmlStep, s.opened);
                   const clicksGap = trackingGap(caveats.trackClicks, htmlStep, s.clicked);
-                  const nextDue = s.nextDueAt ? new Date(s.nextDueAt) : null;
-                  const waitingNote = campaign?.status !== 'Active' || s.active === 0 ? null
+                  const nextDue = s.nextDueAt ? whenSent(new Date(s.nextDueAt)) : null;
+                  const waiting = campaign?.status === 'Active' && s.active > 0;
+                  const stepNext = waiting && s.due === 0 && nextDue ? inBothZones(nextDue) : null;
+                  const waitingNote = !waiting ? null
                     : s.due > 0 ? `${count(s.due)} due now`
-                      : nextDue ? `next ${dateTime(nextDue)}` : null;
+                      : stepNext ? `next ${stepNext.campaign}` : null;
                   return (
                     <TableRow key={s.stepOrder} hover sx={{ '& td': { fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' } }}>
                       <TableCell>
@@ -548,6 +562,11 @@ export default function CampaignAnalytics({ campaign, mailboxes }: { campaign: a
                       <TableCell>
                         {count(s.active)}
                         {waitingNote && <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>{waitingNote}</Typography>}
+                        {stepNext && nextDue && (
+                          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
+                            {stepNext.viewer && <>{stepNext.viewer} your time · </>}<Countdown to={nextDue} />
+                          </Typography>
+                        )}
                       </TableCell>
                       <TableCell sx={{ fontWeight: 700 }}>
                         {count(s.sent)}

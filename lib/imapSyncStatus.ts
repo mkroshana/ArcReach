@@ -55,6 +55,31 @@ export function otherReplyTo(mailbox: ImapSyncFields): string | null {
   return replyTo && sameAddressKey(replyTo) !== sameAddressKey(mailbox.emailAddress) ? replyTo : null;
 }
 
+/**
+ * The reply sync a mailbox's chip shows: `reader` is the mailbox whose sync it is, and
+ * `via` the Reply-To address it is read through, or null when it is the mailbox's own.
+ */
+export type MailboxReplySync = { state: ImapSyncState; via: string | null; reader: ImapSyncFields };
+
+/**
+ * The reply sync that reads the replies to a mailbox's emails, as its chip shows it:
+ * its own, or for a mailbox whose own is off and whose Reply-To is the address of a
+ * mailbox (among `mailboxes`) with reply sync on, that mailbox's, since the replies
+ * land there. A Reply-To that is not such a mailbox leaves it off.
+ */
+export function mailboxReplySync(mailbox: ImapSyncFields, mailboxes: ImapSyncFields[] = []): MailboxReplySync {
+  const own = imapSyncState(mailbox);
+  const replyTo = own === 'off' ? otherReplyTo(mailbox) : null;
+  const target = replyTo ? mailboxes.find((m) => sameAddressKey(m.emailAddress) === sameAddressKey(replyTo)) : undefined;
+  const state = target ? imapSyncState(target) : 'off';
+  return target && state !== 'off' ? { state, via: replyTo, reader: target } : { state: own, via: null, reader: mailbox };
+}
+
+/** The chip's label: the state, marked when it is the Reply-To mailbox's sync rather than the mailbox's own. */
+export function mailboxReplySyncLabel(sync: Pick<MailboxReplySync, 'state' | 'via'>): string {
+  return sync.via ? `${IMAP_SYNC_LABELS[sync.state]} via Reply-To` : IMAP_SYNC_LABELS[sync.state];
+}
+
 /** Where the replies to a pool mailbox's emails land, and the reply-sync state they are read with. */
 type ReplyReceiver = { sender: ImapSyncFields; replyTo: string | null; state: ImapSyncState };
 

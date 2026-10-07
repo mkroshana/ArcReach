@@ -18,7 +18,7 @@ import { STOPPABLE_STATUSES, STOPPED_STATUS, restartConfirmMessage, stopConfirmM
 import { sameCampaignVersion } from '@/lib/campaignVersion';
 import { hasSendingSchedule, sendScheduleError, timezoneError } from '@/lib/sendSchedule';
 import { isHtmlTemplate, personalizePreview, previewEmailBody } from '@/lib/personalize';
-import { IMAP_SYNC_LABELS, imapSyncState, otherReplyTo, stopOnReplyWarning } from '@/lib/imapSyncStatus';
+import { mailboxReplySync, mailboxReplySyncLabel, otherReplyTo, stopOnReplyWarning } from '@/lib/imapSyncStatus';
 import { loadErrorMessage, readJsonList, responseErrorMessage } from '@/lib/apiResponse';
 import {
   Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
@@ -765,6 +765,8 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                       const isChecked = selectedPoolIds.includes(mailbox.id) || isPrimary;
                       // Its own reply sync never sees replies to its emails when they go to another address.
                       const replyTo = otherReplyTo(mailbox);
+                      // Its Reply-To mailbox's sync when its own is off and that mailbox reads its replies.
+                      const replySync = mailboxReplySync(mailbox, availableMailboxes);
                       const toggleCheckbox = () => {
                         if (isPrimary) { showToast('The primary sender is always included.', 'error'); return; }
                         setSelectedPoolIds(prev => isChecked ? prev.filter(id => id !== mailbox.id) : [...prev, mailbox.id]);
@@ -788,7 +790,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                                   </Stack>
                                   <Stack direction="row" spacing={2} sx={{ mt: 0.5, color: 'text.secondary', fontSize: 10, flexWrap: 'wrap', rowGap: 0.25 }}>
                                     <span>Provider: <Box component="strong" sx={{ color: 'text.primary' }}>{mailbox.provider}</Box></span>
-                                    <Box component="strong" sx={{ color: imapSyncState(mailbox) === 'failing' ? 'error.main' : undefined }}>{IMAP_SYNC_LABELS[imapSyncState(mailbox)]}</Box>
+                                    <Box component="strong" sx={{ color: replySync.state === 'failing' ? 'error.main' : undefined }}>{mailboxReplySyncLabel(replySync)}</Box>
                                     {replyTo && <span>Replies go to <Box component="strong" sx={{ color: 'text.primary', fontFamily: 'monospace' }}>{replyTo}</Box></span>}
                                     {/* No cap of its own while a global rate limit is set, unless it is warming up */}
                                     <span>Last 24 Hours: <Box component="strong">{mailbox.sentLast24Hours}{mailbox.effectiveDailyCap != null && ` / ${mailbox.effectiveDailyCap}`}</Box></span>

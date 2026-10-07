@@ -64,7 +64,7 @@ import { encryptSecret } from '../../lib/secrets';
 import { getActiveImapAccounts, imapSyncFailureMessage, syncMailboxReplies } from '../../lib/imapService';
 import {
   IMAP_SYNC_LABELS, MICROSOFT_IMAP_NOTE, imapSyncState, isMicrosoftImapHost, mailboxRepliesFigure, replyCountUnknown, replySyncState, stopOnReplyWarning,
-  otherReplyTo, unreadReplyToNote, unreadReplyTos,
+  mailboxReplySync, mailboxReplySyncLabel, otherReplyTo, unreadReplyToNote, unreadReplyTos,
 } from '../../lib/imapSyncStatus';
 
 const mocked = prisma as any;
@@ -390,6 +390,49 @@ describe('replySyncState', () => {
 
   it('stays the best of the pool, so another sender that syncs its own replies still makes it ok', () => {
     expect(replySyncState([ok, { ...ok, emailAddress: 'chui@thejobshelpers.com', replyTo: 'chui@thejobhelpers.com' }])).toBe('ok');
+  });
+});
+
+describe("mailboxReplySync, a mailbox's reply-sync chip", () => {
+  const imap = { status: 'Active', imapHost: 'imap.gmail.com', imapPort: 993, imapUser: 'u', imapPass: '********' };
+  const randy = { ...imap, emailAddress: 'randy@jobpromax.com', imapLastSyncAt: '2026-10-07T12:00:00Z' };
+  const team = { emailAddress: 'team@jobpromax.it.com', status: 'Active', replyTo: 'randy@jobpromax.com' };
+
+  it('is the Reply-To mailbox\'s sync for a mailbox with no IMAP of its own, not "Reply Sync Off"', () => {
+    const sync = mailboxReplySync(team, [team, randy]);
+    expect(sync).toEqual({ state: 'ok', via: 'randy@jobpromax.com', reader: randy });
+    expect(mailboxReplySyncLabel(sync)).toBe('Reply Sync OK via Reply-To');
+    // Matched trimmed and case-insensitively, as the campaign's reply sync matches it.
+    expect(mailboxReplySync({ ...team, replyTo: ' Randy@JobProMax.com ' }, [randy]).state).toBe('ok');
+  });
+
+  it("follows the Reply-To mailbox's sync while it is pending or failing", () => {
+    const pending = { ...randy, imapLastSyncAt: null };
+    const failing = { ...randy, imapLastSyncError: 'Invalid credentials' };
+    expect(mailboxReplySyncLabel(mailboxReplySync(team, [team, pending]))).toBe('Reply Sync Pending via Reply-To');
+    expect(mailboxReplySync(team, [team, failing])).toEqual({ state: 'failing', via: 'randy@jobpromax.com', reader: failing });
+  });
+
+  it('stays off when the Reply-To is not a mailbox with reply sync on', () => {
+    const off = { state: 'off' as const, via: null, reader: team };
+    // No such mailbox in ArcReach, one without IMAP details, and one that is not Active.
+    expect(mailboxReplySync(team, [team])).toEqual(off);
+    expect(mailboxReplySync(team)).toEqual(off);
+    expect(mailboxReplySync(team, [team, { emailAddress: 'randy@jobpromax.com', status: 'Active' }])).toEqual(off);
+    expect(mailboxReplySync(team, [team, { ...randy, status: 'Paused' }])).toEqual(off);
+    expect(mailboxReplySyncLabel(off)).toBe('Reply Sync Off');
+  });
+
+  it('is its own sync for a mailbox with IMAP details, or with no other Reply-To', () => {
+    // Its own sync is what its chip reports, working or failing, whatever its Reply-To.
+    const own = { ...randy, emailAddress: 'steve@jobpromax.it.com', replyTo: 'randy@jobpromax.com', imapLastSyncError: 'Timed out' };
+    expect(mailboxReplySync(own, [own, randy])).toEqual({ state: 'failing', via: null, reader: own });
+    expect(mailboxReplySync(randy, [team, randy])).toEqual({ state: 'ok', via: null, reader: randy });
+    expect(mailboxReplySyncLabel(mailboxReplySync(randy, [team, randy]))).toBe('Reply Sync OK');
+    // Its Reply-To is its own address or blank: nothing else reads its replies.
+    const self = { emailAddress: 'steve@jobpromax.com', status: 'Active', replyTo: 'Steve@jobpromax.com' };
+    expect(mailboxReplySync(self, [self, randy])).toEqual({ state: 'off', via: null, reader: self });
+    expect(mailboxReplySync({ ...self, replyTo: null }, [randy]).via).toBeNull();
   });
 });
 

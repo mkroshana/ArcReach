@@ -9,7 +9,7 @@ import {
   MailCheck, MailWarning, MailX, Clock, Settings, RefreshCw, AlertTriangle,
 } from 'lucide-react';
 import { TableSkeleton } from '@/components/Skeleton';
-import { IMAP_SYNC_LABELS, MICROSOFT_IMAP_NOTE, imapSyncState, isMicrosoftImapHost, mailboxRepliesFigure } from '@/lib/imapSyncStatus';
+import { MICROSOFT_IMAP_NOTE, imapSyncState, isMicrosoftImapHost, mailboxRepliesFigure, mailboxReplySync, mailboxReplySyncLabel } from '@/lib/imapSyncStatus';
 import { deliveryRateText } from '@/lib/deliveryStats';
 import { bounceFigure } from '@/lib/bounceStats';
 import { useToast } from '@/components/Toast';
@@ -110,25 +110,30 @@ function GlobalRateLimits({ limits }: { limits: GlobalRateLimitValues | null }) 
 const REPLY_SYNC_ICONS = { off: MailX, waiting: Clock, ok: MailCheck, failing: MailWarning } as const;
 const REPLY_SYNC_COLORS = { off: 'default', waiting: 'default', ok: 'success', failing: 'error' } as const;
 
-/** What a mailbox's reply-sync state means for it: when it last synced, or why it doesn't. */
-function replySyncDetail(account: any): string {
-  const lastSynced = account.imapLastSyncAt ? new Date(account.imapLastSyncAt).toLocaleString() : null;
-  switch (imapSyncState(account)) {
-    case 'ok': return `Last synced ${lastSynced}.`;
-    case 'failing': return `${account.imapLastSyncError} Last successful sync: ${lastSynced ?? 'never'}.`;
-    case 'waiting': return 'IMAP details saved. Replies are read once the first sync finishes.';
+/**
+ * What a mailbox's reply-sync state means for it: when it last synced, or why it doesn't.
+ * For one read through its Reply-To mailbox (mailboxReplySync) it says so, with that mailbox's sync result.
+ */
+function replySyncDetail(account: any, accounts: any[]): string {
+  const { state, via, reader } = mailboxReplySync(account, accounts);
+  const lastSynced = reader.imapLastSyncAt ? new Date(reader.imapLastSyncAt).toLocaleString() : null;
+  const readVia = via ? `Replies to this mailbox's emails go to its Reply-To address, ${via}, and are read with that mailbox's reply sync. ` : '';
+  switch (state) {
+    case 'ok': return `${readVia}Last synced ${lastSynced}.`;
+    case 'failing': return `${readVia}${reader.imapLastSyncError} Last successful sync: ${lastSynced ?? 'never'}.`;
+    case 'waiting': return via ? `${readVia}Its first sync has not finished yet.` : 'IMAP details saved. Replies are read once the first sync finishes.';
     default: return account.status && account.status !== 'Active'
       ? 'This mailbox is not Active, so its replies are not synced.'
       : 'No IMAP details, so replies to this mailbox are not read and Pause Sequence on Reply cannot pause its leads.';
   }
 }
 
-/** The mailbox's reply-sync state, read from its last sync result; the tooltip says what it means. */
-function ReplySyncChip({ account, withTooltip = true }: { account: any; withTooltip?: boolean }) {
-  const state = imapSyncState(account);
-  const Icon = REPLY_SYNC_ICONS[state];
-  const chip = <Chip size="small" icon={<Icon size={11} />} label={IMAP_SYNC_LABELS[state]} color={REPLY_SYNC_COLORS[state]} variant="outlined" sx={{ fontWeight: 700, fontSize: 10 }} />;
-  return withTooltip ? <MuiTooltip title={replySyncDetail(account)}>{chip}</MuiTooltip> : chip;
+/** The state of the reply sync that reads the mailbox's replies (mailboxReplySync), from its last sync result; the tooltip says what it means. */
+function ReplySyncChip({ account, accounts, withTooltip = true }: { account: any; accounts: any[]; withTooltip?: boolean }) {
+  const sync = mailboxReplySync(account, accounts);
+  const Icon = REPLY_SYNC_ICONS[sync.state];
+  const chip = <Chip size="small" icon={<Icon size={11} />} label={mailboxReplySyncLabel(sync)} color={REPLY_SYNC_COLORS[sync.state]} variant="outlined" sx={{ fontWeight: 700, fontSize: 10 }} />;
+  return withTooltip ? <MuiTooltip title={replySyncDetail(account, accounts)}>{chip}</MuiTooltip> : chip;
 }
 
 const NO_DELIVERY_REPORTS_NOTE = "No delivery reports have arrived for this mailbox's emails, so how many were delivered is not known.";
@@ -176,8 +181,8 @@ function RowReplies({ account, accounts }: { account: any; accounts: any[] }) {
   return (
     <span>Replies: {count === null ? (
       // Unknown only while the mailbox's own reply sync is off, which replySyncDetail explains.
-      <MuiTooltip title={replySyncDetail(account)}>
-        <Box component="strong" tabIndex={0} aria-label="Reply sync off">—</Box>
+      <MuiTooltip title={replySyncDetail(account, accounts)}>
+        <Box component="strong" tabIndex={0} aria-label={mailboxReplySync(account, accounts).via ? 'Replies are read at the Reply-To address' : 'Reply sync off'}>—</Box>
       </MuiTooltip>
     ) : <strong>{count}</strong>}{caveat && <CaveatMark note={caveat} />}</span>
   );
@@ -573,7 +578,7 @@ export default function AccountsPage() {
                           </Stack>
                         </TableCell>
                         <TableCell>
-                          <ReplySyncChip account={account} />
+                          <ReplySyncChip account={account} accounts={accounts} />
                         </TableCell>
                         <TableCell sx={{ fontFamily: 'monospace', fontSize: 12 }}>
                           {globalDaily ? (
@@ -689,9 +694,9 @@ export default function AccountsPage() {
                         <Typography variant="overline" sx={{ color: 'text.secondary', fontWeight: 700, display: 'block', mb: 1.5 }}>Inbound Replies (IMAP)</Typography>
                         <Stack spacing={1.5}>
                           <Box>
-                            <ReplySyncChip account={selectedWarmupAccount} withTooltip={false} />
-                            <Typography variant="caption" sx={{ color: imapSyncState(selectedWarmupAccount) === 'failing' ? 'error.main' : 'text.secondary', display: 'block', mt: 0.75, overflowWrap: 'anywhere' }}>
-                              {replySyncDetail(selectedWarmupAccount)}
+                            <ReplySyncChip account={selectedWarmupAccount} accounts={accounts} withTooltip={false} />
+                            <Typography variant="caption" sx={{ color: mailboxReplySync(selectedWarmupAccount, accounts).state === 'failing' ? 'error.main' : 'text.secondary', display: 'block', mt: 0.75, overflowWrap: 'anywhere' }}>
+                              {replySyncDetail(selectedWarmupAccount, accounts)}
                             </Typography>
                           </Box>
                           {(selectedWarmupAccount.provider === 'Microsoft 365' || isMicrosoftImapHost(editImapHost)) && (

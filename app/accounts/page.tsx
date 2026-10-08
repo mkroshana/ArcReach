@@ -53,7 +53,7 @@ function PwField(props: { label: string; value: string; onChange: (v: string) =>
   return (
     <TextField fullWidth size="small" label={props.label} type={props.show ? 'text' : 'password'} disabled={props.disabled}
       value={props.value} onChange={(e) => props.onChange(e.target.value)} placeholder={props.placeholder}
-      slotProps={{ input: { sx: { fontFamily: 'monospace' }, endAdornment: !props.disabled ? (<InputAdornment position="end"><IconButton aria-label={props.show ? 'Hide password' : 'Show password'} size="small" onClick={() => props.setShow(!props.show)}>{props.show ? <EyeOff size={14} /> : <Eye size={14} />}</IconButton></InputAdornment>) : undefined } }}
+      slotProps={{ input: { sx: { fontFamily: 'monospace' }, endAdornment: !props.disabled ? (<InputAdornment position="end"><IconButton aria-label={props.show ? 'Hide password' : 'Show password'} size="small" onClick={() => props.setShow(!props.show)}>{props.show ? <EyeOff size={14} /> : <Eye size={14} />}</IconButton></InputAdornment>) : undefined }, htmlInput: { autoComplete: 'new-password' } }}
     />
   );
 }
@@ -703,11 +703,11 @@ export default function AccountsPage() {
                             <Typography variant="caption" sx={{ color: 'warning.main', display: 'block' }}>{MICROSOFT_IMAP_NOTE}</Typography>
                           )}
                           <Stack direction="row" spacing={1.5}>
-                            <TextField fullWidth size="small" label="IMAP Host" value={editImapHost} onChange={(e) => setEditImapHost(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-                            <TextField fullWidth size="small" label="Port" value={editImapPort} onChange={(e) => setEditImapPort(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
+                            <TextField fullWidth size="small" label="IMAP Host" value={editImapHost} onChange={(e) => setEditImapHost(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { autoComplete: 'off' } }} />
+                            <TextField fullWidth size="small" label="Port" value={editImapPort} onChange={(e) => setEditImapPort(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { autoComplete: 'off' } }} />
                           </Stack>
                           <Stack direction="row" spacing={1.5}>
-                            <TextField fullWidth size="small" label="Username" value={editImapUser} onChange={(e) => setEditImapUser(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
+                            <TextField fullWidth size="small" label="Username" value={editImapUser} onChange={(e) => setEditImapUser(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { autoComplete: 'off' } }} />
                             <PwField label="Password" value={editImapPass} onChange={setEditImapPass} show={showEditImapPass} setShow={setShowEditImapPass} />
                           </Stack>
                           <AllowSelfSignedSwitch checked={editImapAllowSelfSigned} onChange={setEditImapAllowSelfSigned} />
@@ -837,11 +837,11 @@ export default function AccountsPage() {
                     <Typography variant="caption" sx={{ color: 'warning.main', display: 'block' }}>{MICROSOFT_IMAP_NOTE}</Typography>
                   )}
                   <Stack direction="row" spacing={1.5}>
-                    <TextField fullWidth size="small" label="IMAP Host" value={imapHost} onChange={(e) => setImapHost(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-                    <TextField fullWidth size="small" label="Port" value={imapPort} onChange={(e) => setImapPort(e.target.value)} placeholder="993" slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
+                    <TextField fullWidth size="small" label="IMAP Host" value={imapHost} onChange={(e) => setImapHost(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { autoComplete: 'off' } }} />
+                    <TextField fullWidth size="small" label="Port" value={imapPort} onChange={(e) => setImapPort(e.target.value)} placeholder="993" slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { autoComplete: 'off' } }} />
                   </Stack>
                   <Stack direction="row" spacing={1.5}>
-                    <TextField fullWidth size="small" label="Username" value={imapUser} onChange={(e) => setImapUser(e.target.value)} placeholder="user@domain.com" slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
+                    <TextField fullWidth size="small" label="Username" value={imapUser} onChange={(e) => setImapUser(e.target.value)} placeholder="user@domain.com" slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { autoComplete: 'off' } }} />
                     <PwField label="Password" value={imapPass} onChange={setImapPass} show={showAddImapPass} setShow={setShowAddImapPass} placeholder="Password or App Key" />
                   </Stack>
                   <AllowSelfSignedSwitch checked={imapAllowSelfSigned} onChange={setImapAllowSelfSigned} />

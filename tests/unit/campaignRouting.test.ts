@@ -193,6 +193,28 @@ describe('PUT /api/campaigns/[id] Recipient Domains', () => {
     });
   });
 
+  it('stores a mail provider beside domains, named by its entry or its name alone', async () => {
+    const res = await update({
+      senderAccountIds: ['mb-open', 'mb-open-2'],
+      senderRecipientDomains: { 'mb-open-2': ['Google', 'acme.com', 'provider:yahoo'] },
+    });
+    expect(res.status).toBe(200);
+    expect(tx.campaignSenderAccount.createMany).toHaveBeenCalledWith({
+      data: [
+        { campaignId: 'cmp-1', senderAccountId: 'mb-open', recipientDomains: [] },
+        { campaignId: 'cmp-1', senderAccountId: 'mb-open-2', recipientDomains: ['provider:google', 'acme.com', 'provider:yahoo'] },
+      ],
+    });
+  });
+
+  it('counts a mailbox limited to a mail provider as limited', async () => {
+    await refused({
+      senderAccountId: 'mb-open',
+      senderAccountIds: ['mb-open', 'mb-open-2'],
+      senderRecipientDomains: { 'mb-open': ['provider:google'], 'mb-open-2': ['provider:microsoft'] },
+    }, NO_OPEN_SENDER_ERROR);
+  });
+
   it('refuses a pool in which the campaign limits every mailbox', async () => {
     await refused({
       senderAccountId: 'mb-open',

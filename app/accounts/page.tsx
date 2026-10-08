@@ -756,11 +756,11 @@ export default function AccountsPage() {
                     onChange={(domains) => handleUpdateWarmupSettings('recipientDomains', domains, 'Recipient Domains failed to save.')}
                     onInvalid={(error) => showToast(`${error} It was not saved.`, 'error')}
                     helperText={(selectedWarmupAccount.recipientDomains ?? []).length > 0
-                      ? 'In every campaign, this mailbox sends only to leads at these domains. Clear the list to set it per campaign on the Senders tab.'
-                      : 'Leave empty to set it per campaign on the Senders tab. With domains here, this mailbox sends only to leads at them, in every campaign.'}
+                      ? 'In every campaign, this mailbox sends only to leads at these domains and mail providers. Clear the list to set it per campaign on the Senders tab.'
+                      : 'Leave empty to set it per campaign on the Senders tab. With domains or mail providers here, this mailbox sends only to leads at them, in every campaign.'}
                   />
                   <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 1.5 }}>
-                    A domain matches exactly: gmail.com does not cover a company address whose mail Google hosts.
+                    A domain matches exactly: gmail.com does not cover a company address whose mail Google hosts. A mail provider covers every address it hosts, company domains included.
                   </Typography>
                 </CardContent>
               </Card>

@@ -774,7 +774,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                     <Chip size="small" label={`${poolIds.length || 1} Active ${(poolIds.length || 1) === 1 ? 'Sender' : 'Senders'}`} color="primary" variant="outlined" sx={{ fontWeight: 700 }} />
                   </Stack>
                   <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 2, lineHeight: 1.6 }}>
-                    Spreading outbound across multiple mailboxes protects sender reputation and circumvents daily provider caps. The send engine routes each dispatch via the least-loaded mailbox. A mailbox with Recipient Domains sends only to leads at those domains, and the mailboxes without any share every other lead.
+                    Spreading outbound across multiple mailboxes protects sender reputation and circumvents daily provider caps. The send engine routes each dispatch via the least-loaded mailbox. A mailbox with Recipient Domains sends only to leads at those domains and mail providers, and the mailboxes without any share every other lead.
                   </Typography>
                   {(routingError || routingNote) && (
                     <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', mb: 2, color: routingError ? 'error.main' : 'text.secondary' }}>
@@ -844,7 +844,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                                   onInvalid={(error) => showToast(error, 'error')}
                                   helperText={ownDomains.length > 0
                                     ? 'Set on this mailbox on the Accounts page, so it holds in every campaign and is not changed here.'
-                                    : 'Optional. With domains here, this mailbox sends only to leads at them in this campaign. Leave empty to send to every domain no other mailbox lists.'}
+                                    : 'Optional. With domains or mail providers here, this mailbox sends only to leads at them in this campaign. Leave empty to send to every domain no other mailbox lists.'}
                                 />
                               </Box>
                             )}

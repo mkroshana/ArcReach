@@ -34,6 +34,11 @@ vi.mock('../../lib/rateLimits', () => ({
   checkGlobalRateLimits: vi.fn(),
 }));
 
+// The MX lookups a pool that routes by mail provider makes (lib/mailProviderLookup); no other pool calls it.
+vi.mock('../../lib/mailProviderLookup', () => ({
+  mailProvidersFor: vi.fn(),
+}));
+
 vi.mock('../../lib/emailProvider', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/emailProvider')>()),
   sendMessage: vi.fn(),
@@ -44,7 +49,8 @@ import { getSession } from '../../lib/session';
 import { getGlobalSettings } from '../../lib/settings';
 import { checkGlobalRateLimits } from '../../lib/rateLimits';
 import { sendMessage, getAzureSendStatus, EmailSendUnconfirmedError, AZURE_SEND_TIMEOUT_MS } from '../../lib/emailProvider';
-import { processDueEmails, BOOKKEEPING_RETRIES, MAX_SEND_ATTEMPTS, SENDER_CAP_WINDOW_MS } from '../../lib/sendEngine';
+import { processDueEmails, BOOKKEEPING_RETRIES, MAX_SEND_ATTEMPTS, SENDER_CAP_WINDOW_MS, MAIL_PROVIDER_PENDING_MS, MAIL_PROVIDER_RETRY_MS } from '../../lib/sendEngine';
+import { mailProvidersFor } from '../../lib/mailProviderLookup';
 import { matchesWhere } from './helpers/prismaWhere';
 import { SEND_CLAIM_TTL_MS, claimEnrollmentForSend, releaseEnrollmentClaim, sendableEnrollmentWhere } from '../../lib/sendEligibility';
 import { reconcileStaleSendingDispatches, STALE_SENDING_MS, NOT_FOUND_RETRY_MAX_AGE_MS, RECONCILE_BATCH } from '../../lib/sendReconciler';
@@ -1884,5 +1890,99 @@ describe('processDueEmails sends each lead from a mailbox that sends to its doma
     await processDueEmails();
 
     expect(sentFrom('lead-2')).toBe('mb-gmail');
+  });
+});
+
+describe("processDueEmails routes by the mail provider that hosts a lead's domain (lib/mailProvider)", () => {
+  const HOUR = 3600000;
+  const NOW = new Date('2026-03-11T12:00:00Z');
+  const ago = (ms: number) => new Date(NOW.getTime() - ms);
+  const GOOGLE_SENDER = { ...SENDER, id: 'mb-google', emailAddress: 'google-only@acme.test', name: 'Google Only' };
+  const mockedProviders = vi.mocked(mailProvidersFor);
+  /** The mailbox a lead's email went out from, if one did. */
+  const sentFrom = (leadId: string) => dispatches.find((d) => d.leadId === leadId && d.status === 'Sent')?.senderAccountId;
+  /** The domains the cycle asked the provider of. */
+  const askedDomains = () => [...(mockedProviders.mock.calls[0]?.[0] ?? [])].sort();
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOW);
+    // The campaign limits mb-google to the addresses Google hosts and leaves mb-1 with no list.
+    campaign.senders = [
+      { senderAccountId: 'mb-1', senderAccount: SENDER, recipientDomains: [] },
+      { senderAccountId: 'mb-google', senderAccount: GOOGLE_SENDER, recipientDomains: ['provider:google'] },
+    ];
+    // A company's own domain whose mail Google hosts, and one no known provider hosts.
+    leads.get('lead-1')!.email = 'ann@hosted.test';
+    addLead('lead-2'); // lead-2@prospect.test
+    mockedProviders.mockResolvedValue({ known: new Map([['hosted.test', 'google'], ['prospect.test', null]]), failed: new Set() });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("sends a lead from the mailbox that lists the provider hosting its domain and every other lead from the one with no list, whichever sent less", async () => {
+    // mb-google has sent more than mb-1, so the least-loaded pick alone would take mb-1 for both.
+    for (const hours of [2, 3, 4]) addDispatch({ status: 'Sent', leadId: 'lead-other', senderAccountId: 'mb-google', sentAt: ago(hours * HOUR) });
+
+    await processDueEmails();
+
+    expect(askedDomains()).toEqual(['hosted.test', 'prospect.test']);
+    expect(mockedProviders).toHaveBeenCalledTimes(1);
+    expect(sentFrom('lead-1')).toBe('mb-google');
+    expect(sentFrom('lead-2')).toBe('mb-1');
+  });
+
+  it("sends a lead from a mailbox that lists its domain before the provider's mailbox, without asking that domain's provider", async () => {
+    const DOMAIN_SENDER = { ...SENDER, id: 'mb-domain', emailAddress: 'hosted-only@acme.test', name: 'Hosted Only' };
+    campaign.senders.push({ senderAccountId: 'mb-domain', senderAccount: DOMAIN_SENDER, recipientDomains: ['hosted.test'] });
+
+    await processDueEmails();
+
+    expect(sentFrom('lead-1')).toBe('mb-domain');
+    expect(askedDomains()).toEqual(['prospect.test']);
+  });
+
+  it("makes a lead wait when its domain's provider could not be looked up, with the reason, and sends the others", async () => {
+    mockedProviders.mockResolvedValue({ known: new Map([['prospect.test', null]]), failed: new Set(['hosted.test']) });
+
+    await processDueEmails();
+
+    expect(sentFrom('lead-1')).toBeUndefined();
+    expect(enrollmentOf('lead-1')).toMatchObject({ status: 'Active', currentSequenceStep: 1, nextActionDate: new Date(NOW.getTime() + MAIL_PROVIDER_RETRY_MS) });
+    expect(enrollmentOf('lead-1').lastError).toContain('The mail provider of hosted.test could not be looked up');
+    expect(sentFrom('lead-2')).toBe('mb-1');
+  });
+
+  it("makes a lead wait a minute, with no error, when its domain's lookup was left for a later cycle", async () => {
+    mockedProviders.mockResolvedValue({ known: new Map([['prospect.test', null]]), failed: new Set() });
+
+    await processDueEmails();
+
+    expect(sentFrom('lead-1')).toBeUndefined();
+    expect(enrollmentOf('lead-1')).toMatchObject({ currentSequenceStep: 1, nextActionDate: new Date(NOW.getTime() + MAIL_PROVIDER_PENDING_MS), lastError: null });
+    expect(sentFrom('lead-2')).toBe('mb-1');
+  });
+
+  it('sends nothing from such a pool while the lookups cannot be made at all', async () => {
+    mockedProviders.mockRejectedValue(new Error('database unreachable'));
+
+    await processDueEmails();
+
+    expect(mockedSend).not.toHaveBeenCalled();
+    for (const leadId of ['lead-1', 'lead-2']) {
+      expect(enrollmentOf(leadId).nextActionDate).toEqual(new Date(NOW.getTime() + MAIL_PROVIDER_RETRY_MS));
+    }
+  });
+
+  it('asks no provider for a pool whose lists name domains only', async () => {
+    campaign.senders[1].recipientDomains = ['hosted.test'];
+
+    await processDueEmails();
+
+    expect(mockedProviders).not.toHaveBeenCalled();
+    expect(sentFrom('lead-1')).toBe('mb-google');
+    expect(sentFrom('lead-2')).toBe('mb-1');
   });
 });

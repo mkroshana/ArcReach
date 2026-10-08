@@ -3,6 +3,7 @@ import { db, prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { UnauthorizedError, unauthorizedResponse } from '@/lib/sessionError';
 import { checkCampaignSenders, checkReassignedCampaignSenders } from '@/lib/senderOwnership';
+import { planPoolRows, poolRoutingError } from '@/lib/campaignRouting';
 import { checkAudienceCohort, cohortLeadWhere } from '@/lib/campaignCohort';
 import { activationBlocker } from '@/lib/campaignSteps';
 import { CAMPAIGN_OWNER_DISABLED_ERROR, CAMPAIGN_STATUSES, userStatusPause } from '@/lib/campaignPause';
@@ -65,6 +66,15 @@ export async function POST(req: NextRequest) {
     const senderError = await checkCampaignSenders(targetUserId, senderAccountId, senderAccountIds);
     if (senderError) {
       return NextResponse.json({ error: senderError.error }, { status: senderError.status });
+    }
+
+    // A new campaign has no Recipient Domains of its own, but its mailboxes may
+    // have theirs: a pool in which every mailbox does leaves leads at other
+    // domains with none to send from (lib/senderRouting), so it is refused.
+    const pool = planPoolRows({ senderAccountIds }, []);
+    const routingError = pool.error ?? await poolRoutingError(targetUserId, senderAccountId, pool.rows);
+    if (routingError) {
+      return NextResponse.json({ error: routingError }, { status: 400 });
     }
 
     const selectedCohort = audienceCohort || 'Valid';

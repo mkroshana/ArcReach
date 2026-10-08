@@ -8,7 +8,7 @@ import { NextRequest } from 'next/server';
  */
 const fake = vi.hoisted(() => ({
   campaign: { findUnique: vi.fn(), updateMany: vi.fn() },
-  campaignSenderAccount: { deleteMany: vi.fn(), createMany: vi.fn() },
+  campaignSenderAccount: { findMany: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
   campaignStep: { findMany: vi.fn(), update: vi.fn(), deleteMany: vi.fn(), createMany: vi.fn() },
   campaignEnrollment: { count: vi.fn(), findMany: vi.fn(), deleteMany: vi.fn(), updateMany: vi.fn(), createMany: vi.fn() },
   emailDispatch: { findMany: vi.fn() },
@@ -187,6 +187,7 @@ beforeEach(() => {
     return { count: 1 };
   });
   fake.senderAccount.findMany.mockImplementation(async ({ where }: any) => where.id.in.map((id: string) => ({ id })));
+  fake.campaignSenderAccount.findMany.mockResolvedValue([]);
   fake.campaignStep.findMany.mockResolvedValue(STEPS);
   fake.leadGroup.findUnique.mockImplementation(async ({ where }: any) => (GROUP_IDS.includes(where.id) ? { id: where.id } : null));
   fake.lead.findMany.mockImplementation(async ({ where }: any) =>

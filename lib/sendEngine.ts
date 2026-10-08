@@ -11,6 +11,7 @@ import { sendMessage, sendingDisabledReason, EmailSendUnconfirmedError } from '.
 import { sendableEnrollmentWhere, claimEnrollmentForSend, releaseEnrollmentClaim, RELEASED_CLAIM } from './sendEligibility';
 import { suppressEmail } from './suppression';
 import { checkSendingWindow, hasSendingSchedule, nextWindowOpening } from './sendSchedule';
+import { type SenderRoutes, effectiveRecipientDomains, recipientDomainOf, sendersForRecipient } from './senderRouting';
 import type { PauseReason } from './campaignPause';
 
 /** Most due auto-resumes one call ends; any others are ended by the next send cycle's call. */
@@ -222,6 +223,24 @@ export function resolveCampaignSenders(campaign: {
     }
   }
   return { pool, foreign };
+}
+
+/**
+ * The recipient domains each mailbox of a campaign's `pool`
+ * (resolveCampaignSenders) sends to, by mailbox id (lib/senderRouting): the
+ * mailbox's own list, or the campaign's list for it while it has none. The
+ * primary sender standing in for an empty pool has no campaign list.
+ */
+export function resolveSenderRoutes(
+  campaign: { senders?: Array<{ senderAccount: any; recipientDomains?: unknown }> },
+  pool: any[],
+): SenderRoutes {
+  const routes = new Map<string, string[]>();
+  for (const account of pool) {
+    const row = (campaign.senders ?? []).find(s => s.senderAccount?.id === account.id);
+    routes.set(account.id, effectiveRecipientDomains(account.recipientDomains, row?.recipientDomains));
+  }
+  return routes;
 }
 
 /**
@@ -886,6 +905,8 @@ export async function processDueEmails() {
     // and has no pool, so its enrollments are passed over this cycle. A campaign
     // with no complete sending schedule goes back to Draft and has no pool either.
     const senderPools = new Map<string, any[]>();
+    // The recipient domains each pool mailbox sends to (lib/senderRouting).
+    const senderRoutes = new Map<string, SenderRoutes>();
     for (const campaign of dueCampaigns) {
       if (!hasSendingSchedule(campaign.timezone, campaign.sendSchedule)) {
         await draftCampaignWithoutSchedule(campaign);
@@ -901,6 +922,7 @@ export async function processDueEmails() {
         continue;
       }
       senderPools.set(campaign.id, pool);
+      senderRoutes.set(campaign.id, resolveSenderRoutes(campaign, pool));
     }
 
     // Build map of sent counts over the last 24 hours for each unique sender in the batch
@@ -945,16 +967,36 @@ export async function processDueEmails() {
       }
 
       // Pick a sender from the campaign's pool per send (least-loaded under cap)
-      const senderPool = senderPools.get(campaign.id);
-      if (!senderPool) continue; // set back to Draft (no complete schedule) or paused (no sender mailbox its owner owns) above
+      const campaignPool = senderPools.get(campaign.id);
+      if (!campaignPool) continue; // set back to Draft (no complete schedule) or paused (no sender mailbox its owner owns) above
+
+      // Only the pool's mailboxes that send to this lead's domain may send to
+      // it (lib/senderRouting). It waits for one of them and never goes out
+      // from another.
+      const senderPool = sendersForRecipient(campaignPool, senderRoutes.get(campaign.id) ?? new Map(), lead.email);
+      const routed = senderPool.length < campaignPool.length;
+      if (senderPool.length === 0) {
+        // Every mailbox of the pool is limited to other domains. A save
+        // refuses such a pool, so it is one that changed since (a mailbox of
+        // it now belongs to another user). The lead waits a day at a time
+        // until a mailbox of the pool sends to its domain.
+        const lastError = `No sender mailbox of this campaign sends to ${recipientDomainOf(lead.email) || 'this address'}: each one is limited to other Recipient Domains. Leave Recipient Domains empty on one of the campaign's mailboxes.`;
+        console.warn(`[SendEngine] Campaign "${campaign.name}" (${campaign.id}): no sender mailbox sends to the domain of lead ${lead.email}. Checking again in a day.`);
+        await prisma.campaignEnrollment.updateMany({
+          // Only while it is still due on this step, so a date set since the batch loaded stands.
+          where: { id: enrollment.id, currentSequenceStep: enrollment.currentSequenceStep, nextActionDate: { lte: now } },
+          data: { nextActionDate: new Date(now.getTime() + SENDER_CAP_WINDOW_MS), lastError },
+        });
+        continue;
+      }
       const chosenSender = pickSender(senderPool, senderSentLast24Hours, now, dailyLimitsOff);
 
       if (!chosenSender) {
-        // Wait until the first mailbox in the pool drops under its cap as its
-        // sends leave the 24-hour window; with every cap at 0, check in a day.
+        // Wait until the first mailbox that sends to this lead drops under its
+        // cap as its sends leave the 24-hour window; with every cap at 0, check in a day.
         const freesAt = await poolCapacityFreesAt(senderPool, now, senderCapacityFreesAtCache, dailyLimitsOff);
         const deferUntil = freesAt ?? new Date(now.getTime() + SENDER_CAP_WINDOW_MS);
-        console.log(`[SendEngine] All senders in pool for campaign "${campaign.name}" are at cap. Deferring lead ${lead.email} until ${deferUntil.toISOString()}.`);
+        console.log(`[SendEngine] All senders in pool for campaign "${campaign.name}"${routed ? ` that send to ${recipientDomainOf(lead.email)}` : ''} are at cap. Deferring lead ${lead.email} until ${deferUntil.toISOString()}.`);
         await prisma.campaignEnrollment.update({
           where: { id: enrollment.id },
           data: { nextActionDate: deferUntil }

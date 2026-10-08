@@ -67,6 +67,11 @@ model SenderAccount {
   // Daily Sending Limit (per-minute and per-hour limits are global, in GlobalSettings)
   dailyLimit      Int               @default(500)
 
+  // Recipient email domains this mailbox sends to, in every campaign (lib/senderRouting).
+  // Empty: it has no list of its own, so each campaign's list for it applies
+  // (CampaignSenderAccount.recipientDomains). Stored lowercased, without the '@'.
+  recipientDomains String[]        @default([])
+
   // Warmup & Deliverability Telemetry
   warmupEnabled   Boolean           @default(false)
   warmupStartedAt DateTime?
@@ -171,6 +176,10 @@ model CampaignSenderAccount {
   senderAccountId String
   campaign        Campaign      @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   senderAccount   SenderAccount @relation(fields: [senderAccountId], references: [id], onDelete: Cascade)
+  // Recipient email domains this mailbox sends to in this campaign, used only while
+  // the mailbox has no list of its own (SenderAccount.recipientDomains). Empty: it
+  // sends to every domain no mailbox of the pool lists (lib/senderRouting).
+  recipientDomains String[]     @default([])
 
   @@id([campaignId, senderAccountId])
 }

@@ -37,6 +37,7 @@ import * as accountsCapacity from '../../app/api/accounts/capacity/route';
 import * as campaigns from '../../app/api/campaigns/route';
 import * as campaign from '../../app/api/campaigns/[id]/route';
 import * as campaignRun from '../../app/api/campaigns/[id]/run/route';
+import * as campaignLeads from '../../app/api/campaigns/[id]/leads/route';
 import * as dashboardStats from '../../app/api/dashboard-stats/route';
 import * as leads from '../../app/api/leads/route';
 import * as leadsBulk from '../../app/api/leads/bulk/route';
@@ -66,6 +67,7 @@ const ROUTES: Record<string, Record<string, unknown>> = {
   '/api/campaigns': campaigns,
   '/api/campaigns/[id]': campaign,
   '/api/campaigns/[id]/run': campaignRun,
+  '/api/campaigns/[id]/leads': campaignLeads,
   '/api/dashboard-stats': dashboardStats,
   '/api/leads': leads,
   '/api/leads/bulk': leadsBulk,
@@ -116,7 +118,7 @@ describe('every API route answers a missing or revoked session with 401 (H26)', 
       .map((file) => `/api/${path.dirname(file).split(path.sep).join('/')}`)
       .filter((route) => route !== '/api/auth/logout'); // signs out whether or not the session is live
     expect(Object.keys(ROUTES).sort()).toEqual(protectedRoutes.sort());
-    expect(HANDLERS.length).toBe(42);
+    expect(HANDLERS.length).toBe(44);
   });
 
   it.each(HANDLERS)('%s returns 401, not 500, with no session cookie', async (_label, method, handler) => {

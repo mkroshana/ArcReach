@@ -13,6 +13,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import VariableToolbar from '@/components/VariableToolbar';
 import CampaignAnalytics, { StepStatStrip, analyticsCaveats } from '@/components/CampaignAnalytics';
 import CampaignTiming from '@/components/CampaignTiming';
+import CampaignLeadExport from '@/components/CampaignLeadExport';
 import { RecipientDomainsInput } from '@/components/RecipientDomainsInput';
 import { activationBlocker, findIncompleteSteps, queuedLeadsMessage, sequenceDurationDays } from '@/lib/campaignSteps';
 import { autoResumeNote, noScheduleOutcome, ownerDisabledNote, savedScheduleNote } from '@/lib/campaignPause';
@@ -522,7 +523,10 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
       </ToggleButtonGroup>
 
       {activeTab === 'Analytics' ? (
-        <CampaignAnalytics campaign={campaign} mailboxes={listErrors.mailboxes ? null : availableMailboxes} />
+        <Stack spacing={3}>
+          <CampaignAnalytics campaign={campaign} mailboxes={listErrors.mailboxes ? null : availableMailboxes} />
+          <CampaignLeadExport campaignId={campaignId} campaignName={campaignName} groups={groups} onGroupsChanged={loadGroups} />
+        </Stack>
       ) : (
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '2fr 1fr' }, gap: 3 }}>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>

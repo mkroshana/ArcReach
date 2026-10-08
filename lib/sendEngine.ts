@@ -11,7 +11,15 @@ import { sendMessage, sendingDisabledReason, EmailSendUnconfirmedError } from '.
 import { sendableEnrollmentWhere, claimEnrollmentForSend, releaseEnrollmentClaim, RELEASED_CLAIM } from './sendEligibility';
 import { suppressEmail } from './suppression';
 import { checkSendingWindow, hasSendingSchedule, nextWindowOpening } from './sendSchedule';
-import { type SenderRoutes, effectiveRecipientDomains, needsMailProvider, recipientDomainOf, sendersForRecipient } from './senderRouting';
+import {
+  NO_SENDER_FOR_LEAD_REASON,
+  REFUSED_BY_SENDERS_REASON,
+  type SenderRoutes,
+  effectiveRecipientDomains,
+  needsMailProvider,
+  recipientDomainOf,
+  sendersForRecipient,
+} from './senderRouting';
 import { type MailProviders, mailProvidersFor } from './mailProviderLookup';
 import type { PauseReason } from './campaignPause';
 
@@ -676,7 +684,10 @@ export async function handleSendFailure(
  * 'Sent' once the provider accepted it, 'Sending' while a send is in flight or
  * was interrupted, 'Unknown' when an interrupted send could not be checked
  * with ACS (it may have gone out, so it is never sent again), or null when the
- * step has not been sent. Failed attempts don't count.
+ * step has not been sent. Failed attempts don't count, and neither does a Sent
+ * email the receiving server then refused because of its sender
+ * (senderRefusedAt): it did not arrive, so the step is sent again, from
+ * another mailbox.
  */
 export async function findStepDispatchStatus(
   campaignId: string,
@@ -685,12 +696,43 @@ export async function findStepDispatchStatus(
 ): Promise<'Sent' | 'Sending' | 'Unknown' | null> {
   for (const status of ['Sent', 'Sending', 'Unknown'] as const) {
     const dispatch = await prisma.emailDispatch.findFirst({
-      where: { campaignId, leadId, stepOrder, status },
+      where: { campaignId, leadId, stepOrder, status, ...(status === 'Sent' ? { senderRefusedAt: null } : {}) },
       select: { id: true },
     });
     if (dispatch) return status;
   }
   return null;
+}
+
+/** Key of a lead in a campaign, for the mailboxes that refused it there. */
+function refusalKey(campaignId: string, leadId: string): string {
+  return `${campaignId}:${leadId}`;
+}
+
+/**
+ * The mailboxes that refused each of these leads in each of these campaigns,
+ * by refusalKey: those an email of the campaign to the lead went out from and
+ * was refused because of its sender (EmailDispatch.senderRefusedAt). The lead
+ * is not sent from them again in that campaign.
+ */
+async function loadRefusedSenders(campaignIds: string[], leadIds: string[]): Promise<Map<string, Set<string>>> {
+  const refused = new Map<string, Set<string>>();
+  if (campaignIds.length === 0 || leadIds.length === 0) return refused;
+  const rows = await prisma.emailDispatch.findMany({
+    where: {
+      senderRefusedAt: { not: null },
+      campaignId: { in: campaignIds },
+      leadId: { in: leadIds },
+      senderAccountId: { not: null },
+    },
+    select: { campaignId: true, leadId: true, senderAccountId: true },
+  });
+  for (const row of rows) {
+    if (!row.campaignId || !row.leadId || !row.senderAccountId) continue;
+    const key = refusalKey(row.campaignId, row.leadId);
+    refused.set(key, (refused.get(key) ?? new Set<string>()).add(row.senderAccountId));
+  }
+  return refused;
 }
 
 /**
@@ -973,6 +1015,13 @@ export async function processDueEmails() {
         providerDomains.add(recipientDomainOf(enrollment.lead.email));
       }
     }
+    // The mailboxes that refused each due lead in its campaign because of the
+    // sender (a delivery report said so): the lead never goes out from them again.
+    const refusedSenders = await loadRefusedSenders(
+      [...senderPools.keys()],
+      [...new Set(dueEnrollments.map((enrollment) => enrollment.leadId))],
+    );
+
     let mailProviders: MailProviders = { known: new Map(), failed: new Set() };
     if (providerDomains.size > 0) {
       try {
@@ -1028,14 +1077,34 @@ export async function processDueEmails() {
       // Only the pool's mailboxes that send to this lead's domain, or to the
       // mail provider that hosts it, may send to it (lib/senderRouting). It
       // waits for one of them and never goes out from another.
-      const senderPool = sendersForRecipient(campaignPool, routes, lead.email, mailProviders.known.get(leadDomain) ?? null);
+      const allowedSenders = sendersForRecipient(campaignPool, routes, lead.email, mailProviders.known.get(leadDomain) ?? null);
+      // Less the mailboxes that refused this lead in this campaign because of
+      // the sender. A step one of them sent is sent again from another, and
+      // the lead's later steps keep to the others too.
+      const refusedBy = refusedSenders.get(refusalKey(campaign.id, lead.id));
+      const senderPool = refusedBy ? allowedSenders.filter((sender) => !refusedBy.has(sender.id)) : allowedSenders;
       const routed = senderPool.length < campaignPool.length;
+      if (allowedSenders.length > 0 && senderPool.length === 0) {
+        // Every mailbox the campaign allows for this lead has refused it. It
+        // is not sent from one of them again, nor from a mailbox its domain
+        // may not go out from: it waits a day at a time until the campaign
+        // has another mailbox allowed for it.
+        const mailboxes = allowedSenders.map((sender) => sender.emailAddress).join(', ');
+        const lastError = `${REFUSED_BY_SENDERS_REASON} (${mailboxes}) for a reason on the sender's side, such as spam, reputation or policy. It is sent once the campaign has another mailbox allowed for it.`;
+        console.warn(`[SendEngine] Campaign "${campaign.name}" (${campaign.id}): every sender mailbox allowed for lead ${lead.email} has refused it (${mailboxes}). Checking again in a day.`);
+        await prisma.campaignEnrollment.updateMany({
+          // Only while it is still due on this step, so a date set since the batch loaded stands.
+          where: { id: enrollment.id, currentSequenceStep: enrollment.currentSequenceStep, nextActionDate: { lte: now } },
+          data: { nextActionDate: new Date(now.getTime() + SENDER_CAP_WINDOW_MS), lastError },
+        });
+        continue;
+      }
       if (senderPool.length === 0) {
         // Every mailbox of the pool is limited to other domains. A save
         // refuses such a pool, so it is one that changed since (a mailbox of
         // it now belongs to another user). The lead waits a day at a time
         // until a mailbox of the pool sends to its domain.
-        const lastError = `No sender mailbox of this campaign sends to ${leadDomain || 'this address'}: each one is limited to other Recipient Domains. Leave Recipient Domains empty on one of the campaign's mailboxes.`;
+        const lastError = `${NO_SENDER_FOR_LEAD_REASON} ${leadDomain || 'this address'}: each one is limited to other Recipient Domains. Leave Recipient Domains empty on one of the campaign's mailboxes.`;
         console.warn(`[SendEngine] Campaign "${campaign.name}" (${campaign.id}): no sender mailbox sends to the domain of lead ${lead.email}. Checking again in a day.`);
         await prisma.campaignEnrollment.updateMany({
           // Only while it is still due on this step, so a date set since the batch loaded stands.

@@ -33,6 +33,15 @@ export const MAX_RECIPIENT_DOMAINS = 100;
 export const NO_OPEN_SENDER_ERROR =
   'Every sender mailbox of this campaign is limited to Recipient Domains, so a lead at any other domain would have no mailbox to send from. Leave Recipient Domains empty on at least one mailbox.';
 
+/**
+ * How the send engine's reason (the enrollment's lastError) begins for a lead
+ * it holds back for want of a mailbox, so a page can count those leads: no
+ * mailbox of the pool sends to its domain, or every mailbox that does has
+ * refused it (EmailDispatch.senderRefusedAt).
+ */
+export const NO_SENDER_FOR_LEAD_REASON = 'No sender mailbox of this campaign sends to';
+export const REFUSED_BY_SENDERS_REASON = 'Refused by every sender mailbox allowed for this lead';
+
 /** How a list names a mail provider: 'provider:google'. No domain name has a colon, so it is never taken for one. */
 const PROVIDER_PREFIX = 'provider:';
 

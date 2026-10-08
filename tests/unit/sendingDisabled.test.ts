@@ -5,7 +5,7 @@ vi.mock('../../lib/db', () => ({
   prisma: {
     campaign: { updateMany: vi.fn(), findUnique: vi.fn(), findMany: vi.fn() },
     campaignEnrollment: { findMany: vi.fn(), findFirst: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
-    emailDispatch: { create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), findFirst: vi.fn(), count: vi.fn() },
+    emailDispatch: { create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), count: vi.fn() },
     globalSettings: { findUnique: vi.fn(), findFirst: vi.fn() },
     lead: { findUnique: vi.fn() },
     senderAccount: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
@@ -110,6 +110,8 @@ beforeEach(() => {
   mockedPrisma.emailDispatch.updateMany.mockResolvedValue({ count: 1 });
   mockedPrisma.emailDispatch.count.mockResolvedValue(0);
   mockedPrisma.emailDispatch.findFirst.mockResolvedValue(null);
+  // No mailbox has refused a lead (lib/sendEngine loadRefusedSenders).
+  mockedPrisma.emailDispatch.findMany.mockResolvedValue([]);
   mockedPrisma.emailDispatch.create.mockImplementation(async ({ data }: any) => ({ id: 'dispatch-1', ...data }));
   mockedPrisma.senderAccount.findUnique.mockResolvedValue(SENDER);
   mockedPrisma.lead.findUnique.mockResolvedValue({ id: 'lead-1', email: 'lead@prospect.test', name: 'Lead' });

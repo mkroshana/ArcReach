@@ -71,7 +71,7 @@ type EnrollmentRow = {
 type DispatchRow = {
   id: string; leadId: string; campaignId: string | null; senderAccountId: string | null; messageId: string;
   stepOrder: number | null; status: string; sentAt: Date; subject?: string; body?: string; operationId?: string | null;
-  acceptedAt?: Date | null;
+  acceptedAt?: Date | null; senderRefusedAt?: Date | null;
 };
 
 const SENDER = {
@@ -107,7 +107,7 @@ const enrollmentOf = (leadId: string) => enrollments.find((e) => e.leadId === le
 function addDispatch(row: Partial<DispatchRow> & { status: string }) {
   const dispatch: DispatchRow = {
     id: `dispatch-${++nextDispatchId}`, leadId: 'lead-1', campaignId: 'cmp-1', senderAccountId: 'mb-1',
-    messageId: `msg-${nextDispatchId}`, stepOrder: 1, sentAt: new Date(), operationId: null, ...row,
+    messageId: `msg-${nextDispatchId}`, stepOrder: 1, sentAt: new Date(), operationId: null, senderRefusedAt: null, ...row,
   };
   dispatches.push(dispatch);
   return dispatch;
@@ -1984,5 +1984,113 @@ describe("processDueEmails routes by the mail provider that hosts a lead's domai
     expect(mockedProviders).not.toHaveBeenCalled();
     expect(sentFrom('lead-1')).toBe('mb-google');
     expect(sentFrom('lead-2')).toBe('mb-1');
+  });
+});
+
+describe('processDueEmails sends a step again from another mailbox once its sender was refused (soft-bounce retry)', () => {
+  const HOUR = 3600000;
+  const NOW = new Date('2026-03-11T12:00:00Z');
+  const ago = (ms: number) => new Date(NOW.getTime() - ms);
+  const SECOND_SENDER = { ...SENDER, id: 'mb-2', emailAddress: 'two@acme.test', name: 'Two' };
+  /** The mailboxes a lead's step went out from, in order, refused ones included. */
+  const sentFrom = (leadId: string, stepOrder: number) =>
+    dispatches.filter((d) => d.leadId === leadId && d.stepOrder === stepOrder && d.status === 'Sent').map((d) => d.senderAccountId);
+  /** A step-1 email to lead-1 that `mailbox` sent and the receiving server refused because of its sender. */
+  const refusedBy = (mailbox: string, row: Partial<DispatchRow> = {}) =>
+    addDispatch({ status: 'Sent', leadId: 'lead-1', senderAccountId: mailbox, stepOrder: 1, sentAt: ago(HOUR), senderRefusedAt: ago(HOUR / 2), ...row });
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOW);
+    campaign.senders = [
+      { senderAccountId: 'mb-1', senderAccount: SENDER, recipientDomains: [] },
+      { senderAccountId: 'mb-2', senderAccount: SECOND_SENDER, recipientDomains: [] },
+    ];
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('sends the refused step again from the other mailbox, though the refusing one has sent less, and moves the lead on', async () => {
+    refusedBy('mb-1');
+    // mb-2 has sent more, so the least-loaded pick alone would take mb-1 again.
+    for (const hours of [2, 3, 4]) addDispatch({ status: 'Sent', leadId: 'lead-other', senderAccountId: 'mb-2', sentAt: ago(hours * HOUR) });
+
+    await processDueEmails();
+
+    expect(mockedSend).toHaveBeenCalledTimes(1);
+    expect(sentFrom('lead-1', 1)).toEqual(['mb-1', 'mb-2']);
+    expect(enrollmentOf('lead-1')).toMatchObject({ status: 'Active', currentSequenceStep: 2, lastError: null });
+  });
+
+  it('keeps the lead off the mailbox that refused it for its later steps too', async () => {
+    refusedBy('mb-1');
+    await processDueEmails();
+    expect(sentFrom('lead-1', 1)).toEqual(['mb-1', 'mb-2']);
+
+    // Step 2 falls due; mb-2 has sent more than mb-1 by now.
+    vi.setSystemTime(new Date(NOW.getTime() + 4 * 24 * HOUR));
+    await processDueEmails();
+
+    expect(sentFrom('lead-1', 2)).toEqual(['mb-2']);
+  });
+
+  it('still never sends again a step whose email was accepted and not refused', async () => {
+    addDispatch({ status: 'Sent', leadId: 'lead-1', senderAccountId: 'mb-1', stepOrder: 1, sentAt: ago(HOUR) });
+
+    await processDueEmails();
+
+    expect(mockedSend).not.toHaveBeenCalled();
+    expect(enrollmentOf('lead-1').currentSequenceStep).toBe(2);
+  });
+
+  it('makes the lead wait, a day at a time with the reason, once every mailbox allowed for it has refused it, and still sends the others', async () => {
+    refusedBy('mb-1');
+    refusedBy('mb-2');
+    addLead('lead-2');
+
+    await processDueEmails();
+
+    expect(sentFrom('lead-1', 1)).toEqual(['mb-1', 'mb-2']);
+    expect(enrollmentOf('lead-1')).toMatchObject({ status: 'Active', currentSequenceStep: 1, nextActionDate: new Date(NOW.getTime() + SENDER_CAP_WINDOW_MS) });
+    expect(enrollmentOf('lead-1').lastError).toContain('Refused by every sender mailbox allowed for this lead (one@acme.test, two@acme.test)');
+    expect(sentFrom('lead-2', 1)).toHaveLength(1);
+    expect(campaign.status).toBe('Active');
+  });
+
+  it('tries only the mailboxes the Recipient Domains allow for the lead, never one its domain may not go out from', async () => {
+    const GMAIL_SENDER = { ...SENDER, id: 'mb-gmail', emailAddress: 'gmail-only@acme.test', name: 'Gmail Only' };
+    campaign.senders = [
+      { senderAccountId: 'mb-1', senderAccount: SENDER, recipientDomains: [] },
+      { senderAccountId: 'mb-gmail', senderAccount: GMAIL_SENDER, recipientDomains: ['gmail.com'] },
+    ];
+    leads.get('lead-1')!.email = 'ann@gmail.com';
+    refusedBy('mb-gmail');
+
+    await processDueEmails();
+
+    // mb-1 has no list and is idle, yet a Gmail lead is not its to send.
+    expect(mockedSend).not.toHaveBeenCalled();
+    expect(enrollmentOf('lead-1').lastError).toContain('Refused by every sender mailbox allowed for this lead (gmail-only@acme.test)');
+
+    // A second mailbox for Gmail leads is added to the campaign: the lead goes out from it.
+    const GMAIL_SENDER_2 = { ...SENDER, id: 'mb-gmail-2', emailAddress: 'gmail-two@acme.test', name: 'Gmail Two' };
+    campaign.senders.push({ senderAccountId: 'mb-gmail-2', senderAccount: GMAIL_SENDER_2, recipientDomains: ['gmail.com'] });
+    vi.setSystemTime(new Date(NOW.getTime() + SENDER_CAP_WINDOW_MS));
+    await processDueEmails();
+
+    expect(sentFrom('lead-1', 1)).toEqual(['mb-gmail', 'mb-gmail-2']);
+    expect(enrollmentOf('lead-1')).toMatchObject({ currentSequenceStep: 2, lastError: null });
+  });
+
+  it('does not hold a refusal in another campaign against the mailbox in this one', async () => {
+    refusedBy('mb-1', { campaignId: 'cmp-other' });
+    refusedBy('mb-2', { campaignId: 'cmp-other' });
+
+    await processDueEmails();
+
+    expect(mockedSend).toHaveBeenCalledTimes(1);
+    expect(dispatches.filter((d) => d.campaignId === 'cmp-1' && d.leadId === 'lead-1' && d.status === 'Sent')).toHaveLength(1);
   });
 });

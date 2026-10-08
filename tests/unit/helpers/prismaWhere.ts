@@ -18,6 +18,7 @@ function compare(value: any, op: string, operand: any): boolean {
     case 'gte': return value >= operand;
     case 'lt': return value < operand;
     case 'lte': return value <= operand;
+    case 'startsWith': return typeof value === 'string' && value.startsWith(operand);
     default: throw new Error(`Unmodelled operator: ${op}`);
   }
 }

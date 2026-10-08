@@ -11,7 +11,8 @@ import { sendMessage, sendingDisabledReason, EmailSendUnconfirmedError } from '.
 import { sendableEnrollmentWhere, claimEnrollmentForSend, releaseEnrollmentClaim, RELEASED_CLAIM } from './sendEligibility';
 import { suppressEmail } from './suppression';
 import { checkSendingWindow, hasSendingSchedule, nextWindowOpening } from './sendSchedule';
-import { type SenderRoutes, effectiveRecipientDomains, recipientDomainOf, sendersForRecipient } from './senderRouting';
+import { type SenderRoutes, effectiveRecipientDomains, needsMailProvider, recipientDomainOf, sendersForRecipient } from './senderRouting';
+import { type MailProviders, mailProvidersFor } from './mailProviderLookup';
 import type { PauseReason } from './campaignPause';
 
 /** Most due auto-resumes one call ends; any others are ended by the next send cycle's call. */
@@ -340,6 +341,11 @@ export function pickSender(
 
   return selectedSender;
 }
+
+/** How long a lead waits when its domain's mail provider could not be looked up, before the lookup is tried again. */
+export const MAIL_PROVIDER_RETRY_MS = 15 * 60 * 1000;
+/** How long a lead waits when its domain's lookup was left for a later cycle (MAIL_PROVIDER_LOOKUPS_PER_CALL). */
+export const MAIL_PROVIDER_PENDING_MS = 60 * 1000;
 
 export const RETRY_BACKOFF_HOURS = [1, 6, 24]; // hour mapping: attempt 1 -> +1h, 2 -> +6h, 3 -> +24h
 // The first send plus one retry per backoff: a soft failure after the last backoff fails the enrollment.
@@ -954,6 +960,29 @@ export async function processDueEmails() {
       return;
     }
 
+    // The mail provider of each due lead's domain, where its campaign's pool
+    // routes by provider and no mailbox lists the domain itself
+    // (lib/senderRouting). A domain is looked up once and its answer kept
+    // (lib/mailProviderLookup). When the lookups cannot be made at all, none
+    // is known this cycle and those leads wait.
+    const providerDomains = new Set<string>();
+    for (const enrollment of dueEnrollments) {
+      const pool = senderPools.get(enrollment.campaignId);
+      const routes = senderRoutes.get(enrollment.campaignId);
+      if (pool && routes && needsMailProvider(pool, routes, enrollment.lead.email)) {
+        providerDomains.add(recipientDomainOf(enrollment.lead.email));
+      }
+    }
+    let mailProviders: MailProviders = { known: new Map(), failed: new Set() };
+    if (providerDomains.size > 0) {
+      try {
+        mailProviders = await mailProvidersFor([...providerDomains], now);
+      } catch (err: any) {
+        console.error('[SendEngine] Failed to look up the mail providers of the recipient domains due this cycle:', err?.message || err);
+        mailProviders = { known: new Map(), failed: providerDomains };
+      }
+    }
+
     for (const enrollment of dueEnrollments) {
       const campaign = campaignMap.get(enrollment.campaignId);
       const lead = enrollment.lead;
@@ -970,17 +999,43 @@ export async function processDueEmails() {
       const campaignPool = senderPools.get(campaign.id);
       if (!campaignPool) continue; // set back to Draft (no complete schedule) or paused (no sender mailbox its owner owns) above
 
-      // Only the pool's mailboxes that send to this lead's domain may send to
-      // it (lib/senderRouting). It waits for one of them and never goes out
-      // from another.
-      const senderPool = sendersForRecipient(campaignPool, senderRoutes.get(campaign.id) ?? new Map(), lead.email);
+      const routes: SenderRoutes = senderRoutes.get(campaign.id) ?? new Map();
+      const leadDomain = recipientDomainOf(lead.email);
+
+      // A pool that routes by mail provider needs the provider of the lead's
+      // domain. Until it is known the lead waits, since a mailbox chosen
+      // without it could be one its provider's leads must not go out from:
+      // MAIL_PROVIDER_RETRY_MS when the lookup failed, MAIL_PROVIDER_PENDING_MS
+      // when it was left for a later cycle.
+      if (needsMailProvider(campaignPool, routes, lead.email) && !mailProviders.known.has(leadDomain)) {
+        const lookupFailed = mailProviders.failed.has(leadDomain);
+        if (lookupFailed) {
+          console.warn(`[SendEngine] Campaign "${campaign.name}" (${campaign.id}): the mail provider of ${leadDomain} could not be looked up. Trying lead ${lead.email} again in ${MAIL_PROVIDER_RETRY_MS / 60000} minutes.`);
+        }
+        await prisma.campaignEnrollment.updateMany({
+          // Only while it is still due on this step, so a date set since the batch loaded stands.
+          where: { id: enrollment.id, currentSequenceStep: enrollment.currentSequenceStep, nextActionDate: { lte: now } },
+          data: lookupFailed
+            ? {
+                nextActionDate: new Date(now.getTime() + MAIL_PROVIDER_RETRY_MS),
+                lastError: `The mail provider of ${leadDomain} could not be looked up, so no sender mailbox was chosen for this lead. The lookup is tried again every ${MAIL_PROVIDER_RETRY_MS / 60000} minutes.`,
+              }
+            : { nextActionDate: new Date(now.getTime() + MAIL_PROVIDER_PENDING_MS) },
+        });
+        continue;
+      }
+
+      // Only the pool's mailboxes that send to this lead's domain, or to the
+      // mail provider that hosts it, may send to it (lib/senderRouting). It
+      // waits for one of them and never goes out from another.
+      const senderPool = sendersForRecipient(campaignPool, routes, lead.email, mailProviders.known.get(leadDomain) ?? null);
       const routed = senderPool.length < campaignPool.length;
       if (senderPool.length === 0) {
         // Every mailbox of the pool is limited to other domains. A save
         // refuses such a pool, so it is one that changed since (a mailbox of
         // it now belongs to another user). The lead waits a day at a time
         // until a mailbox of the pool sends to its domain.
-        const lastError = `No sender mailbox of this campaign sends to ${recipientDomainOf(lead.email) || 'this address'}: each one is limited to other Recipient Domains. Leave Recipient Domains empty on one of the campaign's mailboxes.`;
+        const lastError = `No sender mailbox of this campaign sends to ${leadDomain || 'this address'}: each one is limited to other Recipient Domains. Leave Recipient Domains empty on one of the campaign's mailboxes.`;
         console.warn(`[SendEngine] Campaign "${campaign.name}" (${campaign.id}): no sender mailbox sends to the domain of lead ${lead.email}. Checking again in a day.`);
         await prisma.campaignEnrollment.updateMany({
           // Only while it is still due on this step, so a date set since the batch loaded stands.
@@ -996,7 +1051,7 @@ export async function processDueEmails() {
         // cap as its sends leave the 24-hour window; with every cap at 0, check in a day.
         const freesAt = await poolCapacityFreesAt(senderPool, now, senderCapacityFreesAtCache, dailyLimitsOff);
         const deferUntil = freesAt ?? new Date(now.getTime() + SENDER_CAP_WINDOW_MS);
-        console.log(`[SendEngine] All senders in pool for campaign "${campaign.name}"${routed ? ` that send to ${recipientDomainOf(lead.email)}` : ''} are at cap. Deferring lead ${lead.email} until ${deferUntil.toISOString()}.`);
+        console.log(`[SendEngine] All senders in pool for campaign "${campaign.name}"${routed ? ` that send to ${leadDomain}` : ''} are at cap. Deferring lead ${lead.email} until ${deferUntil.toISOString()}.`);
         await prisma.campaignEnrollment.update({
           where: { id: enrollment.id },
           data: { nextActionDate: deferUntil }

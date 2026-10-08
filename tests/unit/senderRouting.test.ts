@@ -3,8 +3,13 @@ import {
   MAX_RECIPIENT_DOMAINS,
   NO_OPEN_SENDER_ERROR,
   effectiveRecipientDomains,
+  entryLabel,
+  entryProvider,
+  needsMailProvider,
   parseRecipientDomains,
+  providerEntry,
   recipientDomainOf,
+  routesUseProviders,
   routingSummary,
   sendersForRecipient,
   storedRecipientDomains,
@@ -169,6 +174,110 @@ describe('routingSummary', () => {
   it('says so when no mailbox takes the rest', () => {
     expect(routingSummary(pool.slice(0, 1), new Map([['mb-1', ['gmail.com']]]))).toBe(
       'Leads at gmail.com go out from team@acme.test; leads at every other domain have no mailbox to send from.',
+    );
+  });
+});
+
+describe('mail provider entries', () => {
+  it('names a provider by its entry, which no domain name can be', () => {
+    expect(providerEntry('google')).toBe('provider:google');
+    expect(entryProvider('provider:google')).toBe('google');
+    expect(entryProvider('gmail.com')).toBeNull();
+    expect(entryProvider('provider:zoho')).toBeNull();
+  });
+
+  it('shows a provider by its name and what it covers, a domain as it is', () => {
+    expect(entryLabel('provider:google')).toBe('Google (Gmail, Google Workspace)');
+    expect(entryLabel('provider:microsoft')).toBe('Microsoft (Outlook, Hotmail, Microsoft 365)');
+    expect(entryLabel('gmail.com')).toBe('gmail.com');
+  });
+
+  it('takes a provider by its entry or by its name alone, beside domains, once each', () => {
+    expect(parseRecipientDomains(['provider:google', 'acme.com', 'Google', 'YAHOO'])).toEqual({
+      domains: ['provider:google', 'acme.com', 'provider:yahoo'],
+      error: null,
+    });
+    expect(parseRecipientDomains(['microsoft, gmail.com'])).toEqual({ domains: ['provider:microsoft', 'gmail.com'], error: null });
+  });
+
+  it('refuses a provider it does not know', () => {
+    expect(parseRecipientDomains(['provider:zoho'])).toEqual({
+      domains: null,
+      error: '"provider:zoho" is not a domain name. Enter Recipient Domains such as gmail.com.',
+    });
+  });
+});
+
+describe('sendersForRecipient with mail providers', () => {
+  const google = { id: 'mb-google' };
+  const acme = { id: 'mb-acme' };
+  const open = { id: 'mb-open' };
+  const pool = [open, google, acme];
+  const routes = new Map([
+    ['mb-google', ['provider:google']],
+    ['mb-acme', ['acme.test']],
+    ['mb-open', []],
+  ]);
+
+  it("gives a lead to the mailbox that lists the provider hosting its domain, a company's own domain included", () => {
+    expect(sendersForRecipient(pool, routes, 'ann@gmail.com', 'google')).toEqual([google]);
+    expect(sendersForRecipient(pool, routes, 'bo@hosted-at-google.test', 'google')).toEqual([google]);
+  });
+
+  it('gives a lead to the mailbox that lists its domain before the one that lists its provider', () => {
+    expect(sendersForRecipient(pool, routes, 'cy@acme.test', 'google')).toEqual([acme]);
+  });
+
+  it('gives a lead at another provider, or at none, to the mailboxes with no list', () => {
+    expect(sendersForRecipient(pool, routes, 'dee@outlook.com', 'microsoft')).toEqual([open]);
+    expect(sendersForRecipient(pool, routes, 'eve@own-server.test', null)).toEqual([open]);
+    expect(sendersForRecipient(pool, routes, 'eve@own-server.test')).toEqual([open]);
+  });
+
+  it('shares a provider between the mailboxes that both list it', () => {
+    const shared = new Map([['mb-google', ['provider:google']], ['mb-acme', ['provider:google', 'acme.test']]]);
+    expect(sendersForRecipient(pool, shared, 'ann@gmail.com', 'google')).toEqual([google, acme]);
+  });
+
+  it('gives a lead no mailbox when its provider is listed nowhere and every mailbox has a list', () => {
+    expect(sendersForRecipient([google, acme], routes, 'dee@outlook.com', 'microsoft')).toEqual([]);
+  });
+});
+
+describe('needsMailProvider', () => {
+  const pool = [{ id: 'mb-google' }, { id: 'mb-acme' }, { id: 'mb-open' }];
+  const routes = new Map([['mb-google', ['provider:google']], ['mb-acme', ['acme.test']], ['mb-open', []]]);
+
+  it('is true where a mailbox lists a provider and none lists the domain itself', () => {
+    expect(needsMailProvider(pool, routes, 'ann@gmail.com')).toBe(true);
+    expect(routesUseProviders(routes)).toBe(true);
+  });
+
+  it('is false for a domain a mailbox lists, which decides it alone', () => {
+    expect(needsMailProvider(pool, routes, 'cy@acme.test')).toBe(false);
+  });
+
+  it('is false for a pool with no provider in any list', () => {
+    const domainsOnly = new Map([['mb-google', ['gmail.com']], ['mb-open', []]]);
+    expect(needsMailProvider(pool, domainsOnly, 'ann@gmail.com')).toBe(false);
+    expect(needsMailProvider(pool, domainsOnly, 'bo@other.test')).toBe(false);
+    expect(routesUseProviders(domainsOnly)).toBe(false);
+    expect(routesUseProviders(new Map())).toBe(false);
+  });
+});
+
+describe('routingSummary with mail providers', () => {
+  const pool = [
+    { id: 'mb-1', emailAddress: 'team@acme.test' },
+    { id: 'mb-2', emailAddress: 'chui@other.test' },
+  ];
+
+  it('names a provider as every address it hosts, after the domains of the same list', () => {
+    expect(routingSummary(pool, new Map([['mb-2', ['provider:google']]]))).toBe(
+      'Leads at any Google-hosted address go out from chui@other.test; leads at every other domain go out from team@acme.test.',
+    );
+    expect(routingSummary(pool, new Map([['mb-2', ['provider:microsoft', 'yahoo.com', 'provider:google']]]))).toBe(
+      'Leads at yahoo.com, any Google-hosted address and any Microsoft-hosted address go out from chui@other.test; leads at every other domain go out from team@acme.test.',
     );
   });
 });

@@ -201,6 +201,10 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
   const senderRoutes = new Map<string, string[]>(routedMailboxes.map(m => [m.id, effectiveRecipientDomains(m.recipientDomains, poolDomains[m.id])]));
   const routingError = unroutedPoolError(routedMailboxes, senderRoutes);
   const routingNote = routingSummary(routedMailboxes, senderRoutes);
+  // Leads the send engine is holding back because no mailbox may send to them (lib/sendEngine), as last loaded.
+  const waitingRefused: number = campaign?.telemetry?.progress?.waitingForSender?.refused ?? 0;
+  const waitingUnrouted: number = campaign?.telemetry?.progress?.waitingForSender?.unrouted ?? 0;
+  const leadsAre = (count: number) => `${count.toLocaleString()} ${count === 1 ? 'lead is' : 'leads are'}`;
 
   // Save writes the form only, never the status, so a status this page shows from
   // before a pause elsewhere can't reactivate the campaign. Publish Sequence saves
@@ -780,6 +784,22 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                     <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', mb: 2, color: routingError ? 'error.main' : 'text.secondary' }}>
                       {routingError ? <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} /> : <Split size={14} style={{ flexShrink: 0, marginTop: 1 }} />}
                       <Typography variant="caption" sx={{ fontWeight: 600 }}>{routingError ?? routingNote}</Typography>
+                    </Stack>
+                  )}
+                  {waitingRefused > 0 && (
+                    <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', mb: 2, color: 'warning.main' }}>
+                      <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+                      <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                        {leadsAre(waitingRefused)} waiting for another mailbox: every mailbox allowed for them has refused their email for a reason on the sender&apos;s side, such as spam or reputation. Nothing more is sent to them until this campaign has another mailbox they may go out from.
+                      </Typography>
+                    </Stack>
+                  )}
+                  {waitingUnrouted > 0 && (
+                    <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', mb: 2, color: 'warning.main' }}>
+                      <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+                      <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                        {leadsAre(waitingUnrouted)} waiting for a mailbox: no mailbox of this campaign sends to their domain. Leave Recipient Domains empty on one of them.
+                      </Typography>
                     </Stack>
                   )}
                   {replySyncWarning && (

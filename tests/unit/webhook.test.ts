@@ -11,6 +11,7 @@ const fake = vi.hoisted(() => ({
   emailDispatch: { findUnique: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn() },
   lead: { update: vi.fn() },
   campaignEnrollment: { updateMany: vi.fn() },
+  campaignStep: { findFirst: vi.fn() },
   emailEvent: { create: vi.fn() },
   suppressedEmail: { createMany: vi.fn() },
   $transaction: vi.fn(),
@@ -19,7 +20,7 @@ const fake = vi.hoisted(() => ({
 vi.mock('../../lib/db', () => ({ prisma: fake }));
 
 import { POST } from '../../app/api/webhook/route';
-import { classifyDeliveryFailure, deliveryOutcome, parseDeliveryStatus } from '../../lib/deliveryReport';
+import { classifyDeliveryFailure, deliveryOutcome, isSenderRefusal, parseDeliveryStatus } from '../../lib/deliveryReport';
 
 function makeReq(body: any, headers: Record<string, string> = {}): NextRequest {
   return new NextRequest('http://localhost/api/webhook', {
@@ -118,11 +119,13 @@ describe('webhook POST auth', () => {
 type DispatchRow = {
   id: string; leadId: string | null; campaignId: string | null; messageId: string; operationId: string | null;
   deliveryStatus: string | null; deliveredAt: Date | null; bouncedAt: Date | null; bounceType: string | null;
+  stepOrder?: number | null; senderRefusedAt?: Date | null;
 };
 type LeadRow = { id: string; email: string; status: string; validationStatus: string };
 type EnrollmentRow = {
   id: string; leadId: string; campaignId: string; status: string; nextActionDate: Date | null;
   lastError: string | null; lastBounceType: string | null;
+  currentSequenceStep?: number; retryCount?: number;
 };
 
 let dispatches: DispatchRow[];
@@ -210,6 +213,9 @@ beforeEach(() => {
     for (const e of hit) Object.assign(e, data);
     return { count: hit.length };
   });
+  // Campaign cmp-1 has three steps; the others have none on record.
+  fake.campaignStep.findFirst.mockImplementation(async ({ where }: any) =>
+    (where.campaignId === 'cmp-1' && where.stepOrder >= 1 && where.stepOrder <= 3 ? { id: `step-${where.stepOrder}` } : null));
   fake.emailEvent.create.mockImplementation(async ({ data }: any) => {
     // EmailEvent.messageId is a foreign key to EmailDispatch.messageId.
     if (!dispatches.some((d) => d.messageId === data.messageId)) throw new Error('Foreign key constraint failed.');
@@ -662,5 +668,168 @@ describe('parseDeliveryStatus (H20)', () => {
     [undefined, null],
   ])('%j reads as %j', (status, expected) => {
     expect(parseDeliveryStatus(status)).toBe(expected);
+  });
+});
+
+describe('isSenderRefusal', () => {
+  it('is true for a permanent policy refusal: spam, reputation, a block list or authentication', () => {
+    for (const message of [
+      '550-5.7.1 Gmail has detected that this message is likely suspicious due to the very low reputation of the sending domain.',
+      '550-5.7.1 Gmail has detected that this message is likely unsolicited mail.',
+      '550-5.7.26 This mail has been blocked because the sender is unauthenticated.',
+      '550 5.7.1 Service unavailable, client host blocked using a block list (S3150).',
+      '554 Message rejected as spam by content filter',
+      'Rejected: sender has a poor reputation',
+    ]) {
+      expect(isSenderRefusal('Bounced', message)).toBe(true);
+      expect(isSenderRefusal('Failed', message)).toBe(true);
+    }
+  });
+
+  it('is true for FilteredSpam whatever its message', () => {
+    expect(isSenderRefusal('FilteredSpam')).toBe(true);
+    expect(isSenderRefusal('FilteredSpam', '')).toBe(true);
+  });
+
+  it('is false for a temporary refusal, a rate limit among them: the same mailbox may be accepted later', () => {
+    for (const message of [
+      '421-4.7.28 Gmail has detected an unusual rate of unsolicited mail originating from your SPF domain.',
+      '451 4.7.1 Greylisted, please try again later',
+      '421 Too many connections from your host',
+      'Rate limit exceeded, too many messages',
+    ]) {
+      expect(isSenderRefusal('Bounced', message)).toBe(false);
+      expect(isSenderRefusal('Failed', message)).toBe(false);
+    }
+  });
+
+  it('is false for a full mailbox, a bad address, a failure with no reason, and other statuses', () => {
+    expect(isSenderRefusal('Bounced', '552 5.2.2 Mailbox full')).toBe(false);
+    expect(isSenderRefusal('Failed', 'The mailbox is full and blocked from receiving')).toBe(false);
+    expect(isSenderRefusal('Bounced', '550 5.1.1 The email account that you tried to reach does not exist')).toBe(false);
+    expect(isSenderRefusal('Failed', 'No such user here, message blocked')).toBe(false);
+    expect(isSenderRefusal('Failed', '554 5.4.14 Hop count exceeded')).toBe(false);
+    expect(isSenderRefusal('Failed')).toBe(false);
+    expect(isSenderRefusal('Failed', null)).toBe(false);
+    for (const status of ['Delivered', 'Expanded', 'Quarantined', 'Suppressed'] as const) {
+      expect(isSenderRefusal(status, '550 5.7.1 blocked as spam')).toBe(false);
+    }
+  });
+});
+
+describe('a report that the sender was refused sends the step again (soft-bounce retry)', () => {
+  const REFUSED = '550-5.7.1 Gmail has detected that this message is likely suspicious due to the very low reputation of the sending domain.';
+  const AT = new Date(ATTEMPTED_AT);
+  /** Lead 1 got step `sentStep` of cmp-1 as dispatch d1 and now waits for `waitingFor`. */
+  function sent(sentStep: number, waitingFor: number, status = 'Active') {
+    addDispatch({ id: 'd1', stepOrder: sentStep });
+    Object.assign(enrollment('enr-1'), { status, currentSequenceStep: waitingFor, nextActionDate: status === 'Active' ? DUE : null, retryCount: 2 });
+  }
+
+  it('marks the email refused, keeps the address mailable and puts the lead back on that step, due now', async () => {
+    sent(1, 2);
+
+    const res = await post([report('op-d1', 'Bounced', REFUSED)]);
+
+    expect(res.status).toBe(200);
+    expect(dispatch('d1')).toMatchObject({ deliveryStatus: 'Bounced', bounceType: 'soft', bouncedAt: AT, senderRefusedAt: AT });
+    expect(enrollment('enr-1')).toMatchObject({ status: 'Active', currentSequenceStep: 1, nextActionDate: AT, retryCount: 0 });
+    // The lead itself is fine: not bounced, not suppressed, and its other campaigns go on.
+    expect(lead('lead-1')).toMatchObject({ status: 'Neutral', validationStatus: 'Valid' });
+    expect(suppressed).toEqual([]);
+    expect(enrollment('enr-2')).toMatchObject({ status: 'Active', nextActionDate: DUE });
+  });
+
+  it('does the same for a Failed report and for one filtered as spam', async () => {
+    sent(2, 3);
+    await post([report('op-d1', 'Failed', REFUSED)]);
+    expect(dispatch('d1')).toMatchObject({ bounceType: 'soft', senderRefusedAt: AT });
+    expect(enrollment('enr-1')).toMatchObject({ currentSequenceStep: 2, nextActionDate: AT });
+
+    addDispatch({ id: 'd2', stepOrder: 2 });
+    Object.assign(enrollment('enr-1'), { currentSequenceStep: 3, nextActionDate: DUE });
+    await post([report('op-d2', 'FilteredSpam')]);
+    // Filtered is no bounce, so only the refusal is recorded beside its status.
+    expect(dispatch('d2')).toMatchObject({ deliveryStatus: 'FilteredSpam', bounceType: null, bouncedAt: null, senderRefusedAt: AT });
+    expect(enrollment('enr-1')).toMatchObject({ currentSequenceStep: 2, nextActionDate: AT });
+  });
+
+  it('reopens an enrollment the refused email completed, when it was the last step', async () => {
+    sent(3, 3, 'Completed');
+
+    await post([report('op-d1', 'Bounced', REFUSED)]);
+
+    expect(enrollment('enr-1')).toMatchObject({ status: 'Active', currentSequenceStep: 3, nextActionDate: AT });
+  });
+
+  it('leaves the sequence as it is for a soft bounce that says nothing against the sender', async () => {
+    for (const [status, message] of [
+      ['Bounced', '421-4.7.28 Gmail has detected an unusual rate of unsolicited mail originating from your SPF domain.'],
+      ['Bounced', '552 5.2.2 Mailbox full'],
+      ['Failed', 'Connection timed out'],
+      ['Quarantined', undefined],
+    ] as const) {
+      dispatches = [];
+      sent(1, 2);
+      await post([report('op-d1', status, message)]);
+      expect(dispatch('d1').senderRefusedAt ?? null).toBeNull();
+      expect(enrollment('enr-1')).toMatchObject({ status: 'Active', currentSequenceStep: 2, nextActionDate: DUE, retryCount: 2 });
+    }
+  });
+
+  it('leaves an enrollment that has moved on or left the sequence since the email', async () => {
+    // Already two steps on
+    sent(1, 3);
+    await post([report('op-d1', 'Bounced', REFUSED)]);
+    expect(dispatch('d1')).toMatchObject({ senderRefusedAt: AT });
+    expect(enrollment('enr-1')).toMatchObject({ currentSequenceStep: 3, nextActionDate: DUE });
+
+    // Paused by a reply, then a refusal of an earlier email arrives
+    dispatches = [];
+    sent(1, 2, 'Paused');
+    await post([report('op-d1', 'Bounced', REFUSED)]);
+    expect(enrollment('enr-1')).toMatchObject({ status: 'Paused', currentSequenceStep: 2 });
+
+    // Completed, but not by this email: step 1 of three
+    dispatches = [];
+    sent(1, 3, 'Completed');
+    await post([report('op-d1', 'Bounced', REFUSED)]);
+    expect(enrollment('enr-1')).toMatchObject({ status: 'Completed', currentSequenceStep: 3 });
+  });
+
+  it('queues the step once when Event Grid delivers the report again', async () => {
+    sent(1, 2);
+    await post([report('op-d1', 'Bounced', REFUSED)]);
+    // The send engine has sent the step again from another mailbox and moved the lead on.
+    Object.assign(enrollment('enr-1'), { currentSequenceStep: 2, nextActionDate: DUE });
+
+    await post([report('op-d1', 'Bounced', REFUSED)]);
+    await post([report('op-d1', 'FilteredSpam')]);
+
+    expect(enrollment('enr-1')).toMatchObject({ currentSequenceStep: 2, nextActionDate: DUE });
+  });
+
+  it('only marks an email with no step: a mailbox test or a Unibox reply', async () => {
+    addDispatch({ id: 'd1', leadId: null, campaignId: null, stepOrder: null });
+
+    await post([report('op-d1', 'Bounced', REFUSED)]);
+
+    expect(dispatch('d1')).toMatchObject({ bounceType: 'soft', senderRefusedAt: AT });
+    expect(fake.campaignStep.findFirst).not.toHaveBeenCalled();
+    expect(enrollments.map((e) => e.status)).toEqual(['Active', 'Active', 'Completed']);
+  });
+
+  it('marks nothing when queueing the step fails, so the redelivered report does both', async () => {
+    sent(1, 2);
+    fake.campaignEnrollment.updateMany.mockRejectedValueOnce(new Error('database unavailable'));
+
+    const failed = await post([report('op-d1', 'Bounced', REFUSED)]);
+    expect(failed.status).not.toBe(200);
+    expect(dispatch('d1')).toMatchObject({ bounceType: null, bouncedAt: null });
+    expect(dispatch('d1').senderRefusedAt ?? null).toBeNull();
+
+    await post([report('op-d1', 'Bounced', REFUSED)]);
+    expect(dispatch('d1')).toMatchObject({ bounceType: 'soft', senderRefusedAt: AT });
+    expect(enrollment('enr-1')).toMatchObject({ currentSequenceStep: 1, nextActionDate: AT });
   });
 });

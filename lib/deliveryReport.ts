@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client';
 import { prisma } from './db';
 import { suppressEmail } from './suppression';
 
@@ -50,6 +51,13 @@ const BAD_ADDRESS_WORDING =
  */
 const POLICY_WORDING =
   /spam|unsolicited|as junk|phishing|content filter|\bfiltered\b|content (not accepted|rejected)|reputation|polic(y|ies)|blocked|block ?list|black ?list|listed at|dnsbl|\brbl\b|rate.?limit|too many|dmarc|\bspf\b|dkim|authenticat/;
+/**
+ * Wording for a refusal of the sender itself: spam or a content filter, its
+ * reputation, a block list, authentication or policy. POLICY_WORDING without
+ * the rate limits, which pass and say nothing against the sender.
+ */
+const SENDER_REFUSAL_WORDING =
+  /spam|unsolicited|as junk|phishing|content filter|\bfiltered\b|content (not accepted|rejected)|reputation|polic(y|ies)|blocked|block ?list|black ?list|listed at|dnsbl|\brbl\b|dmarc|\bspf\b|dkim|authenticat/;
 /** Wording for a mailbox too full to take the message: the address is fine. */
 const MAILBOX_FULL_WORDING = /(mail|in)box (is )?full|over quota|quota exceeded|out of storage|insufficient storage/;
 
@@ -139,6 +147,32 @@ export function deliveryOutcome(status: DeliveryStatus, statusMessage?: string |
   }
 }
 
+/**
+ * Whether a report says the receiving server refused the email because of its
+ * sender (the mailbox, its domain or what it sent), not because of the address
+ * or of something that passes. Such an email is sent again from another
+ * mailbox (requeueRefusedStep). True for FilteredSpam, and for a Bounced or
+ * Failed report with a permanent policy code (5.7.x: spam, reputation,
+ * authentication) or, with no deciding code, spam, reputation, policy, block
+ * list or authentication wording. False for a temporary refusal (4.x.x or a
+ * bare 4xx, a rate limit among them: the same mailbox may be accepted later),
+ * a full mailbox, a bad address, and Quarantined, where the message was taken
+ * and held and may still be released.
+ */
+export function isSenderRefusal(status: DeliveryStatus, statusMessage?: string | null): boolean {
+  if (status === 'FilteredSpam') return true;
+  if (status !== 'Bounced' && status !== 'Failed') return false;
+  const text = (statusMessage || '').toLowerCase();
+  const code = enhancedCode(text);
+  if (code) {
+    if (code[0] !== '5') return false;
+    if (code[1] === '7') return true;
+  } else if (TRANSIENT_REPLY_CODE.test(text)) {
+    return false;
+  }
+  return !isMailboxFull(text) && !BAD_ADDRESS_WORDING.test(text) && SENDER_REFUSAL_WORDING.test(text);
+}
+
 /** The first of `values` that is a valid timestamp, or now. */
 export function reportedAt(...values: unknown[]): Date {
   for (const value of values) {
@@ -150,7 +184,14 @@ export function reportedAt(...values: unknown[]): Date {
 }
 
 /** The dispatch fields a report is applied with. */
-export type ReportedDispatch = { id: string; leadId: string | null; messageId: string };
+export type ReportedDispatch = {
+  id: string;
+  leadId: string | null;
+  messageId: string;
+  /** The campaign and step the email was, to send the step again when its sender was refused; absent on rows loaded without them. */
+  campaignId?: string | null;
+  stepOrder?: number | null;
+};
 
 /**
  * The dispatch a report is about, or null. ACS reports under the Operation-Id
@@ -160,7 +201,7 @@ export type ReportedDispatch = { id: string; leadId: string | null; messageId: s
  * carry that id as their messageId. Case-insensitive as a fallback.
  */
 export async function findReportedDispatch(messageId: string): Promise<ReportedDispatch | null> {
-  const select = { id: true, leadId: true, messageId: true };
+  const select = { id: true, leadId: true, messageId: true, campaignId: true, stepOrder: true };
   return (
     (await prisma.emailDispatch.findUnique({ where: { operationId: messageId }, select })) ??
     (await prisma.emailDispatch.findUnique({ where: { messageId }, select })) ??
@@ -211,12 +252,36 @@ export async function applyDeliveryReport(
       });
       break;
     case 'filtered':
+      if (isSenderRefusal(status, report.statusMessage)) {
+        // Rejected as spam: the step is sent again from another mailbox, once.
+        await prisma.$transaction(async (tx) => {
+          const { count } = await tx.emailDispatch.updateMany({
+            where: { ...notBounced, senderRefusedAt: null },
+            data: { deliveryStatus: status, senderRefusedAt: report.at },
+          });
+          if (count > 0) await requeueRefusedStep(tx, dispatch, report.at);
+        });
+        break;
+      }
       await prisma.emailDispatch.updateMany({
         where: notBounced,
         data: { deliveryStatus: status },
       });
       break;
     case 'soft':
+      if (isSenderRefusal(status, report.statusMessage)) {
+        // Refused because of its sender. The address stays mailable, and the
+        // step is sent again from another mailbox, once: only the report that
+        // marks the dispatch queues it.
+        await prisma.$transaction(async (tx) => {
+          const { count } = await tx.emailDispatch.updateMany({
+            where: notBounced,
+            data: { deliveryStatus: status, bouncedAt: report.at, bounceType: 'soft', senderRefusedAt: report.at },
+          });
+          if (count > 0) await requeueRefusedStep(tx, dispatch, report.at);
+        });
+        break;
+      }
       // Not delivered this time. The address stays mailable and the sequence goes on.
       await prisma.emailDispatch.updateMany({
         where: notBounced,
@@ -230,6 +295,36 @@ export async function applyDeliveryReport(
 
   console.log(`[DeliveryReport] Dispatch ${dispatch.id}: ${status}${outcome === 'hard' || outcome === 'soft' ? ` (${outcome} bounce)` : ''}${report.statusMessage ? `: ${report.statusMessage}` : ''}`);
   return outcome;
+}
+
+/**
+ * Puts a lead back on the step whose email was refused because of its sender,
+ * due now, so the send engine sends that step again. The engine leaves out
+ * every mailbox that refused the lead (lib/sendEngine), so it goes out from
+ * another one the campaign allows for it, or waits for one.
+ *
+ * Only an enrollment that has not moved on since is put back: one waiting for
+ * the next step, or one the refused step completed (it was the last). A lead
+ * that replied, unsubscribed, bounced or left the campaign meanwhile stays as
+ * it is, and so does a mailbox test or a Unibox reply, which has no step.
+ */
+async function requeueRefusedStep(
+  tx: Pick<Prisma.TransactionClient, 'campaignStep' | 'campaignEnrollment'>,
+  dispatch: ReportedDispatch,
+  at: Date,
+): Promise<void> {
+  const { campaignId, leadId, stepOrder } = dispatch;
+  if (!campaignId || !leadId || typeof stepOrder !== 'number') return;
+  const laterStep = await tx.campaignStep.findFirst({
+    where: { campaignId, stepOrder: stepOrder + 1 },
+    select: { id: true },
+  });
+  await tx.campaignEnrollment.updateMany({
+    where: laterStep
+      ? { leadId, campaignId, status: 'Active', currentSequenceStep: stepOrder + 1 }
+      : { leadId, campaignId, status: 'Completed' },
+    data: { status: 'Active', currentSequenceStep: stepOrder, nextActionDate: at, retryCount: 0 },
+  });
 }
 
 /**

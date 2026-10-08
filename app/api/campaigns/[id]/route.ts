@@ -5,6 +5,7 @@ import { getSession } from '@/lib/session';
 import { UnauthorizedError, unauthorizedResponse } from '@/lib/sessionError';
 import { checkCampaignSenders } from '@/lib/senderOwnership';
 import { type PoolRow, planPoolRows, poolRoutingError } from '@/lib/campaignRouting';
+import { NO_SENDER_FOR_LEAD_REASON, REFUSED_BY_SENDERS_REASON } from '@/lib/senderRouting';
 import { MAILBOX_SECRET_OMIT } from '@/lib/mailboxSecrets';
 import { checkAudienceCohort, syncCohortEnrollments } from '@/lib/campaignCohort';
 import { activationBlocker, changesStepStructure, matchStoredSteps, STEP_STRUCTURE_LOCKED_ERROR } from '@/lib/campaignSteps';
@@ -219,6 +220,18 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       }),
     ]);
 
+    // The Active leads the send engine holds back for want of a mailbox, by the
+    // reason it recorded on them (lib/senderRouting): every mailbox allowed for
+    // the lead has refused it, or none of the pool sends to its domain.
+    const [refusedWaiting, unroutedWaiting] = await Promise.all([
+      prisma.campaignEnrollment.count({
+        where: { campaignId: id, status: 'Active', lastError: { startsWith: REFUSED_BY_SENDERS_REASON } },
+      }),
+      prisma.campaignEnrollment.count({
+        where: { campaignId: id, status: 'Active', lastError: { startsWith: NO_SENDER_FOR_LEAD_REASON } },
+      }),
+    ]);
+
     // Per-step breakdown by the dispatch's recorded stepOrder, with the same
     // definitions as the totals above, and the Active leads waiting for it.
     const stepStats = campaign.steps.map((s: any) => {
@@ -252,6 +265,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       }, null),
       firstSentAt: leadTotals.firstSentAt,
       lastSentAt: leadTotals.lastSentAt,
+      waitingForSender: { refused: refusedWaiting, unrouted: unroutedWaiting },
     };
 
     // The mailboxes' addresses, including any since taken out of the sender pool.

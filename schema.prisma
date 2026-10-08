@@ -395,6 +395,13 @@ model EmailDispatch {
   // by the dispatch's campaign and sender, whatever its enrollment's status since.
   bouncedAt   DateTime?
   bounceType  String?
+  // When a delivery report said the receiving server refused this email because
+  // of its sender (spam, reputation, policy, a block list or authentication:
+  // lib/deliveryReport isSenderRefusal), not because of the address. The step
+  // is then sent again from another mailbox the campaign allows for the lead,
+  // and the lead is never sent from this mailbox again in the campaign
+  // (lib/sendEngine). Null otherwise.
+  senderRefusedAt DateTime?
 
   events      EmailEvent[]
 

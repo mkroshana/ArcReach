@@ -380,6 +380,7 @@ describe("where the campaign's leads are", () => {
       nextDueAt: hoursAgo(5).toISOString(),
       firstSentAt: hoursAgo(100).toISOString(),
       lastSentAt: hoursAgo(3).toISOString(),
+      waitingForSender: { refused: 0, unrouted: 0 },
     });
     expect(activeEnrollments).toBe(3);
     expect(stepStats.map((s: any) => [s.stepOrder, s.active, s.due, s.nextDueAt])).toEqual([
@@ -397,7 +398,27 @@ describe("where the campaign's leads are", () => {
     expect(progress).toEqual({
       enrolled: 0, byStatus: {}, contacted: 0, repliedLeads: 0, emailsLeft: 0, dueNow: 0,
       nextDueAt: null, firstSentAt: null, lastSentAt: null,
+      waitingForSender: { refused: 0, unrouted: 0 },
     });
+  });
+
+  it('counts the Active leads the send engine holds back for want of a mailbox, by the reason it recorded', async () => {
+    enroll('e1', 'Active', 1, hoursAgo(-20));
+    enroll('e2', 'Active', 1, hoursAgo(-20));
+    enroll('e3', 'Active', 2, hoursAgo(-20));
+    enroll('e4', 'Active', 2, hoursAgo(-20));
+    // No longer in the sequence, so not waiting for anything
+    enroll('e5', 'Paused', 2, null);
+    const reason = (id: string, lastError: string) => Object.assign(enrollments.find((e) => e.id === id)!, { lastError });
+    reason('e1', "Refused by every sender mailbox allowed for this lead (one@acme.test) for a reason on the sender's side, such as spam, reputation or policy. It is sent once the campaign has another mailbox allowed for it.");
+    reason('e2', "Refused by every sender mailbox allowed for this lead (one@acme.test, two@acme.test) for a reason on the sender's side, such as spam, reputation or policy. It is sent once the campaign has another mailbox allowed for it.");
+    reason('e3', "No sender mailbox of this campaign sends to prospect.test: each one is limited to other Recipient Domains. Leave Recipient Domains empty on one of the campaign's mailboxes.");
+    reason('e4', 'Azure Communication Services failed to send email.');
+    reason('e5', "Refused by every sender mailbox allowed for this lead (one@acme.test) for a reason on the sender's side, such as spam, reputation or policy. It is sent once the campaign has another mailbox allowed for it.");
+
+    const { progress } = await telemetry();
+
+    expect(progress.waitingForSender).toEqual({ refused: 2, unrouted: 1 });
   });
 });
 

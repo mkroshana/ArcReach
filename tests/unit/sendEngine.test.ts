@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { checkSendingWindow, getEffectiveDailyCap, getMailboxCap, resolveCampaignSenders, pickSender, classifyFailure } from '../../lib/sendEngine';
+import { checkSendingWindow, getEffectiveDailyCap, getMailboxCap, resolveCampaignSenders, resolveSenderRoutes, pickSender, classifyFailure } from '../../lib/sendEngine';
 import { personalizeEmail } from '../../lib/personalize';
 import { sendMessage, EmailConfigError, EmailSendError } from '../../lib/emailProvider';
 
@@ -213,6 +213,44 @@ describe('sendEngine', () => {
         senderAccount: other('acc-1'),
         senders: [{ senderAccount: other('acc-1') }, { senderAccount: other('acc-2') }]
       })).toEqual({ pool: [], foreign: [other('acc-1'), other('acc-2')] });
+    });
+  });
+
+  describe('resolveSenderRoutes', () => {
+    const mailbox = (id: string, recipientDomains?: string[]) => ({ id, userId: 'user-1', emailAddress: `${id}@test.com`, recipientDomains });
+
+    it("gives each pool mailbox the campaign's Recipient Domains for it", () => {
+      const campaign = {
+        userId: 'user-1',
+        senderAccount: mailbox('acc-1', []),
+        senders: [
+          { senderAccount: mailbox('acc-1', []), recipientDomains: [] },
+          { senderAccount: mailbox('acc-2', []), recipientDomains: ['gmail.com'] },
+        ],
+      };
+      const { pool } = resolveCampaignSenders(campaign);
+      expect(resolveSenderRoutes(campaign, pool)).toEqual(new Map([['acc-1', []], ['acc-2', ['gmail.com']]]));
+    });
+
+    it("takes a mailbox's own Recipient Domains before the campaign's for it", () => {
+      const campaign = {
+        userId: 'user-1',
+        senderAccount: mailbox('acc-1', []),
+        senders: [
+          { senderAccount: mailbox('acc-1', ['outlook.com']), recipientDomains: ['gmail.com'] },
+          { senderAccount: mailbox('acc-2', ['yahoo.com']), recipientDomains: [] },
+        ],
+      };
+      const { pool } = resolveCampaignSenders(campaign);
+      expect(resolveSenderRoutes(campaign, pool)).toEqual(new Map([['acc-1', ['outlook.com']], ['acc-2', ['yahoo.com']]]));
+    });
+
+    it('gives the primary sender standing in for an empty pool its own list only', () => {
+      const withList = { userId: 'user-1', senderAccount: mailbox('acc-1', ['gmail.com']), senders: [] };
+      expect(resolveSenderRoutes(withList, resolveCampaignSenders(withList).pool)).toEqual(new Map([['acc-1', ['gmail.com']]]));
+      // Rows loaded before the column existed have no list.
+      const without = { userId: 'user-1', senderAccount: mailbox('acc-1'), senders: [] };
+      expect(resolveSenderRoutes(without, resolveCampaignSenders(without).pool)).toEqual(new Map([['acc-1', []]]));
     });
   });
 

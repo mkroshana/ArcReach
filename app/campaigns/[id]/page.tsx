@@ -3,7 +3,7 @@
 
 import {
   ArrowLeft, Save, Send, Settings, Users, AlignLeft, Clock, ToggleLeft, Plus, Trash2, Mail,
-  Eye, Play, Loader2, AlertTriangle, TimerOff, Lock, RefreshCw, UserX, CircleStop, RotateCcw,
+  Eye, Play, Loader2, AlertTriangle, TimerOff, Lock, RefreshCw, UserX, CircleStop, RotateCcw, Split,
 } from 'lucide-react';
 import Link from 'next/link';
 import { use, useState, useEffect, useRef } from 'react';
@@ -13,6 +13,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import VariableToolbar from '@/components/VariableToolbar';
 import CampaignAnalytics, { StepStatStrip, analyticsCaveats } from '@/components/CampaignAnalytics';
 import CampaignTiming from '@/components/CampaignTiming';
+import { RecipientDomainsInput } from '@/components/RecipientDomainsInput';
 import { activationBlocker, findIncompleteSteps, queuedLeadsMessage, sequenceDurationDays } from '@/lib/campaignSteps';
 import { autoResumeNote, noScheduleOutcome, ownerDisabledNote, savedScheduleNote } from '@/lib/campaignPause';
 import { STOPPABLE_STATUSES, STOPPED_STATUS, restartConfirmMessage, stopConfirmMessage, stoppedNote } from '@/lib/campaignStop';
@@ -21,6 +22,7 @@ import { hasSendingSchedule, sendScheduleError, timezoneError } from '@/lib/send
 import { isHtmlTemplate, personalizePreview, previewEmailBody } from '@/lib/personalize';
 import { mailboxReplySync, mailboxReplySyncLabel, otherReplyTo, stopOnReplyWarning } from '@/lib/imapSyncStatus';
 import { loadErrorMessage, readJsonList, responseErrorMessage } from '@/lib/apiResponse';
+import { effectiveRecipientDomains, routingSummary, storedRecipientDomains, unroutedPoolError } from '@/lib/senderRouting';
 import {
   Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
   Select, MenuItem, FormControl, InputLabel, Switch, Skeleton, ToggleButtonGroup, ToggleButton,
@@ -71,6 +73,8 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
   const [availableMailboxes, setAvailableMailboxes] = useState<any[]>([]);
   const [primarySenderId, setPrimarySenderId] = useState<string>('');
   const [selectedPoolIds, setSelectedPoolIds] = useState<string[]>([]);
+  // The campaign's Recipient Domains for each pool mailbox, by mailbox ID (lib/senderRouting).
+  const [poolDomains, setPoolDomains] = useState<Record<string, string[]>>({});
   const [selectedDays, setSelectedDays] = useState<string[]>([]);
   const [startTime, setStartTime] = useState('');
   const [endTime, setEndTime] = useState('');
@@ -129,6 +133,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
         setSteps(data.steps || []);
         setPrimarySenderId(data.senderAccountId || '');
         setSelectedPoolIds(data.senders ? data.senders.map((s: any) => s.senderAccountId) : []);
+        setPoolDomains(Object.fromEntries((data.senders ?? []).map((s: any) => [s.senderAccountId, storedRecipientDomains(s.recipientDomains)])));
         // The form shows the schedule as saved, even when empty, never unsaved defaults.
         let sched: any = data.sendSchedule;
         if (typeof sched === 'string') {
@@ -188,6 +193,14 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
   const ownerMailboxes = availableMailboxes.filter(m => m.userId === campaign?.userId);
   const foreignMailboxIds = new Set(availableMailboxes.filter(m => m.userId !== campaign?.userId).map(m => m.id));
   const poolIds = selectedPoolIds.filter(id => !foreignMailboxIds.has(id));
+  // The pool a save stores: the primary sender is always one of its mailboxes.
+  const savedPoolIds = Array.from(new Set([primarySenderId, ...poolIds])).filter(Boolean);
+  // The leads each pool mailbox sends to (lib/senderRouting): a mailbox's own
+  // Recipient Domains, set on the Accounts page, go before the campaign's for it.
+  const routedMailboxes = ownerMailboxes.filter(m => savedPoolIds.includes(m.id));
+  const senderRoutes = new Map<string, string[]>(routedMailboxes.map(m => [m.id, effectiveRecipientDomains(m.recipientDomains, poolDomains[m.id])]));
+  const routingError = unroutedPoolError(routedMailboxes, senderRoutes);
+  const routingNote = routingSummary(routedMailboxes, senderRoutes);
 
   // Save writes the form only, never the status, so a status this page shows from
   // before a pause elsewhere can't reactivate the campaign. Publish Sequence saves
@@ -218,6 +231,12 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
       showToast(windowError, 'error');
       return;
     }
+    // Leads at a domain no mailbox sends to would never go out, so such a pool is not saved.
+    if (routingError) {
+      setActiveTab('Senders');
+      showToast(routingError, 'error');
+      return;
+    }
     try {
       setSaving(true);
       const res = await fetch(`/api/campaigns/${campaignId}`, {
@@ -226,7 +245,8 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
           name: campaignName, timezone,
           sendSchedule: clearSchedule ? null : schedule,
           stopOnReply, trackOpens, trackClicks, audienceCohort, steps,
-          senderAccountId: primarySenderId, senderAccountIds: poolIds,
+          senderAccountId: primarySenderId, senderAccountIds: savedPoolIds,
+          senderRecipientDomains: Object.fromEntries(savedPoolIds.map(id => [id, poolDomains[id] ?? []])),
           updatedAt: editorVersion,
           ...(publish ? { status: 'Active' } : {}),
         }),
@@ -754,8 +774,14 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                     <Chip size="small" label={`${poolIds.length || 1} Active ${(poolIds.length || 1) === 1 ? 'Sender' : 'Senders'}`} color="primary" variant="outlined" sx={{ fontWeight: 700 }} />
                   </Stack>
                   <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 2, lineHeight: 1.6 }}>
-                    Spreading outbound across multiple mailboxes protects sender reputation and circumvents daily provider caps. The send engine routes each dispatch via the least-loaded mailbox.
+                    Spreading outbound across multiple mailboxes protects sender reputation and circumvents daily provider caps. The send engine routes each dispatch via the least-loaded mailbox. A mailbox with Recipient Domains sends only to leads at those domains, and the mailboxes without any share every other lead.
                   </Typography>
+                  {(routingError || routingNote) && (
+                    <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', mb: 2, color: routingError ? 'error.main' : 'text.secondary' }}>
+                      {routingError ? <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} /> : <Split size={14} style={{ flexShrink: 0, marginTop: 1 }} />}
+                      <Typography variant="caption" sx={{ fontWeight: 600 }}>{routingError ?? routingNote}</Typography>
+                    </Stack>
+                  )}
                   {replySyncWarning && (
                     <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', mb: 2, color: 'warning.main' }}>
                       <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
@@ -770,6 +796,8 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                       const replyTo = otherReplyTo(mailbox);
                       // Its Reply-To mailbox's sync when its own is off and that mailbox reads its replies.
                       const replySync = mailboxReplySync(mailbox, availableMailboxes);
+                      // Its own Recipient Domains hold in every campaign, so the campaign's list for it is not editable.
+                      const ownDomains = storedRecipientDomains(mailbox.recipientDomains);
                       const toggleCheckbox = () => {
                         if (isPrimary) { showToast('The primary sender is always included.', 'error'); return; }
                         setSelectedPoolIds(prev => isChecked ? prev.filter(id => id !== mailbox.id) : [...prev, mailbox.id]);
@@ -807,6 +835,19 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                                 </Button>
                               )}
                             </Stack>
+                            {isChecked && (
+                              <Box sx={{ mt: 1.5, pl: 5.25 }}>
+                                <RecipientDomainsInput
+                                  value={ownDomains.length > 0 ? ownDomains : poolDomains[mailbox.id] ?? []}
+                                  disabled={stopped || ownDomains.length > 0}
+                                  onChange={(domains) => setPoolDomains(prev => ({ ...prev, [mailbox.id]: domains }))}
+                                  onInvalid={(error) => showToast(error, 'error')}
+                                  helperText={ownDomains.length > 0
+                                    ? 'Set on this mailbox on the Accounts page, so it holds in every campaign and is not changed here.'
+                                    : 'Optional. With domains here, this mailbox sends only to leads at them in this campaign. Leave empty to send to every domain no other mailbox lists.'}
+                                />
+                              </Box>
+                            )}
                           </CardContent>
                         </Card>
                       );

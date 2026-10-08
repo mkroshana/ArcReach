@@ -4,6 +4,7 @@ import { prisma } from '@/lib/db';
 import { getSession } from '@/lib/session';
 import { UnauthorizedError, unauthorizedResponse } from '@/lib/sessionError';
 import { checkCampaignSenders } from '@/lib/senderOwnership';
+import { type PoolRow, planPoolRows, poolRoutingError } from '@/lib/campaignRouting';
 import { MAILBOX_SECRET_OMIT } from '@/lib/mailboxSecrets';
 import { checkAudienceCohort, syncCohortEnrollments } from '@/lib/campaignCohort';
 import { activationBlocker, changesStepStructure, matchStoredSteps, STEP_STRUCTURE_LOCKED_ERROR } from '@/lib/campaignSteps';
@@ -341,6 +342,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       audienceCohort,
       steps,
       senderAccountIds,
+      senderRecipientDomains,
       updatedAt
     } = body;
 
@@ -369,6 +371,28 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     const senderError = await checkCampaignSenders(campaign.userId, senderAccountId, senderAccountIds);
     if (senderError) {
       return NextResponse.json({ error: senderError.error }, { status: senderError.status });
+    }
+
+    // A pool mailbox limited to Recipient Domains sends to those only
+    // (lib/senderRouting), so a save that touches the senders may not leave a
+    // pool in which every mailbox is: leads at other domains would have none.
+    // A mailbox the body sends no list for keeps the campaign list it has.
+    const poolSent = Array.isArray(senderAccountIds) || senderRecipientDomains !== undefined;
+    let poolRows: PoolRow[] | null = null;
+    if (poolSent || senderAccountId !== undefined) {
+      const storedRows = await prisma.campaignSenderAccount.findMany({
+        where: { campaignId: id },
+        select: { senderAccountId: true, recipientDomains: true },
+      });
+      const plan = planPoolRows({ senderAccountIds, senderRecipientDomains }, storedRows);
+      if (plan.error !== null) {
+        return NextResponse.json({ error: plan.error }, { status: 400 });
+      }
+      const routingError = await poolRoutingError(campaign.userId, senderAccountId ?? campaign.senderAccountId, plan.rows);
+      if (routingError) {
+        return NextResponse.json({ error: routingError }, { status: 400 });
+      }
+      if (poolSent) poolRows = plan.rows;
     }
 
     // The send engine keeps an incomplete window or unknown timezone closed, so neither is saved.
@@ -464,16 +488,17 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       });
       if (count === 0) throw new CampaignChangedError();
 
-      // Sync sender pool
-      if (senderAccountIds && Array.isArray(senderAccountIds)) {
+      // Sync sender pool, each mailbox with the campaign's Recipient Domains for it
+      if (poolRows) {
         await tx.campaignSenderAccount.deleteMany({
           where: { campaignId: id }
         });
-        if (senderAccountIds.length > 0) {
+        if (poolRows.length > 0) {
           await tx.campaignSenderAccount.createMany({
-            data: senderAccountIds.map((sid: string) => ({
+            data: poolRows.map((row) => ({
               campaignId: id,
-              senderAccountId: sid
+              senderAccountId: row.senderAccountId,
+              recipientDomains: row.recipientDomains
             }))
           });
         }

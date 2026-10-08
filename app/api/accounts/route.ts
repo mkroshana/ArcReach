@@ -10,12 +10,14 @@ import { getMailboxCap, senderCapDispatchWhere } from '@/lib/sendEngine';
 import { mailboxDailyLimitsOff } from '@/lib/mailboxCapacity';
 import { type MetricsScope, countHardBounces, countReplies, percent, sendSummary } from '@/lib/engagementMetrics';
 import { type FieldRule, fieldRules, isPlainObject, pickUpdateFields } from '@/lib/updateAllowList';
+import { parseRecipientDomains } from '@/lib/senderRouting';
+import { campaignsLeftUnrouted } from '@/lib/campaignRouting';
 
 /** Scalar columns the mailbox PUT may write: the daily limit, warmup and IMAP credential
  *  controls on the Accounts page plus the internal label. Counters, reputation and
  *  warmupStartedAt are server-managed. Per-minute and per-hour limits are global
  *  (Settings), so a minuteLimit or hourlyLimit is refused, and Azure sends every
- *  email, so SMTP details are too. */
+ *  email, so SMTP details are too. The PUT also takes recipientDomains, a list. */
 const ACCOUNT_UPDATE_FIELDS: Record<string, FieldRule> = {
   name: fieldRules.nullableString,
   replyTo: fieldRules.nullableString,
@@ -54,6 +56,16 @@ function mailboxInUseMessage(total: number, visibleNames: string[]): string {
   const one = total === 1;
   return `Cannot delete this mailbox while ${one ? 'a campaign uses' : `${total} campaigns use`} it as a sender${detail}. ` +
     `Switch ${one ? 'that campaign' : 'those campaigns'} to another mailbox or delete ${one ? 'it' : 'them'} first.`;
+}
+
+/** 409 text for Recipient Domains that would leave `total` campaigns with no mailbox for leads at other domains, naming the ones in `visibleNames`. */
+function leavesCampaignsUnroutedMessage(total: number, visibleNames: string[]): string {
+  const listed = visibleNames.slice(0, MAX_LISTED_CAMPAIGNS).map((n) => `"${n}"`);
+  const unlisted = total - listed.length;
+  const detail = listed.length === 0 ? '' : `: ${listed.join(', ')}${unlisted > 0 ? ` and ${unlisted} more` : ''}`;
+  const one = total === 1;
+  return `Cannot limit this mailbox to Recipient Domains: ${one ? 'a campaign' : `${total} campaigns`} would be left with no mailbox for leads at other domains${detail}. ` +
+    `Add a mailbox with no Recipient Domains to ${one ? 'that campaign' : 'those campaigns'} first.`;
 }
 
 /** Whether the global rate limits in Settings have the mailboxes' own daily limits off. */
@@ -203,10 +215,16 @@ export async function PUT(req: NextRequest) {
     if (!isPlainObject(data)) {
       return NextResponse.json({ error: 'Request body must be a JSON object.' }, { status: 400 });
     }
-    const { id, ...fields } = data;
+    // recipientDomains is the one list among the mailbox's columns, so it is read apart from the scalar ones below.
+    const { id, recipientDomains, ...fields } = data;
 
     if (!id || typeof id !== 'string') {
       return NextResponse.json({ error: 'Account ID is required for editing.' }, { status: 400 });
+    }
+
+    const domains = recipientDomains === undefined ? null : parseRecipientDomains(recipientDomains);
+    if (domains && domains.error !== null) {
+      return NextResponse.json({ error: domains.error }, { status: 400 });
     }
 
     // Only listed scalar columns reach Prisma; object values would be nested writes.
@@ -222,6 +240,20 @@ export async function PUT(req: NextRequest) {
 
     if (!hasAccess) {
       return NextResponse.json({ error: 'Unauthorized profile update.' }, { status: 403 });
+    }
+
+    // The mailbox's own Recipient Domains hold in every campaign (lib/senderRouting),
+    // so they may not leave a campaign that sends from it with no mailbox for
+    // leads at other domains. Non-admins only get the names of their own campaigns.
+    if (domains?.domains) {
+      const unrouted = await campaignsLeftUnrouted(id, domains.domains);
+      if (unrouted.length > 0) {
+        const visibleNames = unrouted
+          .filter((c) => session.role === 'ADMIN' || c.userId === session.id)
+          .map((c) => c.name);
+        return NextResponse.json({ error: leavesCampaignsUnroutedMessage(unrouted.length, visibleNames) }, { status: 409 });
+      }
+      updates.recipientDomains = domains.domains;
     }
 
     // If standard user, prevent them from reassigning the account to someone else

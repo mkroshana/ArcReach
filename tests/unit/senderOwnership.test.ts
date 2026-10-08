@@ -14,6 +14,7 @@ vi.mock('../../lib/db', () => ({
   },
   prisma: {
     senderAccount: { findMany: vi.fn() },
+    campaignSenderAccount: { findMany: vi.fn() },
     user: { findUnique: vi.fn() },
     campaign: { findUnique: vi.fn(), findFirst: vi.fn() },
     lead: { findMany: vi.fn() },
@@ -56,9 +57,12 @@ function makeReq(method: string, path: string, body: unknown): NextRequest {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // The ownership query names the owner; the Recipient Domains check (lib/campaignRouting) reads the mailboxes whoever owns them.
   mockedPrisma.senderAccount.findMany.mockImplementation(async ({ where }: any) =>
-    MAILBOXES.filter((m) => where.id.in.includes(m.id) && m.userId === where.userId).map((m) => ({ id: m.id })),
+    MAILBOXES.filter((m) => where.id.in.includes(m.id) && (where.userId === undefined || m.userId === where.userId))
+      .map((m) => (where.userId === undefined ? { ...m, recipientDomains: [] } : { id: m.id })),
   );
+  mockedPrisma.campaignSenderAccount.findMany.mockResolvedValue([]);
 });
 
 describe('POST /api/campaigns sender ownership (H24)', () => {
@@ -167,8 +171,8 @@ describe('PUT /api/campaigns/[id] sender ownership (H24)', () => {
     });
     expect(tx.campaignSenderAccount.createMany).toHaveBeenCalledWith({
       data: [
-        { campaignId: 'cmp-1', senderAccountId: 'mb-user1-a' },
-        { campaignId: 'cmp-1', senderAccountId: 'mb-user1-b' },
+        { campaignId: 'cmp-1', senderAccountId: 'mb-user1-a', recipientDomains: [] },
+        { campaignId: 'cmp-1', senderAccountId: 'mb-user1-b', recipientDomains: [] },
       ],
     });
   });
@@ -198,7 +202,7 @@ describe('PUT /api/campaigns/[id] sender ownership (H24)', () => {
     const ownerMailbox = await update({ senderAccountIds: ['mb-user1-b'] });
     expect(ownerMailbox.status).toBe(200);
     expect(tx.campaignSenderAccount.createMany).toHaveBeenCalledWith({
-      data: [{ campaignId: 'cmp-1', senderAccountId: 'mb-user1-b' }],
+      data: [{ campaignId: 'cmp-1', senderAccountId: 'mb-user1-b', recipientDomains: [] }],
     });
   });
 

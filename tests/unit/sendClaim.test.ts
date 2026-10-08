@@ -1802,3 +1802,87 @@ describe('the send engine sends nothing for a campaign whose owner is disabled (
     expect(campaign).toMatchObject({ status: 'Active' });
   });
 });
+
+describe('processDueEmails sends each lead from a mailbox that sends to its domain (lib/senderRouting)', () => {
+  const HOUR = 3600000;
+  const NOW = new Date('2026-03-11T12:00:00Z');
+  const ago = (ms: number) => new Date(NOW.getTime() - ms);
+  const GMAIL_SENDER = { ...SENDER, id: 'mb-gmail', emailAddress: 'gmail-only@acme.test', name: 'Gmail Only' };
+  /** The mailbox a lead's email went out from, if one did. */
+  const sentFrom = (leadId: string) => dispatches.find((d) => d.leadId === leadId && d.status === 'Sent')?.senderAccountId;
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOW);
+    // The campaign limits mb-gmail to gmail.com and leaves mb-1 with no list.
+    campaign.senders = [
+      { senderAccountId: 'mb-1', senderAccount: SENDER, recipientDomains: [] },
+      { senderAccountId: 'mb-gmail', senderAccount: GMAIL_SENDER, recipientDomains: ['gmail.com'] },
+    ];
+    leads.get('lead-1')!.email = 'ann@gmail.com';
+    addLead('lead-2'); // lead-2@prospect.test
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('sends a lead at a listed domain from the mailbox that lists it and every other lead from the one with no list, whichever sent less', async () => {
+    // mb-gmail has sent more than mb-1, so the least-loaded pick alone would take mb-1 for both.
+    for (const hours of [2, 3, 4]) addDispatch({ status: 'Sent', leadId: 'lead-other', senderAccountId: 'mb-gmail', sentAt: ago(hours * HOUR) });
+
+    await processDueEmails();
+
+    expect(mockedSend).toHaveBeenCalledTimes(2);
+    expect(sentFrom('lead-1')).toBe('mb-gmail');
+    expect(sentFrom('lead-2')).toBe('mb-1');
+  });
+
+  it('makes a lead wait for its mailbox at its cap instead of sending it from another', async () => {
+    campaign.senders[1].senderAccount = { ...GMAIL_SENDER, dailyLimit: 1 };
+    addDispatch({ status: 'Sent', leadId: 'lead-other', senderAccountId: 'mb-gmail', sentAt: ago(5 * HOUR) });
+
+    await processDueEmails();
+
+    // mb-1 is far under its cap, yet the Gmail lead waits until mb-gmail's one send leaves the window.
+    expect(sentFrom('lead-1')).toBeUndefined();
+    expect(enrollmentOf('lead-1')).toMatchObject({ currentSequenceStep: 1, nextActionDate: new Date(ago(5 * HOUR).getTime() + SENDER_CAP_WINDOW_MS), lastError: null });
+    expect(sentFrom('lead-2')).toBe('mb-1');
+  });
+
+  it("takes a mailbox's own Recipient Domains before the campaign's for it", async () => {
+    // Set on the mailbox itself: prospect.test. The campaign's gmail.com for it no longer counts.
+    campaign.senders[1].senderAccount = { ...GMAIL_SENDER, recipientDomains: ['prospect.test'] };
+    // mb-1 has sent more, so the least-loaded pick alone would take mb-gmail for both.
+    for (const hours of [2, 3, 4]) addDispatch({ status: 'Sent', leadId: 'lead-other', senderAccountId: 'mb-1', sentAt: ago(hours * HOUR) });
+
+    await processDueEmails();
+
+    expect(sentFrom('lead-2')).toBe('mb-gmail');
+    expect(sentFrom('lead-1')).toBe('mb-1');
+  });
+
+  it('holds back a lead no mailbox sends to, a day at a time with the reason, and still sends the others', async () => {
+    // A pool a save refuses: its only mailbox is limited to gmail.com.
+    campaign.senders = [{ senderAccountId: 'mb-gmail', senderAccount: GMAIL_SENDER, recipientDomains: ['gmail.com'] }];
+
+    await processDueEmails();
+
+    expect(sentFrom('lead-1')).toBe('mb-gmail');
+    expect(sentFrom('lead-2')).toBeUndefined();
+    expect(enrollmentOf('lead-2')).toMatchObject({ status: 'Active', currentSequenceStep: 1, nextActionDate: new Date(NOW.getTime() + SENDER_CAP_WINDOW_MS) });
+    expect(enrollmentOf('lead-2').lastError).toContain('No sender mailbox of this campaign sends to prospect.test');
+    expect(campaign.status).toBe('Active');
+  });
+
+  it('sends every lead from any mailbox of the pool while none has a list', async () => {
+    campaign.senders[1].recipientDomains = [];
+    // mb-1 has sent, so the least-loaded pick takes mb-gmail, also for a lead that is not at gmail.com.
+    addDispatch({ status: 'Sent', leadId: 'lead-other', senderAccountId: 'mb-1', sentAt: ago(HOUR) });
+    enrollments = enrollments.filter((e) => e.leadId === 'lead-2');
+
+    await processDueEmails();
+
+    expect(sentFrom('lead-2')).toBe('mb-gmail');
+  });
+});

@@ -6,7 +6,7 @@ import Link from 'next/link';
 import {
   Plus, CheckCircle2, AlertCircle, Mail, Flame, ArrowLeft, Sliders,
   ChevronRight, Gauge, User, Activity, Save, Send, Loader2, Trash2, Eye, EyeOff, ShieldAlert,
-  MailCheck, MailWarning, MailX, Clock, Settings, RefreshCw, AlertTriangle,
+  MailCheck, MailWarning, MailX, Clock, Settings, RefreshCw, AlertTriangle, Split,
 } from 'lucide-react';
 import { TableSkeleton } from '@/components/Skeleton';
 import { MICROSOFT_IMAP_NOTE, imapSyncState, isMicrosoftImapHost, mailboxRepliesFigure, mailboxReplySync, mailboxReplySyncLabel } from '@/lib/imapSyncStatus';
@@ -15,6 +15,7 @@ import { bounceFigure } from '@/lib/bounceStats';
 import { useToast } from '@/components/Toast';
 import { LoadError, loadErrorMessage, readJsonList, readJsonObject, responseErrorMessage } from '@/lib/apiResponse';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { RecipientDomainsInput } from '@/components/RecipientDomainsInput';
 import { MAILBOX_LIMIT_FIELDS, type MailboxLimitField, MailboxSettingsSaves, mailboxLimitInputValue } from '@/lib/mailboxSettingsSave';
 import { combinedDailyCapacity, mailboxRemaining, type GlobalDailyAllowance } from '@/lib/mailboxCapacity';
 import {
@@ -327,7 +328,7 @@ export default function AccountsPage() {
 
   useEffect(() => { loadData(); }, []);
 
-  const handleUpdateWarmupSettings = (field: string, value: any) => {
+  const handleUpdateWarmupSettings = (field: string, value: any, failure = 'Autopilot values failed to save.') => {
     if (!selectedWarmupAccount) return;
     const account = selectedWarmupAccount;
     const optimistic: Record<string, any> = { [field]: value };
@@ -344,14 +345,14 @@ export default function AccountsPage() {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id: account.id, [field]: value }),
         });
-        if (!res.ok) throw new LoadError(await responseErrorMessage(res, 'Autopilot values failed to save.'));
+        if (!res.ok) throw new LoadError(await responseErrorMessage(res, failure));
         return res.json();
       },
       onSaved: (synced) => mergeAccount(account.id, synced),
       onFailed: (restore, err) => {
         mergeAccount(account.id, restore);
         // The server's reason when it answered one, else the generic message (not the browser's "Failed to fetch")
-        showToast(err instanceof LoadError ? err.message : 'Autopilot values failed to save.', 'error');
+        showToast(err instanceof LoadError ? err.message : failure, 'error');
       },
     });
   };
@@ -740,6 +741,27 @@ export default function AccountsPage() {
                     <TextField fullWidth size="small" label={MAILBOX_LIMIT_FIELDS.dailyLimit.label} type="number" {...limitInputProps('dailyLimit', selectedWarmupAccount.dailyLimit)} sx={{ maxWidth: 240 }} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { min: MAILBOX_LIMIT_FIELDS.dailyLimit.min } }} />
                   )}
                   <Box sx={{ mt: 2 }}><GlobalRateLimits limits={globalRateLimits} /></Box>
+                </CardContent>
+              </Card>
+
+              {/* Recipient domains: saved as the list changes, like the limits */}
+              <Card>
+                <CardContent>
+                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center', pb: 1.5, mb: 2, borderBottom: 1, borderColor: 'divider' }}>
+                    <Split size={16} color="#2563EB" />
+                    <Typography variant="overline" sx={{ fontWeight: 700 }}>Recipient Domains</Typography>
+                  </Stack>
+                  <RecipientDomainsInput
+                    value={selectedWarmupAccount.recipientDomains ?? []}
+                    onChange={(domains) => handleUpdateWarmupSettings('recipientDomains', domains, 'Recipient Domains failed to save.')}
+                    onInvalid={(error) => showToast(`${error} It was not saved.`, 'error')}
+                    helperText={(selectedWarmupAccount.recipientDomains ?? []).length > 0
+                      ? 'In every campaign, this mailbox sends only to leads at these domains. Clear the list to set it per campaign on the Senders tab.'
+                      : 'Leave empty to set it per campaign on the Senders tab. With domains here, this mailbox sends only to leads at them, in every campaign.'}
+                  />
+                  <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 1.5 }}>
+                    A domain matches exactly: gmail.com does not cover a company address whose mail Google hosts.
+                  </Typography>
                 </CardContent>
               </Card>
 

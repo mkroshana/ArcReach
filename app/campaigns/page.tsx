@@ -48,7 +48,10 @@ interface DbCampaign {
   // `active`: the leads waiting for the step that can still be emailed; `nextSend`: when they next go out.
   stepStats?: { stepOrder: number; active: number; sent: number; delivered: number; reported: number; failed: number; leads: number; nextSend?: NextSend | null }[];
   // `notMailable`: Active enrollments whose lead may no longer be emailed, so no step counts them.
-  enrollmentSummary?: { total: number; active: number; completed: number; notMailable?: number };
+  // `skipped`: leads it skips because a campaign of `skipLeadsEmailedBy` has emailed them (lib/campaignSkip).
+  enrollmentSummary?: { total: number; active: number; completed: number; notMailable?: number; skipped?: number };
+  // IDs of the campaigns whose emailed leads it skips.
+  skipLeadsEmailedBy?: string[];
 }
 
 const statusColorMap = { Active: 'success', Draft: 'default', Paused: 'warning', Stopped: 'error' } as const;
@@ -264,7 +267,8 @@ export default function CampaignsPage() {
         try {
           const res = await fetch(`/api/campaigns?id=${id}`, { method: 'DELETE' });
           if (res.ok) { setCampaigns(campaigns.filter(c => c.id !== id)); showToast('Campaign deleted.'); }
-          else showToast('Failed to delete the campaign.', 'error');
+          // The server says why it refused, e.g. another campaign skips the leads this one emailed.
+          else showToast((await res.json().catch(() => null))?.error || 'Failed to delete the campaign.', 'error');
         } catch (err) { showToast('Error occurred deleting campaign.', 'error'); }
       },
     });
@@ -277,7 +281,7 @@ export default function CampaignsPage() {
   return (
     <Box sx={{ maxWidth: 1100, mx: 'auto', pb: 4, display: 'flex', flexDirection: 'column', gap: 3 }}>
       <Snackbar open={!!toast} anchorOrigin={{ vertical: 'top', horizontal: 'right' }} autoHideDuration={toast?.duration ?? null} onClose={(_, reason) => { if (reason !== 'clickaway') setToast(null); }}>
-        {toast ? <Alert severity={toast.type} variant="filled" onClose={() => setToast(null)} sx={{ borderRadius: '12px' }}>{toast.message}</Alert> : undefined}
+        {toast ? <Alert severity={toast.type} variant="filled" onClose={() => setToast(null)} sx={{ borderRadius: '12px', maxWidth: 520 }}>{toast.message}</Alert> : undefined}
       </Snackbar>
 
       {/* Header */}
@@ -353,6 +357,8 @@ export default function CampaignsPage() {
                   const stopped = campaign.status === STOPPED_STATUS;
                   const steps = campaign.steps ?? [];
                   const stepStats = campaign.stepStats ?? [];
+                  // The campaigns whose emailed leads it skips, by name; null for one this list does not have.
+                  const skippedBy = (campaign.skipLeadsEmailedBy ?? []).map(id => campaigns.find(c => c.id === id)?.name ?? null);
                   return (
                     <Fragment key={campaign.id}>
                       <TableRow hover onClick={() => setExpandedCampaignId(isExpanded ? null : campaign.id)} sx={{ cursor: 'pointer', bgcolor: isExpanded ? 'action.hover' : undefined }}>
@@ -423,7 +429,7 @@ export default function CampaignsPage() {
                                   <Typography variant="subtitle1" sx={{ fontWeight: 700, lineHeight: 1.4 }}>
                                     {sequenceHeadline(campaign, new Date(), (send) => nextSendTimes(send, viewerZone).campaign)}
                                   </Typography>
-                                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>{sequenceCounts(stepStats, campaign.enrollmentSummary)}</Typography>
+                                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>{sequenceCounts(stepStats, campaign.enrollmentSummary, skippedBy)}</Typography>
                                 </Box>
                                 <Stack direction="row" spacing={1} sx={{ flexShrink: 0 }}>
                                   {resumeNote && (

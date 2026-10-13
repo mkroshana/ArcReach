@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { nextStepToSend, sequenceCounts, sequenceHeadline, stepRowState, stepWaitText } from '../../lib/campaignListPanel';
+import { nextStepToSend, sendStepConfirmMessage, sequenceCounts, sequenceHeadline, stepRowState, stepWaitText } from '../../lib/campaignListPanel';
 
 /**
  * The campaigns list's expanded panel: what each step's row says, which step
@@ -113,5 +113,19 @@ describe('sequenceCounts', () => {
   it('reads one lead in the singular, and nothing as zeros', () => {
     expect(text([{ stepOrder: 1, active: 1, sent: 0 }], { completed: 1 })).toEqual(['1 lead in sequence', '1 completed']);
     expect(text([], undefined)).toEqual(['0 leads in sequence', '0 completed']);
+  });
+});
+
+describe('sendStepConfirmMessage', () => {
+  const tail = "Sending starts within 30 seconds, inside the campaign's sending window. Emails that have gone out can't be recalled.";
+
+  it('says how many leads get the step now and when it would otherwise have gone out', () => {
+    expect(sendStepConfirmMessage('Win-Back', 3, 1104, 'Thu, Oct 15, 05:00 CDT'))
+      .toBe(`Send step 3 of "Win-Back" now? Its ${(1104).toLocaleString()} waiting leads get it now instead of Thu, Oct 15, 05:00 CDT. ${tail}`);
+  });
+
+  it('says the leads still waiting out the wait are sent too when the step is already due', () => {
+    expect(sendStepConfirmMessage('Win-Back', 2, 1, null))
+      .toBe(`Send step 2 of "Win-Back" now? Its 1 waiting lead gets it now, including any still waiting out the step's wait days. ${tail}`);
   });
 });

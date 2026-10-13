@@ -18,7 +18,7 @@ import {
 import { alpha } from '@mui/material/styles';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { queuedLeadsMessage } from '@/lib/campaignSteps';
-import { sequenceCounts, sequenceHeadline, stepRowState, stepWaitText } from '@/lib/campaignListPanel';
+import { sendStepConfirmMessage, sequenceCounts, sequenceHeadline, stepRowState, stepWaitText } from '@/lib/campaignListPanel';
 import { type NextSend, nextSendTimes, viewerTimeZone } from '@/lib/campaignTiming';
 import { autoResumeNote, ownerDisabledNote } from '@/lib/campaignPause';
 import { STOPPABLE_STATUSES, STOPPED_STATUS, restartConfirmMessage, stopConfirmMessage, stoppedNote } from '@/lib/campaignStop';
@@ -87,6 +87,8 @@ export default function CampaignsPage() {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error'; duration: number | null } | null>(null);
   // `destructive` defaults to true: Delete and Stop confirm in red, Restart does not.
   const [confirmState, setConfirmState] = useState<{ title: string; message: string; confirmLabel: string; destructive?: boolean; onConfirm: () => void } | null>(null);
+  // The step Send Step is asking about. It sends to every lead on the step now, whatever is left of their wait, so it asks first.
+  const [sendStepPrompt, setSendStepPrompt] = useState<{ campaignId: string; stepOrder: number; message: string } | null>(null);
   // A long error, such as the server's reason a campaign was not created, stays until dismissed.
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     const next = { message, type, duration: toastDuration(message, type, 3000) };
@@ -590,7 +592,7 @@ export default function CampaignsPage() {
                                                 {campaign.status === 'Active' && waitingCount > 0 && (
                                                   <MuiTooltip title={`Queue the ${waitingCount.toLocaleString()} ${waitingCount === 1 ? 'lead' : 'leads'} at this step now${dueNow ? '' : ', skipping the rest of the wait'}.`}>
                                                     <Box component="span">
-                                                      <Button size="small" variant="outlined" startIcon={sendingStep ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />} onClick={(e) => { e.stopPropagation(); handleRunCampaign(campaign.id, step.stepOrder); }} disabled={executingId !== null} sx={{ whiteSpace: 'nowrap' }}>
+                                                      <Button size="small" variant="outlined" startIcon={sendingStep ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />} onClick={(e) => { e.stopPropagation(); setSendStepPrompt({ campaignId: campaign.id, stepOrder: step.stepOrder, message: sendStepConfirmMessage(campaign.name, step.stepOrder, waitingCount, sendTimes && !dueNow ? sendTimes.campaign : null) }); }} disabled={executingId !== null} sx={{ whiteSpace: 'nowrap' }}>
                                                         Send Step
                                                       </Button>
                                                     </Box>
@@ -697,6 +699,19 @@ export default function CampaignsPage() {
         isDestructive={confirmState?.destructive ?? true}
         onConfirm={() => confirmState?.onConfirm()}
         onCancel={() => setConfirmState(null)}
+      />
+
+      <ConfirmDialog
+        isOpen={!!sendStepPrompt}
+        title={sendStepPrompt ? `Send Step ${sendStepPrompt.stepOrder} Now?` : ''}
+        message={sendStepPrompt?.message || ''}
+        confirmLabel="Send Step"
+        onConfirm={() => {
+          const prompt = sendStepPrompt;
+          setSendStepPrompt(null);
+          if (prompt) handleRunCampaign(prompt.campaignId, prompt.stepOrder);
+        }}
+        onCancel={() => setSendStepPrompt(null)}
       />
     </Box>
   );

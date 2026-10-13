@@ -66,6 +66,20 @@ export function sequenceHeadline(
   return new Date(next.nextSend.at).getTime() <= now.getTime() ? `${step} is due now` : `${step} goes out ${format(next.nextSend)}`;
 }
 
+/**
+ * What Send Step asks before it queues a step's waiting leads, since it sends
+ * to all of them now whatever is left of their wait. `when` is the time the
+ * step would otherwise go out, when that is still to come.
+ */
+export function sendStepConfirmMessage(name: string, stepOrder: number, waiting: number, when: string | null): string {
+  const leads = `${waiting.toLocaleString()} waiting ${waiting === 1 ? 'lead gets' : 'leads get'}`;
+  const effect = when
+    ? `Its ${leads} it now instead of ${when}.`
+    : `Its ${leads} it now, including any still waiting out the step's wait days.`;
+  return `Send step ${stepOrder} of "${name}" now? ${effect} ` +
+    "Sending starts within 30 seconds, inside the campaign's sending window. Emails that have gone out can't be recalled.";
+}
+
 /** The line under the headline: "1,104 leads in sequence · 0 completed · 81 no longer mailable". */
 export function sequenceCounts(
   stepStats: PanelStepStats[],

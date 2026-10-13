@@ -7,7 +7,16 @@ import { checkCampaignSenders } from '@/lib/senderOwnership';
 import { type PoolRow, planPoolRows, poolRoutingError } from '@/lib/campaignRouting';
 import { NO_SENDER_FOR_LEAD_REASON, REFUSED_BY_SENDERS_REASON } from '@/lib/senderRouting';
 import { MAILBOX_SECRET_OMIT } from '@/lib/mailboxSecrets';
-import { checkAudienceCohort, syncCohortEnrollments } from '@/lib/campaignCohort';
+import { checkAudienceCohort, cohortLeadWhere, syncCohortEnrollments } from '@/lib/campaignCohort';
+import {
+  SKIPPED_ENROLLMENT_STATUS,
+  parseSkipCampaignIds,
+  restoreSkippedLeads,
+  skipCampaignsError,
+  skipEmailedLeads,
+  skipSources,
+  storedSkipCampaignIds,
+} from '@/lib/campaignSkip';
 import { activationBlocker, changesStepStructure, matchStoredSteps, STEP_STRUCTURE_LOCKED_ERROR } from '@/lib/campaignSteps';
 import { CAMPAIGN_OWNER_DISABLED_ERROR, CAMPAIGN_STATUSES, userStatusPause } from '@/lib/campaignPause';
 import { CAMPAIGN_STOPPED_ERROR, isStopped } from '@/lib/campaignStop';
@@ -256,9 +265,17 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       };
     });
 
+    // The campaigns whose emailed leads this one skips, each with how many of
+    // its Skipped leads it has emailed (lib/campaignSkip).
+    const skippedBy = await skipSources(prisma, id, storedSkipCampaignIds(campaign.skipLeadsEmailedBy));
+
     const progress = {
       enrolled: enrollmentsByStatus.reduce((total, g) => total + g._count.id, 0),
       byStatus: Object.fromEntries(enrollmentsByStatus.map((g) => [g.status, g._count.id])),
+      skipped: {
+        total: enrollmentsByStatus.find((g) => g.status === SKIPPED_ENROLLMENT_STATUS)?._count.id ?? 0,
+        campaigns: skippedBy,
+      },
       // Of the Active ones, those whose lead may no longer be emailed.
       notMailable: Math.max(0, activeCount - waitingCount),
       contacted: leadTotals.contacted,
@@ -363,6 +380,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       trackOpens, 
       trackClicks,
       audienceCohort,
+      skipLeadsEmailedBy,
       steps,
       senderAccountIds,
       senderRecipientDomains,
@@ -438,6 +456,23 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
       }
     }
 
+    // The campaigns whose emailed leads this one skips (lib/campaignSkip). The
+    // page sends the list on every save; only a campaign the save adds is checked,
+    // so one an admin named stays when the owner saves.
+    const storedSkipIds = storedSkipCampaignIds(campaign.skipLeadsEmailedBy);
+    let skipIds = storedSkipIds;
+    if (skipLeadsEmailedBy !== undefined) {
+      const parsed = parseSkipCampaignIds(skipLeadsEmailedBy, id);
+      if (parsed.error !== null) {
+        return NextResponse.json({ error: parsed.error }, { status: 400 });
+      }
+      const skipError = await skipCampaignsError(prisma, session, parsed.ids.filter((skipId) => !storedSkipIds.includes(skipId)));
+      if (skipError) {
+        return NextResponse.json({ error: skipError }, { status: 400 });
+      }
+      skipIds = parsed.ids;
+    }
+
     // An Active campaign mails every step as stored, so publishing it, or saving
     // steps while it stays Active, needs complete steps. Drafts may be incomplete.
     if ((status ?? campaign.status) === 'Active' && (status !== undefined || Array.isArray(steps))) {
@@ -489,6 +524,7 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     if (trackOpens !== undefined) updates.trackOpens = !!trackOpens;
     if (trackClicks !== undefined) updates.trackClicks = !!trackClicks;
     if (audienceCohort !== undefined) updates.audienceCohort = audienceCohort;
+    if (skipLeadsEmailedBy !== undefined) updates.skipLeadsEmailedBy = skipIds;
 
     // Enrollments are synced when the audience changed, when the campaign has
     // none yet (e.g. published while its group was empty), or when an earlier
@@ -571,6 +607,25 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         // `saved` tells the campaign page to load the saved version, so its next Save runs the sync again.
         return NextResponse.json({
           error: `The campaign was saved, but enrolling its audience did not finish (${error?.message || 'unknown error'}). Save again to finish it.`,
+          saved: true
+        }, { status: 500 });
+      }
+    }
+
+    // 4. Bring the Skipped leads in line with the saved list, after the audience
+    // sync so the leads it just enrolled are covered: those no campaign of the
+    // list has emailed go back in the sequence, then those one has are marked.
+    // Both leave everything as it is when nothing changed, so the next save
+    // finishes what a failure here left.
+    if (skipLeadsEmailedBy !== undefined || storedSkipIds.length > 0) {
+      try {
+        const audience = cohortLeadWhere(cohortChanged ? audienceCohort : campaign.audienceCohort || 'Valid');
+        await restoreSkippedLeads(prisma, id, skipIds, audience);
+        await skipEmailedLeads(prisma, id, skipIds);
+      } catch (error: any) {
+        console.error(`[Campaigns] Skipping the leads other campaigns emailed did not finish for campaign ${id}:`, error?.message || error);
+        return NextResponse.json({
+          error: `The campaign was saved, but working out which leads to skip did not finish (${error?.message || 'unknown error'}). Save again to finish it.`,
           saved: true
         }, { status: 500 });
       }

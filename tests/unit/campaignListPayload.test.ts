@@ -209,7 +209,7 @@ describe('GET /api/campaigns returns list fields only (M40)', () => {
     const [campaign] = await (await getCampaigns()).json();
 
     expect(campaign.stepStats.map((s: any) => [s.stepOrder, s.active])).toEqual([[1, 1], [2, 1]]);
-    expect(campaign.enrollmentSummary).toEqual({ total: 7, active: 6, completed: 1, notMailable: 4 });
+    expect(campaign.enrollmentSummary).toEqual({ total: 7, active: 6, completed: 1, notMailable: 4, skipped: 0 });
   });
 
   it("says when an Active campaign's waiting leads next go out, by their earliest send date and its sending window", async () => {
@@ -317,7 +317,11 @@ describe('PUT and DELETE /api/campaigns check ownership on the one campaign (M40
     expect(admin.status).toBe(200);
     expect(campaigns).toEqual([]);
 
-    expect(fake.campaign.findMany).not.toHaveBeenCalled();
+    // Each delete looks only for the campaigns that skip the leads it emailed (lib/campaignSkip), never the list.
+    expect(fake.campaign.findMany.mock.calls.map(([args]: any) => args.where)).toEqual([
+      { skipLeadsEmailedBy: { has: 'cmp-1' } },
+      { skipLeadsEmailedBy: { has: 'cmp-2' } },
+    ]);
     expect(fake.campaignEnrollment.groupBy).not.toHaveBeenCalled();
   });
 });

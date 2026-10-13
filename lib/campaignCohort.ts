@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/db';
 import { sameCampaignVersion } from '@/lib/campaignVersion';
 import { findEnrollableLeadIds } from '@/lib/sendEligibility';
+import { skipEmailedLeads, storedSkipCampaignIds } from '@/lib/campaignSkip';
 
 /**
  * A campaign's audienceCohort names the leads it enrolls: every non-archived
@@ -176,7 +177,9 @@ export async function syncCohortEnrollments(
  * campaign's group that may be enrolled (findEnrollableLeadIds) start Active
  * at step 1, as syncCohortEnrollments enrolls a new member. A lead already
  * enrolled keeps its enrollment as it is, so one paused when it left the group,
- * or on a reply, is never restarted at step 1 or resumed.
+ * or on a reply, is never restarted at step 1 or resumed. A joiner that a
+ * campaign this one skips the leads of has emailed is marked Skipped at once
+ * (lib/campaignSkip), so the campaign's pages never count it as waiting.
  */
 export async function enrollGroupJoiners(
   tx: Prisma.TransactionClient,
@@ -186,7 +189,7 @@ export async function enrollGroupJoiners(
   if (leadIds.length === 0 || groupIds.length === 0) return;
   const campaigns = await tx.campaign.findMany({
     where: { audienceCohort: { in: groupCohorts(groupIds) } },
-    select: { id: true, audienceCohort: true },
+    select: { id: true, audienceCohort: true, skipLeadsEmailedBy: true },
   });
   for (const campaign of campaigns) {
     const enrollableLeadIds = await findEnrollableLeadIds(tx, {
@@ -203,6 +206,7 @@ export async function enrollGroupJoiners(
       })),
       skipDuplicates: true,
     });
+    await skipEmailedLeads(tx, campaign.id, storedSkipCampaignIds(campaign.skipLeadsEmailedBy), enrollableLeadIds);
   }
 }
 

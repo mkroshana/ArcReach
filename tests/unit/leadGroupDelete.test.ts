@@ -59,10 +59,10 @@ beforeEach(() => {
   mockedPrisma.campaign.findMany.mockImplementation(async ({ where, select, orderBy }: any) => {
     // The campaigns that enroll the leads moved into the target group
     if (select.id) {
-      expect(select).toEqual({ id: true, audienceCohort: true });
+      expect(select).toEqual({ id: true, audienceCohort: true, skipLeadsEmailedBy: true });
       return campaigns
         .filter((c) => matchesWhere(c, where))
-        .map(({ id, audienceCohort }) => ({ id, audienceCohort }));
+        .map(({ id, audienceCohort }) => ({ id, audienceCohort, skipLeadsEmailedBy: [] }));
     }
     expect(select).toEqual({ name: true, userId: true });
     expect(orderBy).toEqual({ name: 'asc' });

@@ -4,6 +4,7 @@
  * the lead counts under it. Pure so the page can use it.
  */
 import type { NextSend } from './campaignTiming';
+import { skippedByText } from './campaignProgress';
 
 export type PanelStep = { stepOrder: number; waitDays: number };
 export type PanelStepStats = { stepOrder: number; active: number; sent: number; nextSend?: NextSend | null };
@@ -80,16 +81,24 @@ export function sendStepConfirmMessage(name: string, stepOrder: number, waiting:
     "Sending starts within 30 seconds, inside the campaign's sending window. Emails that have gone out can't be recalled.";
 }
 
-/** The line under the headline: "1,104 leads in sequence · 0 completed · 81 no longer mailable". */
+/**
+ * The line under the headline: "1,104 leads in sequence · 0 completed · 81 no
+ * longer mailable · 212 skipped, already emailed by Win-Back". `skippedBy`
+ * names the campaigns whose emailed leads the campaign skips
+ * (lib/campaignSkip), null for one the viewer's list does not have.
+ */
 export function sequenceCounts(
   stepStats: PanelStepStats[],
-  summary: { completed?: number; notMailable?: number } | undefined,
+  summary: { completed?: number; notMailable?: number; skipped?: number } | undefined,
+  skippedBy: Array<string | null> = [],
 ): string {
   const inSequence = stepStats.reduce((total, stats) => total + stats.active, 0);
   const notMailable = summary?.notMailable ?? 0;
+  const skipped = summary?.skipped ?? 0;
   return [
     `${inSequence.toLocaleString()} ${inSequence === 1 ? 'lead' : 'leads'} in sequence`,
     `${(summary?.completed ?? 0).toLocaleString()} completed`,
     ...(notMailable > 0 ? [`${notMailable.toLocaleString()} no longer mailable`] : []),
+    ...(skipped > 0 ? [`${skipped.toLocaleString()} skipped, already emailed by ${skippedByText(skippedBy)}`] : []),
   ].join(' · ');
 }

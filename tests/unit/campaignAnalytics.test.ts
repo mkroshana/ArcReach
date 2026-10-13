@@ -377,6 +377,8 @@ describe("where the campaign's leads are", () => {
     expect(progress).toEqual({
       enrolled: 8,
       byStatus: { Active: 3, Completed: 1, Paused: 1, Bounced: 1, Failed: 1, Removed: 1 },
+      // The campaign skips no other campaign's leads (lib/campaignSkip).
+      skipped: { total: 0, campaigns: [] },
       notMailable: 0,
       contacted: 5,
       repliedLeads: 2,
@@ -402,7 +404,7 @@ describe("where the campaign's leads are", () => {
     const { progress } = await telemetry();
 
     expect(progress).toEqual({
-      enrolled: 0, byStatus: {}, notMailable: 0, contacted: 0, repliedLeads: 0, emailsLeft: 0, dueNow: 0,
+      enrolled: 0, byStatus: {}, skipped: { total: 0, campaigns: [] }, notMailable: 0, contacted: 0, repliedLeads: 0, emailsLeft: 0, dueNow: 0,
       nextDueAt: null, firstSentAt: null, lastSentAt: null,
       waitingForSender: { refused: 0, unrouted: 0 },
     });

@@ -39,28 +39,91 @@ export const NOT_MAILABLE_STATE: EnrollmentState = {
   description: 'Archived, unsubscribed, bounced or found invalid since they were enrolled, so they get no more steps.',
 };
 
+/** The enrollment status of a lead the campaign skips (lib/campaignSkip SKIPPED_ENROLLMENT_STATUS). */
+const SKIPPED_STATUS = 'Skipped';
+
+/** Names as a sentence lists them: "A", "A and B", "A, B and C". */
+function inWords(names: string[]): string {
+  return names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+/**
+ * Who emailed the leads a campaign skips, for a sentence: the names of the
+ * campaigns it skips the leads of. A campaign whose name is not known (null:
+ * not the viewer's to see) makes it "another campaign" or a count, and so do
+ * more than `most` names.
+ */
+export function skippedByText(names: Array<string | null>, most = 2): string {
+  const known = names.filter((name): name is string => !!name);
+  if (known.length === 0 || known.length < names.length || known.length > most) {
+    return names.length <= 1 ? 'another campaign' : `${names.length} other campaigns`;
+  }
+  return inWords(known);
+}
+
+/**
+ * The Skipped state: leads enrolled here that a campaign this one skips the
+ * leads of (`skippedBy`, by name) has emailed.
+ */
+export function skippedState(skippedBy: Array<string | null>): EnrollmentState {
+  return {
+    status: SKIPPED_STATUS, label: 'Skipped',
+    description: `Already emailed by ${skippedByText(skippedBy, Infinity)}, whose leads this campaign is set to skip. They stay enrolled and get nothing from it.`,
+  };
+}
+
+/**
+ * The line under a campaign's Skip Leads Emailed By: how many of its
+ * `enrolled` leads it skips and which campaign emailed them, as last saved.
+ * Null when it skips no campaign's leads. A lead two campaigns emailed counts
+ * under both, so their counts can add up to more than the total.
+ */
+export function skippedLeadsNote(
+  skipped: { total?: number; campaigns?: Array<{ name: string | null; leads: number }> } | undefined,
+  enrolled: number,
+): string | null {
+  const sources = skipped?.campaigns ?? [];
+  if (sources.length === 0) return null;
+  const total = skipped?.total ?? 0;
+  const who = skippedByText(sources.map((source) => source.name), Infinity);
+  if (total === 0) return `No lead of this campaign is skipped: ${who} ${sources.length === 1 ? 'has' : 'have'} emailed none of them.`;
+  const leads = `${total.toLocaleString()} of this campaign's ${enrolled.toLocaleString()} ${enrolled === 1 ? 'lead is' : 'leads are'} skipped`;
+  if (sources.length === 1) return `${leads}: ${who} has already emailed ${total === 1 ? 'it' : 'them'}.`;
+  const each = sources.map((source) => `${source.leads.toLocaleString()} by ${source.name ?? 'another campaign'}`);
+  const overlap = sources.reduce((sum, source) => sum + source.leads, 0) > total ? ' A lead more than one of them emailed counts under each.' : '';
+  return `${leads}, already emailed: ${inWords(each)}.${overlap}`;
+}
+
 /**
  * The Lead Progress rows: every enrollment status in a fixed order, zeros
  * included, then any status the page does not describe. A stopped campaign's
  * Active leads show as Stopped. The Active row holds only the leads still to
- * get a step; those of `notMailable` follow it in a row of their own.
+ * get a step; those of `notMailable` follow it in a row of their own, and
+ * then the Skipped leads, when the campaign skips the leads of any campaign
+ * (`skippedBy`, by name) or still has some.
  */
 export function leadProgressRows(
   byStatus: Record<string, number>,
   notMailable: number,
   stopped: boolean,
+  skippedBy: Array<string | null> = [],
 ): Array<EnrollmentState & { value: number }> {
-  const known = new Set(ENROLLMENT_STATES.map((state) => state.status));
+  const known = new Set([...ENROLLMENT_STATES.map((state) => state.status), SKIPPED_STATUS]);
   const held = Math.min(Math.max(0, notMailable), byStatus.Active ?? 0);
+  const skipped = byStatus[SKIPPED_STATUS] ?? 0;
+  const skippedRows = skippedBy.length > 0 || skipped > 0 ? [{ ...skippedState(skippedBy), value: skipped }] : [];
   return [
     ...ENROLLMENT_STATES.map((state) => (stopped && state.status === 'Active' ? STOPPED_ACTIVE_STATE : state)),
     ...Object.keys(byStatus).filter((status) => !known.has(status))
       .map((status) => ({ status, label: status, description: 'An enrollment status this page does not describe.' })),
   ].flatMap((state) => {
     const value = byStatus[state.status] ?? 0;
-    return state.status === 'Active' && held > 0
-      ? [{ ...state, value: value - held }, { ...NOT_MAILABLE_STATE, value: held }]
-      : [{ ...state, value }];
+    if (state.status !== 'Active') return [{ ...state, value }];
+    return [
+      { ...state, value: value - held },
+      ...(held > 0 ? [{ ...NOT_MAILABLE_STATE, value: held }] : []),
+      ...skippedRows,
+    ];
   });
 }
 

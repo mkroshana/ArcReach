@@ -68,11 +68,11 @@ export default function CampaignsPage() {
   const [accounts, setAccounts] = useState<any[]>([]);
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  // Set when a load or refresh fails. The list shows only once loaded, so a failure is never shown as no sequences.
+  // Set when a load or refresh fails. The list shows only once loaded, so a failure is never shown as no campaigns.
   const [loadError, setLoadError] = useState('');
   const [campaignsLoaded, setCampaignsLoaded] = useState(false);
   const [accountsLoaded, setAccountsLoaded] = useState(false);
-  // Why the mailboxes could not be loaded. Only Create Sequence needs them.
+  // Why the mailboxes could not be loaded. Only Create Campaign needs them.
   const [accountsError, setAccountsError] = useState('');
   const [search, setSearch] = useState('');
   const [expandedCampaignId, setExpandedCampaignId] = useState<string | null>(null);
@@ -87,7 +87,7 @@ export default function CampaignsPage() {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error'; duration: number | null } | null>(null);
   // `destructive` defaults to true: Delete and Stop confirm in red, Restart does not.
   const [confirmState, setConfirmState] = useState<{ title: string; message: string; confirmLabel: string; destructive?: boolean; onConfirm: () => void } | null>(null);
-  // A long error, such as the server's reason a sequence was not created, stays until dismissed.
+  // A long error, such as the server's reason a campaign was not created, stays until dismissed.
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     const next = { message, type, duration: toastDuration(message, type, 3000) };
     setToast(next);
@@ -102,7 +102,7 @@ export default function CampaignsPage() {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, status: newStatus }),
       });
-      if (res.ok) { showToast(`Sequence status updated to ${newStatus}`); loadData(); }
+      if (res.ok) { showToast(`Campaign status updated to ${newStatus}`); loadData(); }
       else {
         const data = await res.json().catch(() => null);
         showToast(data?.error || 'Failed to update status.', 'error');
@@ -176,8 +176,8 @@ export default function CampaignsPage() {
       const sessData = await readJsonObject(await fetch('/api/session'), 'Your session');
       if (!sessData.id) throw new LoadError('Your session could not be loaded. Sign in again.');
       setSession(sessData);
-      // The mailboxes load on their own: a failure there blocks only Create Sequence,
-      // never the list, where running sequences are paused and resumed.
+      // The mailboxes load on their own: a failure there blocks only Create Campaign,
+      // never the list, where running campaigns are paused and resumed.
       try {
         // A new campaign belongs to the signed-in user and only sends from its
         // owner's mailboxes, so an admin picks among their own, not every user's.
@@ -187,21 +187,21 @@ export default function CampaignsPage() {
         setAccountsError('');
         if (accData.length > 0) setSelectedMailboxId(accData[0].id);
       } catch (err) { console.error(err); setAccountsError(loadErrorMessage(err, 'Your mailboxes')); }
-      setCampaigns(await readJsonList(await fetch(`/api/campaigns?t=${Date.now()}`), 'Sequences'));
+      setCampaigns(await readJsonList(await fetch(`/api/campaigns?t=${Date.now()}`), 'Campaigns'));
       setCampaignsLoaded(true);
-    } catch (err) { console.error(err); setLoadError(loadErrorMessage(err, 'Sequences')); }
+    } catch (err) { console.error(err); setLoadError(loadErrorMessage(err, 'Campaigns')); }
     finally { setLoading(false); }
   };
 
   // A failed refresh keeps the last list on screen and says it may be out of date.
   const refreshCampaigns = async () => {
     try {
-      setCampaigns(await readJsonList(await fetch(`/api/campaigns?t=${Date.now()}`), 'Sequences'));
+      setCampaigns(await readJsonList(await fetch(`/api/campaigns?t=${Date.now()}`), 'Campaigns'));
       setCampaignsLoaded(true);
       setLoadError('');
     } catch (err) {
       console.error('Failed to auto-refresh campaigns:', err);
-      setLoadError(loadErrorMessage(err, 'Sequences'));
+      setLoadError(loadErrorMessage(err, 'Campaigns'));
     }
   };
 
@@ -214,7 +214,7 @@ export default function CampaignsPage() {
   const anyCampaignActive = campaigns.some(c => c.status === 'Active');
   const isRunning = executingId !== null;
 
-  // Refreshes every 30s while a sequence is Active or queuing, and only while the tab is visible.
+  // Refreshes every 30s while a campaign is Active or queuing, and only while the tab is visible.
   useEffect(() => {
     if (!anyCampaignActive && !isRunning) return;
     const interval = setInterval(() => { if (document.visibilityState === 'visible') refreshCampaigns(); }, 30000);
@@ -243,7 +243,7 @@ export default function CampaignsPage() {
         throw new Error(data?.error || 'Failed to establish campaign.');
       }
       const created = await res.json();
-      showToast('Campaign sequence initiated successfully');
+      showToast('Campaign created.');
       setCampaignName(''); setSelectedPoolIds([]); setIsAddOpen(false);
       router.push(`/campaigns/${created.id}`);
     } catch (err: any) {
@@ -261,8 +261,8 @@ export default function CampaignsPage() {
         setConfirmState(null);
         try {
           const res = await fetch(`/api/campaigns?id=${id}`, { method: 'DELETE' });
-          if (res.ok) { setCampaigns(campaigns.filter(c => c.id !== id)); showToast('Campaign sequence deleted.'); }
-          else showToast('Failed to delete campaign sequence.', 'error');
+          if (res.ok) { setCampaigns(campaigns.filter(c => c.id !== id)); showToast('Campaign deleted.'); }
+          else showToast('Failed to delete the campaign.', 'error');
         } catch (err) { showToast('Error occurred deleting campaign.', 'error'); }
       },
     });
@@ -281,22 +281,22 @@ export default function CampaignsPage() {
       {/* Header */}
       <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ justifyContent: 'space-between', alignItems: { xs: 'flex-start', sm: 'center' }, gap: 2, pb: 2, borderBottom: 1, borderColor: 'divider' }}>
         <Box>
-          <Typography variant="h4" sx={{ fontWeight: 700 }}>Campaign Sequences</Typography>
-          <Typography variant="body2" sx={{ color: 'text.secondary' }}>Build cold email sequences, connect sender mailboxes, and automate your follow-ups.</Typography>
+          <Typography variant="h4" sx={{ fontWeight: 700 }}>Campaigns</Typography>
+          <Typography variant="body2" sx={{ color: 'text.secondary' }}>Each campaign, where its leads are in the sequence and when the next step goes out.</Typography>
         </Box>
         <Button
           variant="contained" startIcon={<Plus size={16} />}
           onClick={() => {
-            if (!accountsLoaded) { showToast('Your mailboxes could not be loaded, so a sequence cannot be created yet. Use Retry to load them.', 'error'); return; }
+            if (!accountsLoaded) { showToast('Your mailboxes could not be loaded, so a campaign cannot be created yet. Use Retry to load them.', 'error'); return; }
             if (accounts.length === 0) { showToast('Please first connect at least one Mailbox of your own in the Senders view before starting a campaign.', 'error'); return; }
             setIsAddOpen(true);
           }}
-        >Create Sequence</Button>
+        >Create Campaign</Button>
       </Stack>
 
       {loadError && campaignsLoaded && !loading && (
         <Alert severity="warning" action={retryButton}>
-          <AlertTitle>Sequences Could Not Be Refreshed</AlertTitle>
+          <AlertTitle>Campaigns Could Not Be Refreshed</AlertTitle>
           This list may be out of date. {loadError}
         </Alert>
       )}
@@ -304,7 +304,7 @@ export default function CampaignsPage() {
       {accountsError && !accountsLoaded && !loading && (
         <Alert severity="warning" action={retryButton}>
           <AlertTitle>Mailboxes Could Not Be Loaded</AlertTitle>
-          A sequence cannot be created until your mailboxes load. {accountsError}
+          A campaign cannot be created until your mailboxes load. {accountsError}
         </Alert>
       )}
 
@@ -326,8 +326,8 @@ export default function CampaignsPage() {
         ) : !campaignsLoaded ? (
           <Box sx={{ p: 2 }}>
             <Alert severity="error" action={retryButton}>
-              <AlertTitle>Sequences Could Not Be Loaded</AlertTitle>
-              {loadError || 'Sequences could not be loaded.'}
+              <AlertTitle>Campaigns Could Not Be Loaded</AlertTitle>
+              {loadError || 'Campaigns could not be loaded.'}
             </Alert>
           </Box>
         ) : (
@@ -335,7 +335,7 @@ export default function CampaignsPage() {
             <Table size="small">
               <TableHead>
                 <TableRow sx={{ '& th': { fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', fontSize: 10, color: 'text.secondary' } }}>
-                  <TableCell>Sequence Details</TableCell>
+                  <TableCell>Campaign</TableCell>
                   <TableCell>Sender Mailbox</TableCell>
                   <TableCell>Owner</TableCell>
                   <TableCell>Status</TableCell>
@@ -616,7 +616,7 @@ export default function CampaignsPage() {
                   <TableRow>
                     <TableCell colSpan={5} sx={{ textAlign: 'center', py: 8, color: 'text.secondary' }}>
                       <Inbox size={24} style={{ margin: '0 auto', opacity: 0.5 }} />
-                      <Typography variant="caption" sx={{ display: 'block', mt: 1 }}>No sequences match your role view.</Typography>
+                      <Typography variant="caption" sx={{ display: 'block', mt: 1 }}>{search ? 'No campaigns match your search.' : 'No campaigns yet.'}</Typography>
                     </TableCell>
                   </TableRow>
                 )}
@@ -632,11 +632,11 @@ export default function CampaignsPage() {
           <DialogTitle>
             <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
               <Plus size={20} color="#2563EB" />
-              <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Launch Outreach Sequence</Typography>
+              <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Create Campaign</Typography>
             </Stack>
           </DialogTitle>
           <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <TextField label="Sequence Campaign Name" required value={campaignName} onChange={(e) => setCampaignName(e.target.value)} size="small" placeholder="e.g., Enterprise SaaS Seed Funding Round" />
+            <TextField label="Campaign Name" required value={campaignName} onChange={(e) => setCampaignName(e.target.value)} size="small" placeholder="e.g., Enterprise SaaS Seed Funding Round" />
             <Box>
               <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>
                 <Mail size={14} /> Connect Sender Mailbox
@@ -675,7 +675,7 @@ export default function CampaignsPage() {
               <CardContent sx={{ p: 2, '&:last-child': { pb: 2 }, display: 'flex', gap: 1.5, alignItems: 'flex-start' }}>
                 <Gauge size={16} color="#2563EB" style={{ marginTop: 2, flexShrink: 0 }} />
                 <Typography variant="caption" sx={{ color: 'primary.main', lineHeight: 1.6 }}>
-                  This sequence will follow the sending limits configured on the connected mailbox(es).
+                  This campaign follows the sending limits set on its mailboxes.
                 </Typography>
               </CardContent>
             </Card>
@@ -683,7 +683,7 @@ export default function CampaignsPage() {
           <DialogActions sx={{ p: 2 }}>
             <Button color="inherit" onClick={() => setIsAddOpen(false)}>Cancel</Button>
             <Button type="submit" variant="contained" disabled={submitting}>
-              {submitting ? 'Creating…' : 'Create Sequence'}
+              {submitting ? 'Creating…' : 'Create Campaign'}
             </Button>
           </DialogActions>
         </form>

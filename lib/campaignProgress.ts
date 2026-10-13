@@ -30,6 +30,41 @@ export const STOPPED_ACTIVE_STATE: EnrollmentState = {
 };
 
 /**
+ * Active enrollments whose lead may no longer be emailed (lib/sendableLead).
+ * The send engine passes them over, so the Lead Progress card lists them apart
+ * from the leads still to get a step, when there are any.
+ */
+export const NOT_MAILABLE_STATE: EnrollmentState = {
+  status: 'NotMailable', label: 'No Longer Mailable',
+  description: 'Archived, unsubscribed, bounced or found invalid since they were enrolled, so they get no more steps.',
+};
+
+/**
+ * The Lead Progress rows: every enrollment status in a fixed order, zeros
+ * included, then any status the page does not describe. A stopped campaign's
+ * Active leads show as Stopped. The Active row holds only the leads still to
+ * get a step; those of `notMailable` follow it in a row of their own.
+ */
+export function leadProgressRows(
+  byStatus: Record<string, number>,
+  notMailable: number,
+  stopped: boolean,
+): Array<EnrollmentState & { value: number }> {
+  const known = new Set(ENROLLMENT_STATES.map((state) => state.status));
+  const held = Math.min(Math.max(0, notMailable), byStatus.Active ?? 0);
+  return [
+    ...ENROLLMENT_STATES.map((state) => (stopped && state.status === 'Active' ? STOPPED_ACTIVE_STATE : state)),
+    ...Object.keys(byStatus).filter((status) => !known.has(status))
+      .map((status) => ({ status, label: status, description: 'An enrollment status this page does not describe.' })),
+  ].flatMap((state) => {
+    const value = byStatus[state.status] ?? 0;
+    return state.status === 'Active' && held > 0
+      ? [{ ...state, value: value - held }, { ...NOT_MAILABLE_STATE, value: held }]
+      : [{ ...state, value }];
+  });
+}
+
+/**
  * The emails a campaign's Active leads are still to get: a lead waiting for
  * step s gets it and every step after it. An upper bound, since a reply,
  * unsubscribe or bounce ends a lead early, and a lead waiting for a step the

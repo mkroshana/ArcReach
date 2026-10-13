@@ -35,7 +35,7 @@ vi.mock('../../lib/session', () => ({
 import { getSession } from '../../lib/session';
 import { GET as getCampaign } from '../../app/api/campaigns/[id]/route';
 import { campaignLeadTotals, deliveryBreakdown, mailboxMetrics, stepMetrics } from '../../lib/engagementMetrics';
-import { emailsLeft, nextSendText } from '../../lib/campaignProgress';
+import { emailsLeft, leadProgressRows, nextSendText } from '../../lib/campaignProgress';
 import { countRows, groupRows } from './helpers/prismaWhere';
 
 const USER = { id: 'user-1', name: 'User', email: 'user@example.com', role: 'USER' as const };
@@ -62,7 +62,8 @@ type DispatchRow = {
   id: string; leadId: string; campaignId: string; senderAccountId: string | null; status: string; stepOrder: number | null;
   sentAt: Date; deliveredAt: Date | null; deliveryStatus: string | null; bounceType: string | null; bouncedAt: Date | null; events: Event[];
 };
-type EnrollmentRow = { id: string; campaignId: string; leadId: string; status: string; currentSequenceStep: number; nextActionDate: Date | null };
+type LeadRow = { status: string; isArchived: boolean; validationStatus: string };
+type EnrollmentRow = { id: string; campaignId: string; leadId: string; status: string; currentSequenceStep: number; nextActionDate: Date | null; lead: LeadRow };
 
 let dispatches: DispatchRow[];
 let enrollments: EnrollmentRow[];
@@ -76,8 +77,12 @@ function addDispatch(row: Partial<DispatchRow> & { id: string }) {
   });
 }
 
-function enroll(id: string, status: string, currentSequenceStep: number, nextActionDate: Date | null) {
-  enrollments.push({ id, campaignId: 'cmp-1', leadId: `lead-${id}`, status, currentSequenceStep, nextActionDate });
+/** An enrollment whose lead may be emailed, unless `lead` says otherwise. */
+function enroll(id: string, status: string, currentSequenceStep: number, nextActionDate: Date | null, lead: Partial<LeadRow> = {}) {
+  enrollments.push({
+    id, campaignId: 'cmp-1', leadId: `lead-${id}`, status, currentSequenceStep, nextActionDate,
+    lead: { status: 'Neutral', isArchived: false, validationStatus: 'Valid', ...lead },
+  });
 }
 
 const event = (eventType: string): Event => ({ eventType, timestamp: hoursAgo(24) });
@@ -86,7 +91,7 @@ const DISPATCH_RELATIONS = {
   campaign: (row: DispatchRow) => (row.campaignId === 'cmp-1' ? CAMPAIGN : null),
   events: (row: DispatchRow) => row.events,
 };
-const ENROLLMENT_RELATIONS = { lead: () => ({ status: 'Neutral', isArchived: false }) };
+const ENROLLMENT_RELATIONS = { lead: (row: EnrollmentRow) => row.lead };
 
 /** The SQL text of a raw query. */
 const sqlText = (query: any): string => query.text ?? query.strings.join('?');
@@ -372,6 +377,7 @@ describe("where the campaign's leads are", () => {
     expect(progress).toEqual({
       enrolled: 8,
       byStatus: { Active: 3, Completed: 1, Paused: 1, Bounced: 1, Failed: 1, Removed: 1 },
+      notMailable: 0,
       contacted: 5,
       repliedLeads: 2,
       // Two leads waiting for step 1 get steps 1-3, one waiting for step 2 gets steps 2-3.
@@ -396,10 +402,37 @@ describe("where the campaign's leads are", () => {
     const { progress } = await telemetry();
 
     expect(progress).toEqual({
-      enrolled: 0, byStatus: {}, contacted: 0, repliedLeads: 0, emailsLeft: 0, dueNow: 0,
+      enrolled: 0, byStatus: {}, notMailable: 0, contacted: 0, repliedLeads: 0, emailsLeft: 0, dueNow: 0,
       nextDueAt: null, firstSentAt: null, lastSentAt: null,
       waitingForSender: { refused: 0, unrouted: 0 },
     });
+  });
+
+  it('leaves leads that may no longer be emailed out of the steps they wait on, and counts them apart', async () => {
+    enroll('e1', 'Active', 1, hoursAgo(-20));
+    // Archived before step 1 reached them: Active, long due, and never sent.
+    enroll('e2', 'Active', 1, hoursAgo(120), { isArchived: true });
+    enroll('e3', 'Active', 1, hoursAgo(110), { isArchived: true });
+    // Unsubscribed, bounced and found invalid elsewhere, with this enrollment left Active.
+    enroll('e4', 'Active', 2, hoursAgo(90), { status: 'Unsubscribed' });
+    enroll('e5', 'Active', 2, hoursAgo(80), { status: 'Bounced' });
+    enroll('e6', 'Active', 2, hoursAgo(-300), { validationStatus: 'Invalid' });
+    enroll('e7', 'Active', 3, hoursAgo(4)); // due
+    enroll('e8', 'Completed', 3, null, { isArchived: true });
+
+    const { progress, stepStats } = await telemetry();
+
+    expect(progress.byStatus).toEqual({ Active: 7, Completed: 1 });
+    expect(progress.notMailable).toBe(5);
+    // Step 1's one lead gets steps 1-3 and step 3's one lead gets step 3; the five others get nothing.
+    expect(progress.emailsLeft).toBe(4);
+    expect(progress.dueNow).toBe(1);
+    expect(progress.nextDueAt).toBe(hoursAgo(4).toISOString());
+    expect(stepStats.map((s: any) => [s.stepOrder, s.active, s.due, s.nextDueAt, s.lastDueAt])).toEqual([
+      [1, 1, 0, hoursAgo(-20).toISOString(), hoursAgo(-20).toISOString()],
+      [2, 0, 0, null, null],
+      [3, 1, 1, hoursAgo(4).toISOString(), hoursAgo(4).toISOString()],
+    ]);
   });
 
   it('counts the Active leads the send engine holds back for want of a mailbox, by the reason it recorded', async () => {
@@ -427,6 +460,23 @@ describe('lib/campaignProgress', () => {
     expect(emailsLeft([1, 2, 3], [{ stepOrder: 1, waiting: 2 }, { stepOrder: 3, waiting: 5 }])).toBe(11);
     expect(emailsLeft([1, 2], [{ stepOrder: 4, waiting: 7 }])).toBe(0);
     expect(emailsLeft([], [])).toBe(0);
+  });
+
+  it('lists every enrollment status with zeros, and Active leads that may no longer be emailed in a row of their own', () => {
+    const rows = (byStatus: Record<string, number>, notMailable: number, stopped = false) =>
+      leadProgressRows(byStatus, notMailable, stopped).map((row) => [row.label, row.value]);
+
+    expect(rows({ Active: 10, Paused: 2 }, 0)).toEqual([
+      ['In Sequence', 10], ['Completed', 0], ['Paused', 2], ['Bounced', 0], ['Failed', 0], ['Removed', 0],
+    ]);
+    // The rows still add up to every enrollment.
+    expect(rows({ Active: 10, Paused: 2, Odd: 1 }, 3)).toEqual([
+      ['In Sequence', 7], ['No Longer Mailable', 3], ['Completed', 0], ['Paused', 2], ['Bounced', 0], ['Failed', 0], ['Removed', 0], ['Odd', 1],
+    ]);
+    expect(rows({ Active: 4 }, 4, true).slice(0, 2)).toEqual([['Stopped', 0], ['No Longer Mailable', 4]]);
+    // Never more than the Active leads there are.
+    expect(rows({ Active: 2 }, 5).slice(0, 2)).toEqual([['In Sequence', 0], ['No Longer Mailable', 2]]);
+    expect(rows({}, 0)[0]).toEqual(['In Sequence', 0]);
   });
 
   it('says when the next email is due, or why none is', () => {

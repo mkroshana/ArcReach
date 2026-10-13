@@ -192,6 +192,26 @@ describe('GET /api/campaigns returns list fields only (M40)', () => {
     ]);
   });
 
+  it("counts as a step's active leads only those that may still be emailed, while the summary keeps every enrollment", async () => {
+    const lead = (over: Record<string, unknown> = {}) => ({ status: 'Neutral', isArchived: false, validationStatus: 'Valid', ...over });
+    const enrollments = [
+      { id: 'e1', campaignId: 'cmp-1', status: 'Active', currentSequenceStep: 1, lead: lead() },
+      // Archived before step 1 reached it: the send engine passes it over, so it is not waiting to be sent.
+      { id: 'e2', campaignId: 'cmp-1', status: 'Active', currentSequenceStep: 1, lead: lead({ isArchived: true }) },
+      { id: 'e3', campaignId: 'cmp-1', status: 'Active', currentSequenceStep: 2, lead: lead({ status: 'Unsubscribed' }) },
+      { id: 'e4', campaignId: 'cmp-1', status: 'Active', currentSequenceStep: 2, lead: lead({ status: 'Bounced' }) },
+      { id: 'e5', campaignId: 'cmp-1', status: 'Active', currentSequenceStep: 2, lead: lead({ validationStatus: 'Invalid' }) },
+      { id: 'e6', campaignId: 'cmp-1', status: 'Active', currentSequenceStep: 2, lead: lead() },
+      { id: 'e7', campaignId: 'cmp-1', status: 'Completed', currentSequenceStep: 2, lead: lead() },
+    ];
+    fake.campaignEnrollment.groupBy.mockImplementation(async (args: any) => groupRows(enrollments, args, { lead: (row) => row.lead }));
+
+    const [campaign] = await (await getCampaigns()).json();
+
+    expect(campaign.stepStats.map((s: any) => [s.stepOrder, s.active])).toEqual([[1, 1], [2, 1]]);
+    expect(campaign.enrollmentSummary).toEqual({ total: 7, active: 6, completed: 1 });
+  });
+
   it('lists every campaign for an ADMIN, still without bodies', async () => {
     mockedSession.mockResolvedValue(ADMIN);
     const text = await (await getCampaigns()).text();

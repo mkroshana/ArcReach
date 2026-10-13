@@ -16,7 +16,7 @@ import { isHtmlTemplate } from '@/lib/personalize';
 import { replyCountUnknown, replySyncState, unreadReplyToNote, unreadReplyTos, type ImapSyncState } from '@/lib/imapSyncStatus';
 import { bounceFigure, noReportsFor, type BounceCounts, type BounceFigure } from '@/lib/bounceStats';
 import { deliveryRateText, noReportsNote } from '@/lib/deliveryStats';
-import { ENROLLMENT_STATES, STOPPED_ACTIVE_STATE, nextSendText } from '@/lib/campaignProgress';
+import { leadProgressRows, nextSendText } from '@/lib/campaignProgress';
 import { timeAgo } from '@/lib/systemStatus';
 import { bothZones, sendTime, viewerTimeZone } from '@/lib/campaignTiming';
 import { Countdown } from '@/components/CampaignTiming';
@@ -371,7 +371,7 @@ export default function CampaignAnalytics({ campaign, mailboxes }: { campaign: a
   // The app's own light/dark choice: MUI's palette values read in JS are always the light scheme's.
   const { theme: colorMode } = useAppTheme();
   const t = campaign?.telemetry ?? {};
-  const progress = t.progress ?? { enrolled: 0, byStatus: {}, contacted: 0, repliedLeads: 0, emailsLeft: 0, dueNow: 0, nextDueAt: null, lastSentAt: null };
+  const progress = t.progress ?? { enrolled: 0, byStatus: {}, notMailable: 0, contacted: 0, repliedLeads: 0, emailsLeft: 0, dueNow: 0, nextDueAt: null, lastSentAt: null };
   const delivery = t.delivery ?? { accepted: 0, reported: 0, noReport: 0 };
   const stepStats: any[] = t.stepStats ?? [];
   const mailboxStats: any[] = t.mailboxes ?? [];
@@ -430,13 +430,10 @@ export default function CampaignAnalytics({ campaign, mailboxes }: { campaign: a
     { title: 'Unsubscribed', value: count(t.unsubscribed), icon: UserMinus, color: '#64748b', sub: 'Opted out of mailings' },
   ];
 
-  // Every enrollment status, in a fixed order, zeros included; a stopped campaign's Active leads show as Stopped.
-  const knownStatuses = new Set(ENROLLMENT_STATES.map((s) => s.status));
-  const progressRows: BarRow[] = [
-    ...ENROLLMENT_STATES.map((state) => (stopped && state.status === 'Active' ? STOPPED_ACTIVE_STATE : state)),
-    ...Object.keys(progress.byStatus ?? {}).filter((status) => !knownStatuses.has(status))
-      .map((status) => ({ status, label: status, description: 'An enrollment status this page does not describe.' })),
-  ].map((state) => ({ key: state.status, label: state.label, description: state.description, value: progress.byStatus?.[state.status] ?? 0 }));
+  // Every enrollment status, in a fixed order, zeros included; a stopped campaign's Active leads show as Stopped,
+  // and Active leads that may no longer be emailed are listed apart from those still to get a step.
+  const progressRows: BarRow[] = leadProgressRows(progress.byStatus ?? {}, progress.notMailable ?? 0, stopped)
+    .map((state) => ({ key: state.status, label: state.label, description: state.description, value: state.value }));
 
   // What delivery reports said, as shares of the emails a report arrived for, as the Delivered tile's rate is.
   const deliveryRows: BarRow[] = [
@@ -455,8 +452,8 @@ export default function CampaignAnalytics({ campaign, mailboxes }: { campaign: a
 
   const waitingTitle = stopped ? 'Stopped Here' : 'Waiting';
   const waitingDefinition = stopped
-    ? 'Leads whose next email is this step, held while the campaign is stopped. A restart continues them from it.'
-    : 'Leads in the sequence whose next email is this step.';
+    ? 'Leads whose next email is this step, held while the campaign is stopped. A restart continues them from it. Leads that may no longer be emailed are left out.'
+    : 'Leads in the sequence whose next email is this step. Leads that may no longer be emailed are left out.';
 
   return (
     <Stack spacing={3}>

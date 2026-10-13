@@ -195,6 +195,42 @@ export function bothZones(
 }
 
 /**
+ * When the leads waiting for a step next go out, for a page that is given
+ * neither the campaign's time zone nor its schedule (the campaigns list): the
+ * instant, with the short name and UTC offset the campaign's zone has then, so
+ * the page can write the time as the campaign reads it.
+ */
+export type NextSend = { at: string; zone: string; offsetMinutes: number };
+
+/**
+ * The NextSend of leads whose earliest send date is `nextDueAt`: that date, or
+ * now once it has passed or when they have none, moved to the next opening of
+ * the sending window when it is closed then (sendTime). Null without a complete
+ * sending schedule, since nothing is sent then.
+ */
+export function nextSend(timezone: unknown, schedule: unknown, nextDueAt: Instant | null | undefined, now: Date): NextSend | null {
+  if (!hasSendingSchedule(timezone, schedule)) return null;
+  const due = nextDueAt ? new Date(nextDueAt).getTime() : NaN;
+  const { at } = sendTime(timezone, schedule, new Date(Number.isNaN(due) ? now.getTime() : Math.max(due, now.getTime())));
+  return { at: at.toISOString(), zone: zoneShortName(at, timezone as string), offsetMinutes: utcOffsetMinutes(at, timezone as string) };
+}
+
+/**
+ * A NextSend as the campaign's zone reads it, "Thu 15 Oct, 05:00 CDT", and as
+ * the viewer's does, without the zone's name; `viewer` is null when both read
+ * the same time then, as in bothZones.
+ */
+export function nextSendTimes(send: NextSend, viewerZone: string | null | undefined, locale?: string): { campaign: string; viewer: string | null } {
+  const at = new Date(send.at);
+  // The campaign's wall clock then, written through UTC since the page has no zone to format it in.
+  const wallClock = new Date(at.getTime() + send.offsetMinutes * MINUTE_MS);
+  return {
+    campaign: `${zonedDateTime(wallClock, 'UTC', { zoneName: false, locale })} ${send.zone}`,
+    viewer: send.offsetMinutes === utcOffsetMinutes(at, viewerZone) ? null : zonedDateTime(at, viewerZone, { zoneName: false, locale }),
+  };
+}
+
+/**
  * The earliest the last email of a campaign's sequence can go out, by wait
  * days alone. A lead waiting for step s gets it no earlier than its send date
  * (or now, once that has passed), and each later step its wait days after the

@@ -18,6 +18,8 @@ import {
 import { alpha } from '@mui/material/styles';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { queuedLeadsMessage } from '@/lib/campaignSteps';
+import { sequenceCounts, sequenceHeadline, stepRowState, stepWaitText } from '@/lib/campaignListPanel';
+import { type NextSend, nextSendTimes, viewerTimeZone } from '@/lib/campaignTiming';
 import { autoResumeNote, ownerDisabledNote } from '@/lib/campaignPause';
 import { STOPPABLE_STATUSES, STOPPED_STATUS, restartConfirmMessage, stopConfirmMessage, stoppedNote } from '@/lib/campaignStop';
 import { LoadError, loadErrorMessage, readJsonList, readJsonObject } from '@/lib/apiResponse';
@@ -43,8 +45,10 @@ interface DbCampaign {
   // (payloads at scale OOM'd the server).
   // `leads`: the leads the step's sent emails reached, each once however often it got the step.
   // `reported`: its sent emails a delivery report arrived for; with none, `delivered` is unknown, not 0.
-  stepStats?: { stepOrder: number; active: number; sent: number; delivered: number; reported: number; failed: number; leads: number }[];
-  enrollmentSummary?: { total: number; active: number; completed: number };
+  // `active`: the leads waiting for the step that can still be emailed; `nextSend`: when they next go out.
+  stepStats?: { stepOrder: number; active: number; sent: number; delivered: number; reported: number; failed: number; leads: number; nextSend?: NextSend | null }[];
+  // `notMailable`: Active enrollments whose lead may no longer be emailed, so no step counts them.
+  enrollmentSummary?: { total: number; active: number; completed: number; notMailable?: number };
 }
 
 const statusColorMap = { Active: 'success', Draft: 'default', Paused: 'warning', Stopped: 'error' } as const;
@@ -262,6 +266,8 @@ export default function CampaignsPage() {
   };
 
   const filteredCampaigns = campaigns.filter(c => c.name.toLowerCase().includes(search.toLowerCase()));
+  // Send times are given in the campaign's time zone and, where it reads differently, in the viewer's.
+  const viewerZone = viewerTimeZone();
 
   return (
     <Box sx={{ maxWidth: 1100, mx: 'auto', pb: 4, display: 'flex', flexDirection: 'column', gap: 3 }}>
@@ -340,6 +346,8 @@ export default function CampaignsPage() {
                   const ownerNote = ownerDisabledNote(campaign);
                   const stopNote = stoppedNote(campaign);
                   const stopped = campaign.status === STOPPED_STATUS;
+                  const steps = campaign.steps ?? [];
+                  const stepStats = campaign.stepStats ?? [];
                   return (
                     <Fragment key={campaign.id}>
                       <TableRow hover onClick={() => setExpandedCampaignId(isExpanded ? null : campaign.id)} sx={{ cursor: 'pointer', bgcolor: isExpanded ? 'action.hover' : undefined }}>
@@ -404,15 +412,15 @@ export default function CampaignsPage() {
                       {isExpanded && (
                         <TableRow sx={{ bgcolor: 'action.hover' }}>
                           <TableCell colSpan={5} sx={{ p: 3 }}>
-                            <Stack spacing={2.5}>
-                              <Stack direction={{ xs: 'column', md: 'row' }} sx={{ justifyContent: 'space-between', alignItems: { md: 'center' }, gap: 1.5, pb: 1.5, borderBottom: 1, borderColor: 'divider' }}>
-                                <Box>
-                                  <Typography variant="overline" sx={{ color: 'text.secondary', fontWeight: 700 }}>Sequence Tracking Overview</Typography>
-                                  <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                                    {campaign.name} is in <Box component="span" sx={{ color: 'primary.main', fontWeight: 800 }}>{campaign.status}</Box> mode.
+                            <Stack spacing={2}>
+                              <Stack direction={{ xs: 'column', md: 'row' }} sx={{ justifyContent: 'space-between', alignItems: { md: 'center' }, gap: 1.5 }}>
+                                <Box sx={{ minWidth: 0 }}>
+                                  <Typography variant="subtitle1" sx={{ fontWeight: 700, lineHeight: 1.4 }}>
+                                    {sequenceHeadline(campaign, new Date(), (send) => nextSendTimes(send, viewerZone).campaign)}
                                   </Typography>
+                                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>{sequenceCounts(stepStats, campaign.enrollmentSummary)}</Typography>
                                 </Box>
-                                <Stack direction="row" spacing={1}>
+                                <Stack direction="row" spacing={1} sx={{ flexShrink: 0 }}>
                                   {resumeNote && (
                                     <Button
                                       size="small" variant="outlined" color="inherit"
@@ -454,96 +462,145 @@ export default function CampaignsPage() {
                                     </>
                                   )}
                                   {campaign.status === 'Active' && (
-                                    <Button
-                                      size="small" variant="contained"
-                                      startIcon={executingId === campaign.id ? <Loader2 size={12} className="animate-spin" /> : <PlayCircle size={12} />}
-                                      onClick={() => handleRunCampaign(campaign.id)}
-                                      disabled={executingId !== null}
-                                    >
-                                      {executingId === campaign.id ? 'Running…' : 'Run Now'}
-                                    </Button>
+                                    <MuiTooltip title="Queue the leads that are due now. A lead still waiting out a step's wait days stays put.">
+                                      <Box component="span">
+                                        <Button
+                                          size="small" variant="outlined" color="inherit"
+                                          startIcon={executingId === campaign.id ? <Loader2 size={12} className="animate-spin" /> : <PlayCircle size={12} />}
+                                          onClick={() => handleRunCampaign(campaign.id)}
+                                          disabled={executingId !== null}
+                                          sx={{ borderColor: 'divider' }}
+                                        >
+                                          {executingId === campaign.id ? 'Running…' : 'Run Now'}
+                                        </Button>
+                                      </Box>
+                                    </MuiTooltip>
                                   )}
                                 </Stack>
                               </Stack>
 
-                              {(!campaign.steps || campaign.steps.length === 0) ? (
-                                <Typography variant="caption" sx={{ color: 'text.secondary', textAlign: 'center', py: 4, display: 'block' }}>
-                                  No email steps configured yet. Please configure the campaign sequence to add dispatches.
+                              {steps.length === 0 ? (
+                                <Typography variant="body2" sx={{ color: 'text.secondary', py: 2 }}>
+                                  This campaign has no steps yet. Add them on its Sequence tab.
                                 </Typography>
                               ) : (
-                                <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', gap: 1.5, py: 1 }}>
-                                  {campaign.steps.map((step, idx) => {
-                                    const stats = campaign.stepStats?.find(s => s.stepOrder === step.stepOrder);
-                                    const activeLeadsCount = stats?.active || 0;
-                                    const isActiveStep = activeLeadsCount > 0;
-                                    const sentCount = stats?.sent || 0;
-                                    // The leads the step's sent emails went to, each once: fewer than the
-                                    // emails where a lead got the step more than once.
-                                    const sentLeads = stats?.leads || 0;
-                                    const deliveredCount = stats?.delivered || 0;
-                                    // With no delivery report for any of its emails, Delivered is unknown rather than 0.
-                                    // Else it counts only the emails a report arrived for, so the card names them.
-                                    const reportedCount = stats?.reported || 0;
-                                    const deliveryUnknown = reportedCount === 0;
-                                    const failedCount = stats?.failed || 0;
-                                    const totalEnrolled = campaign.enrollmentSummary?.total || 0;
-                                    // The share of enrolled leads the step reached: leads, not emails, so a
-                                    // step sent to a lead twice never counts it twice.
-                                    const progressPercent = totalEnrolled > 0 ? Math.round((sentLeads / totalEnrolled) * 100) : 0;
-                                    return (
-                                      <Stack key={step.id} sx={{ alignItems: 'center', textAlign: 'center', gap: 0.75, position: 'relative', width: 150 }}>
-                                        <Chip size="small" label={`${activeLeadsCount} ${stopped ? 'stopped' : 'active'}`} color={isActiveStep ? 'primary' : 'default'} variant={isActiveStep ? 'filled' : 'outlined'} sx={{ height: 18, fontSize: 9, fontWeight: 800 }} />
-                                        <Box sx={{ width: 36, height: 36, borderRadius: '50%', display: 'grid', placeItems: 'center', fontFamily: 'monospace', fontWeight: 700, fontSize: 12,
-                                          bgcolor: isActiveStep ? 'primary.main' : 'background.paper',
-                                          color: isActiveStep ? 'primary.contrastText' : 'text.secondary',
-                                          border: isActiveStep ? 'none' : 1, borderColor: 'divider',
-                                          boxShadow: isActiveStep ? '0 0 12px rgba(37,99,235,0.4)' : 'none',
-                                        }}>{step.stepOrder}</Box>
-                                        <Card sx={{ width: '100%', p: 1, borderRadius: '12px' }}>
-                                          <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
-                                            <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={step.subject}>{step.subject || '(No Subject)'}</Typography>
-                                            {idx > 0 && <Typography sx={{ fontSize: 9, color: 'text.secondary', fontFamily: 'monospace', textTransform: 'uppercase', display: 'block', mb: 0.5 }}>Wait: {step.waitDays}d</Typography>}
-                                            <Box sx={{ mt: 0.75, pt: 0.75, borderTop: 1, borderColor: 'divider', display: 'flex', flexDirection: 'column', gap: 0.25 }}>
-                                              <Stack direction="row" sx={{ justifyContent: 'space-between', fontSize: 9 }}><Box component="span" sx={{ color: 'text.secondary' }}>{stopped ? 'Stopped here:' : 'To send:'}</Box><Box component="span" sx={{ fontWeight: 800, color: activeLeadsCount > 0 ? 'warning.main' : 'text.disabled' }}>{activeLeadsCount}</Box></Stack>
-                                              <Stack direction="row" sx={{ justifyContent: 'space-between', fontSize: 9 }}><Box component="span" sx={{ color: 'text.secondary' }}>Sent:</Box><Box component="span" sx={{ fontWeight: 800 }}>{sentCount}</Box></Stack>
-                                              {sentLeads > 0 && sentLeads !== sentCount && <Box component="span" sx={{ fontSize: 9, color: 'text.secondary', textAlign: 'right' }} title="Some leads got this step more than once. Progress counts each lead once.">to {sentLeads} {sentLeads === 1 ? 'lead' : 'leads'}</Box>}
-                                              {sentCount > 0 && <Stack direction="row" sx={{ justifyContent: 'space-between', fontSize: 9 }}><Box component="span" sx={{ color: 'text.secondary' }}>Delivered:</Box>{deliveryUnknown ? (
-                                                <MuiTooltip title={NO_DELIVERY_REPORTS_NOTE}>
-                                                  <Box component="span" tabIndex={0} aria-label="No delivery reports" sx={{ fontWeight: 800, color: 'text.secondary' }}>—</Box>
-                                                </MuiTooltip>
-                                              ) : <Box component="span" sx={{ fontWeight: 800, color: 'success.main' }}>{deliveredCount}</Box>}</Stack>}
-                                              {sentCount > 0 && !deliveryUnknown && reportedCount < sentCount && <Box component="span" sx={{ fontSize: 9, color: 'text.secondary', textAlign: 'right' }} title={PARTLY_REPORTED_NOTE}>of {reportedCount} reported</Box>}
-                                              {failedCount > 0 && <Stack direction="row" sx={{ justifyContent: 'space-between', fontSize: 9 }}><Box component="span" sx={{ color: 'text.secondary' }}>Failed:</Box><Box component="span" sx={{ fontWeight: 800, color: 'error.main' }}>{failedCount}</Box></Stack>}
-                                              {sentCount > 0 && <Stack direction="row" sx={{ justifyContent: 'space-between', fontSize: 9 }}><Box component="span" sx={{ color: 'text.secondary' }}>Progress:</Box><Box component="span" sx={{ fontWeight: 800, color: 'primary.main' }}>{progressPercent}%</Box></Stack>}
-                                            </Box>
-                                          </CardContent>
-                                        </Card>
-                                        {campaign.status === 'Active' && (
-                                          <MuiTooltip title={activeLeadsCount === 0 ? 'No leads are queued at this step' : `Send to ${activeLeadsCount} queued lead${activeLeadsCount === 1 ? '' : 's'}`}>
-                                            <Box component="span" sx={{ mt: 0.5 }}>
-                                              <Button size="small" variant="outlined" startIcon={<Send size={10} />} onClick={(e) => { e.stopPropagation(); handleRunCampaign(campaign.id, step.stepOrder); }} disabled={executingId !== null || activeLeadsCount === 0} sx={{ fontSize: 9, py: 0.25 }}>
-                                                Send Step
-                                              </Button>
-                                            </Box>
-                                          </MuiTooltip>
-                                        )}
-                                      </Stack>
-                                    );
-                                  })}
-                                  {/* End node */}
-                                  <Stack sx={{ alignItems: 'center', textAlign: 'center', gap: 0.75, width: 150 }}>
-                                    <Chip size="small" label="end" variant="outlined" sx={{ height: 18, fontSize: 9, fontWeight: 800, textTransform: 'uppercase', visibility: 'hidden' }} />
-                                    <Box sx={{ width: 36, height: 36, borderRadius: '50%', display: 'grid', placeItems: 'center', bgcolor: 'success.main', color: 'success.contrastText', boxShadow: '0 0 8px rgba(16,185,129,0.4)' }}>
-                                      <Check size={16} />
-                                    </Box>
-                                    <Box>
-                                      <Typography variant="caption" sx={{ fontWeight: 700, display: 'block' }}>Completed</Typography>
-                                      <Typography sx={{ fontSize: 9, color: 'success.main', fontWeight: 800, fontFamily: 'monospace', textTransform: 'uppercase' }}>
-                                        {campaign.enrollmentSummary?.completed || 0} leads
-                                      </Typography>
-                                    </Box>
-                                  </Stack>
-                                </Box>
+                                <>
+                                  {/* One segment per step: gone out, waiting to go, not reached yet. The rows below say the same in words. */}
+                                  <Box aria-hidden sx={{ display: 'grid', gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))`, gap: 0.5 }}>
+                                    {steps.map((step) => {
+                                      const state = stepRowState(stepStats.find(s => s.stepOrder === step.stepOrder));
+                                      return <Box key={step.id} sx={{ height: 6, borderRadius: '3px', bgcolor: state === 'waiting' ? 'primary.main' : state === 'sent' ? 'text.secondary' : 'divider' }} />;
+                                    })}
+                                  </Box>
+                                  <Box sx={{ overflowX: 'auto' }}>
+                                    <Table size="small" sx={{ '& td, & th': { borderColor: 'divider' }, '& td': { fontVariantNumeric: 'tabular-nums' } }}>
+                                      <TableHead>
+                                        <TableRow sx={{ '& th': { fontSize: 12, fontWeight: 600, color: 'text.secondary', whiteSpace: 'nowrap' } }}>
+                                          <TableCell>Step</TableCell>
+                                          <TableCell>State</TableCell>
+                                          <TableCell align="right">{stopped ? 'Stopped Here' : 'Waiting'}</TableCell>
+                                          <TableCell align="right">Sent</TableCell>
+                                          <TableCell align="right">Delivered</TableCell>
+                                          <TableCell />
+                                        </TableRow>
+                                      </TableHead>
+                                      <TableBody>
+                                        {steps.map((step) => {
+                                          const stats = stepStats.find(s => s.stepOrder === step.stepOrder);
+                                          const state = stepRowState(stats);
+                                          const waitingCount = stats?.active || 0;
+                                          const sentCount = stats?.sent || 0;
+                                          // The leads the step's sent emails went to, each once: fewer than the
+                                          // emails where a lead got the step more than once.
+                                          const sentLeads = stats?.leads || 0;
+                                          // With no delivery report for any of its emails, Delivered is unknown rather than 0.
+                                          // Else it counts only the emails a report arrived for, so the row names them.
+                                          const reportedCount = stats?.reported || 0;
+                                          const failedCount = stats?.failed || 0;
+                                          const send = stats?.nextSend ?? null;
+                                          const sendTimes = send ? nextSendTimes(send, viewerZone) : null;
+                                          const dueNow = !!send && new Date(send.at).getTime() <= Date.now();
+                                          const sendingStep = executingId === `${campaign.id}-${step.stepOrder}`;
+                                          const stateIcon = { display: 'flex', alignItems: 'center', gap: 0.75 };
+                                          return (
+                                            <TableRow
+                                              key={step.id}
+                                              sx={{
+                                                bgcolor: state === 'waiting' ? (t) => alpha(t.palette.primary.main, 0.07) : undefined,
+                                                '& td': { color: state === 'upcoming' ? 'text.secondary' : undefined },
+                                                '&:last-child td': { borderBottom: 0 },
+                                              }}
+                                            >
+                                              <TableCell sx={{ maxWidth: 340 }}>
+                                                <Stack direction="row" spacing={1.5} sx={{ alignItems: 'baseline', minWidth: 0 }}>
+                                                  <Box component="span" sx={{ fontFamily: 'monospace', fontWeight: 700, flexShrink: 0, minWidth: 16, color: state === 'waiting' ? 'primary.main' : 'text.secondary' }}>{step.stepOrder}</Box>
+                                                  <Typography variant="body2" noWrap title={step.subject} sx={{ fontWeight: state === 'waiting' ? 700 : 500 }}>{step.subject || '(No Subject)'}</Typography>
+                                                </Stack>
+                                              </TableCell>
+                                              <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                                                {state === 'sent' ? (
+                                                  <Box sx={{ ...stateIcon, color: 'text.secondary' }}><Check size={14} /> Sent</Box>
+                                                ) : state === 'upcoming' ? (
+                                                  stepWaitText(steps, step.stepOrder)
+                                                ) : stopped ? (
+                                                  <Box sx={stateIcon}><CircleStop size={14} /> Held while stopped</Box>
+                                                ) : campaign.status === 'Paused' ? (
+                                                  <Box sx={stateIcon}><Pause size={14} /> Held while paused</Box>
+                                                ) : campaign.status !== 'Active' ? (
+                                                  'Not published'
+                                                ) : !sendTimes ? (
+                                                  campaign.hasSendingSchedule ? 'Waiting' : 'No sending schedule'
+                                                ) : dueNow ? (
+                                                  <Box sx={{ ...stateIcon, color: 'primary.main', fontWeight: 700 }}><Send size={14} /> Due now</Box>
+                                                ) : (
+                                                  <>
+                                                    <Box sx={{ ...stateIcon, color: 'primary.main', fontWeight: 700 }}><Clock size={14} /> {sendTimes.campaign}</Box>
+                                                    {sendTimes.viewer && <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', pl: '22px' }}>{sendTimes.viewer} your time</Typography>}
+                                                  </>
+                                                )}
+                                              </TableCell>
+                                              <TableCell align="right" sx={{ fontWeight: waitingCount > 0 ? 700 : 400, color: waitingCount > 0 ? undefined : 'text.disabled' }}>
+                                                {waitingCount.toLocaleString()}
+                                              </TableCell>
+                                              <TableCell align="right">
+                                                <Box component="span" sx={{ color: sentCount > 0 ? undefined : 'text.disabled' }}>{sentCount.toLocaleString()}</Box>
+                                                {sentLeads > 0 && sentLeads !== sentCount && (
+                                                  <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }} title="Some leads got this step more than once.">to {sentLeads.toLocaleString()} {sentLeads === 1 ? 'lead' : 'leads'}</Typography>
+                                                )}
+                                                {failedCount > 0 && <Typography variant="caption" sx={{ color: 'error.main', display: 'block' }}>{failedCount.toLocaleString()} failed</Typography>}
+                                              </TableCell>
+                                              <TableCell align="right">
+                                                {sentCount === 0 ? (
+                                                  <Box component="span" sx={{ color: 'text.disabled' }}>–</Box>
+                                                ) : reportedCount === 0 ? (
+                                                  <MuiTooltip title={NO_DELIVERY_REPORTS_NOTE}>
+                                                    <Box component="span" tabIndex={0} aria-label="No delivery reports" sx={{ color: 'text.secondary' }}>—</Box>
+                                                  </MuiTooltip>
+                                                ) : (
+                                                  <>
+                                                    {(stats?.delivered || 0).toLocaleString()}
+                                                    {reportedCount < sentCount && <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }} title={PARTLY_REPORTED_NOTE}>of {reportedCount.toLocaleString()} reported</Typography>}
+                                                  </>
+                                                )}
+                                              </TableCell>
+                                              <TableCell align="right" sx={{ width: 120 }}>
+                                                {campaign.status === 'Active' && waitingCount > 0 && (
+                                                  <MuiTooltip title={`Queue the ${waitingCount.toLocaleString()} ${waitingCount === 1 ? 'lead' : 'leads'} at this step now${dueNow ? '' : ', skipping the rest of the wait'}.`}>
+                                                    <Box component="span">
+                                                      <Button size="small" variant="outlined" startIcon={sendingStep ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />} onClick={(e) => { e.stopPropagation(); handleRunCampaign(campaign.id, step.stepOrder); }} disabled={executingId !== null} sx={{ whiteSpace: 'nowrap' }}>
+                                                        Send Step
+                                                      </Button>
+                                                    </Box>
+                                                  </MuiTooltip>
+                                                )}
+                                              </TableCell>
+                                            </TableRow>
+                                          );
+                                        })}
+                                      </TableBody>
+                                    </Table>
+                                  </Box>
+                                </>
                               )}
                             </Stack>
                           </TableCell>

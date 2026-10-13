@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   durationText, windowState, sendTime, scheduleSummary, zonedDateTime, zonedClock, zonedDate, utcOffsetMinutes, utcOffsetText,
-  zoneShortName, zoneLabel, zoneDifferenceText, bothZones, earliestFinish,
+  zoneShortName, zoneLabel, zoneDifferenceText, bothZones, earliestFinish, nextSend, nextSendTimes,
 } from '../../lib/campaignTiming';
 import { checkSendingWindow, nextWindowClosing, nextWindowOpening } from '../../lib/sendSchedule';
 
@@ -362,5 +362,55 @@ describe('earliestFinish', () => {
     expect(earliestFinish(steps, [], now)).toBeNull();
     expect(earliestFinish(steps, [{ stepOrder: 1, active: 0, lastDueAt: null }], now)).toBeNull();
     expect(earliestFinish([], [{ stepOrder: 1, active: 3, lastDueAt: null }], now)).toBeNull();
+  });
+});
+
+describe('nextSend', () => {
+  const now = at('2026-06-08T10:00:00Z'); // Monday, inside office hours
+
+  it('is the send date when the window is open then, and the next opening when it is not', () => {
+    expect(nextSend('UTC', OFFICE_HOURS, at('2026-06-09T10:30:00Z'), now)).toEqual({ at: '2026-06-09T10:30:00.000Z', zone: 'UTC', offsetMinutes: 0 });
+    // Saturday: held until Monday 09:00.
+    expect(nextSend('UTC', OFFICE_HOURS, at('2026-06-13T10:30:00Z'), now)?.at).toBe('2026-06-15T09:00:00.000Z');
+  });
+
+  it('counts a send date already passed, or none, as now', () => {
+    expect(nextSend('UTC', OFFICE_HOURS, at('2026-06-01T10:00:00Z'), now)?.at).toBe(now.toISOString());
+    expect(nextSend('UTC', OFFICE_HOURS, null, now)?.at).toBe(now.toISOString());
+    // Long due, but asked after the window closed on Monday: Tuesday 09:00.
+    expect(nextSend('UTC', OFFICE_HOURS, at('2026-06-01T10:00:00Z'), at('2026-06-08T20:00:00Z'))?.at).toBe('2026-06-09T09:00:00.000Z');
+  });
+
+  it("carries the campaign zone's short name and offset then, and reads a send date given as text", () => {
+    const early = { days: WEEKDAYS, window: { start: '05:00', end: '16:00' } };
+    expect(nextSend('America/Chicago', early, '2026-10-15T10:00:18.342Z', at('2026-10-13T14:00:00Z')))
+      .toEqual({ at: '2026-10-15T10:00:18.342Z', zone: 'CDT', offsetMinutes: -300 });
+    // In winter the same zone is an hour further from UTC.
+    expect(nextSend('America/Chicago', early, '2026-12-15T12:00:00Z', at('2026-12-14T14:00:00Z')))
+      .toEqual({ at: '2026-12-15T12:00:00.000Z', zone: 'CST', offsetMinutes: -360 });
+  });
+
+  it('is null without a complete sending schedule, since nothing is sent then', () => {
+    expect(nextSend('UTC', null, at('2026-06-09T10:30:00Z'), now)).toBeNull();
+    expect(nextSend('Not/AZone', OFFICE_HOURS, at('2026-06-09T10:30:00Z'), now)).toBeNull();
+  });
+});
+
+describe('nextSendTimes', () => {
+  const send = { at: '2026-10-15T10:00:00.000Z', zone: 'CDT', offsetMinutes: -300 };
+
+  it("writes the time as the campaign's zone reads it, and as the viewer's does when that differs", () => {
+    expect(nextSendTimes(send, 'Asia/Colombo', 'en-US')).toEqual({ campaign: 'Thu, Oct 15, 05:00 CDT', viewer: 'Thu, Oct 15, 15:30' });
+    expect(nextSendTimes(send, 'Asia/Colombo', 'en-GB').campaign).toBe('Thu 15 Oct, 05:00 CDT');
+  });
+
+  it('gives the time once when both zones read the same then', () => {
+    expect(nextSendTimes(send, 'America/Chicago', 'en-US')).toEqual({ campaign: 'Thu, Oct 15, 05:00 CDT', viewer: null });
+  });
+
+  it('keeps the date the campaign reads when it is another day there', () => {
+    // 02:00 UTC on Friday is still Thursday evening in Chicago.
+    expect(nextSendTimes({ at: '2026-10-16T02:00:00.000Z', zone: 'CDT', offsetMinutes: -300 }, 'UTC', 'en-US'))
+      .toEqual({ campaign: 'Thu, Oct 15, 21:00 CDT', viewer: 'Fri, Oct 16, 02:00' });
   });
 });

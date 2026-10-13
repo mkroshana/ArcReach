@@ -3,6 +3,7 @@ import { hashPassword } from '@/lib/auth';
 import { stepMetrics } from '@/lib/engagementMetrics';
 import { devSeedRefusal } from '@/lib/devSeed';
 import type { PauseReason } from '@/lib/campaignPause';
+import { nextSend } from '@/lib/campaignTiming';
 import { sendableLeadWhere } from '@/lib/sendableLead';
 import { hasSendingSchedule } from '@/lib/sendSchedule';
 
@@ -109,7 +110,9 @@ export const db = {
    * its emails a delivery report arrived for: with none, Delivered is unknown.
    * A step's `active` counts the leads the send engine can still send it to: an
    * Active enrollment whose lead was archived, unsubscribed, bounced or found
-   * invalid since stays on its step and gets nothing, so it is left out.
+   * invalid since stays on its step and gets nothing, so it is left out and
+   * counted in the summary's `notMailable`. A step with waiting leads carries
+   * when they next go out (`nextSend`, lib/campaignTiming).
    * Selects only what the campaigns list shows: step bodies, the sender pool
    * and mailbox rows stay with the campaign page, which loads one campaign.
    */
@@ -147,17 +150,26 @@ export const db = {
         by: ['campaignId', 'currentSequenceStep'],
         where: { campaignId: { in: ids }, status: 'Active', lead: sendableLeadWhere() },
         _count: { id: true },
+        _min: { nextActionDate: true },
       }),
       stepMetrics(prisma, ids, { leads: true }),
     ]);
 
+    const now = new Date();
     return campaigns.map(({ timezone, sendSchedule, ...c }) => {
       const enrollments = enrollByStatus.filter((e) => e.campaignId === c.id);
+      const waitingByStep = activeByStep.filter((a) => a.campaignId === c.id);
       const stepStats = c.steps.map((s) => {
-        const active = activeByStep.find((a) => a.campaignId === c.id && a.currentSequenceStep === s.stepOrder)?._count.id || 0;
+        const waiting = waitingByStep.find((a) => a.currentSequenceStep === s.stepOrder);
+        const active = waiting?._count.id || 0;
         const { sent, delivered, reported, failed, leads } = stepCounts(c.id, s.stepOrder);
-        return { stepOrder: s.stepOrder, active, sent, delivered, reported, failed, leads };
+        return {
+          stepOrder: s.stepOrder, active, sent, delivered, reported, failed, leads,
+          // When an Active campaign's waiting leads next go out, worked out here so the window itself is not shipped.
+          nextSend: c.status === 'Active' && active > 0 ? nextSend(timezone, sendSchedule, waiting?._min.nextActionDate, now) : null,
+        };
       });
+      const activeCount = enrollments.find((e) => e.status === 'Active')?._count.id || 0;
       return {
         ...c,
         // Only whether the saved window is complete, not the window: without
@@ -166,8 +178,10 @@ export const db = {
         stepStats,
         enrollmentSummary: {
           total: enrollments.reduce((n, e) => n + e._count.id, 0),
-          active: enrollments.find((e) => e.status === 'Active')?._count.id || 0,
+          active: activeCount,
           completed: enrollments.find((e) => e.status === 'Completed')?._count.id || 0,
+          // Of the Active ones, those whose lead may no longer be emailed.
+          notMailable: Math.max(0, activeCount - waitingByStep.reduce((n, a) => n + a._count.id, 0)),
         },
       };
     });

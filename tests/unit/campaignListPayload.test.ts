@@ -164,7 +164,7 @@ describe('GET /api/campaigns returns list fields only (M40)', () => {
 
     const [campaign] = await (await getCampaigns()).json();
 
-    expect(campaign.stepStats[0]).toEqual({ stepOrder: 1, active: 0, sent: 5, delivered: 0, reported: 0, failed: 0, leads: 3 });
+    expect(campaign.stepStats[0]).toEqual({ stepOrder: 1, active: 0, sent: 5, delivered: 0, reported: 0, failed: 0, leads: 3, nextSend: null });
     expect(campaign.stepStats[1]).toMatchObject({ sent: 0, leads: 0 });
     // One grouped query for every campaign's steps, not one per campaign.
     expect(fake.$queryRaw).toHaveBeenCalledTimes(1);
@@ -209,7 +209,42 @@ describe('GET /api/campaigns returns list fields only (M40)', () => {
     const [campaign] = await (await getCampaigns()).json();
 
     expect(campaign.stepStats.map((s: any) => [s.stepOrder, s.active])).toEqual([[1, 1], [2, 1]]);
-    expect(campaign.enrollmentSummary).toEqual({ total: 7, active: 6, completed: 1 });
+    expect(campaign.enrollmentSummary).toEqual({ total: 7, active: 6, completed: 1, notMailable: 4 });
+  });
+
+  it("says when an Active campaign's waiting leads next go out, by their earliest send date and its sending window", async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    // A Monday, inside cmp-1's window (Mondays 09:00 to 17:00 UTC).
+    const now = new Date('2026-06-08T10:00:00.000Z');
+    vi.setSystemTime(now);
+    try {
+      const lead = (over: Record<string, unknown> = {}) => ({ status: 'Neutral', isArchived: false, validationStatus: 'Valid', ...over });
+      const enrollments = [
+        // Step 1: due since last week, so it goes out now. The archived lead's older date is not a send date.
+        { id: 'e1', campaignId: 'cmp-1', status: 'Active', currentSequenceStep: 1, nextActionDate: new Date('2026-06-02T10:00:00.000Z'), lead: lead() },
+        { id: 'e2', campaignId: 'cmp-1', status: 'Active', currentSequenceStep: 1, nextActionDate: new Date('2026-05-01T10:00:00.000Z'), lead: lead({ isArchived: true }) },
+        // Step 2: due on Wednesday, when the window is closed, so held until the next Monday.
+        { id: 'e3', campaignId: 'cmp-1', status: 'Active', currentSequenceStep: 2, nextActionDate: new Date('2026-06-12T10:00:00.000Z'), lead: lead() },
+        { id: 'e4', campaignId: 'cmp-1', status: 'Active', currentSequenceStep: 2, nextActionDate: new Date('2026-06-10T10:00:00.000Z'), lead: lead() },
+      ];
+      fake.campaignEnrollment.groupBy.mockImplementation(async (args: any) => groupRows(enrollments, args, { lead: (row) => row.lead }));
+
+      const [campaign] = await (await getCampaigns()).json();
+      expect(campaign.stepStats.map((s: any) => s.nextSend)).toEqual([
+        { at: now.toISOString(), zone: 'UTC', offsetMinutes: 0 },
+        { at: '2026-06-15T09:00:00.000Z', zone: 'UTC', offsetMinutes: 0 },
+      ]);
+      // Worked out on the server, so the window itself still stays there.
+      expect(campaign).not.toHaveProperty('sendSchedule');
+      expect(campaign).not.toHaveProperty('timezone');
+
+      // A campaign that is not Active sends nothing, so it has no next send.
+      campaigns[0].status = 'Paused';
+      const [paused] = await (await getCampaigns()).json();
+      expect(paused.stepStats.map((s: any) => [s.active, s.nextSend])).toEqual([[1, null], [2, null]]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('lists every campaign for an ADMIN, still without bodies', async () => {

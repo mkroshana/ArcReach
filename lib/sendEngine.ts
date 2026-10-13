@@ -21,6 +21,7 @@ import {
   sendersForRecipient,
 } from './senderRouting';
 import { type MailProviders, mailProvidersFor } from './mailProviderLookup';
+import { skipEmailedLeads, storedSkipCampaignIds } from './campaignSkip';
 import type { PauseReason } from './campaignPause';
 
 /** Most due auto-resumes one call ends; any others are ended by the next send cycle's call. */
@@ -1047,6 +1048,16 @@ export async function processDueEmails() {
       // Pick a sender from the campaign's pool per send (least-loaded under cap)
       const campaignPool = senderPools.get(campaign.id);
       if (!campaignPool) continue; // set back to Draft (no complete schedule) or paused (no sender mailbox its owner owns) above
+
+      // A lead that a campaign this one skips the leads of has emailed gets
+      // nothing more from this one (lib/campaignSkip). Checked here as well as
+      // when the list is saved, since that campaign may have emailed the lead
+      // since, earlier in this cycle included.
+      const skipCampaignIds = storedSkipCampaignIds(campaign.skipLeadsEmailedBy);
+      if (skipCampaignIds.length > 0 && (await skipEmailedLeads(prisma, campaign.id, skipCampaignIds, [lead.id])) > 0) {
+        console.log(`[SendEngine] Campaign "${campaign.name}" (${campaign.id}) skips lead ${lead.email}: a campaign it skips the leads of has emailed it.`);
+        continue;
+      }
 
       const routes: SenderRoutes = senderRoutes.get(campaign.id) ?? new Map();
       const leadDomain = recipientDomainOf(lead.email);

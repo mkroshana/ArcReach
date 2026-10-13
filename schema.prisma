@@ -163,7 +163,12 @@ model Campaign {
   // commits (lib/campaignCohort), so a sync that stopped part way leaves it
   // set and the next save runs the sync again.
   cohortSyncRequestedAt DateTime?
-  
+  // IDs of other campaigns whose leads this one skips (lib/campaignSkip): a lead
+  // one of them has emailed gets nothing from this campaign, and its enrollment
+  // here is marked Skipped. Empty: no lead is skipped. A campaign named here
+  // can't be deleted until it is taken out of the list.
+  skipLeadsEmailedBy String[]          @default([])
+
   steps           CampaignStep[]
   enrollments     CampaignEnrollment[]
   dispatches      EmailDispatch[]
@@ -316,7 +321,7 @@ model CampaignEnrollment {
   lead                Lead       @relation(fields: [leadId], references: [id], onDelete: Cascade)
   campaign            Campaign   @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   
-  status              String     @default("Active") // Enrollment status: Active, Paused, Bounced, Completed
+  status              String     @default("Active") // Enrollment status: Active, Paused, Bounced, Completed, Failed, Removed, Skipped
   enrolledAt          DateTime   @default(now())
 
   // Sequence Execution State per campaign (moved from Lead for multiple concurrent campaigns support)

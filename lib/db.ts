@@ -6,6 +6,7 @@ import type { PauseReason } from '@/lib/campaignPause';
 import { nextSend } from '@/lib/campaignTiming';
 import { sendableLeadWhere } from '@/lib/sendableLead';
 import { hasSendingSchedule } from '@/lib/sendSchedule';
+import { SKIPPED_ENROLLMENT_STATUS } from '@/lib/campaignSkip';
 
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient | undefined };
 
@@ -112,7 +113,9 @@ export const db = {
    * Active enrollment whose lead was archived, unsubscribed, bounced or found
    * invalid since stays on its step and gets nothing, so it is left out and
    * counted in the summary's `notMailable`. A step with waiting leads carries
-   * when they next go out (`nextSend`, lib/campaignTiming).
+   * when they next go out (`nextSend`, lib/campaignTiming). The summary's
+   * `skipped` counts the leads the campaign skips because a campaign it names
+   * (`skipLeadsEmailedBy`, lib/campaignSkip) has emailed them.
    * Selects only what the campaigns list shows: step bodies, the sender pool
    * and mailbox rows stay with the campaign page, which loads one campaign.
    */
@@ -131,6 +134,7 @@ export const db = {
         sendSchedule: true,
         userId: true,
         createdAt: true,
+        skipLeadsEmailedBy: true,
         senderAccount: { select: { emailAddress: true } },
         user: { select: { id: true, name: true, email: true } },
         steps: { orderBy: { stepOrder: 'asc' }, select: { id: true, stepOrder: true, waitDays: true, subject: true } },
@@ -182,6 +186,7 @@ export const db = {
           completed: enrollments.find((e) => e.status === 'Completed')?._count.id || 0,
           // Of the Active ones, those whose lead may no longer be emailed.
           notMailable: Math.max(0, activeCount - waitingByStep.reduce((n, a) => n + a._count.id, 0)),
+          skipped: enrollments.find((e) => e.status === SKIPPED_ENROLLMENT_STATUS)?._count.id || 0,
         },
       };
     });

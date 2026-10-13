@@ -24,10 +24,11 @@ import { isHtmlTemplate, personalizePreview, previewEmailBody } from '@/lib/pers
 import { mailboxReplySync, mailboxReplySyncLabel, otherReplyTo, stopOnReplyWarning } from '@/lib/imapSyncStatus';
 import { loadErrorMessage, readJsonList, responseErrorMessage } from '@/lib/apiResponse';
 import { effectiveRecipientDomains, routingSummary, storedRecipientDomains, unroutedPoolError } from '@/lib/senderRouting';
+import { skippedByText, skippedLeadsNote } from '@/lib/campaignProgress';
 import {
   Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
   Select, MenuItem, FormControl, InputLabel, Switch, Skeleton, ToggleButtonGroup, ToggleButton,
-  Checkbox, FormControlLabel, Alert, AlertTitle,
+  Checkbox, FormControlLabel, Alert, AlertTitle, Autocomplete,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 
@@ -55,6 +56,10 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
   const [campaignName, setCampaignName] = useState('');
   const [status, setStatus] = useState('Draft');
   const [audienceCohort, setAudienceCohort] = useState('Valid');
+  // IDs of the campaigns whose emailed leads this one skips (lib/campaignSkip).
+  const [skipCampaignIds, setSkipCampaignIds] = useState<string[]>([]);
+  // The campaigns the viewer may see, for that picker.
+  const [allCampaigns, setAllCampaigns] = useState<any[]>([]);
   const [runningCampaign, setRunningCampaign] = useState(false);
   const [keepingPaused, setKeepingPaused] = useState(false);
   const [changingStatus, setChangingStatus] = useState(false);
@@ -91,7 +96,8 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
   const loadTemplates = () => loadList('templates', '/api/templates', 'Templates', setTemplates);
   const loadGroups = () => loadList('groups', '/api/leads/groups', 'Lead groups', setGroups);
   const loadMailboxes = () => loadList('mailboxes', '/api/accounts', 'Mailboxes', setAvailableMailboxes);
-  const listLoaders: Record<string, () => Promise<void>> = { templates: loadTemplates, groups: loadGroups, mailboxes: loadMailboxes };
+  const loadAllCampaigns = () => loadList('campaigns', '/api/campaigns', 'Campaigns', setAllCampaigns);
+  const listLoaders: Record<string, () => Promise<void>> = { templates: loadTemplates, groups: loadGroups, mailboxes: loadMailboxes, campaigns: loadAllCampaigns };
   const failedListMessages = Object.values(listErrors).filter(Boolean);
 
   const applyTemplate = (templateId: string) => {
@@ -128,6 +134,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
         setStatus(data.status || 'Draft');
         setTimezone(data.timezone || 'UTC');
         setAudienceCohort(data.audienceCohort || 'Valid');
+        setSkipCampaignIds(Array.isArray(data.skipLeadsEmailedBy) ? data.skipLeadsEmailedBy : []);
         setStopOnReply(data.stopOnReply !== false);
         setTrackOpens(data.trackOpens !== false);
         setTrackClicks(data.trackClicks !== false);
@@ -176,7 +183,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
     return () => clearInterval(interval);
   }, [campaignId, status, runningCampaign, !!campaign]);
 
-  useEffect(() => { loadCampaign(); loadTemplates(); loadGroups(); loadMailboxes(); }, [campaignId]);
+  useEffect(() => { loadCampaign(); loadTemplates(); loadGroups(); loadMailboxes(); loadAllCampaigns(); }, [campaignId]);
 
   // Step 1 is sent on enrollment, so it has no wait; follow-ups start at 3 days.
   const addStep = () => setSteps([...steps, { id: `temp-${Date.now()}`, waitDays: steps.length === 0 ? 0 : 3, subject: '', body: '' }]);
@@ -206,6 +213,23 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
   const waitingRefused: number = campaign?.telemetry?.progress?.waitingForSender?.refused ?? 0;
   const waitingUnrouted: number = campaign?.telemetry?.progress?.waitingForSender?.unrouted ?? 0;
   const leadsAre = (count: number) => `${count.toLocaleString()} ${count === 1 ? 'lead is' : 'leads are'}`;
+
+  // Skip Leads Emailed By (lib/campaignSkip): the other campaigns the viewer may
+  // see, by ID. One the campaign already names stays pickable by its saved name
+  // when the viewer's list does not have it.
+  const savedSkipIds: string[] = Array.isArray(campaign?.skipLeadsEmailedBy) ? campaign.skipLeadsEmailedBy : [];
+  const savedSkipSources: any[] = campaign?.telemetry?.progress?.skipped?.campaigns ?? [];
+  const skipCampaignName = (id: string): string | null =>
+    allCampaigns.find(c => c.id === id)?.name ?? savedSkipSources.find(s => s.id === id)?.name ?? null;
+  const skipOptionIds = Array.from(new Set([...allCampaigns.filter(c => c.id !== campaignId).map(c => c.id), ...skipCampaignIds]));
+  // How many leads are skipped for the saved list, and what a save of a changed one does.
+  const skipNote = skippedLeadsNote(campaign?.telemetry?.progress?.skipped, campaign?.telemetry?.progress?.enrolled ?? 0);
+  const skipListChanged = savedSkipIds.length !== skipCampaignIds.length || savedSkipIds.some(id => !skipCampaignIds.includes(id));
+  const removedSkipIds = savedSkipIds.filter(id => !skipCampaignIds.includes(id));
+  const skipChangeNote = !skipListChanged ? null
+    : removedSkipIds.length > 0
+      ? `Not saved yet. Saving puts the leads skipped only for ${skippedByText(removedSkipIds.map(skipCampaignName), Infinity)} back in the sequence where they were${status === 'Active' ? ', and those already due go out next' : ''}.`
+      : 'Not saved yet. Save to mark the leads these campaigns have emailed as Skipped.';
 
   // Save writes the form only, never the status, so a status this page shows from
   // before a pause elsewhere can't reactivate the campaign. Publish Sequence saves
@@ -250,6 +274,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
           name: campaignName, timezone,
           sendSchedule: clearSchedule ? null : schedule,
           stopOnReply, trackOpens, trackClicks, audienceCohort, steps,
+          skipLeadsEmailedBy: skipCampaignIds,
           senderAccountId: primarySenderId, senderAccountIds: savedPoolIds,
           senderRecipientDomains: Object.fromEntries(savedPoolIds.map(id => [id, poolDomains[id] ?? []])),
           updatedAt: editorVersion,
@@ -509,7 +534,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
           action={<Button color="inherit" size="small" startIcon={<RefreshCw size={14} />} onClick={() => Object.keys(listErrors).forEach(key => { if (listErrors[key]) listLoaders[key](); })}>Retry</Button>}
         >
           <AlertTitle>Some Choices Could Not Be Loaded</AlertTitle>
-          {failedListMessages.join(' ')} Use Template, Target CRM List and the Senders tab may be missing entries until they load.
+          {failedListMessages.join(' ')} Use Template, Target CRM List, Skip Leads Emailed By and the Senders tab may be missing entries until they load.
         </Alert>
       )}
 
@@ -759,11 +784,35 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                         {groups.map((g: any) => <MenuItem key={g.id} value={g.id}>Segment: {g.name} ({g._count?.leads || 0})</MenuItem>)}
                       </Select>
                     </FormControl>
+                    <Box>
+                      <Autocomplete
+                        multiple filterSelectedOptions size="small"
+                        options={skipOptionIds}
+                        getOptionLabel={(id) => skipCampaignName(id) ?? 'A campaign not in your list'}
+                        value={skipCampaignIds}
+                        disabled={stopped}
+                        onChange={(_, ids) => setSkipCampaignIds(ids)}
+                        noOptionsText="No other campaign"
+                        renderInput={(params) => (
+                          <TextField
+                            {...params} label="Skip Leads Emailed By"
+                            placeholder={skipCampaignIds.length === 0 ? 'Pick campaigns' : ''}
+                            helperText="Optional. A lead one of these campaigns has emailed gets nothing from this campaign and is counted as Skipped. Those campaigns go on emailing the lead."
+                          />
+                        )}
+                      />
+                      {skipNote && (
+                        <Typography variant="caption" sx={{ display: 'block', mt: 1, mx: 1.75, fontWeight: 600, color: 'text.secondary' }}>{skipNote}</Typography>
+                      )}
+                      {skipChangeNote && (
+                        <Typography variant="caption" sx={{ display: 'block', mt: 0.5, mx: 1.75, fontWeight: 600, color: 'warning.main' }}>{skipChangeNote}</Typography>
+                      )}
+                    </Box>
                     <Card sx={{ bgcolor: (t) => alpha(t.palette.primary.main, 0.06), borderColor: (t) => alpha(t.palette.primary.main, 0.2) }}>
                       <CardContent>
                         <Typography variant="overline" sx={{ color: 'primary.main', fontWeight: 700 }}>Active Enrollments</Typography>
                         <Typography variant="h4" sx={{ fontWeight: 700, mt: 0.5 }}>{campaign?.telemetry?.activeEnrollments || 0}</Typography>
-                        <Typography variant="caption" sx={{ color: 'primary.main' }}>Leads still in the sequence. Paused, completed, failed, bounced and removed leads are not counted.</Typography>
+                        <Typography variant="caption" sx={{ color: 'primary.main' }}>Leads still in the sequence. Paused, completed, failed, bounced, removed and skipped leads are not counted.</Typography>
                       </CardContent>
                     </Card>
                   </Stack>

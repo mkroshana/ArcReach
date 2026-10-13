@@ -146,12 +146,14 @@ function matchesEnrollment(e: EnrollmentRow, where: Record<string, any>): boolea
   });
 }
 
-/** Evaluates a lead filter, including `dispatches: { none }` against the in-memory dispatches. */
+/** Evaluates a lead filter, including `dispatches: { none }` and `dispatches: { some }` against the in-memory dispatches. */
 function matchesLead(leadId: string, where: Record<string, any>): boolean {
   return Object.entries(where).every(([key, cond]) => {
     if (key !== 'dispatches') return matchesValue((leads.get(leadId) as any)[key], cond);
-    if (Object.keys(cond).join() !== 'none') throw new Error(`Unmodelled filter: ${JSON.stringify(cond)}`);
-    return !dispatches.some((d) => d.leadId === leadId && matchesFields(d, cond.none));
+    const kind = Object.keys(cond).join();
+    if (kind !== 'none' && kind !== 'some') throw new Error(`Unmodelled filter: ${JSON.stringify(cond)}`);
+    const found = dispatches.some((d) => d.leadId === leadId && matchesFields(d, cond[kind]));
+    return kind === 'some' ? found : !found;
   });
 }
 
@@ -2092,5 +2094,95 @@ describe('processDueEmails sends a step again from another mailbox once its send
 
     expect(mockedSend).toHaveBeenCalledTimes(1);
     expect(dispatches.filter((d) => d.campaignId === 'cmp-1' && d.leadId === 'lead-1' && d.status === 'Sent')).toHaveLength(1);
+  });
+});
+
+describe('processDueEmails skips a lead that a campaign this one skips the leads of has emailed (lib/campaignSkip)', () => {
+  /** What cmp-1 has sent or tried to send to a lead. */
+  const ownDispatches = (leadId: string) => dispatches.filter((d) => d.campaignId === 'cmp-1' && d.leadId === leadId);
+  /** A sequence email the Win-Back campaign sent to lead-1. */
+  const winBackEmail = (row: Partial<DispatchRow> = {}) =>
+    addDispatch({ status: 'Sent', leadId: 'lead-1', campaignId: 'cmp-winback', stepOrder: 2, ...row });
+
+  beforeEach(() => {
+    campaign.skipLeadsEmailedBy = ['cmp-winback'];
+  });
+
+  it('sends the lead nothing, marks it Skipped at the step and date it had, and still sends the other leads', async () => {
+    winBackEmail();
+    addLead('lead-2');
+
+    await processDueEmails();
+
+    expect(mockedSend).toHaveBeenCalledTimes(1);
+    expect(mockedSend.mock.calls[0][0].to).toBe('lead-2@prospect.test');
+    expect(ownDispatches('lead-1')).toEqual([]);
+    expect(enrollmentOf('lead-1')).toMatchObject({ status: 'Skipped', currentSequenceStep: 1, nextActionDate: PAST, claimToken: null });
+    expect(enrollmentOf('lead-2')).toMatchObject({ status: 'Active', currentSequenceStep: 2 });
+  });
+
+  it('counts an email the other campaign has in flight or never confirmed, which may have gone out', async () => {
+    winBackEmail({ status: 'Sending' });
+    addLead('lead-2');
+    addDispatch({ status: 'Unknown', leadId: 'lead-2', campaignId: 'cmp-winback', stepOrder: 1 });
+
+    await processDueEmails();
+
+    expect(mockedSend).not.toHaveBeenCalled();
+    expect(enrollments.map((e) => e.status)).toEqual(['Skipped', 'Skipped']);
+  });
+
+  it('skips a lead part way through this sequence once the other campaign emails it', async () => {
+    addDispatch({ status: 'Sent', leadId: 'lead-1', stepOrder: 1 });
+    enrollmentOf('lead-1').currentSequenceStep = 2;
+    winBackEmail();
+
+    await processDueEmails();
+
+    expect(mockedSend).not.toHaveBeenCalled();
+    expect(enrollmentOf('lead-1')).toMatchObject({ status: 'Skipped', currentSequenceStep: 2 });
+    expect(ownDispatches('lead-1').map((d) => d.stepOrder)).toEqual([1]);
+  });
+
+  it('does not pick a skipped lead up again on later cycles', async () => {
+    winBackEmail();
+    await processDueEmails();
+    await processDueEmails();
+
+    expect(mockedSend).not.toHaveBeenCalled();
+    expect(fake.campaignEnrollment.updateMany.mock.calls.filter(([args]: any) => args.data.status === 'Skipped')).toHaveLength(1);
+  });
+
+  it('sends as usual to a lead the other campaign only failed to send to, only replied to in Unibox, or never emailed', async () => {
+    winBackEmail({ status: 'Failed' });
+    addLead('lead-2');
+    addDispatch({ status: 'Sent', leadId: 'lead-2', campaignId: 'cmp-winback', stepOrder: null });
+    addLead('lead-3');
+
+    await processDueEmails();
+
+    expect(mockedSend.mock.calls.map(([message]) => message.to)).toEqual([
+      'lead-1@prospect.test', 'lead-2@prospect.test', 'lead-3@prospect.test',
+    ]);
+    expect(enrollments.map((e) => [e.status, e.currentSequenceStep])).toEqual([['Active', 2], ['Active', 2], ['Active', 2]]);
+  });
+
+  it('holds only the emails of the campaigns its list names against a lead', async () => {
+    winBackEmail({ campaignId: 'cmp-other' });
+
+    await processDueEmails();
+
+    expect(mockedSend).toHaveBeenCalledTimes(1);
+    expect(enrollmentOf('lead-1')).toMatchObject({ status: 'Active', currentSequenceStep: 2 });
+  });
+
+  it('sends to every lead again once the list is empty', async () => {
+    campaign.skipLeadsEmailedBy = [];
+    winBackEmail();
+
+    await processDueEmails();
+
+    expect(mockedSend).toHaveBeenCalledTimes(1);
+    expect(enrollmentOf('lead-1').status).toBe('Active');
   });
 });

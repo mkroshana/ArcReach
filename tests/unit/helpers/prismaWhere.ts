@@ -19,6 +19,8 @@ function compare(value: any, op: string, operand: any): boolean {
     case 'lt': return value < operand;
     case 'lte': return value <= operand;
     case 'startsWith': return typeof value === 'string' && value.startsWith(operand);
+    // A scalar list column that holds the value.
+    case 'has': return Array.isArray(value) && value.includes(operand);
     default: throw new Error(`Unmodelled operator: ${op}`);
   }
 }

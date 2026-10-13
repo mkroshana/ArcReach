@@ -431,8 +431,10 @@ export default function CampaignAnalytics({ campaign, mailboxes }: { campaign: a
   ];
 
   // Every enrollment status, in a fixed order, zeros included; a stopped campaign's Active leads show as Stopped,
-  // and Active leads that may no longer be emailed are listed apart from those still to get a step.
-  const progressRows: BarRow[] = leadProgressRows(progress.byStatus ?? {}, progress.notMailable ?? 0, stopped)
+  // and Active leads that may no longer be emailed are listed apart from those still to get a step. A campaign
+  // that skips the leads other campaigns emailed (lib/campaignSkip) lists those it skips, naming the campaigns.
+  const skippedBy: Array<string | null> = (progress.skipped?.campaigns ?? []).map((source: any) => source.name ?? null);
+  const progressRows: BarRow[] = leadProgressRows(progress.byStatus ?? {}, progress.notMailable ?? 0, stopped, skippedBy)
     .map((state) => ({ key: state.status, label: state.label, description: state.description, value: state.value }));
 
   // What delivery reports said, as shares of the emails a report arrived for, as the Delivered tile's rate is.

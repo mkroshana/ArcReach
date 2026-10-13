@@ -10,6 +10,7 @@ import { CAMPAIGN_OWNER_DISABLED_ERROR, CAMPAIGN_STATUSES, userStatusPause } fro
 import { STOPPED_STATUS, stopChangeError, stoppedAtChange } from '@/lib/campaignStop';
 import { SCHEDULE_REQUIRED_ERROR, hasSendingSchedule, isValidTimezone } from '@/lib/sendSchedule';
 import { findEnrollableLeadIds } from '@/lib/sendEligibility';
+import { skipEmailedLeads, skippingCampaignsError, storedSkipCampaignIds } from '@/lib/campaignSkip';
 import { type FieldRule, fieldRules, isPlainObject, pickUpdateFields } from '@/lib/updateAllowList';
 
 /** Scalar columns the collection PUT may write. Sender mailboxes, audience and
@@ -154,6 +155,7 @@ export async function PUT(req: NextRequest) {
         senderAccount: { select: { emailAddress: true } },
         senders: { select: { senderAccountId: true, senderAccount: { select: { emailAddress: true } } } },
         steps: { orderBy: { stepOrder: 'asc' }, select: { subject: true, body: true } },
+        skipLeadsEmailedBy: true,
       },
     });
 
@@ -219,6 +221,20 @@ export async function PUT(req: NextRequest) {
     }
 
     const updated = await db.updateCampaign(id, updates);
+
+    // A campaign made Active marks the leads it skips before the send engine
+    // reaches them (lib/campaignSkip): those a campaign it names has emailed
+    // since its list was last saved, and those enrolled since.
+    // The status change stands if this fails: the send engine checks each lead
+    // again before it sends.
+    if (updates.status === 'Active') {
+      try {
+        await skipEmailedLeads(prisma, id, storedSkipCampaignIds(target.skipLeadsEmailedBy));
+      } catch (error: any) {
+        console.error(`[Campaigns] Marking the leads campaign ${id} skips did not finish:`, error?.message || error);
+      }
+    }
+
     // previousUpdatedAt is the version this change replaced: the campaign page
     // takes on the new version only when that is the one it loaded, so its next
     // Save still refuses to overwrite a change made elsewhere.
@@ -247,6 +263,14 @@ export async function DELETE(req: NextRequest) {
 
     if (!target) {
       return NextResponse.json({ error: 'Unauthorized to delete this campaign.' }, { status: 403 });
+    }
+
+    // A campaign another one skips the leads of stays until it is taken out of
+    // that campaign's list: deleted, its emails would no longer count as its own
+    // and the leads skipped for them would be emailed (lib/campaignSkip).
+    const skippingError = await skippingCampaignsError(prisma, session, id);
+    if (skippingError) {
+      return NextResponse.json({ error: skippingError }, { status: 409 });
     }
 
     await db.deleteCampaign(id);

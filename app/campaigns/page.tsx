@@ -53,10 +53,13 @@ interface DbCampaign {
 
 const statusColorMap = { Active: 'success', Draft: 'default', Paused: 'warning', Stopped: 'error' } as const;
 
-/** Why a step card shows Delivered as unknown. */
+/** A campaign's creation date with the month as a word, "8 Oct 2026" or "Oct 8, 2026" by locale, so day and month cannot be mixed up. */
+const createdDate = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+
+/** Why a step row shows Delivered as unknown. */
 const NO_DELIVERY_REPORTS_NOTE = 'No delivery reports have arrived for these emails, so how many were delivered is not known.';
 
-/** Why a step card's Delivered names the emails a delivery report arrived for. */
+/** Why a step row's Delivered names the emails a delivery report arrived for. */
 const PARTLY_REPORTED_NOTE = 'Delivered counts only the emails a delivery report arrived for. No delivery report has arrived for the others yet.';
 
 export default function CampaignsPage() {
@@ -357,8 +360,8 @@ export default function CampaignsPage() {
                             <Layers size={16} color="#94a3b8" />
                             <Typography variant="body2" sx={{ fontWeight: 700 }}>{campaign.name}</Typography>
                           </Stack>
-                          <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace', ml: 4, display: 'block' }}>
-                            ID: {campaign.id.slice(0, 12)}… · Created {new Date(campaign.createdAt).toLocaleDateString()}
+                          <Typography variant="caption" sx={{ color: 'text.secondary', ml: '46px', display: 'block' }}>
+                            Created {createdDate.format(new Date(campaign.createdAt))}
                           </Typography>
                         </TableCell>
                         <TableCell sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>

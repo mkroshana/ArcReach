@@ -3,6 +3,7 @@ import { hashPassword } from '@/lib/auth';
 import { stepMetrics } from '@/lib/engagementMetrics';
 import { devSeedRefusal } from '@/lib/devSeed';
 import type { PauseReason } from '@/lib/campaignPause';
+import { sendableLeadWhere } from '@/lib/sendableLead';
 import { hasSendingSchedule } from '@/lib/sendSchedule';
 
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient | undefined };
@@ -106,6 +107,9 @@ export const db = {
    * Step sends count as on the campaign page (lib/engagementMetrics), with
    * the leads each step reached, which its Progress counts, and how many of
    * its emails a delivery report arrived for: with none, Delivered is unknown.
+   * A step's `active` counts the leads the send engine can still send it to: an
+   * Active enrollment whose lead was archived, unsubscribed, bounced or found
+   * invalid since stays on its step and gets nothing, so it is left out.
    * Selects only what the campaigns list shows: step bodies, the sender pool
    * and mailbox rows stay with the campaign page, which loads one campaign.
    */
@@ -141,7 +145,7 @@ export const db = {
       }),
       prisma.campaignEnrollment.groupBy({
         by: ['campaignId', 'currentSequenceStep'],
-        where: { campaignId: { in: ids }, status: 'Active' },
+        where: { campaignId: { in: ids }, status: 'Active', lead: sendableLeadWhere() },
         _count: { id: true },
       }),
       stepMetrics(prisma, ids, { leads: true }),

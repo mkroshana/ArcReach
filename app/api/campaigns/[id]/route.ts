@@ -15,6 +15,7 @@ import { CAMPAIGN_CHANGED_ERROR, nextCampaignVersion, parseCampaignVersion, same
 import { SCHEDULE_REQUIRED_ERROR, hasSendingSchedule, parseSendSchedule, sendScheduleError, timezoneError } from '@/lib/sendSchedule';
 import { fieldRules } from '@/lib/updateAllowList';
 import { emailsLeft } from '@/lib/campaignProgress';
+import { sendableLeadWhere } from '@/lib/sendableLead';
 import {
   type MetricsScope,
   campaignLeadTotals,
@@ -198,8 +199,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
     // Where the campaign's leads are: every enrollment by status, and the Active
     // ones (still to get a step) by the step they wait for, with the earliest
-    // and latest next send date and how many are due now.
+    // and latest next send date and how many are due now. The steps count only
+    // the leads the send engine can still send to: an Active enrollment whose
+    // lead was archived, unsubscribed, bounced or found invalid since stays on
+    // its step and gets nothing, so it is counted apart (notMailable).
     const now = new Date();
+    const waitingWhere = { campaignId: id, status: 'Active', lead: sendableLeadWhere() };
     const [enrollmentsByStatus, activeByStep, dueByStep] = await Promise.all([
       prisma.campaignEnrollment.groupBy({
         by: ['status'],
@@ -208,17 +213,19 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       }),
       prisma.campaignEnrollment.groupBy({
         by: ['currentSequenceStep'],
-        where: { campaignId: id, status: 'Active' },
+        where: waitingWhere,
         _count: { id: true },
         _min: { nextActionDate: true },
         _max: { nextActionDate: true },
       }),
       prisma.campaignEnrollment.groupBy({
         by: ['currentSequenceStep'],
-        where: { campaignId: id, status: 'Active', nextActionDate: { lte: now } },
+        where: { ...waitingWhere, nextActionDate: { lte: now } },
         _count: { id: true },
       }),
     ]);
+    const activeCount = enrollmentsByStatus.find((g) => g.status === 'Active')?._count.id ?? 0;
+    const waitingCount = activeByStep.reduce((total, a) => total + a._count.id, 0);
 
     // The Active leads the send engine holds back for want of a mailbox, by the
     // reason it recorded on them (lib/senderRouting): every mailbox allowed for
@@ -252,6 +259,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     const progress = {
       enrolled: enrollmentsByStatus.reduce((total, g) => total + g._count.id, 0),
       byStatus: Object.fromEntries(enrollmentsByStatus.map((g) => [g.status, g._count.id])),
+      // Of the Active ones, those whose lead may no longer be emailed.
+      notMailable: Math.max(0, activeCount - waitingCount),
       contacted: leadTotals.contacted,
       repliedLeads: leadTotals.replied,
       emailsLeft: emailsLeft(

@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import type { Prisma } from '@prisma/client';
 import { prisma } from './db';
 import { normalizeEmail } from './leadEmail';
+import { sendableLeadWhere } from './sendableLead';
 import { suppressionReasons } from './suppression';
 
 /** How long a send claim holds an enrollment; a claim older than this was abandoned by a crashed or hung send. */
@@ -10,14 +11,7 @@ export const SEND_CLAIM_TTL_MS = 10 * 60 * 1000;
 /** Enrollment update fields that release a send claim. */
 export const RELEASED_CLAIM = { claimToken: null, claimedAt: null };
 
-/** Lead filter for leads that may be emailed: not archived, unsubscribed, bounced or invalid. */
-export function sendableLeadWhere(): Prisma.LeadWhereInput {
-  return {
-    isArchived: false,
-    status: { notIn: ['Bounced', 'Unsubscribed'] },
-    validationStatus: { notIn: ['Invalid'] },
-  };
-}
+export { sendableLeadWhere };
 
 /**
  * The one definition of "this enrollment may be sent now": the enrollment and

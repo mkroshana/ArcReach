@@ -5,7 +5,7 @@ import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import {
   Plus, CheckCircle2, AlertCircle, Mail, Flame, ArrowLeft, Sliders,
-  ChevronRight, Gauge, User, Activity, Save, Send, Loader2, Trash2, Eye, EyeOff, ShieldAlert,
+  ChevronRight, Gauge, User, Activity, Save, Send, Loader2, Trash2, Eye, EyeOff, ShieldAlert, Users,
   MailCheck, MailWarning, MailX, Clock, Settings, RefreshCw, AlertTriangle, Split,
 } from 'lucide-react';
 import { TableSkeleton } from '@/components/Skeleton';
@@ -575,17 +575,28 @@ export default function AccountsPage() {
   );
 
   return (
-    <Box sx={{ maxWidth: 1100, mx: 'auto', pb: 6 }}>
+    <div className="space-y-6 pb-12 w-full">
       {currentActiveTab === 'accounts' ? (
         <Stack spacing={3}>
           {/* Header */}
-          <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ justifyContent: 'space-between', alignItems: { xs: 'flex-start', sm: 'center' }, gap: 2, pb: 2, borderBottom: 1, borderColor: 'divider' }}>
-            <Box>
-              <Typography variant="h4" sx={{ fontWeight: 700 }}>Email Senders</Typography>
-              <Typography variant="body2" sx={{ color: 'text.secondary' }}>Connect sender mailboxes, set sending limits, and monitor deliverability.</Typography>
-            </Box>
-            <Button variant="contained" startIcon={<Plus size={16} />} onClick={handleOpenAddModal}>Add Sender Mailbox</Button>
-          </Stack>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-[#EBF0F5] dark:border-[#1E222D]">
+            <div>
+              <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+                Email Senders
+              </h1>
+              <p className="text-xs md:text-sm text-slate-500 dark:text-slate-400 mt-1">
+                Connect sender mailboxes, set sending limits, and monitor deliverability.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleOpenAddModal}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs md:text-sm font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition-colors cursor-pointer self-start sm:self-auto"
+            >
+              <Plus size={16} />
+              <span>Add Sender Mailbox</span>
+            </button>
+          </div>
 
           {loadError && !loading && (
             <Alert severity="error" action={retryButton}>
@@ -603,23 +614,52 @@ export default function AccountsPage() {
 
           {/* KPIs */}
           {!loadError && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {[
-                { label: 'Total Senders', value: loading ? '…' : `${accounts.length} Senders`, color: undefined, note: '' },
-                globalDaily
-                  ? { label: 'Global Limit Remaining', value: loading ? '…' : `${globalDaily.remaining.toLocaleString()} Emails`, color: '#2563EB', note: `Of ${globalDaily.limit.toLocaleString()} in any 24 hours (${globalDailySource}), shared by all mailboxes.` }
-                  : { label: 'Combined Daily Limit', value: loading ? '…' : `${totalDailyLimit.toLocaleString()} Emails`, color: '#2563EB', note: '' },
-              ].map((kpi, i) => (
-                <div key={i} className="rounded-[24px] border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] shadow-xs p-5 transition-all">
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">{kpi.label}</span>
-                  <div className="text-2xl font-bold font-mono mt-1 text-slate-900 dark:text-white" style={{ color: kpi.color }}>
-                    {kpi.value}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              {/* Card 1: Total Senders */}
+              <div className="p-6 rounded-[24px] bg-white dark:bg-[#11131A] border border-[#EBF0F5] dark:border-[#1E222D] shadow-xs flex flex-col justify-between">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    Total Senders
+                  </span>
+                  <div className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 border bg-blue-50 dark:bg-blue-950/40 text-[#2563EB] dark:text-[#60A5FA] border-blue-100/80 dark:border-blue-900/40">
+                    <Users size={20} strokeWidth={2.2} />
                   </div>
-                  {kpi.note && !loading && (
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">{kpi.note}</p>
-                  )}
                 </div>
-              ))}
+                <div className="mt-3">
+                  <div className="text-3xl lg:text-[34px] font-extrabold tracking-tight text-slate-900 dark:text-white font-sans">
+                    {loading ? '…' : accounts.length}
+                  </div>
+                </div>
+                <div className="mt-3.5 flex items-center gap-2">
+                  <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+                    Connected outreach mailboxes
+                  </span>
+                </div>
+              </div>
+
+              {/* Card 2: Daily Capacity Limit */}
+              <div className="p-6 rounded-[24px] bg-white dark:bg-[#11131A] border border-[#EBF0F5] dark:border-[#1E222D] shadow-xs flex flex-col justify-between">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    {globalDaily ? 'Global Limit Remaining' : 'Combined Daily Limit'}
+                  </span>
+                  <div className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 border bg-emerald-50 dark:bg-emerald-950/40 text-[#059669] dark:text-[#34D399] border-emerald-100/80 dark:border-emerald-900/40">
+                    <Gauge size={20} strokeWidth={2.2} />
+                  </div>
+                </div>
+                <div className="mt-3">
+                  <div className="text-3xl lg:text-[34px] font-extrabold tracking-tight text-slate-900 dark:text-white font-sans">
+                    {loading ? '…' : globalDaily ? globalDaily.remaining.toLocaleString() : totalDailyLimit.toLocaleString()}
+                  </div>
+                </div>
+                <div className="mt-3.5 flex items-center gap-2">
+                  <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+                    {globalDaily
+                      ? `Of ${globalDaily.limit.toLocaleString()} in 24 hours (${globalDailySource})`
+                      : 'Total emails / day across all mailboxes'}
+                  </span>
+                </div>
+              </div>
             </div>
           )}
 
@@ -1047,6 +1087,6 @@ export default function AccountsPage() {
         onCancel={() => setConfirmOpen(false)}
         isDestructive={true}
       />
-    </Box>
+    </div>
   );
 }

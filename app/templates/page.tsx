@@ -306,7 +306,7 @@ export default function TemplatesPage() {
   const bodyPreview = previewResolved && editingTemplate ? previewEmailBody(editingTemplate.steps?.[activeStepIndex]?.body || '') : null;
 
   return (
-    <div className="max-w-[1280px] mx-auto pb-12 space-y-6">
+    <div className="space-y-6 pb-12 w-full">
       <Snackbar open={!!toastMessage} anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }} autoHideDuration={3000} onClose={() => setToastMessage('')}>
         {toastMessage ? <Alert severity="info" variant="filled" sx={{ borderRadius: '12px' }}>{toastMessage}</Alert> : undefined}
       </Snackbar>

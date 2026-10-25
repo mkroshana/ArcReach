@@ -1232,15 +1232,15 @@ export default function LeadsPage() {
   const emptyListMessage = (noMatch: string) => (listError ? 'Leads could not be loaded. Use Refresh to try again.' : noMatch);
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500 max-w-5xl mx-auto">
+    <div className="space-y-6 pb-12 w-full">
       {/* Header */}
-      <header className="flex justify-between items-start md:items-center flex-col md:flex-row gap-4 pb-6 border-b border-[#EBF0F5] dark:border-[#1E222D]">
+      <header className="flex justify-between items-start md:items-center flex-col md:flex-row gap-4 pb-2 border-b border-[#EBF0F5] dark:border-[#1E222D]">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white mb-0.5">
+          <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
             Leads Directory
           </h1>
-          <p className="text-slate-500 dark:text-slate-400 text-xs">
-            Import contacts, check their email domains for mail servers, and organize your prospect lists.
+          <p className="text-xs md:text-sm text-slate-500 dark:text-slate-400 mt-1">
+            Import contacts, check email deliverability, and organize outreach prospect lists.
           </p>
         </div>
 

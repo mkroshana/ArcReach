@@ -20,6 +20,7 @@ import {
 } from 'recharts';
 import {
   Mail,
+  MailOpen,
   MousePointerClick,
   Reply,
   SendHorizontal,
@@ -28,11 +29,10 @@ import {
   AlertTriangle,
   UserMinus,
   Plus,
-  Filter,
+  Workflow,
   Smile,
   CheckCircle2,
   Inbox,
-  Layers,
   ArrowRight,
   ChevronRight,
   Check,
@@ -673,7 +673,7 @@ export default function Dashboard() {
               value={`${stats.averageOpenRate}%`}
               change={stats.deltas?.openRate}
               colorScheme="emerald"
-              icon={Mail}
+              icon={MailOpen}
             />
             <ShopeersMetricCard
               title="Click Rate"
@@ -732,7 +732,7 @@ export default function Dashboard() {
                 </div>
 
                 {/* Smooth Area Chart (Recharts) */}
-                <div className="h-[320px] w-full min-h-[300px] min-w-0 relative">
+                <div className="h-[260px] w-full min-h-[250px] min-w-0 relative">
                   {!isMounted ? (
                     <div className="w-full h-full animate-pulse rounded-xl bg-slate-100 dark:bg-slate-800/40" />
                   ) : trends.length === 0 ? (
@@ -746,8 +746,8 @@ export default function Dashboard() {
                       </span>
                     </div>
                   ) : (
-                    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={300}>
-                      <AreaChart data={trends} margin={{ top: 12, right: 12, left: -20, bottom: 0 }}>
+                    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={250}>
+                      <AreaChart data={trends} margin={{ top: 8, right: 12, left: -20, bottom: 0 }}>
                         <defs>
                           <linearGradient id="shopeersSent" x1="0" y1="0" x2="0" y2="1">
                             <stop offset="0%" stopColor="#2563EB" stopOpacity={0.22} />
@@ -769,7 +769,7 @@ export default function Dashboard() {
                           axisLine={false}
                           tickLine={false}
                           tick={{ fill: axisTickColor, fontSize: 11, fontWeight: 500 }}
-                          dy={10}
+                          dy={8}
                         />
                         <YAxis
                           axisLine={false}
@@ -780,10 +780,10 @@ export default function Dashboard() {
                         <RechartsTooltip content={<CustomAreaTooltip />} />
                         <Legend
                           verticalAlign="top"
-                          height={32}
+                          height={28}
                           iconType="circle"
                           iconSize={8}
-                          wrapperStyle={{ fontSize: 11, fontWeight: 600, paddingBottom: 12 }}
+                          wrapperStyle={{ fontSize: 11, fontWeight: 600, paddingBottom: 8 }}
                         />
                         <Area
                           type="monotone"
@@ -821,55 +821,55 @@ export default function Dashboard() {
                 </div>
 
                 {/* Deliverability Health Segment Pills (Integrated Bottom Row) */}
-                <div className="border-t border-[#EBF0F5] dark:border-[#1E222D] pt-4 mt-4">
+                <div className="border-t border-[#EBF0F5] dark:border-[#1E222D] pt-3.5 mt-3.5">
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     {/* Failed Sends */}
                     <MuiTooltip title="Send attempts recorded as failed" arrow>
-                      <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-50/70 dark:bg-[#161822]/70 border border-[#EBF0F5] dark:border-[#1E222D] hover:border-rose-200 dark:hover:border-rose-900/40 transition-colors">
+                      <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50/70 dark:bg-[#161822]/70 border border-[#EBF0F5] dark:border-[#1E222D] hover:border-rose-200 dark:hover:border-rose-900/40 transition-colors">
                         <div>
                           <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                             Failed Sends
                           </div>
-                          <div className="text-base font-extrabold text-slate-900 dark:text-white font-mono mt-0.5">
+                          <div className="text-sm font-bold text-slate-900 dark:text-white font-mono mt-0.5">
                             {(stats.failed ?? 0).toLocaleString()}
                           </div>
                         </div>
-                        <div className="w-8 h-8 rounded-full flex items-center justify-center bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200/60 dark:border-rose-900/40 shrink-0">
-                          <XCircle size={15} strokeWidth={2.2} />
+                        <div className="w-7 h-7 rounded-full flex items-center justify-center bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200/60 dark:border-rose-900/40 shrink-0">
+                          <XCircle size={14} strokeWidth={2.2} />
                         </div>
                       </div>
                     </MuiTooltip>
 
                     {/* Bounced */}
                     <MuiTooltip title="Hard bounces at send time or reported on delivery" arrow>
-                      <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-50/70 dark:bg-[#161822]/70 border border-[#EBF0F5] dark:border-[#1E222D] hover:border-amber-200 dark:hover:border-amber-900/40 transition-colors">
+                      <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50/70 dark:bg-[#161822]/70 border border-[#EBF0F5] dark:border-[#1E222D] hover:border-amber-200 dark:hover:border-amber-900/40 transition-colors">
                         <div>
                           <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                             Bounced
                           </div>
-                          <div className="text-base font-extrabold text-slate-900 dark:text-white font-mono mt-0.5">
+                          <div className="text-sm font-bold text-slate-900 dark:text-white font-mono mt-0.5">
                             {(stats.bounced ?? 0).toLocaleString()}
                           </div>
                         </div>
-                        <div className="w-8 h-8 rounded-full flex items-center justify-center bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200/60 dark:border-amber-900/40 shrink-0">
-                          <AlertTriangle size={15} strokeWidth={2.2} />
+                        <div className="w-7 h-7 rounded-full flex items-center justify-center bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200/60 dark:border-amber-900/40 shrink-0">
+                          <AlertTriangle size={14} strokeWidth={2.2} />
                         </div>
                       </div>
                     </MuiTooltip>
 
                     {/* Unsubscribed */}
                     <MuiTooltip title="Opted out of mailings" arrow>
-                      <div className="flex items-center justify-between p-3 rounded-2xl bg-slate-50/70 dark:bg-[#161822]/70 border border-[#EBF0F5] dark:border-[#1E222D] hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
+                      <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50/70 dark:bg-[#161822]/70 border border-[#EBF0F5] dark:border-[#1E222D] hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
                         <div>
                           <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                             Unsubscribed
                           </div>
-                          <div className="text-base font-extrabold text-slate-900 dark:text-white font-mono mt-0.5">
+                          <div className="text-sm font-bold text-slate-900 dark:text-white font-mono mt-0.5">
                             {(stats.unsubscribed ?? 0).toLocaleString()}
                           </div>
                         </div>
-                        <div className="w-8 h-8 rounded-full flex items-center justify-center bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 shrink-0">
-                          <UserMinus size={15} strokeWidth={2.2} />
+                        <div className="w-7 h-7 rounded-full flex items-center justify-center bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 shrink-0">
+                          <UserMinus size={14} strokeWidth={2.2} />
                         </div>
                       </div>
                     </MuiTooltip>
@@ -879,10 +879,10 @@ export default function Dashboard() {
             </div>
 
             {/* Right 1/3 Column: Funnel & Sentiment Cards Stacked */}
-            <div className="lg:col-span-1 min-w-0 space-y-6 flex flex-col">
+            <div className="lg:col-span-1 min-w-0 space-y-4 flex flex-col justify-between">
               {/* Conversion Funnel Card */}
               <div className="w-full rounded-[24px] border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] p-5 shadow-xs transition-shadow duration-200 hover:shadow-md">
-                <div className="flex items-start justify-between mb-4">
+                <div className="flex items-start justify-between mb-3">
                   <div>
                     <h3 className="text-base font-bold text-slate-900 dark:text-white tracking-tight">
                       Conversion Funnel
@@ -892,23 +892,23 @@ export default function Dashboard() {
                     </p>
                   </div>
                   <div className="h-8 w-8 rounded-full bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 flex items-center justify-center flex-shrink-0">
-                    <Filter size={15} strokeWidth={2.2} />
+                    <Workflow size={15} strokeWidth={2.2} />
                   </div>
                 </div>
 
                 {repliesUnknown && (
-                  <div className="mb-3 flex items-center gap-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/30 px-2.5 py-1.5 text-[11px] text-amber-700 dark:text-amber-400 border border-amber-200/50 dark:border-amber-800/30">
-                    <AlertTriangle size={13} className="flex-shrink-0" />
+                  <div className="mb-2.5 flex items-center gap-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/30 px-2.5 py-1 text-[11px] text-amber-700 dark:text-amber-400 border border-amber-200/50 dark:border-amber-800/30">
+                    <AlertTriangle size={12} className="flex-shrink-0" />
                     <span>Replied stage omitted (reply sync is unconfigured).</span>
                   </div>
                 )}
 
-                <div className="w-full h-[220px] min-h-[220px] min-w-0 relative">
+                <div className="w-full h-[145px] min-h-[145px] min-w-0 relative">
                   {!isMounted ? (
                     <div className="w-full h-full animate-pulse rounded-xl bg-slate-100 dark:bg-slate-800/40" />
                   ) : funnel.length === 0 || totalSentInFunnel === 0 ? (
-                    <div className="w-full h-full flex flex-col items-center justify-center text-center p-4">
-                      <Inbox size={28} className="text-slate-300 dark:text-slate-600 mb-2" />
+                    <div className="w-full h-full flex flex-col items-center justify-center text-center p-3">
+                      <Inbox size={24} className="text-slate-300 dark:text-slate-600 mb-1" />
                       <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
                         No outreach dispatches recorded
                       </span>
@@ -917,12 +917,12 @@ export default function Dashboard() {
                       </span>
                     </div>
                   ) : (
-                    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={220}>
+                    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={145}>
                       <BarChart
                         layout="vertical"
                         data={funnel}
-                        margin={{ top: 8, right: 28, left: 0, bottom: 4 }}
-                        barCategoryGap="16%"
+                        margin={{ top: 4, right: 28, left: 0, bottom: 0 }}
+                        barCategoryGap="12%"
                       >
                         <XAxis type="number" hide domain={[0, 'dataMax']} />
                         <YAxis
@@ -939,9 +939,9 @@ export default function Dashboard() {
                         />
                         <Bar
                           dataKey="value"
-                          radius={[6, 6, 6, 6]}
-                          barSize={14}
-                          background={{ fill: trackBg, radius: 6 }}
+                          radius={[5, 5, 5, 5]}
+                          barSize={11}
+                          background={{ fill: trackBg, radius: 5 }}
                           animationDuration={600}
                         >
                           {funnel.map((entry, index) => {
@@ -964,7 +964,7 @@ export default function Dashboard() {
                 </div>
 
                 {totalSentInFunnel > 0 && (
-                  <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs">
+                  <div className="mt-2.5 pt-2.5 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs">
                     <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 text-[11px]">
                       <CheckCircle2 size={13} className="text-emerald-500" />
                       <span>Top of Funnel:</span>
@@ -981,7 +981,7 @@ export default function Dashboard() {
 
               {/* Prospect Sentiment Gauge Card */}
               <div className="w-full rounded-[24px] border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] p-5 shadow-xs transition-shadow duration-200 hover:shadow-md">
-                <div className="flex items-start justify-between mb-2">
+                <div className="flex items-start justify-between mb-1.5">
                   <div>
                     <h3 className="text-base font-bold text-slate-900 dark:text-white tracking-tight">
                       Prospect Sentiment
@@ -995,21 +995,21 @@ export default function Dashboard() {
                   </div>
                 </div>
 
-                <div className="w-full h-[180px] min-h-[180px] min-w-0 relative flex items-center justify-center">
+                <div className="w-full h-[135px] min-h-[135px] min-w-0 relative flex items-center justify-center">
                   {!isMounted ? (
                     <div className="w-full h-full animate-pulse rounded-xl bg-slate-100 dark:bg-slate-800/40" />
                   ) : (
                     <>
-                      <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={180}>
+                      <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={135}>
                         <PieChart margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
                           <Pie
                             data={gaugeData}
                             cx="50%"
-                            cy="78%"
+                            cy="80%"
                             startAngle={180}
                             endAngle={0}
-                            innerRadius={68}
-                            outerRadius={92}
+                            innerRadius={54}
+                            outerRadius={74}
                             paddingAngle={totalSentiment > 0 ? 3 : 0}
                             dataKey="value"
                             animationDuration={800}
@@ -1025,11 +1025,11 @@ export default function Dashboard() {
                       </ResponsiveContainer>
 
                       {/* Central Score Typography */}
-                      <div className="absolute top-[52%] left-1/2 -translate-x-1/2 -translate-y-1/2 text-center pointer-events-none">
-                        <span className="block text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+                      <div className="absolute top-[56%] left-1/2 -translate-x-1/2 -translate-y-1/2 text-center pointer-events-none">
+                        <span className="block text-xl font-extrabold text-slate-900 dark:text-white tracking-tight">
                           {totalSentiment > 0 ? `${positiveSentimentRate}%` : '—'}
                         </span>
-                        <span className="block text-[10px] font-semibold tracking-wider text-slate-400 uppercase mt-0.5">
+                        <span className="block text-[10px] font-semibold tracking-wider text-slate-400 uppercase">
                           {totalSentiment > 0 ? 'Positive Score' : 'No Contacts'}
                         </span>
                       </div>
@@ -1038,7 +1038,7 @@ export default function Dashboard() {
                 </div>
 
                 {/* 3-Category Breakdown Footer Pills */}
-                <div className="mt-1 pt-3 border-t border-slate-100 dark:border-slate-800/80 grid grid-cols-3 gap-2 text-center">
+                <div className="mt-1 pt-2.5 border-t border-slate-100 dark:border-slate-800/80 grid grid-cols-3 gap-2 text-center">
                   {/* Positive */}
                   <div className="rounded-xl bg-emerald-50/60 dark:bg-emerald-950/20 p-2 border border-emerald-100/60 dark:border-emerald-800/20">
                     <div className="flex items-center justify-center gap-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
@@ -1187,10 +1187,10 @@ export default function Dashboard() {
                           className="group transition-colors duration-150 ease-in-out hover:bg-slate-50/70 dark:hover:bg-[#161822]/80"
                         >
                           {/* Campaign Name */}
-                          <td className="py-4 px-6">
+                          <td className="py-3.5 px-6">
                             <div className="flex items-center gap-3">
                               <div className="w-9 h-9 rounded-xl bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
-                                <Layers size={16} />
+                                <SendHorizontal size={16} />
                               </div>
                               <div className="min-w-0">
                                 <Link
@@ -1209,7 +1209,7 @@ export default function Dashboard() {
                           </td>
 
                           {/* Status Pill */}
-                          <td className="py-4 px-6">
+                          <td className="py-3.5 px-6">
                             <span
                               className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border ${pill.badgeClass}`}
                             >
@@ -1223,7 +1223,7 @@ export default function Dashboard() {
                           </td>
 
                           {/* Total Leads */}
-                          <td className="py-4 px-6">
+                          <td className="py-3.5 px-6">
                             <div className="text-sm font-semibold text-slate-800 dark:text-slate-200 font-mono">
                               {totalLeads.toLocaleString()}
                             </div>
@@ -1231,7 +1231,7 @@ export default function Dashboard() {
                           </td>
 
                           {/* Dispatches / Sent */}
-                          <td className="py-4 px-6">
+                          <td className="py-3.5 px-6">
                             <div className="text-sm font-semibold text-slate-800 dark:text-slate-200 font-mono">
                               {totalSent.toLocaleString()}
                             </div>
@@ -1239,7 +1239,7 @@ export default function Dashboard() {
                           </td>
 
                           {/* Open Rate */}
-                          <td className="py-4 px-6">
+                          <td className="py-3.5 px-6">
                             {hasOpenRate ? (
                               <div className="space-y-1.5">
                                 <div className="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-slate-300 font-mono">
@@ -1260,7 +1260,7 @@ export default function Dashboard() {
                           </td>
 
                           {/* Quick Action / Arrow */}
-                          <td className="py-4 px-6 text-right">
+                          <td className="py-3.5 px-6 text-right">
                             <Link
                               href={`/campaigns/${c.id}`}
                               aria-label={`Configure ${c.name}`}

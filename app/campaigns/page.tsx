@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import {
   Plus, PlayCircle, Search, Layers, RefreshCw, Loader2,
   Mail, User, ChevronRight, ChevronDown, Gauge, Inbox, Trash2, Play, Pause, Send, Check, Clock, TimerOff, UserX,
-  CircleStop, RotateCcw,
+  CircleStop, RotateCcw, SendHorizontal,
 } from 'lucide-react';
 import {
   Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
@@ -316,26 +316,34 @@ export default function CampaignsPage() {
   const viewerZone = viewerTimeZone();
 
   return (
-    <Box sx={{ maxWidth: 1100, mx: 'auto', pb: 4, display: 'flex', flexDirection: 'column', gap: 3 }}>
+    <div className="space-y-6 pb-12 w-full">
       <Snackbar open={!!toast} anchorOrigin={{ vertical: 'top', horizontal: 'right' }} autoHideDuration={toast?.duration ?? null} onClose={(_, reason) => { if (reason !== 'clickaway') setToast(null); }}>
         {toast ? <Alert severity={toast.type} variant="filled" onClose={() => setToast(null)} sx={{ borderRadius: '12px', maxWidth: 520 }}>{toast.message}</Alert> : undefined}
       </Snackbar>
 
       {/* Header */}
-      <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ justifyContent: 'space-between', alignItems: { xs: 'flex-start', sm: 'center' }, gap: 2, pb: 2, borderBottom: 1, borderColor: 'divider' }}>
-        <Box>
-          <Typography variant="h4" sx={{ fontWeight: 700 }}>Campaigns</Typography>
-          <Typography variant="body2" sx={{ color: 'text.secondary' }}>Each campaign, where its leads are in the sequence and when the next step goes out.</Typography>
-        </Box>
-        <Button
-          variant="contained" startIcon={<Plus size={16} />}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-[#EBF0F5] dark:border-[#1E222D]">
+        <div>
+          <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+            Campaign Sequences
+          </h1>
+          <p className="text-xs md:text-sm text-slate-500 dark:text-slate-400 mt-1">
+            Each campaign, where its leads are in the sequence and when the next step goes out.
+          </p>
+        </div>
+        <button
+          type="button"
           onClick={() => {
             if (!accountsLoaded) { showToast('Your mailboxes could not be loaded, so a campaign cannot be created yet. Use Retry to load them.', 'error'); return; }
             if (accounts.length === 0) { showToast('Please first connect at least one Mailbox of your own in the Senders view before starting a campaign.', 'error'); return; }
             setIsAddOpen(true);
           }}
-        >Create Campaign</Button>
-      </Stack>
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs md:text-sm font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition-colors cursor-pointer self-start sm:self-auto"
+        >
+          <Plus size={16} />
+          <span>Create Campaign</span>
+        </button>
+      </div>
 
       {loadError && campaignsLoaded && !loading && (
         <Alert severity="warning" action={retryButton}>
@@ -410,7 +418,7 @@ export default function CampaignsPage() {
                         <TableCell>
                           <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
                             {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                            <Layers size={16} color="#94a3b8" />
+                            <SendHorizontal size={16} className="text-slate-400 dark:text-slate-500 shrink-0" />
                             <Typography variant="body2" sx={{ fontWeight: 700 }}>{campaign.name}</Typography>
                           </Stack>
                           <Typography variant="caption" sx={{ color: 'text.secondary', ml: '46px', display: 'block' }}>
@@ -817,6 +825,6 @@ export default function CampaignsPage() {
         }}
         onCancel={() => setSendStepPrompt(null)}
       />
-    </Box>
+    </div>
   );
 }

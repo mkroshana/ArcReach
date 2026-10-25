@@ -68,11 +68,11 @@ describe('Dashboard (app/page.tsx) SSR Hydration & Lifecycle Stress-Test', () =>
 describe('ResponsiveContainer Sizing & Container Safety Checks', () => {
   it('enforces explicit heights on all chart container wrappers', () => {
     // AreaChart wrapper must have explicit height and min-height
-    expect(pageSource).toContain('h-[320px] w-full min-h-[300px]');
+    expect(pageSource).toContain('h-[260px] w-full min-h-[250px]');
     // Conversion Funnel wrapper must have explicit height and min-height
-    expect(pageSource).toContain('w-full h-[220px] min-h-[220px]');
+    expect(pageSource).toContain('w-full h-[145px] min-h-[145px]');
     // Sentiment Gauge wrapper must have explicit height and min-height
-    expect(pageSource).toContain('w-full h-[180px] min-h-[180px]');
+    expect(pageSource).toContain('w-full h-[135px] min-h-[135px]');
   });
 
   it('enforces min-w-0 on all flex and grid parents to prevent resize loops', () => {
@@ -80,9 +80,9 @@ describe('ResponsiveContainer Sizing & Container Safety Checks', () => {
     expect(pageSource).toContain('lg:col-span-2 min-w-0');
     expect(pageSource).toContain('lg:col-span-1 min-w-0');
     // Chart wrappers
-    expect(pageSource).toContain('h-[320px] w-full min-h-[300px] min-w-0 relative');
-    expect(pageSource).toContain('w-full h-[220px] min-h-[220px] min-w-0 relative');
-    expect(pageSource).toContain('w-full h-[180px] min-h-[180px] min-w-0 relative flex items-center justify-center');
+    expect(pageSource).toContain('h-[260px] w-full min-h-[250px] min-w-0 relative');
+    expect(pageSource).toContain('w-full h-[145px] min-h-[145px] min-w-0 relative');
+    expect(pageSource).toContain('w-full h-[135px] min-h-[135px] min-w-0 relative flex items-center justify-center');
   });
 
   it('passes minWidth={0} and explicit minHeight to all ResponsiveContainer instances', () => {
@@ -298,17 +298,17 @@ describe('House Design Directives & Chart Hygiene in page.tsx', () => {
 
 describe('Skeleton-to-Chart Zero Layout Shift (CLS) Parity', () => {
   it('guarantees identical height dimensions between SSR skeletons and client charts', () => {
-    // Area Chart: outer wrapper is h-[320px], skeleton is h-full, chart is height="100%"
-    expect(pageSource).toMatch(/className="h-\[320px\] w-full min-h-\[300px\]/);
-    expect(pageSource).toMatch(/<ResponsiveContainer width="100%" height="100%" minWidth=\{0\} minHeight=\{300\}/);
+    // Area Chart: outer wrapper is h-[260px], skeleton is h-full, chart is height="100%"
+    expect(pageSource).toMatch(/className="h-\[260px\] w-full min-h-\[250px\]/);
+    expect(pageSource).toMatch(/<ResponsiveContainer width="100%" height="100%" minWidth=\{0\} minHeight=\{250\}/);
 
-    // Funnel Chart: outer wrapper is h-[220px], skeleton is h-full, chart is height="100%"
-    expect(pageSource).toMatch(/className="w-full h-\[220px\] min-h-\[220px\]/);
-    expect(pageSource).toMatch(/<ResponsiveContainer width="100%" height="100%" minWidth=\{0\} minHeight=\{220\}/);
+    // Funnel Chart: outer wrapper is h-[145px], skeleton is h-full, chart is height="100%"
+    expect(pageSource).toMatch(/className="w-full h-\[145px\] min-h-\[145px\]/);
+    expect(pageSource).toMatch(/<ResponsiveContainer width="100%" height="100%" minWidth=\{0\} minHeight=\{145\}/);
 
-    // Sentiment Gauge: outer wrapper is h-[180px], skeleton is h-full, chart is height="100%"
-    expect(pageSource).toMatch(/className="w-full h-\[180px\] min-h-\[180px\]/);
-    expect(pageSource).toMatch(/<ResponsiveContainer width="100%" height="100%" minWidth=\{0\} minHeight=\{180\}/);
+    // Sentiment Gauge: outer wrapper is h-[135px], skeleton is h-full, chart is height="100%"
+    expect(pageSource).toMatch(/className="w-full h-\[135px\] min-h-\[135px\]/);
+    expect(pageSource).toMatch(/<ResponsiveContainer width="100%" height="100%" minWidth=\{0\} minHeight=\{135\}/);
   });
 });
 

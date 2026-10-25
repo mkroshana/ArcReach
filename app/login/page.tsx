@@ -49,13 +49,13 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen w-full flex items-center justify-center p-4 bg-[#F5F6F9] dark:bg-[#090A0F]">
       {/* Strictly minimalist Shopeers auth card (0 decorative orbs, 0 emojis, 0 glow blobs) */}
-      <div className="w-full max-w-[420px] rounded-[24px] border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] p-8 shadow-xs transition-all">
+      <div className="w-full max-w-[420px] rounded-2xl border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] p-8 shadow-xs transition-all">
         {/* Brand Header */}
         <div className="text-center mb-6">
           <div className="w-12 h-12 rounded-2xl bg-blue-600 flex items-center justify-center text-white shadow-md shadow-blue-500/20 mx-auto mb-3">
             <Mail size={22} />
           </div>
-          <h1 className="text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white uppercase">
+          <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">
             ArcReach
           </h1>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">

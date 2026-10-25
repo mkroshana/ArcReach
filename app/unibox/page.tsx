@@ -434,7 +434,7 @@ export default function UniboxPage() {
       </Snackbar>
 
       {/* Left Pane: Thread List */}
-      <div className="w-[340px] md:w-[380px] flex-shrink-0 flex flex-col rounded-[24px] border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] shadow-xs overflow-hidden">
+      <div className="w-[340px] md:w-[380px] flex-shrink-0 flex flex-col rounded-2xl border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] shadow-xs overflow-hidden">
         {/* Pane Header */}
         <div className="p-4 border-b border-[#EBF0F5] dark:border-[#1E222D] flex flex-col gap-3">
           <div className="flex items-center justify-between">
@@ -602,7 +602,7 @@ export default function UniboxPage() {
       </div>
 
       {/* Right Pane: Message Thread & Composer */}
-      <div className="flex-1 flex flex-col rounded-[24px] border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] shadow-xs overflow-hidden relative">
+      <div className="flex-1 flex flex-col rounded-2xl border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] shadow-xs overflow-hidden relative">
         {selectedEmail ? (
           <>
             {/* Frosted Thread Header */}

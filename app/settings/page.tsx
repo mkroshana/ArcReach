@@ -233,10 +233,10 @@ export default function SettingsPage() {
 
       {/* Header */}
       <div className="pb-2 border-b border-[#EBF0F5] dark:border-[#1E222D]">
-        <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+        <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
           Settings
         </h1>
-        <p className="text-xs md:text-sm text-slate-500 dark:text-slate-400 mt-1">
+        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
           {isAdmin ? 'Manage your profile, password, and email delivery settings.' : 'Manage your profile and password. Email delivery is managed by your admin.'}
         </p>
       </div>
@@ -279,9 +279,9 @@ export default function SettingsPage() {
           {activeTab === 'profile' && (
             <>
               {/* Profile Information Card */}
-              <div className="rounded-[24px] border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] p-6 shadow-xs">
+              <div className="rounded-2xl border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] p-6 shadow-xs">
                 <div className="pb-3 mb-6 border-b border-[#EBF0F5] dark:border-[#1E222D]">
-                  <h2 className="text-sm font-bold uppercase tracking-wider text-slate-900 dark:text-white">
+                  <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
                     Profile Information
                   </h2>
                 </div>
@@ -331,9 +331,9 @@ export default function SettingsPage() {
               </div>
 
               {/* Change Password Card */}
-              <div className="rounded-[24px] border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] p-6 shadow-xs">
+              <div className="rounded-2xl border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] p-6 shadow-xs">
                 <div className="pb-3 mb-6 border-b border-[#EBF0F5] dark:border-[#1E222D]">
-                  <h2 className="text-sm font-bold uppercase tracking-wider text-slate-900 dark:text-white">
+                  <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
                     Change Password
                   </h2>
                 </div>
@@ -374,9 +374,9 @@ export default function SettingsPage() {
           {isAdmin && activeTab === 'integrations' && (
             <>
               {/* Delivery Engine Provider Card */}
-              <div className="rounded-[24px] border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] p-6 shadow-xs space-y-5">
+              <div className="rounded-2xl border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] p-6 shadow-xs space-y-5">
                 <div className="pb-3 border-b border-[#EBF0F5] dark:border-[#1E222D]">
-                  <h2 className="text-sm font-bold uppercase tracking-wider text-slate-900 dark:text-white">
+                  <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
                     Email Delivery Provider
                   </h2>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
@@ -446,9 +446,9 @@ export default function SettingsPage() {
               </div>
 
               {/* Rate Limits Card */}
-              <div className="rounded-[24px] border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] p-6 shadow-xs space-y-5">
+              <div className="rounded-2xl border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] p-6 shadow-xs space-y-5">
                 <div className="pb-3 border-b border-[#EBF0F5] dark:border-[#1E222D]">
-                  <h2 className="text-sm font-bold uppercase tracking-wider text-slate-900 dark:text-white">
+                  <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
                     Global Sending Rate Limits
                   </h2>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">

@@ -30,7 +30,6 @@ import {
   UserMinus,
   Plus,
   Workflow,
-  Smile,
   CheckCircle2,
   Inbox,
   ArrowRight,
@@ -200,22 +199,22 @@ function ShopeersMetricCard({
   const isNegative = numChange < 0;
 
   return (
-    <div className="p-5 md:p-6 rounded-[24px] bg-white dark:bg-[#11131A] border border-[#EBF0F5] dark:border-[#1E222D] shadow-xs hover:shadow-md transition-all duration-200 flex flex-col justify-between">
-      {/* Top Header: Title & Circular Icon Container */}
+    <div className="p-5 rounded-2xl bg-white dark:bg-[#11131A] border border-[#EBF0F5] dark:border-[#1E222D] shadow-xs hover:shadow-md transition-all duration-200 flex flex-col justify-between">
+      {/* Top Header: Title & Icon */}
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+        <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
           {title}
         </span>
         <div
-          className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 border ${theme.iconBg} ${theme.iconText} ${theme.iconBorder}`}
+          className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border ${theme.iconBg} ${theme.iconText} ${theme.iconBorder}`}
         >
-          <Icon size={18} strokeWidth={2.2} />
+          <Icon size={16} strokeWidth={2} />
         </div>
       </div>
 
-      {/* Value: Big Bold Typography */}
-      <div className="mt-2">
-        <div className="text-3xl lg:text-[34px] font-extrabold tracking-tight text-slate-900 dark:text-white font-sans">
+      {/* Value: Standard Clean Typography */}
+      <div className="mt-2.5">
+        <div className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white font-sans">
           {value}
         </div>
       </div>
@@ -225,7 +224,7 @@ function ShopeersMetricCard({
         {hasDelta ? (
           <>
             <span
-              className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold font-mono border ${
+              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold font-mono border ${
                 isPositive
                   ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border-emerald-200/80 dark:border-emerald-800/60'
                   : isNegative
@@ -235,18 +234,18 @@ function ShopeersMetricCard({
             >
               {isPositive ? `+${numChange}%` : `${numChange}%`}
             </span>
-            <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+            <span className="text-xs text-slate-500 dark:text-slate-400">
               vs last period
             </span>
             {caveat && <CaveatMark note={caveat} />}
           </>
         ) : sub ? (
-          <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 font-medium">
+          <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
             <span>{sub}</span>
             {caveat && <CaveatMark note={caveat} />}
           </div>
         ) : (
-          <span className="text-xs text-slate-400 dark:text-slate-500 font-medium">
+          <span className="text-xs text-slate-400 dark:text-slate-500">
             Steady vs last period
           </span>
         )}
@@ -482,7 +481,7 @@ export default function Dashboard() {
       ? [{ name: 'No Data', value: 1, fill: trackBg }]
       : [
           { name: 'Positive', value: positiveSentiment, fill: '#10B981' },
-          { name: 'Neutral', value: neutralSentiment, fill: '#F59E0B' },
+          { name: 'Neutral', value: neutralSentiment, fill: '#94A3B8' },
           { name: 'Negative', value: negativeSentiment, fill: '#F43F5E' },
         ].filter((s) => s.value > 0);
 
@@ -493,10 +492,10 @@ export default function Dashboard() {
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-[#EBF0F5] dark:border-[#1E222D]">
         <div>
-          <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
             Campaign Analytics
           </h1>
-          <p className="text-xs md:text-sm text-slate-500 dark:text-slate-400 mt-1">
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
             A unified overview of your outbound deliverability and automated sequences.
           </p>
         </div>
@@ -538,7 +537,7 @@ export default function Dashboard() {
 
       {/* Setup Wizard */}
       {needsSetup && (
-        <div className="rounded-[24px] border border-amber-200/80 dark:border-amber-900/50 bg-amber-50/40 dark:bg-amber-950/20 p-5 md:p-6 shadow-xs">
+        <div className="rounded-2xl border border-amber-200/80 dark:border-amber-900/50 bg-amber-50/40 dark:bg-amber-950/20 p-5 md:p-6 shadow-xs">
           <div className="flex items-center gap-2">
             <AlertTriangle size={16} className="text-amber-600 dark:text-amber-400" />
             <span className="text-xs font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400">
@@ -623,17 +622,17 @@ export default function Dashboard() {
         <div className="space-y-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
             {[0, 1, 2, 3].map((i) => (
-              <div key={i} className="h-32 rounded-[24px] bg-slate-100 dark:bg-slate-800/40 animate-pulse" />
+              <div key={i} className="h-32 rounded-2xl bg-slate-100 dark:bg-slate-800/40 animate-pulse" />
             ))}
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2 h-[420px] rounded-[24px] bg-slate-100 dark:bg-slate-800/40 animate-pulse" />
+            <div className="lg:col-span-2 h-[420px] rounded-2xl bg-slate-100 dark:bg-slate-800/40 animate-pulse" />
             <div className="lg:col-span-1 space-y-6">
-              <div className="h-[240px] rounded-[24px] bg-slate-100 dark:bg-slate-800/40 animate-pulse" />
-              <div className="h-[240px] rounded-[24px] bg-slate-100 dark:bg-slate-800/40 animate-pulse" />
+              <div className="h-[240px] rounded-2xl bg-slate-100 dark:bg-slate-800/40 animate-pulse" />
+              <div className="h-[240px] rounded-2xl bg-slate-100 dark:bg-slate-800/40 animate-pulse" />
             </div>
           </div>
-          <div className="h-[300px] rounded-[24px] bg-slate-100 dark:bg-slate-800/40 animate-pulse" />
+          <div className="h-[300px] rounded-2xl bg-slate-100 dark:bg-slate-800/40 animate-pulse" />
         </div>
       ) : !stats ? (
         /* Failed Initial Load Error Alert */
@@ -719,11 +718,11 @@ export default function Dashboard() {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
             {/* Left 2/3 Column: Engagement Trends Card */}
             <div className="lg:col-span-2 min-w-0 flex flex-col">
-              <div className="h-full p-6 md:p-7 rounded-[24px] bg-white dark:bg-[#11131A] border border-[#EBF0F5] dark:border-[#1E222D] shadow-xs flex flex-col justify-between">
+              <div className="h-full p-5 sm:p-6 rounded-2xl bg-white dark:bg-[#11131A] border border-[#EBF0F5] dark:border-[#1E222D] shadow-xs flex flex-col justify-between">
                 {/* Header: Title, Subtitle & Range Selection Pills */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
                   <div>
-                    <h2 className="text-lg md:text-xl font-bold tracking-tight text-slate-900 dark:text-white">
+                    <h2 className="text-base font-semibold tracking-tight text-slate-900 dark:text-white">
                       Engagement Trends
                     </h2>
                     <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
@@ -852,15 +851,15 @@ export default function Dashboard() {
                     <MuiTooltip title="Send attempts recorded as failed" arrow>
                       <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50/70 dark:bg-[#161822]/70 border border-[#EBF0F5] dark:border-[#1E222D] hover:border-rose-200 dark:hover:border-rose-900/40 transition-colors">
                         <div>
-                          <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                          <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
                             Failed Sends
                           </div>
-                          <div className="text-sm font-bold text-slate-900 dark:text-white font-mono mt-0.5">
+                          <div className="text-sm font-semibold text-slate-900 dark:text-white font-mono mt-0.5">
                             {(stats.failed ?? 0).toLocaleString()}
                           </div>
                         </div>
-                        <div className="w-7 h-7 rounded-full flex items-center justify-center bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200/60 dark:border-rose-900/40 shrink-0">
-                          <XCircle size={14} strokeWidth={2.2} />
+                        <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200/60 dark:border-rose-900/40 shrink-0">
+                          <XCircle size={14} strokeWidth={2} />
                         </div>
                       </div>
                     </MuiTooltip>
@@ -869,15 +868,15 @@ export default function Dashboard() {
                     <MuiTooltip title="Hard bounces at send time or reported on delivery" arrow>
                       <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50/70 dark:bg-[#161822]/70 border border-[#EBF0F5] dark:border-[#1E222D] hover:border-amber-200 dark:hover:border-amber-900/40 transition-colors">
                         <div>
-                          <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                          <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
                             Bounced
                           </div>
-                          <div className="text-sm font-bold text-slate-900 dark:text-white font-mono mt-0.5">
+                          <div className="text-sm font-semibold text-slate-900 dark:text-white font-mono mt-0.5">
                             {(stats.bounced ?? 0).toLocaleString()}
                           </div>
                         </div>
-                        <div className="w-7 h-7 rounded-full flex items-center justify-center bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200/60 dark:border-amber-900/40 shrink-0">
-                          <AlertTriangle size={14} strokeWidth={2.2} />
+                        <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200/60 dark:border-amber-900/40 shrink-0">
+                          <AlertTriangle size={14} strokeWidth={2} />
                         </div>
                       </div>
                     </MuiTooltip>
@@ -886,15 +885,15 @@ export default function Dashboard() {
                     <MuiTooltip title="Opted out of mailings" arrow>
                       <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50/70 dark:bg-[#161822]/70 border border-[#EBF0F5] dark:border-[#1E222D] hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
                         <div>
-                          <div className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                          <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
                             Unsubscribed
                           </div>
-                          <div className="text-sm font-bold text-slate-900 dark:text-white font-mono mt-0.5">
+                          <div className="text-sm font-semibold text-slate-900 dark:text-white font-mono mt-0.5">
                             {(stats.unsubscribed ?? 0).toLocaleString()}
                           </div>
                         </div>
-                        <div className="w-7 h-7 rounded-full flex items-center justify-center bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 shrink-0">
-                          <UserMinus size={14} strokeWidth={2.2} />
+                        <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 shrink-0">
+                          <UserMinus size={14} strokeWidth={2} />
                         </div>
                       </div>
                     </MuiTooltip>
@@ -906,18 +905,15 @@ export default function Dashboard() {
             {/* Right 1/3 Column: Funnel & Sentiment Cards Stacked */}
             <div className="lg:col-span-1 min-w-0 flex flex-col justify-between gap-5">
               {/* Conversion Funnel Card */}
-              <div className="flex-1 w-full rounded-[24px] border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] p-5 shadow-xs transition-shadow duration-200 hover:shadow-md flex flex-col justify-between">
+              <div className="flex-1 w-full rounded-2xl border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] p-5 shadow-xs transition-shadow duration-200 hover:shadow-md flex flex-col justify-between">
                 <div className="flex items-start justify-between mb-3">
                   <div>
-                    <h3 className="text-base font-bold text-slate-900 dark:text-white tracking-tight">
+                    <h3 className="text-base font-semibold text-slate-900 dark:text-white tracking-tight">
                       Conversion Funnel
                     </h3>
                     <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                       Outreach progression from dispatch to booked call
                     </p>
-                  </div>
-                  <div className="h-8 w-8 rounded-full bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 flex items-center justify-center flex-shrink-0">
-                    <Workflow size={15} strokeWidth={2.2} />
                   </div>
                 </div>
 
@@ -1005,18 +1001,15 @@ export default function Dashboard() {
               </div>
 
               {/* Prospect Sentiment Gauge Card */}
-              <div className="flex-1 w-full rounded-[24px] border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] p-5 shadow-xs transition-shadow duration-200 hover:shadow-md flex flex-col justify-between">
+              <div className="flex-1 w-full rounded-2xl border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] p-5 shadow-xs transition-shadow duration-200 hover:shadow-md flex flex-col justify-between">
                 <div className="flex items-start justify-between mb-1.5">
                   <div>
-                    <h3 className="text-base font-bold text-slate-900 dark:text-white tracking-tight">
+                    <h3 className="text-base font-semibold text-slate-900 dark:text-white tracking-tight">
                       Prospect Sentiment
                     </h3>
                     <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                       Lead outcome and sentiment distribution
                     </p>
-                  </div>
-                  <div className="h-8 w-8 rounded-full bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center flex-shrink-0">
-                    <Smile size={16} strokeWidth={2.2} />
                   </div>
                 </div>
 
@@ -1051,10 +1044,10 @@ export default function Dashboard() {
 
                       {/* Central Score Typography */}
                       <div className="absolute top-[56%] left-1/2 -translate-x-1/2 -translate-y-1/2 text-center pointer-events-none">
-                        <span className="block text-xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+                        <span className="block text-2xl font-bold font-sans text-slate-900 dark:text-white tracking-tight">
                           {totalSentiment > 0 ? `${positiveSentimentRate}%` : '—'}
                         </span>
-                        <span className="block text-[10px] font-semibold tracking-wider text-slate-400 uppercase">
+                        <span className="block text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">
                           {totalSentiment > 0 ? 'Positive Score' : 'No Contacts'}
                         </span>
                       </div>
@@ -1065,34 +1058,34 @@ export default function Dashboard() {
                 {/* 3-Category Breakdown Footer Pills */}
                 <div className="mt-1 pt-2.5 border-t border-slate-100 dark:border-slate-800/80 grid grid-cols-3 gap-2 text-center">
                   {/* Positive */}
-                  <div className="rounded-xl bg-emerald-50/60 dark:bg-emerald-950/20 p-2 border border-emerald-100/60 dark:border-emerald-800/20">
-                    <div className="flex items-center justify-center gap-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                  <div className="rounded-xl bg-slate-50/70 dark:bg-slate-900/40 p-2 border border-slate-100 dark:border-slate-800/60">
+                    <div className="flex items-center justify-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500" />
                       <span>Positive</span>
                     </div>
-                    <span className="block text-sm font-bold text-slate-800 dark:text-slate-100 mt-0.5">
+                    <span className="block text-sm font-semibold text-slate-900 dark:text-white font-mono mt-0.5">
                       {positiveSentiment.toLocaleString()}
                     </span>
                   </div>
 
                   {/* Neutral */}
-                  <div className="rounded-xl bg-amber-50/60 dark:bg-amber-950/20 p-2 border border-amber-100/60 dark:border-amber-800/20">
-                    <div className="flex items-center justify-center gap-1 text-[10px] font-semibold text-amber-600 dark:text-amber-400 uppercase tracking-wider">
-                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                  <div className="rounded-xl bg-slate-50/70 dark:bg-slate-900/40 p-2 border border-slate-100 dark:border-slate-800/60">
+                    <div className="flex items-center justify-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400">
+                      <span className="w-2 h-2 rounded-full bg-slate-400 dark:bg-slate-500" />
                       <span>Neutral</span>
                     </div>
-                    <span className="block text-sm font-bold text-slate-800 dark:text-slate-100 mt-0.5">
+                    <span className="block text-sm font-semibold text-slate-900 dark:text-white font-mono mt-0.5">
                       {neutralSentiment.toLocaleString()}
                     </span>
                   </div>
 
                   {/* Negative */}
-                  <div className="rounded-xl bg-rose-50/60 dark:bg-rose-950/20 p-2 border border-rose-100/60 dark:border-rose-800/20">
-                    <div className="flex items-center justify-center gap-1 text-[10px] font-semibold text-rose-600 dark:text-rose-400 uppercase tracking-wider">
-                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                  <div className="rounded-xl bg-slate-50/70 dark:bg-slate-900/40 p-2 border border-slate-100 dark:border-slate-800/60">
+                    <div className="flex items-center justify-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400">
+                      <span className="w-2 h-2 rounded-full bg-rose-500" />
                       <span>Negative</span>
                     </div>
-                    <span className="block text-sm font-bold text-slate-800 dark:text-slate-100 mt-0.5">
+                    <span className="block text-sm font-semibold text-slate-900 dark:text-white font-mono mt-0.5">
                       {negativeSentiment.toLocaleString()}
                     </span>
                   </div>
@@ -1103,10 +1096,10 @@ export default function Dashboard() {
           </div>
 
           {/* 3. Full-width Recent Campaigns Summary Table Card */}
-          <div className="rounded-[24px] border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] shadow-xs overflow-hidden transition-all duration-200">
+          <div className="rounded-2xl border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] shadow-xs overflow-hidden transition-all duration-200">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-6 pb-4 border-b border-[#EBF0F5] dark:border-[#1E222D]">
               <div>
-                <h2 className="text-lg font-bold text-slate-900 dark:text-white tracking-tight">
+                <h2 className="text-base font-semibold text-slate-900 dark:text-white tracking-tight">
                   Recent Campaigns
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-normal">
@@ -1126,22 +1119,22 @@ export default function Dashboard() {
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="border-b border-[#EBF0F5] dark:border-[#1E222D] bg-slate-50/50 dark:bg-slate-900/20">
-                    <th className="py-3 px-6 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 min-w-[240px]">
+                    <th className="py-3 px-6 text-xs font-semibold text-slate-500 dark:text-slate-400 min-w-[240px]">
                       Campaign Name
                     </th>
-                    <th className="py-3 px-6 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 min-w-[130px]">
+                    <th className="py-3 px-6 text-xs font-semibold text-slate-500 dark:text-slate-400 min-w-[130px]">
                       Status
                     </th>
-                    <th className="py-3 px-6 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 min-w-[120px]">
+                    <th className="py-3 px-6 text-xs font-semibold text-slate-500 dark:text-slate-400 min-w-[120px]">
                       Total Leads
                     </th>
-                    <th className="py-3 px-6 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 min-w-[120px]">
+                    <th className="py-3 px-6 text-xs font-semibold text-slate-500 dark:text-slate-400 min-w-[120px]">
                       Dispatches
                     </th>
-                    <th className="py-3 px-6 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 min-w-[160px]">
+                    <th className="py-3 px-6 text-xs font-semibold text-slate-500 dark:text-slate-400 min-w-[160px]">
                       Open Rate
                     </th>
-                    <th className="py-3 px-6 text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 w-[70px] text-right">
+                    <th className="py-3 px-6 text-xs font-semibold text-slate-500 dark:text-slate-400 w-[70px] text-right">
                       Action
                     </th>
                   </tr>

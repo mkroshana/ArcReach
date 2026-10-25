@@ -314,10 +314,10 @@ export default function TemplatesPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-[#EBF0F5] dark:border-[#1E222D]">
         <div>
-          <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
             Copy Library
           </h1>
-          <p className="text-xs md:text-sm text-slate-500 dark:text-slate-400 mt-1">
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
             Write and manage reusable email templates with personalization variables and Spintax.
           </p>
         </div>
@@ -394,7 +394,7 @@ export default function TemplatesPage() {
                   <span className="text-xs text-slate-500 dark:text-slate-400">Retrieving templates…</span>
                 </div>
               ) : filteredTemplates.length === 0 ? (
-                <div className="p-8 rounded-[24px] border border-dashed border-[#EBF0F5] dark:border-[#1E222D] text-center">
+                <div className="p-8 rounded-2xl border border-dashed border-[#EBF0F5] dark:border-[#1E222D] text-center">
                   <FileText size={28} className="mx-auto text-slate-400 opacity-40 mb-2" />
                   <span className="text-xs text-slate-500 dark:text-slate-400">
                     {templates.length === 0 ? 'No templates yet' : 'No templates match this search or category'}
@@ -407,7 +407,7 @@ export default function TemplatesPage() {
                     <div
                       key={t.id}
                       onClick={() => selectTemplate(t)}
-                      className={`p-4 rounded-[20px] border transition-all cursor-pointer ${
+                      className={`p-4 rounded-xl border transition-all cursor-pointer ${
                         isSelected
                           ? 'border-blue-600 dark:border-blue-500 bg-blue-50/40 dark:bg-blue-950/20 shadow-xs'
                           : 'border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] hover:border-slate-300 dark:hover:border-slate-700'
@@ -446,7 +446,7 @@ export default function TemplatesPage() {
           {/* Right Column: Template Editor / Preview */}
           <div className="lg:col-span-2">
             {editingTemplate ? (
-              <div className="rounded-[24px] border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] p-6 shadow-xs space-y-5">
+              <div className="rounded-2xl border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] p-6 shadow-xs space-y-5">
                 {/* Editor Header */}
                 <div className="flex items-center justify-between pb-4 border-b border-[#EBF0F5] dark:border-[#1E222D]">
                   <div className="flex items-center gap-2 min-w-0">
@@ -611,7 +611,7 @@ export default function TemplatesPage() {
                 )}
               </div>
             ) : !loading && templates.length === 0 ? (
-              <div className="p-12 rounded-[24px] border border-dashed border-[#EBF0F5] dark:border-[#1E222D] text-center">
+              <div className="p-12 rounded-2xl border border-dashed border-[#EBF0F5] dark:border-[#1E222D] text-center">
                 <FileText size={44} className="mx-auto text-slate-400 opacity-30 mb-3" />
                 <h3 className="text-sm font-bold text-slate-900 dark:text-white tracking-tight">
                   Your Copy Library Is Empty
@@ -629,7 +629,7 @@ export default function TemplatesPage() {
                 </button>
               </div>
             ) : (
-              <div className="p-12 rounded-[24px] border border-dashed border-[#EBF0F5] dark:border-[#1E222D] text-center">
+              <div className="p-12 rounded-2xl border border-dashed border-[#EBF0F5] dark:border-[#1E222D] text-center">
                 <FileText size={44} className="mx-auto text-slate-400 opacity-30 mb-3" />
                 <span className="text-sm font-semibold text-slate-500 dark:text-slate-400">
                   Select Template to Configure Copy
@@ -641,7 +641,7 @@ export default function TemplatesPage() {
       )}
 
       {/* Import HTML Files Dialog */}
-      <Dialog open={importOpen} onClose={closeImport} maxWidth="sm" fullWidth slotProps={{ paper: { sx: { borderRadius: '24px' } } }}>
+      <Dialog open={importOpen} onClose={closeImport} maxWidth="sm" fullWidth slotProps={{ paper: { sx: { borderRadius: '16px' } } }}>
         <form onSubmit={(e) => { e.preventDefault(); runImport(); }}>
           <DialogTitle>
             <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>

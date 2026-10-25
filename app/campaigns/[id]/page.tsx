@@ -557,7 +557,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
             {activeTab === 'Sequence' && (
               <>
-                <div className="rounded-[24px] border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] shadow-xs p-5 mb-4">
+                <div className="rounded-2xl border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] shadow-xs p-5 mb-4">
                   <div className="flex items-center gap-2 mb-2">
                     <Settings className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                     <span className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">Campaign Title</span>
@@ -607,7 +607,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                   return (
                     <div
                       key={step.id || index}
-                      className={`rounded-[24px] border ${
+                      className={`rounded-2xl border ${
                         stepIssue
                           ? 'border-red-400 dark:border-red-700/80'
                           : 'border-[#EBF0F5] dark:border-[#1E222D]'

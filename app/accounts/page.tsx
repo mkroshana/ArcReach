@@ -581,10 +581,10 @@ export default function AccountsPage() {
           {/* Header */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-[#EBF0F5] dark:border-[#1E222D]">
             <div>
-              <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+              <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
                 Email Senders
               </h1>
-              <p className="text-xs md:text-sm text-slate-500 dark:text-slate-400 mt-1">
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                 Connect sender mailboxes, set sending limits, and monitor deliverability.
               </p>
             </div>
@@ -616,44 +616,44 @@ export default function AccountsPage() {
           {!loadError && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               {/* Card 1: Total Senders */}
-              <div className="p-6 rounded-[24px] bg-white dark:bg-[#11131A] border border-[#EBF0F5] dark:border-[#1E222D] shadow-xs flex flex-col justify-between">
+              <div className="p-5 rounded-2xl bg-white dark:bg-[#11131A] border border-[#EBF0F5] dark:border-[#1E222D] shadow-xs flex flex-col justify-between">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
                     Total Senders
                   </span>
-                  <div className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 border bg-blue-50 dark:bg-blue-950/40 text-[#2563EB] dark:text-[#60A5FA] border-blue-100/80 dark:border-blue-900/40">
-                    <Users size={20} strokeWidth={2.2} />
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border bg-blue-50 dark:bg-blue-950/40 text-[#2563EB] dark:text-[#60A5FA] border-blue-100/80 dark:border-blue-900/40">
+                    <Users size={16} strokeWidth={2} />
                   </div>
                 </div>
-                <div className="mt-3">
-                  <div className="text-3xl lg:text-[34px] font-extrabold tracking-tight text-slate-900 dark:text-white font-sans">
+                <div className="mt-2.5">
+                  <div className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white font-sans">
                     {loading ? '…' : accounts.length}
                   </div>
                 </div>
-                <div className="mt-3.5 flex items-center gap-2">
-                  <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+                <div className="mt-2.5 flex items-center gap-2">
+                  <span className="text-xs text-slate-500 dark:text-slate-400">
                     Connected outreach mailboxes
                   </span>
                 </div>
               </div>
 
               {/* Card 2: Daily Capacity Limit */}
-              <div className="p-6 rounded-[24px] bg-white dark:bg-[#11131A] border border-[#EBF0F5] dark:border-[#1E222D] shadow-xs flex flex-col justify-between">
+              <div className="p-5 rounded-2xl bg-white dark:bg-[#11131A] border border-[#EBF0F5] dark:border-[#1E222D] shadow-xs flex flex-col justify-between">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
                     {globalDaily ? 'Global Limit Remaining' : 'Combined Daily Limit'}
                   </span>
-                  <div className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 border bg-emerald-50 dark:bg-emerald-950/40 text-[#059669] dark:text-[#34D399] border-emerald-100/80 dark:border-emerald-900/40">
-                    <Gauge size={20} strokeWidth={2.2} />
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border bg-emerald-50 dark:bg-emerald-950/40 text-[#059669] dark:text-[#34D399] border-emerald-100/80 dark:border-emerald-900/40">
+                    <Gauge size={16} strokeWidth={2} />
                   </div>
                 </div>
-                <div className="mt-3">
-                  <div className="text-3xl lg:text-[34px] font-extrabold tracking-tight text-slate-900 dark:text-white font-sans">
+                <div className="mt-2.5">
+                  <div className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white font-sans">
                     {loading ? '…' : globalDaily ? globalDaily.remaining.toLocaleString() : totalDailyLimit.toLocaleString()}
                   </div>
                 </div>
-                <div className="mt-3.5 flex items-center gap-2">
-                  <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+                <div className="mt-2.5 flex items-center gap-2">
+                  <span className="text-xs text-slate-500 dark:text-slate-400">
                     {globalDaily
                       ? `Of ${globalDaily.limit.toLocaleString()} in 24 hours (${globalDailySource})`
                       : 'Total emails / day across all mailboxes'}
@@ -665,13 +665,13 @@ export default function AccountsPage() {
 
           {/* Table */}
           {loading ? (
-            <div className="rounded-[24px] border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] shadow-xs p-6">
+            <div className="rounded-2xl border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] shadow-xs p-6">
               <TableSkeleton rows={4} cols={5} />
             </div>
           ) : loadError ? null : (
-            <div className="rounded-[24px] border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] shadow-xs overflow-hidden">
+            <div className="rounded-2xl border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] shadow-xs overflow-hidden">
               <div className="flex items-center justify-between p-4 sm:px-6 border-b border-[#EBF0F5] dark:border-[#1E222D]">
-                <h3 className="text-sm font-bold text-slate-900 dark:text-white tracking-tight">Connected Outreach Senders</h3>
+                <h3 className="text-sm font-semibold text-slate-900 dark:text-white tracking-tight">Connected Outreach Senders</h3>
                 {failingSyncCount > 0 && (
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 border border-rose-200/60 dark:border-rose-800/50 font-mono">
                     <MailWarning size={12} className="text-rose-500" />

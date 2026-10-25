@@ -324,10 +324,10 @@ export default function CampaignsPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-[#EBF0F5] dark:border-[#1E222D]">
         <div>
-          <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
             Campaign Sequences
           </h1>
-          <p className="text-xs md:text-sm text-slate-500 dark:text-slate-400 mt-1">
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
             Each campaign, where its leads are in the sequence and when the next step goes out.
           </p>
         </div>
@@ -359,7 +359,7 @@ export default function CampaignsPage() {
         </Alert>
       )}
 
-      <div className="rounded-[24px] border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] shadow-xs overflow-hidden">
+      <div className="rounded-2xl border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] shadow-xs overflow-hidden">
         {/* Toolbar */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 sm:px-6 border-b border-[#EBF0F5] dark:border-[#1E222D]">
           <div className="relative w-full sm:w-72">

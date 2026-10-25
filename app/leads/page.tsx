@@ -1236,10 +1236,10 @@ export default function LeadsPage() {
       {/* Header */}
       <header className="flex justify-between items-start md:items-center flex-col md:flex-row gap-4 pb-2 border-b border-[#EBF0F5] dark:border-[#1E222D]">
         <div>
-          <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
             Leads Directory
           </h1>
-          <p className="text-xs md:text-sm text-slate-500 dark:text-slate-400 mt-1">
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
             Import contacts, check email deliverability, and organize outreach prospect lists.
           </p>
         </div>
@@ -1764,7 +1764,7 @@ export default function LeadsPage() {
       </div>
 
       {/* Main CRM Board Area */}
-      <div className="rounded-[24px] border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] shadow-xs overflow-hidden transition-all duration-200 mt-6">
+      <div className="rounded-2xl border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] shadow-xs overflow-hidden transition-all duration-200 mt-6">
         
         {/* Render for LEADS, ARCHIVED or SUPPRESSED Tab */}
         {(activeTab === 'leads' || activeTab === 'archived' || activeTab === 'suppressed') && (

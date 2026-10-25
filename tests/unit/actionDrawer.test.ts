@@ -33,12 +33,15 @@ describe('ActionDrawer Static & Structural Contract Tests', () => {
 
   it('renders title and children in portal markup when client-hydrated', () => {
     const html = renderToStaticMarkup(
-      React.createElement(ActionDrawer, {
-        isOpen: true,
-        onClose: () => {},
-        title: 'Shopeers Lead Export',
-        children: React.createElement('div', { id: 'child-lead-table' }, 'Lead Table Content'),
-      })
+      React.createElement(
+        ActionDrawer,
+        {
+          isOpen: true,
+          onClose: () => {},
+          title: 'Shopeers Lead Export',
+        },
+        React.createElement('div', { id: 'child-lead-table' }, 'Lead Table Content')
+      )
     );
 
     expect(html).toContain('Shopeers Lead Export');
@@ -49,13 +52,16 @@ describe('ActionDrawer Static & Structural Contract Tests', () => {
 
   it('renders subtitle with aria-describedby binding', () => {
     const html = renderToStaticMarkup(
-      React.createElement(ActionDrawer, {
-        isOpen: true,
-        onClose: () => {},
-        title: 'Connect Mailbox',
-        subtitle: 'Configure SMTP and IMAP connection parameters',
-        children: React.createElement('div', null, 'Form Body'),
-      })
+      React.createElement(
+        ActionDrawer,
+        {
+          isOpen: true,
+          onClose: () => {},
+          title: 'Connect Mailbox',
+          subtitle: 'Configure SMTP and IMAP connection parameters',
+        },
+        React.createElement('div', null, 'Form Body')
+      )
     );
 
     expect(html).toContain('Connect Mailbox');
@@ -79,7 +85,6 @@ describe('ActionDrawer Static & Structural Contract Tests', () => {
           width: w,
           onClose: () => {},
           title: `Width ${w}`,
-          children: null,
         })
       );
       expect(html).toContain(expectedClass);
@@ -93,7 +98,6 @@ describe('ActionDrawer Static & Structural Contract Tests', () => {
         isLoading: true,
         onClose: () => {},
         title: 'Loading Drawer',
-        children: null,
       })
     );
 
@@ -108,7 +112,6 @@ describe('ActionDrawer Static & Structural Contract Tests', () => {
         onSubmit: () => {},
         onClose: () => {},
         title: 'Form Drawer',
-        children: null,
       })
     );
 
@@ -124,7 +127,6 @@ describe('ActionDrawer Static & Structural Contract Tests', () => {
         formId: 'external-form-99',
         onClose: () => {},
         title: 'External Form Drawer',
-        children: null,
       })
     );
 
@@ -140,7 +142,6 @@ describe('ActionDrawer Static & Structural Contract Tests', () => {
         footer: null,
         onClose: () => {},
         title: 'No Footer',
-        children: null,
       })
     );
 
@@ -155,7 +156,6 @@ describe('ActionDrawer Static & Structural Contract Tests', () => {
         footer: React.createElement('div', { id: 'custom-action-bar' }, 'Custom Actions'),
         onClose: () => {},
         title: 'Custom Footer',
-        children: null,
       })
     );
 
@@ -169,8 +169,6 @@ describe('ActionDrawer Static & Structural Contract Tests', () => {
         isOpen: true,
         icon: Mail,
         title: 'Mail Settings',
-        onClose: () => {},
-        children: null,
       })
     );
 
@@ -184,7 +182,6 @@ describe('ActionDrawer Static & Structural Contract Tests', () => {
         showCloseButton: false,
         onClose: () => {},
         title: 'No Close Button',
-        children: null,
       })
     );
 

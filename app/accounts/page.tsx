@@ -671,7 +671,7 @@ export default function AccountsPage() {
           ) : loadError ? null : (
             <div className="rounded-[24px] border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] shadow-xs overflow-hidden">
               <div className="flex items-center justify-between p-4 sm:px-6 border-b border-[#EBF0F5] dark:border-[#1E222D]">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">Connected Outreach Senders</h3>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white tracking-tight">Connected Outreach Senders</h3>
                 {failingSyncCount > 0 && (
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 border border-rose-200/60 dark:border-rose-800/50 font-mono">
                     <MailWarning size={12} className="text-rose-500" />

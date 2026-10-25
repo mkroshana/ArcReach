@@ -36,6 +36,8 @@ import {
   ArrowRight,
   ChevronRight,
   Check,
+  Calendar,
+  ChevronDown,
 } from 'lucide-react';
 import { Tooltip as MuiTooltip } from '@mui/material';
 import { useTheme as useAppTheme } from '@/components/ThemeProvider';
@@ -130,6 +132,7 @@ const campaignDateFormat = new Intl.DateTimeFormat(undefined, {
   year: 'numeric',
 });
 
+
 /* -------------------------------------------------------------------------- */
 /*                                SUBCOMPONENTS                               */
 /* -------------------------------------------------------------------------- */
@@ -197,28 +200,28 @@ function ShopeersMetricCard({
   const isNegative = numChange < 0;
 
   return (
-    <div className="p-6 rounded-[24px] bg-white dark:bg-[#11131A] border border-[#EBF0F5] dark:border-[#1E222D] shadow-xs hover:shadow-md transition-all duration-200 flex flex-col justify-between">
+    <div className="p-5 md:p-6 rounded-[24px] bg-white dark:bg-[#11131A] border border-[#EBF0F5] dark:border-[#1E222D] shadow-xs hover:shadow-md transition-all duration-200 flex flex-col justify-between">
       {/* Top Header: Title & Circular Icon Container */}
       <div className="flex items-center justify-between gap-2">
         <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
           {title}
         </span>
         <div
-          className={`w-11 h-11 rounded-full flex items-center justify-center shrink-0 border ${theme.iconBg} ${theme.iconText} ${theme.iconBorder}`}
+          className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 border ${theme.iconBg} ${theme.iconText} ${theme.iconBorder}`}
         >
-          <Icon size={20} strokeWidth={2.2} />
+          <Icon size={18} strokeWidth={2.2} />
         </div>
       </div>
 
       {/* Value: Big Bold Typography */}
-      <div className="mt-3">
+      <div className="mt-2">
         <div className="text-3xl lg:text-[34px] font-extrabold tracking-tight text-slate-900 dark:text-white font-sans">
           {value}
         </div>
       </div>
 
       {/* Footer: Delta Percentage Pill or Subtitle */}
-      <div className="mt-3.5 flex items-center gap-2">
+      <div className="mt-2.5 flex items-center gap-2">
         {hasDelta ? (
           <>
             <span
@@ -497,29 +500,38 @@ export default function Dashboard() {
             A unified overview of your outbound deliverability and automated sequences.
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* Date Range Pill */}
+          <div className="hidden sm:inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#11131A] text-xs font-medium text-slate-700 dark:text-slate-300 shadow-2xs">
+            <Calendar size={13} className="text-slate-400 dark:text-slate-500" />
+            <span>Oct 19, 2026 - Oct 25, 2026</span>
+          </div>
+
+          {/* Range Dropdown Pill */}
+          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#11131A] text-xs font-semibold text-slate-700 dark:text-slate-300 shadow-2xs">
+            <span>Last {statsRange} days</span>
+            <ChevronDown size={13} className="text-slate-400" />
+          </div>
+
+          {/* Create Campaign Button */}
           <Link
             href="/campaigns"
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs md:text-sm font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition-colors"
+            className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition-all active:scale-[0.98]"
           >
-            <Plus size={16} />
+            <Plus size={14} />
             <span>Create Campaign</span>
           </Link>
+
+          {/* Refresh Action */}
           <MuiTooltip title="Refresh">
             <button
               type="button"
               aria-label="Refresh analytics"
               onClick={() => fetchStats(range)}
-              className="inline-flex items-center justify-center w-9 h-9 rounded-xl border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#11131A] text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
             >
-              <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
             </button>
-          </MuiTooltip>
-          <MuiTooltip title={deliveryDetail}>
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] text-xs font-mono font-bold text-slate-700 dark:text-slate-200 cursor-help">
-              <span className={`w-2 h-2 rounded-full ${delivery.dotClass}`} />
-              <span>{delivery.label}</span>
-            </div>
           </MuiTooltip>
         </div>
       </div>
@@ -584,6 +596,28 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* Subheader info line */}
+      <div className="text-xs text-slate-500 dark:text-slate-400 font-medium flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <span>
+            {stats
+              ? `Showing the last ${statsRange} days · deltas compare against the prior ${statsRange}-day window.${loading ? ' Refreshing…' : ''}`
+              : `Showing the last ${statsRange} days`}
+          </span>
+          <MuiTooltip title={deliveryDetail}>
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#11131A] text-[11px] font-semibold text-slate-700 dark:text-slate-300 shadow-2xs cursor-help">
+              <span className={`w-1.5 h-1.5 rounded-full ${delivery.dotClass}`} />
+              <span>{delivery.label}</span>
+            </span>
+          </MuiTooltip>
+        </div>
+        {loadedAt && (
+          <span className="font-mono text-[11px] text-slate-400">
+            Updated {loadedAt.toLocaleTimeString()}
+          </span>
+        )}
+      </div>
+
       {/* Loading Skeletons for Initial Load */}
       {!stats && loading && !loadError ? (
         <div className="space-y-6">
@@ -646,18 +680,6 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* Subheader info line */}
-          <div className="text-xs text-slate-500 dark:text-slate-400 font-medium flex items-center justify-between">
-            <span>
-              Showing the last {statsRange} days · deltas compare against the prior {statsRange}-day window.
-              {loading ? ' Refreshing…' : ''}
-            </span>
-            {loadedAt && (
-              <span className="font-mono text-[11px] text-slate-400">
-                Updated {loadedAt.toLocaleTimeString()}
-              </span>
-            )}
-          </div>
 
           {/* 1. 4-Card Metric Row */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
@@ -694,10 +716,10 @@ export default function Dashboard() {
           </div>
 
           {/* 2. Asymmetric Grid: 2/3 Left (Engagement Trends) + 1/3 Right (Funnel & Sentiment) */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
             {/* Left 2/3 Column: Engagement Trends Card */}
-            <div className="lg:col-span-2 min-w-0">
-              <div className="p-6 md:p-7 rounded-[24px] bg-white dark:bg-[#11131A] border border-[#EBF0F5] dark:border-[#1E222D] shadow-xs flex flex-col justify-between h-full">
+            <div className="lg:col-span-2 min-w-0 flex flex-col">
+              <div className="h-full p-6 md:p-7 rounded-[24px] bg-white dark:bg-[#11131A] border border-[#EBF0F5] dark:border-[#1E222D] shadow-xs flex flex-col justify-between">
                 {/* Header: Title, Subtitle & Range Selection Pills */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
                   <div>
@@ -793,6 +815,7 @@ export default function Dashboard() {
                           fillOpacity={1}
                           fill="url(#shopeersSent)"
                           name="Emails Sent"
+                          isAnimationActive={false}
                           activeDot={{ r: 5, strokeWidth: 2, stroke: '#FFFFFF' }}
                         />
                         <Area
@@ -803,6 +826,7 @@ export default function Dashboard() {
                           fillOpacity={1}
                           fill="url(#shopeersOpens)"
                           name="Unique Opens"
+                          isAnimationActive={false}
                           activeDot={{ r: 5, strokeWidth: 2, stroke: '#FFFFFF' }}
                         />
                         <Area
@@ -813,6 +837,7 @@ export default function Dashboard() {
                           fillOpacity={1}
                           fill="url(#shopeersClicks)"
                           name="Unique Clicks"
+                          isAnimationActive={false}
                           activeDot={{ r: 5, strokeWidth: 2, stroke: '#FFFFFF' }}
                         />
                       </AreaChart>
@@ -879,9 +904,9 @@ export default function Dashboard() {
             </div>
 
             {/* Right 1/3 Column: Funnel & Sentiment Cards Stacked */}
-            <div className="lg:col-span-1 min-w-0 space-y-4 flex flex-col justify-between">
+            <div className="lg:col-span-1 min-w-0 flex flex-col justify-between gap-5">
               {/* Conversion Funnel Card */}
-              <div className="w-full rounded-[24px] border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] p-5 shadow-xs transition-shadow duration-200 hover:shadow-md">
+              <div className="flex-1 w-full rounded-[24px] border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] p-5 shadow-xs transition-shadow duration-200 hover:shadow-md flex flex-col justify-between">
                 <div className="flex items-start justify-between mb-3">
                   <div>
                     <h3 className="text-base font-bold text-slate-900 dark:text-white tracking-tight">
@@ -942,7 +967,7 @@ export default function Dashboard() {
                           radius={[5, 5, 5, 5]}
                           barSize={11}
                           background={{ fill: trackBg, radius: 5 }}
-                          animationDuration={600}
+                          isAnimationActive={false}
                         >
                           {funnel.map((entry, index) => {
                             const fill =
@@ -980,7 +1005,7 @@ export default function Dashboard() {
               </div>
 
               {/* Prospect Sentiment Gauge Card */}
-              <div className="w-full rounded-[24px] border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] p-5 shadow-xs transition-shadow duration-200 hover:shadow-md">
+              <div className="flex-1 w-full rounded-[24px] border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] p-5 shadow-xs transition-shadow duration-200 hover:shadow-md flex flex-col justify-between">
                 <div className="flex items-start justify-between mb-1.5">
                   <div>
                     <h3 className="text-base font-bold text-slate-900 dark:text-white tracking-tight">
@@ -1012,7 +1037,7 @@ export default function Dashboard() {
                             outerRadius={74}
                             paddingAngle={totalSentiment > 0 ? 3 : 0}
                             dataKey="value"
-                            animationDuration={800}
+                            isAnimationActive={false}
                           >
                             {gaugeData.map((entry, index) => (
                               <Cell key={`gauge-cell-${index}`} fill={entry.fill} stroke="none" />
@@ -1073,10 +1098,11 @@ export default function Dashboard() {
                   </div>
                 </div>
               </div>
+
             </div>
           </div>
 
-          {/* 3. Recent Campaigns Summary Table Card */}
+          {/* 3. Full-width Recent Campaigns Summary Table Card */}
           <div className="rounded-[24px] border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] shadow-xs overflow-hidden transition-all duration-200">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-6 pb-4 border-b border-[#EBF0F5] dark:border-[#1E222D]">
               <div>

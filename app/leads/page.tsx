@@ -1750,10 +1750,10 @@ export default function LeadsPage() {
                 // Each tab has its own bulk actions, so a selection never carries over
                 setSelectedLeads([]);
               }}
-              className={`pb-3 text-xs font-bold uppercase tracking-wider border-b-2 flex items-center gap-2 transition-all cursor-pointer ${
+              className={`pb-3 text-xs font-semibold flex items-center gap-2 border-b-2 transition-all cursor-pointer ${
                 activeTab === tab.id
                   ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
-                  : 'border-transparent text-slate-400 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-400'
+                  : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
               }`}
             >
               <Icon className="w-3.5 h-3.5" />
@@ -1824,7 +1824,7 @@ export default function LeadsPage() {
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="border-b border-[#EBF0F5] dark:border-[#1E222D] text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider bg-slate-50/50 dark:bg-slate-900/20">
-                      <th className="py-3.5 px-6 w-12">
+                      <th className="py-3.5 px-4 w-10">
                         <input
                           type="checkbox"
                           checked={leads.length > 0 && leads.every(l => isSelected(l.id))}
@@ -1840,13 +1840,13 @@ export default function LeadsPage() {
                           className="w-4 h-4 rounded-md border-slate-300 text-blue-600 focus:ring-blue-500/30 cursor-pointer"
                         />
                       </th>
-                      <th className="py-3.5 px-6 min-w-[200px]">Lead Name</th>
-                      <th className="py-3.5 px-6 min-w-[220px]">Email Address</th>
-                      <th className="py-3.5 px-6 min-w-[150px]">Company</th>
-                      <th className="py-3.5 px-6 min-w-[140px]">Deliverability</th>
-                      <th className="py-3.5 px-6 min-w-[130px]">Status</th>
-                      {(activeTab === 'leads' || activeTab === 'suppressed') && <th className="py-3.5 px-6 min-w-[160px]">Groups</th>}
-                      <th className="py-3.5 px-6 text-right w-[90px]">Actions</th>
+                      <th className="py-3.5 px-4 min-w-[150px]">Lead Name</th>
+                      <th className="py-3.5 px-4 min-w-[170px]">Email Address</th>
+                      <th className="py-3.5 px-4 min-w-[120px]">Company</th>
+                      <th className="py-3.5 px-4 min-w-[120px]">Deliverability</th>
+                      <th className="py-3.5 px-4 min-w-[110px]">Status</th>
+                      {(activeTab === 'leads' || activeTab === 'suppressed') && <th className="py-3.5 px-4 min-w-[130px]">Groups</th>}
+                      <th className="py-3.5 px-4 text-right w-[80px]">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-[#1E222D]/60 text-slate-700 dark:text-slate-300">
@@ -1861,7 +1861,7 @@ export default function LeadsPage() {
                           isSelected(lead.id) ? 'bg-blue-50/30 dark:bg-blue-950/20' : ''
                         }`}
                       >
-                        <td className="py-4 px-6 w-12" onClick={(e) => e.stopPropagation()}>
+                        <td className="py-4 px-4 w-10" onClick={(e) => e.stopPropagation()}>
                           <input
                             type="checkbox"
                             checked={isSelected(lead.id)}
@@ -1875,16 +1875,16 @@ export default function LeadsPage() {
                             className="w-4 h-4 rounded-md border-slate-300 text-blue-600 focus:ring-blue-500/30 cursor-pointer"
                           />
                         </td>
-                        <td className="py-4 px-6">
+                        <td className="py-4 px-4">
                           <div className="font-semibold text-xs text-slate-900 dark:text-white">{lead.name || 'N/A'}</div>
                           {lead.jobTitle && <div className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5 font-normal">{lead.jobTitle}</div>}
                         </td>
-                        <td className="py-4 px-6 text-xs text-slate-600 dark:text-slate-400 font-mono flex items-center gap-2">
+                        <td className="py-4 px-4 text-xs text-slate-600 dark:text-slate-400 font-mono flex items-center gap-2">
                           <Mail className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 shrink-0" />
                           <span className="truncate">{lead.email}</span>
                         </td>
-                        <td className="py-4 px-6 text-xs text-slate-600 dark:text-slate-400 font-medium">{lead.company || 'N/A'}</td>
-                        <td className="py-4 px-6">
+                        <td className="py-4 px-4 text-xs text-slate-600 dark:text-slate-400 font-medium">{lead.company || 'N/A'}</td>
+                        <td className="py-4 px-4">
                           <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border ${
                             lead.validationStatus === 'Valid'
                               ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/60'
@@ -1901,11 +1901,11 @@ export default function LeadsPage() {
                             <span>{lead.validationStatus}</span>
                           </span>
                         </td>
-                        <td className="py-4 px-6">
+                        <td className="py-4 px-4">
                           <SuppressionChip lead={lead} />
                         </td>
                         {(activeTab === 'leads' || activeTab === 'suppressed') && (
-                          <td className="py-4 px-6">
+                          <td className="py-4 px-4">
                             <div className="flex flex-wrap gap-1 max-w-[180px]">
                               {(lead.groups || []).map((g: any) => (
                                 <span key={g.groupId} className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/50">
@@ -1918,7 +1918,7 @@ export default function LeadsPage() {
                             </div>
                           </td>
                         )}
-                        <td className="py-4 px-6 text-right" onClick={(e) => e.stopPropagation()}>
+                        <td className="py-4 px-4 text-right" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center justify-end gap-1">
                             <button 
                               onClick={async (e) => {

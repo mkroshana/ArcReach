@@ -200,18 +200,20 @@ export function Sidebar({ mobileOpen = false, onMobileClose, session: propSessio
   const sidebarContent = (
     <div className="flex flex-col h-full select-none">
       {/* Brand Header */}
-      <div className="flex items-center gap-3 px-3 py-4 mb-4">
-        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-blue-700 flex items-center justify-center text-white shadow-md shadow-blue-500/20">
-          <Mail size={20} strokeWidth={2.4} />
-        </div>
-        <div className="flex flex-col">
-          <span className="font-extrabold text-base tracking-[0.08em] text-slate-900 dark:text-white leading-tight">
-            ARCREACH
-          </span>
-          <span className="text-[10px] font-bold font-mono tracking-wider text-blue-600 dark:text-blue-400 uppercase">
-            Cold Email Engine
-          </span>
-        </div>
+      <div className="flex items-center justify-between px-3 py-4 mb-3">
+        <Link href="/" className="flex items-center gap-3 group active:scale-[0.98] transition-transform">
+          <div className="w-10 h-10 rounded-xl bg-[#2563EB] flex items-center justify-center text-white shadow-md shadow-blue-500/20 group-hover:bg-blue-600 transition-colors">
+            <Mail size={20} strokeWidth={2.4} />
+          </div>
+          <div className="flex flex-col">
+            <span className="font-bold text-base tracking-tight text-slate-900 dark:text-white leading-tight">
+              ArcReach
+            </span>
+            <span className="text-[10px] font-semibold text-blue-600 dark:text-blue-400">
+              Cold Email Engine
+            </span>
+          </div>
+        </Link>
       </div>
 
       {/* Main Navigation Items with Generous Spacing */}
@@ -226,7 +228,7 @@ export function Sidebar({ mobileOpen = false, onMobileClose, session: propSessio
               key={item.name}
               href={item.href}
               onClick={handleLinkClick}
-              className={`relative flex items-center gap-3.5 px-4 py-3 rounded-xl text-sm font-medium transition-all group ${
+              className={`relative flex items-center gap-3.5 px-4 py-3 rounded-xl text-sm font-medium transition-all active:scale-[0.98] group ${
                 isActive
                   ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 font-semibold shadow-xs'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100/70 dark:hover:bg-slate-800/50'
@@ -251,13 +253,13 @@ export function Sidebar({ mobileOpen = false, onMobileClose, session: propSessio
 
               <span className="truncate">{item.name}</span>
 
-              {/* Count Badge Pill */}
+              {/* Count Badge Pill: Soft Mint Green matching Shopeers */}
               {badge && (
                 <span
-                  className={`ml-auto text-[11px] font-mono font-bold px-2 py-0.5 rounded-full transition-colors ${
+                  className={`ml-auto text-[11px] font-bold px-2 py-0.5 rounded-full transition-colors ${
                     isActive
                       ? 'bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300'
-                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 group-hover:bg-slate-200/70 dark:group-hover:bg-slate-700'
+                      : 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 border border-emerald-100/60 dark:border-emerald-800/40'
                   }`}
                 >
                   {badge}
@@ -274,7 +276,7 @@ export function Sidebar({ mobileOpen = false, onMobileClose, session: propSessio
         <Link
           href="/settings"
           onClick={handleLinkClick}
-          className={`relative flex items-center gap-3.5 px-4 py-2.5 rounded-xl text-sm font-medium transition-all group ${
+          className={`relative flex items-center gap-3.5 px-4 py-2.5 rounded-xl text-sm font-medium transition-all active:scale-[0.98] group ${
             pathname === '/settings'
               ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 font-semibold shadow-xs'
               : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100/70 dark:hover:bg-slate-800/50'
@@ -300,39 +302,25 @@ export function Sidebar({ mobileOpen = false, onMobileClose, session: propSessio
         {/* Viewer Local Clock */}
         <CurrentTime />
 
-        {/* Bottom ArcReach Engine Status Card */}
-        <div className="bg-gradient-to-br from-blue-600 via-blue-600 to-blue-700 dark:from-blue-700 dark:via-blue-800 dark:to-blue-900 text-white p-3.5 rounded-2xl shadow-lg shadow-blue-500/20 border border-blue-400/20 relative overflow-hidden transition-all duration-200">
+        {/* Bottom Card: Rich Royal-Blue ArcReach Engine Status Card */}
+        <div
+          data-sidebar-engine-card
+          className="bg-[#2563EB] bg-blue-600 text-white p-4 rounded-2xl shadow-md border border-blue-400/20 relative overflow-hidden transition-all duration-200"
+        >
           {/* Subtle flare in background */}
           <div className="absolute -right-4 -bottom-4 w-24 h-24 bg-white/10 rounded-full blur-xl pointer-events-none" />
 
-          {/* Card Header & Accordion Trigger */}
-          <div className="flex items-center justify-between gap-2 relative z-10">
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="w-6 h-6 rounded-lg bg-white/15 flex items-center justify-center shrink-0">
-                <Radio size={13} className="text-white" />
-              </div>
-              <div className="min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[10px] font-extrabold tracking-wider text-white/90 uppercase">
-                    ArcReach Engine
-                  </span>
-                  <span className="relative flex h-2 w-2">
-                    <span
-                      className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${healthDotClass}`}
-                    />
-                    <span className={`relative inline-flex rounded-full h-2 w-2 ${healthDotClass}`} />
-                  </span>
-                </div>
-                <p className="text-[11px] text-blue-100/80 font-medium truncate">{healthStatusText}</p>
-              </div>
+          {/* Top Row: Icon Container and Expand Chevron */}
+          <div className="flex items-start justify-between relative z-10">
+            <div className="w-8 h-8 rounded-xl bg-white/15 flex items-center justify-center text-white mb-2.5">
+              <ShieldCheck size={18} strokeWidth={2.2} />
             </div>
-
             <button
               type="button"
               onClick={() => setEngineCardExpanded((prev) => !prev)}
               aria-expanded={engineCardExpanded}
               aria-label="Toggle ArcReach Engine status details"
-              className="p-1 rounded-lg text-white/80 hover:text-white hover:bg-white/15 transition-colors shrink-0"
+              className="p-1 rounded-lg text-white/80 hover:text-white hover:bg-white/15 transition-colors shrink-0 cursor-pointer"
             >
               <ChevronDown
                 size={16}
@@ -341,15 +329,41 @@ export function Sidebar({ mobileOpen = false, onMobileClose, session: propSessio
             </button>
           </div>
 
+          {/* Card Content: Title & Health Status Subtitle */}
+          <div className="relative z-10">
+            <div className="font-bold text-sm text-white leading-snug">
+              ArcReach Engine
+            </div>
+            <div className="flex items-center gap-1.5 mt-1">
+              <span className={`w-2 h-2 rounded-full ${healthDotClass} ${isAllOperational ? 'animate-pulse' : ''}`} />
+              <p className="text-[11px] text-blue-100 font-medium leading-normal">
+                {healthStatusText}
+              </p>
+            </div>
+          </div>
+
+          {/* Diagnostics Toggle Action Button */}
+          <button
+            type="button"
+            onClick={() => setEngineCardExpanded((prev) => !prev)}
+            className="mt-3.5 w-full py-2 px-3 rounded-xl bg-blue-700/60 hover:bg-blue-700/90 border border-white/15 text-white text-xs font-semibold text-center shadow-xs active:scale-[0.98] transition-all relative z-10 cursor-pointer flex items-center justify-center gap-1.5"
+          >
+            <span>System Diagnostics</span>
+            <ChevronDown
+              size={14}
+              className={`transition-transform duration-200 ${engineCardExpanded ? 'rotate-180' : ''}`}
+            />
+          </button>
+
           {/* Expandable Accordion Details */}
           {engineCardExpanded && (
             <div className="mt-3 pt-2.5 border-t border-white/20 space-y-2 text-xs relative z-10 animate-in fade-in duration-150">
               {/* Database Row */}
-              <div className="flex items-center justify-between text-white/90">
-                <span className="text-white/70 flex items-center gap-1.5 text-[11px]">
+              <div className="flex items-center justify-between text-white">
+                <span className="text-blue-100 flex items-center gap-1.5 text-[11px]">
                   <Database size={12} /> Database
                 </span>
-                <span className="font-mono text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
+                <span className="font-mono text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 text-white">
                   <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: dbColor }} />
                   {dbText}
                 </span>
@@ -357,11 +371,11 @@ export function Sidebar({ mobileOpen = false, onMobileClose, session: propSessio
 
               {/* Azure ACS Row */}
               <Tooltip title={azureDetail ?? ''} placement="right">
-                <div className="flex items-center justify-between text-white/90 cursor-help">
-                  <span className="text-white/70 flex items-center gap-1.5 text-[11px]">
+                <div className="flex items-center justify-between text-white cursor-help">
+                  <span className="text-blue-100 flex items-center gap-1.5 text-[11px]">
                     <Cloud size={12} /> Azure ACS
                   </span>
-                  <span className="font-mono text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
+                  <span className="font-mono text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 text-white">
                     <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: azure.color }} />
                     {azure.text}
                   </span>
@@ -370,11 +384,11 @@ export function Sidebar({ mobileOpen = false, onMobileClose, session: propSessio
 
               {/* Send Worker Row */}
               <Tooltip title={workerDetail ?? ''} placement="right">
-                <div className="flex items-center justify-between text-white/90 cursor-help">
-                  <span className="text-white/70 flex items-center gap-1.5 text-[11px]">
+                <div className="flex items-center justify-between text-white cursor-help">
+                  <span className="text-blue-100 flex items-center gap-1.5 text-[11px]">
                     <Activity size={12} /> Send Worker
                   </span>
-                  <span className="font-mono text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
+                  <span className="font-mono text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 text-white">
                     <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: worker.color }} />
                     {worker.text}
                   </span>
@@ -394,7 +408,7 @@ export function Sidebar({ mobileOpen = false, onMobileClose, session: propSessio
                         <Link
                           href={`/campaigns/${c.id}`}
                           onClick={handleLinkClick}
-                          className="block text-[11px] text-white/90 hover:text-white underline truncate"
+                          className="block text-[11px] text-white hover:underline truncate"
                         >
                           {c.name}
                         </Link>

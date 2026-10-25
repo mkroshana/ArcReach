@@ -21,6 +21,7 @@ import {
   Mail,
   FileText,
   ArrowRight,
+  Bell,
 } from 'lucide-react';
 import { useTheme } from '@/components/ThemeProvider';
 import { profileInitials } from '@/lib/profileInitials';
@@ -369,13 +370,25 @@ export function TopNavBar({ session, systemStatus, onMobileMenuToggle }: TopNavB
                 type="button"
                 onClick={toggleTheme}
                 aria-label={mounted ? (theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode') : 'Toggle Theme'}
-                className="p-2 rounded-full border border-[#EBF0F5] dark:border-[#262B38] bg-white dark:bg-[#11131A] text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 hover:border-blue-300 dark:hover:border-blue-600 transition-colors shadow-2xs"
+                className="w-9 h-9 rounded-full border border-[#EBF0F5] dark:border-[#262B38] bg-white dark:bg-[#11131A] text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 hover:border-blue-300 dark:hover:border-blue-600 transition-colors shadow-2xs flex items-center justify-center active:scale-95 cursor-pointer"
               >
                 {mounted && theme === 'dark' ? (
                   <Sun size={17} className="text-amber-500" />
                 ) : (
                   <Moon size={17} className="text-slate-600 dark:text-slate-300" />
                 )}
+              </button>
+            </Tooltip>
+
+            {/* Notifications Bell Button */}
+            <Tooltip title="Notifications" arrow>
+              <button
+                type="button"
+                aria-label="View notifications"
+                className="w-9 h-9 rounded-full border border-[#EBF0F5] dark:border-[#262B38] bg-white dark:bg-[#11131A] text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 hover:border-blue-300 dark:hover:border-blue-600 transition-colors shadow-2xs flex items-center justify-center relative active:scale-95 cursor-pointer"
+              >
+                <Bell size={17} />
+                <span className="w-2 h-2 rounded-full bg-blue-600 absolute top-2 right-2 ring-2 ring-white dark:ring-[#11131A]" />
               </button>
             </Tooltip>
 

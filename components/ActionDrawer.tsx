@@ -183,7 +183,7 @@ export function ActionDrawer({
     return () => clearTimeout(timer);
   }, [isOpen, initialFocusRef]);
 
-  if (!mounted) return null;
+  if (!mounted || !isOpen) return null;
 
   const widthClass = WIDTH_CLASSES[width] || WIDTH_CLASSES.md;
   const isPrimaryBusy = isLoading || primaryLoading;
@@ -392,6 +392,10 @@ export function ActionDrawer({
       )}
     </AnimatePresence>
   );
+
+  if (!mounted || typeof document === 'undefined') {
+    return null;
+  }
 
   return createPortal(drawerContent, document.body);
 }

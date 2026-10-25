@@ -439,12 +439,12 @@ export default function UniboxPage() {
         <div className="p-4 border-b border-[#EBF0F5] dark:border-[#1E222D] flex flex-col gap-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <h2 className="text-sm font-bold tracking-tight text-slate-900 dark:text-white uppercase">
+              <h2 className="text-sm font-bold tracking-tight text-slate-900 dark:text-white">
                 Unified Inbox
               </h2>
               {listLoaded && (
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-bold font-mono bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900/40">
-                  {unreadCount} NEW
+                  {unreadCount} Unread
                 </span>
               )}
             </div>
@@ -759,7 +759,7 @@ export default function UniboxPage() {
               <div className="rounded-2xl border border-[#EBF0F5] dark:border-[#1E222D] overflow-hidden bg-slate-50/50 dark:bg-[#161822]/50 focus-within:border-blue-500/50 transition-colors">
                 <div className="flex items-center gap-2 px-3 py-2 border-b border-[#EBF0F5] dark:border-[#1E222D] bg-white/50 dark:bg-[#11131A]/50">
                   <CornerUpLeft size={14} className="text-slate-400" />
-                  <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider">
+                  <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
                     Reply to {selectedEmail.lead?.name?.split(' ')[0] || 'Prospect'}
                   </span>
                 </div>
@@ -798,7 +798,7 @@ export default function UniboxPage() {
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 p-8">
             <MailOpen size={48} className="opacity-25 mb-3" />
-            <span className="text-sm font-bold uppercase tracking-wider">
+            <span className="text-sm font-semibold text-slate-500 dark:text-slate-400">
               Select Conversation to Review
             </span>
           </div>

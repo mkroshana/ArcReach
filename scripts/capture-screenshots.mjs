@@ -3,12 +3,29 @@ import fs from 'fs';
 import path from 'path';
 
 const CDP_PORT = 9555;
-const SCREENSHOT_DIR = 'C:\\Users\\Roshana Perera\\.gemini\\antigravity\\brain\\ce18a950-840a-434f-94e6-8823478a7766\\screenshots';
+const SCREENSHOT_DIRS = [
+  'C:\\Users\\Roshana Perera\\.gemini\\antigravity\\brain\\ce18a950-840a-434f-94e6-8823478a7766\\screenshots',
+  'C:\\Users\\Roshana Perera\\.gemini\\antigravity\\brain\\46b816e7-3ac0-4807-9d87-31436d4c291b\\screenshots',
+  'C:\\Users\\Roshana Perera\\.gemini\\antigravity\\brain\\a9249f44-6c69-45f2-9a61-c0e95b68b516\\screenshots',
+];
 const TOKEN = 'eyJhbGciOiJIUzI1NiJ9.eyJpZCI6ImFkbWluLWlkLTk5OSIsIm5hbWUiOiJBcmNSZWFjaCBBZG1pbiIsImVtYWlsIjoiYWRtaW5AYXJjcmVhY2guY29tIiwicm9sZSI6IkFETUlOIiwidG9rZW5WZXJzaW9uIjoxLCJleHAiOjE3OTM1MDk4ODV9.6iGbCXaTmFffLtUMQU8vyPdhyWpOqIfTR-5lWb-gShQ';
 const EDGE_PATH = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
 const TEMP_USER_DATA = path.join(process.env.TEMP || 'C:\\Temp', 'edge_cdp_profile_' + Date.now());
 
-fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
+for (const dir of SCREENSHOT_DIRS) {
+  fs.mkdirSync(dir, { recursive: true });
+  const stale = path.join(dir, '01b_dashboard_widget_drawer.png');
+  if (fs.existsSync(stale)) {
+    try { fs.unlinkSync(stale); } catch {}
+  }
+}
+
+function saveScreenshot(name, base64Data) {
+  const buf = Buffer.from(base64Data, 'base64');
+  for (const dir of SCREENSHOT_DIRS) {
+    fs.writeFileSync(path.join(dir, name), buf);
+  }
+}
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -392,7 +409,22 @@ async function main() {
             },
           ];
         } else if (url.includes('/api/settings')) {
-          responseJson = { settings: { rateLimitMinute: null, rateLimitHour: null } };
+          responseJson = {
+            user: {
+              id: 'admin-id-999',
+              name: 'ArcReach Admin',
+              email: 'admin@arcreach.com',
+              role: 'ADMIN',
+              organization: 'Acme Outbound Operations',
+            },
+            settings: {
+              activeProvider: 'AZURE',
+              azureConnString: 'endpoint=https://arcreach-comm.communication.azure.com/;accesskey=mockSecretKey==',
+              azureSenderDomains: ['arcreach-mailer.com', 'inbound-reach.io'],
+              rateLimitMinute: 60,
+              rateLimitHour: 1000,
+            },
+          };
         } else if (url.includes('/api/users')) {
           responseJson = [{ id: 'admin-id-999', name: 'ArcReach Admin', email: 'admin@arcreach.com', role: 'ADMIN' }];
         } else if (url.includes('/api/templates')) {
@@ -420,7 +452,95 @@ async function main() {
             },
           ];
         } else if (url.includes('/api/unibox')) {
-          responseJson = { threads: [], unreadCount: 0 };
+          if (url.includes('leadId=') || url.includes('thread=')) {
+            responseJson = {
+              messages: [
+                {
+                  id: 'm-1',
+                  senderEmail: 'sarah.connor@cyberdyne.io',
+                  recipientEmail: 'sarah@arcreach-mailer.com',
+                  subject: 'Re: Enterprise scalability for high-growth teams',
+                  body: 'Hi Sarah,\n\nThanks for reaching out! We are currently evaluating new outbound infrastructure to scale our Q4 campaigns. Could you share details on your deliverability rates and compliance guarantees?\n\nBest,\nSarah Connor\nVP Engineering',
+                  sentAt: '2026-10-24T14:32:00.000Z',
+                  timestamp: '2026-10-24T14:32:00.000Z',
+                  type: 'inbound',
+                  direction: 'inbound',
+                },
+                {
+                  id: 'm-2',
+                  senderEmail: 'sarah@arcreach-mailer.com',
+                  recipientEmail: 'sarah.connor@cyberdyne.io',
+                  subject: 'Re: Enterprise scalability for high-growth teams',
+                  body: 'Hi Sarah,\n\nGreat to hear from you. We maintain >98.5% inbox placement across dedicated Azure and custom SMTP pools with automated SPF/DKIM rotation. Would you be open to a 15-minute walkthrough on Tuesday?\n\nBest,\nSarah',
+                  sentAt: '2026-10-24T15:10:00.000Z',
+                  timestamp: '2026-10-24T15:10:00.000Z',
+                  type: 'outbound',
+                  direction: 'outbound',
+                },
+              ],
+            };
+          } else {
+            responseJson = {
+              threads: [
+                {
+                  id: 'th-1',
+                  leadId: 'lead-1',
+                  normalizedSubject: 'enterprise scalability for high growth teams',
+                  subject: 'Re: Enterprise scalability for high-growth teams',
+                  receivedAt: '2026-10-24T14:32:00.000Z',
+                  unread: true,
+                  lead: {
+                    id: 'lead-1',
+                    name: 'Sarah Connor',
+                    email: 'sarah.connor@cyberdyne.io',
+                    company: 'Cyberdyne Systems',
+                    jobTitle: 'VP Engineering',
+                    status: 'Interested',
+                  },
+                  snippet: 'Thanks for reaching out! We are currently evaluating new outbound infrastructure...',
+                  campaign: { name: 'Q4 Enterprise Outreach (North America)' },
+                },
+                {
+                  id: 'th-2',
+                  leadId: 'lead-2',
+                  normalizedSubject: 'scaling pipeline efficiency in 2026',
+                  subject: 'Re: Scaling pipeline efficiency in 2026',
+                  receivedAt: '2026-10-23T11:20:00.000Z',
+                  unread: false,
+                  lead: {
+                    id: 'lead-2',
+                    name: 'Elena Rostova',
+                    email: 'elena.rostova@hyperion.tech',
+                    company: 'Hyperion Dynamics',
+                    jobTitle: 'Head of Growth',
+                    status: 'Meeting_Booked',
+                  },
+                  snippet: 'Booked a slot on your calendar for Thursday at 2 PM. Looking forward to connecting!',
+                  campaign: { name: 'Series A Tech Founders & CTOs' },
+                },
+                {
+                  id: 'th-3',
+                  leadId: 'lead-3',
+                  normalizedSubject: 'quick question regarding outbound deliverability',
+                  subject: 'Re: Quick question regarding outbound deliverability',
+                  receivedAt: '2026-10-22T09:45:00.000Z',
+                  unread: false,
+                  lead: {
+                    id: 'lead-3',
+                    name: 'Marcus Vance',
+                    email: 'marcus.vance@vanguard.co',
+                    company: 'Vanguard AI',
+                    jobTitle: 'Chief Revenue Officer',
+                    status: 'Replied',
+                  },
+                  snippet: 'Can you loop in our operations lead on this? We want to review the integration specs.',
+                  campaign: { name: 'Q4 Enterprise Outreach (North America)' },
+                },
+              ],
+              total: 3,
+              unreadCount: 1,
+            };
+          }
         }
 
         if (responseJson !== null) {
@@ -488,7 +608,24 @@ async function main() {
     },
     { name: '04_leads.png', url: 'http://localhost:3000/leads', wait: 3000 },
     { name: '05_accounts.png', url: 'http://localhost:3000/accounts', wait: 3000 },
-    { name: '06_unibox.png', url: 'http://localhost:3000/unibox', wait: 3000 },
+    {
+      name: '06_unibox.png',
+      url: 'http://localhost:3000/unibox',
+      wait: 3000,
+      action: async () => {
+        await sendSession('Runtime.evaluate', {
+          expression: `
+            (() => {
+              const threads = Array.from(document.querySelectorAll('div[class*="cursor-pointer"]'));
+              const target = threads.find(t => t.textContent && (t.textContent.includes('Sarah Connor') || t.textContent.includes('Cyberdyne')));
+              if (target) target.click();
+              else if (threads[0]) threads[0].click();
+            })()
+          `,
+        });
+        await sleep(1500);
+      },
+    },
     { name: '07_settings.png', url: 'http://localhost:3000/settings', wait: 3000 },
     { name: '08_templates.png', url: 'http://localhost:3000/templates', wait: 3000 },
     { name: '09_login.png', url: 'http://localhost:3000/login', wait: 2000, noCookie: true },
@@ -502,13 +639,24 @@ async function main() {
     await sendSession('Page.navigate', { url: item.url });
     await sleep(item.wait);
 
+    // Suppress Next.js dev overlay artifacts and disable CSS transitions in captured screenshots
+    await sendSession('Runtime.evaluate', {
+      expression: `
+        (() => {
+          const style = document.createElement('style');
+          style.id = 'hide-dev-overlays';
+          style.innerHTML = '#next-logo, [data-nextjs-toast], nextjs-portal { display: none !important; } *, *::before, *::after { transition-duration: 0s !important; }';
+          document.head.appendChild(style);
+        })()
+      `,
+    }).catch(() => {});
+
     if (item.action) {
       await item.action();
     }
 
     const snap = await sendSession('Page.captureScreenshot', { format: 'png', quality: 100 });
-    const filePath = path.join(SCREENSHOT_DIR, item.name);
-    fs.writeFileSync(filePath, Buffer.from(snap.data, 'base64'));
+    saveScreenshot(item.name, snap.data);
     console.log(`  ✓ Saved: ${item.name} (${Math.round(snap.data.length / 1024)} KB)`);
 
     if (item.noCookie) {
@@ -523,31 +671,55 @@ async function main() {
     }
   }
 
-  // Dark mode capture
+  // Dark mode capture: pre-set localStorage so page boots directly in dark mode
   console.log('Capturing 10_dashboard_dark.png...');
-  await sendSession('Page.navigate', { url: 'http://localhost:3000/' });
-  await sleep(2500);
+  await sendSession('Page.addScriptToEvaluateOnNewDocument', {
+    source: `
+      try {
+        localStorage.setItem('arcreach-theme', 'dark');
+        localStorage.setItem('mui-mode', 'dark');
+        document.documentElement.classList.remove('light');
+        document.documentElement.classList.add('dark');
+        document.documentElement.style.colorScheme = 'dark';
+      } catch (e) {}
+    `,
+  });
+
   await sendSession('Runtime.evaluate', {
     expression: `
       (() => {
-        const btn = document.querySelector('button[aria-label*="Dark Mode"]') ||
-                    Array.from(document.querySelectorAll('button')).find(b => b.getAttribute('aria-label') && b.getAttribute('aria-label').includes('Dark Mode'));
-        if (btn) {
-          btn.click();
-        } else {
-          // Fallback: set dark mode via localStorage and document class directly
+        try {
           localStorage.setItem('arcreach-theme', 'dark');
+          localStorage.setItem('mui-mode', 'dark');
+        } catch (e) {}
+      })()
+    `,
+  }).catch(() => {});
+
+  await sendSession('Page.navigate', { url: 'http://localhost:3000/' });
+  // Wait 3500ms for page to load and Recharts animation to run smoothly
+  await sleep(3500);
+
+  // Disable transition duration and hide dev overlays
+  await sendSession('Runtime.evaluate', {
+    expression: `
+      (() => {
+        try {
           document.documentElement.classList.remove('light');
           document.documentElement.classList.add('dark');
           document.documentElement.style.colorScheme = 'dark';
-        }
+        } catch (e) {}
+        const style = document.createElement('style');
+        style.id = 'hide-dev-overlays-dark';
+        style.innerHTML = '#next-logo, [data-nextjs-toast], nextjs-portal { display: none !important; } *, *::before, *::after { transition-duration: 0s !important; }';
+        document.head.appendChild(style);
       })()
     `,
   });
-  await sleep(2000);
+  await sleep(1500);
+
   const darkSnap = await sendSession('Page.captureScreenshot', { format: 'png', quality: 100 });
-  const darkPath = path.join(SCREENSHOT_DIR, '10_dashboard_dark.png');
-  fs.writeFileSync(darkPath, Buffer.from(darkSnap.data, 'base64'));
+  saveScreenshot('10_dashboard_dark.png', darkSnap.data);
   console.log(`  ✓ Saved: 10_dashboard_dark.png (${Math.round(darkSnap.data.length / 1024)} KB)`);
 
   ws.close();

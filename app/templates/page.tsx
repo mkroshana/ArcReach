@@ -451,7 +451,7 @@ export default function TemplatesPage() {
                 <div className="flex items-center justify-between pb-4 border-b border-[#EBF0F5] dark:border-[#1E222D]">
                   <div className="flex items-center gap-2 min-w-0">
                     <FileText size={18} className="text-blue-600 flex-shrink-0" />
-                    <h2 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider truncate">
+                    <h2 className="text-sm font-bold text-slate-900 dark:text-white tracking-tight truncate">
                       Edit: {editingTemplate.name}
                     </h2>
                   </div>
@@ -613,7 +613,7 @@ export default function TemplatesPage() {
             ) : !loading && templates.length === 0 ? (
               <div className="p-12 rounded-[24px] border border-dashed border-[#EBF0F5] dark:border-[#1E222D] text-center">
                 <FileText size={44} className="mx-auto text-slate-400 opacity-30 mb-3" />
-                <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white tracking-tight">
                   Your Copy Library Is Empty
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto mt-1 mb-5">
@@ -631,7 +631,7 @@ export default function TemplatesPage() {
             ) : (
               <div className="p-12 rounded-[24px] border border-dashed border-[#EBF0F5] dark:border-[#1E222D] text-center">
                 <FileText size={44} className="mx-auto text-slate-400 opacity-30 mb-3" />
-                <span className="text-sm font-bold text-slate-500 uppercase tracking-wider">
+                <span className="text-sm font-semibold text-slate-500 dark:text-slate-400">
                   Select Template to Configure Copy
                 </span>
               </div>

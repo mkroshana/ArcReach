@@ -1,8 +1,11 @@
 /* eslint-disable react-hooks/set-state-in-effect */
+/* eslint-disable react-hooks/exhaustive-deps */
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { FileText, Search, Plus, Eye, Copy, Check, Trash2, ArrowRight, X, RefreshCw, Upload, AlertTriangle } from 'lucide-react';
+import {
+  FileText, Search, Plus, Eye, Copy, Check, Trash2, ArrowRight, Upload, AlertTriangle, RefreshCw,
+} from 'lucide-react';
 import VariableToolbar from '@/components/VariableToolbar';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { personalizePreview, previewEmailBody } from '@/lib/personalize';
@@ -12,16 +15,14 @@ import {
   DEFAULT_IMPORT_WAIT_DAYS, type ImportedEmail, type ImportedTemplate,
 } from '@/lib/templateImport';
 import {
-  Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
-  ToggleButtonGroup, ToggleButton, Snackbar, Alert, AlertTitle, InputAdornment, CircularProgress,
-  Tooltip as MuiTooltip, Dialog, DialogTitle, DialogContent, DialogActions,
+  Box, Stack, Typography, Button, Chip, TextField,
+  ToggleButtonGroup, ToggleButton, Snackbar, Alert, AlertTitle,
+  CircularProgress, Tooltip as MuiTooltip, Dialog, DialogTitle, DialogContent, DialogActions,
 } from '@mui/material';
-import { alpha } from '@mui/material/styles';
 
 export default function TemplatesPage() {
   const [templates, setTemplates] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  // A failed load shows an error with Retry, never the empty library.
   const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
@@ -30,15 +31,10 @@ export default function TemplatesPage() {
   const [copiedId, setCopiedId] = useState<any>(null);
   const [previewResolved, setPreviewResolved] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
-  // A new template keeps its temporary id until the POST answers, so a second
-  // Save before then would POST it again. The ref blocks a click that lands
-  // before the disabled button re-renders.
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const [confirmState, setConfirmState] = useState<{ title: string; message: string; confirmLabel: string; onConfirm: () => void } | null>(null);
 
-  // Import HTML Files: the files picked and read, in file-name order, and the
-  // files that were refused. Both stay set while the dialog closes.
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [importEmails, setImportEmails] = useState<ImportedEmail[]>([]);
@@ -217,13 +213,12 @@ export default function TemplatesPage() {
 
   const handleImportFiles = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
-    e.target.value = ''; // so picking the same files again fires a change
+    e.target.value = '';
     if (files.length === 0) return;
 
     const emails: ImportedEmail[] = [];
     const refused: { fileName: string; reason: string }[] = [];
     for (const file of files) {
-      // Refused by name or size before its bytes are loaded
       const refusal = importRefusal(file.name, file.size);
       if (refusal) { refused.push({ fileName: file.name, reason: refusal }); continue; }
       try {
@@ -240,7 +235,6 @@ export default function TemplatesPage() {
     setImportEmails(sorted);
     setImportRefused(refused);
     setImportMode('sequence');
-    // One file names its template; a sequence of several needs a name typed.
     setImportName(sorted.length === 1 ? sorted[0].name : '');
     setImportCategory('Cold Outreach');
     setImportWait(String(DEFAULT_IMPORT_WAIT_DAYS));
@@ -252,7 +246,6 @@ export default function TemplatesPage() {
     if (!importingRef.current) setImportOpen(false);
   };
 
-  // One file, or several kept together, make one template; otherwise one template per file.
   const importAsOne = importEmails.length <= 1 || importMode === 'sequence';
   const importNames = importAsOne ? [importName.trim()] : importEmails.map(email => email.name);
   const importNameClashes = importNames.filter(name => name && templates.some(t => String(t.name).trim().toLowerCase() === name.toLowerCase()));
@@ -267,8 +260,6 @@ export default function TemplatesPage() {
     importingRef.current = true;
     setImporting(true);
     setImportError('');
-    // The library lists the newest template first, so the last file is created
-    // first and the set reads in file order, now and after a reload.
     const created: any[] = [];
     let failure = '';
     let remaining = drafts.length;
@@ -300,7 +291,6 @@ export default function TemplatesPage() {
       selectTemplate(created[0]);
     }
     if (failure) {
-      // Only separate templates can stop part-way: the files still to import stay listed, so Import retries those alone.
       if (created.length > 0) setImportEmails(importEmails.slice(0, remaining));
       setImportError(created.length > 0
         ? `Imported ${created.length} of ${drafts.length} templates, then "${drafts[remaining - 1].name}" failed: ${failure} The files listed below were not imported.`
@@ -316,142 +306,186 @@ export default function TemplatesPage() {
   const bodyPreview = previewResolved && editingTemplate ? previewEmailBody(editingTemplate.steps?.[activeStepIndex]?.body || '') : null;
 
   return (
-    <Box sx={{ maxWidth: 1280, mx: 'auto', pb: 4, display: 'flex', flexDirection: 'column', gap: 3 }}>
+    <div className="max-w-[1280px] mx-auto pb-12 space-y-6">
       <Snackbar open={!!toastMessage} anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }} autoHideDuration={3000} onClose={() => setToastMessage('')}>
         {toastMessage ? <Alert severity="info" variant="filled" sx={{ borderRadius: '12px' }}>{toastMessage}</Alert> : undefined}
       </Snackbar>
 
       {/* Header */}
-      <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ justifyContent: 'space-between', alignItems: { xs: 'flex-start', sm: 'center' }, gap: 2, pb: 2, borderBottom: 1, borderColor: 'divider' }}>
-        <Box>
-          <Typography variant="h4" sx={{ fontWeight: 700 }}>Copy Library</Typography>
-          <Typography variant="body2" sx={{ color: 'text.secondary' }}>Write and manage reusable email templates with personalization variables and Spintax.</Typography>
-        </Box>
-        <Stack direction="row" spacing={1}>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-[#EBF0F5] dark:border-[#1E222D]">
+        <div>
+          <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+            Copy Library
+          </h1>
+          <p className="text-xs md:text-sm text-slate-500 dark:text-slate-400 mt-1">
+            Write and manage reusable email templates with personalization variables and Spintax.
+          </p>
+        </div>
+        <div className="flex items-center gap-2.5">
           <input ref={fileInputRef} type="file" accept=".html,.htm,text/html" multiple hidden onChange={handleImportFiles} />
-          <Button variant="outlined" startIcon={<Upload size={16} />} onClick={() => fileInputRef.current?.click()} disabled={!!loadError}>Import HTML</Button>
-          <Button variant="contained" startIcon={<Plus size={16} />} onClick={createNewTemplate} disabled={!!loadError}>Create Template</Button>
-        </Stack>
-      </Stack>
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={!!loadError}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-[#161822] transition-colors cursor-pointer disabled:opacity-50"
+          >
+            <Upload size={14} />
+            <span>Import HTML</span>
+          </button>
+          <button
+            type="button"
+            onClick={createNewTemplate}
+            disabled={!!loadError}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+          >
+            <Plus size={14} />
+            <span>Create Template</span>
+          </button>
+        </div>
+      </div>
 
       {loadError ? (
         <Alert
           severity="error"
+          sx={{ borderRadius: '16px' }}
           action={<Button color="inherit" size="small" startIcon={<RefreshCw size={14} />} onClick={() => fetchTemplates()}>Retry</Button>}
         >
           <AlertTitle>Templates Could Not Be Loaded</AlertTitle>
           {loadError}
         </Alert>
       ) : (
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1fr 2fr' }, gap: 3 }}>
-        {/* Left: list */}
-        <Stack spacing={2}>
-          <TextField
-            fullWidth
-            size="small"
-            placeholder="Search templates..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            slotProps={{ input: { startAdornment: <InputAdornment position="start"><Search size={16} /></InputAdornment> } }}
-          />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Left Column: Template Library */}
+          <div className="space-y-4">
+            <div className="relative">
+              <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search templates..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full pl-10 pr-4 py-2.5 rounded-xl text-xs bg-white dark:bg-[#11131A] border border-[#EBF0F5] dark:border-[#1E222D] text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-blue-500 shadow-xs transition-colors"
+              />
+            </div>
 
-          <Stack direction="row" sx={{ flexWrap: 'wrap', gap: 0.75, p: 0.75, borderRadius: '12px', bgcolor: 'action.hover', border: 1, borderColor: 'divider' }}>
-            {categories.map(cat => (
-              <Button
-                key={cat}
-                size="small"
-                onClick={() => setSelectedCategory(cat)}
-                variant={selectedCategory === cat ? 'contained' : 'text'}
-                sx={{ minHeight: 28, py: 0.5, fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', color: selectedCategory === cat ? undefined : 'text.secondary' }}
-              >
-                {cat}
-              </Button>
-            ))}
-          </Stack>
+            {/* Category Pills Bar */}
+            <div className="flex flex-wrap gap-1.5 p-1.5 rounded-2xl bg-slate-100/70 dark:bg-[#161822]/70 border border-[#EBF0F5] dark:border-[#1E222D]">
+              {categories.map(cat => (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => setSelectedCategory(cat)}
+                  className={`px-3 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer ${
+                    selectedCategory === cat
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
 
-          <Box sx={{ maxHeight: 540, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 1 }}>
-            {loading ? (
-              <Stack sx={{ alignItems: 'center', py: 6, gap: 1.5 }}>
-                <CircularProgress size={24} />
-                <Typography variant="caption" sx={{ color: 'text.secondary' }}>Retrieving templates…</Typography>
-              </Stack>
-            ) : filteredTemplates.length === 0 ? (
-              <Card sx={{ borderStyle: 'dashed', textAlign: 'center', py: 5 }}>
-                <FileText size={24} style={{ margin: '0 auto', opacity: 0.5 }} />
-                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 1 }}>
-                  {templates.length === 0 ? 'No templates yet' : 'No templates match this search or category'}
-                </Typography>
-              </Card>
-            ) : (
-              filteredTemplates.map(t => {
-                const isSelected = editingTemplate?.id === t.id;
-                return (
-                  <Card
-                    key={t.id}
-                    onClick={() => selectTemplate(t)}
-                    sx={{
-                      cursor: 'pointer',
-                      borderColor: isSelected ? 'primary.main' : 'divider',
-                      bgcolor: isSelected ? (theme) => alpha(theme.palette.primary.main, 0.08) : 'background.paper',
-                      transition: 'border-color .15s, background-color .15s',
-                      '&:hover': { borderColor: isSelected ? 'primary.main' : 'text.disabled' },
-                    }}
-                  >
-                    <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-                      <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'flex-start', mb: 0.5, gap: 1 }}>
-                        <Typography variant="body2" sx={{ fontWeight: 700 }} noWrap>{t.name}</Typography>
-                        <Stack direction="row" spacing={0.5} sx={{ flexShrink: 0 }}>
-                          {t.steps && Array.isArray(t.steps) && t.steps.length > 1 && (
-                            <Chip size="small" label={`${t.steps.length} steps`} sx={{ height: 18, fontSize: 9, fontWeight: 700, fontFamily: 'monospace' }} />
-                          )}
-                          <Chip size="small" label={t.category} color="primary" variant="outlined" sx={{ height: 18, fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }} />
-                        </Stack>
-                      </Stack>
-                      <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace', display: 'block', mb: 1 }} noWrap>{t.steps?.[0]?.subject || t.subject}</Typography>
-                      <Typography variant="caption" sx={{ color: 'text.secondary', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                        {t.steps?.[0]?.body || t.body}
-                      </Typography>
-                    </CardContent>
-                  </Card>
-                );
-              })
-            )}
-          </Box>
-        </Stack>
-
-        {/* Right: editor */}
-        <Box>
-          {editingTemplate ? (
-            <Card>
-              <CardContent sx={{ p: 3 }}>
-                {/* Header row */}
-                <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', pb: 2, mb: 2.5, borderBottom: 1, borderColor: 'divider' }}>
-                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                    <FileText size={16} color="#2563EB" />
-                    <Typography variant="overline" sx={{ fontWeight: 700, letterSpacing: '0.1em' }}>Edit: {editingTemplate.name}</Typography>
-                  </Stack>
-                  <Stack direction="row" spacing={1}>
-                    <Button
-                      size="small"
-                      variant={previewResolved ? 'contained' : 'outlined'}
-                      color={previewResolved ? 'primary' : 'inherit'}
-                      startIcon={<Eye size={14} />}
-                      onClick={() => setPreviewResolved(!previewResolved)}
-                      sx={{ borderColor: previewResolved ? undefined : 'divider', color: previewResolved ? undefined : 'text.secondary' }}
+            {/* Template Card List */}
+            <div className="max-h-[580px] overflow-y-auto space-y-2.5 pr-1">
+              {loading ? (
+                <div className="flex flex-col items-center justify-center py-12 gap-2">
+                  <CircularProgress size={24} />
+                  <span className="text-xs text-slate-500 dark:text-slate-400">Retrieving templates…</span>
+                </div>
+              ) : filteredTemplates.length === 0 ? (
+                <div className="p-8 rounded-[24px] border border-dashed border-[#EBF0F5] dark:border-[#1E222D] text-center">
+                  <FileText size={28} className="mx-auto text-slate-400 opacity-40 mb-2" />
+                  <span className="text-xs text-slate-500 dark:text-slate-400">
+                    {templates.length === 0 ? 'No templates yet' : 'No templates match this search or category'}
+                  </span>
+                </div>
+              ) : (
+                filteredTemplates.map(t => {
+                  const isSelected = editingTemplate?.id === t.id;
+                  return (
+                    <div
+                      key={t.id}
+                      onClick={() => selectTemplate(t)}
+                      className={`p-4 rounded-[20px] border transition-all cursor-pointer ${
+                        isSelected
+                          ? 'border-blue-600 dark:border-blue-500 bg-blue-50/40 dark:bg-blue-950/20 shadow-xs'
+                          : 'border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] hover:border-slate-300 dark:hover:border-slate-700'
+                      }`}
                     >
-                      {previewResolved ? 'Edit Mode' : 'Preview'}
-                    </Button>
-                    <MuiTooltip title="Delete template">
-                      <IconButton aria-label="Delete template" size="small" onClick={() => deleteTemplate(editingTemplate.id)} sx={{ border: 1, borderColor: (t) => alpha(t.palette.error.main, 0.3), color: 'error.main' }}>
-                        <Trash2 size={14} />
-                      </IconButton>
-                    </MuiTooltip>
-                  </Stack>
-                </Stack>
+                      <div className="flex items-start justify-between gap-2 mb-1.5">
+                        <span className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                          {t.name}
+                        </span>
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          {t.steps && Array.isArray(t.steps) && t.steps.length > 1 && (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold font-mono bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                              {t.steps.length} Steps
+                            </span>
+                          )}
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900/40">
+                            {t.category}
+                          </span>
+                        </div>
+                      </div>
 
-                {/* Step tabs */}
-                <Stack direction="row" sx={{ flexWrap: 'wrap', alignItems: 'center', gap: 1, mb: 2.5, pb: 2, borderBottom: 1, borderColor: 'divider' }}>
-                  <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', letterSpacing: '0.06em', textTransform: 'uppercase', mr: 1 }}>Sequence steps:</Typography>
+                      <div className="text-[11px] font-mono text-slate-500 dark:text-slate-400 truncate mb-1">
+                        {t.steps?.[0]?.subject || t.subject}
+                      </div>
+
+                      <p className="text-xs text-slate-600 dark:text-slate-400 line-clamp-2 leading-relaxed">
+                        {t.steps?.[0]?.body || t.body}
+                      </p>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          {/* Right Column: Template Editor / Preview */}
+          <div className="lg:col-span-2">
+            {editingTemplate ? (
+              <div className="rounded-[24px] border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] p-6 shadow-xs space-y-5">
+                {/* Editor Header */}
+                <div className="flex items-center justify-between pb-4 border-b border-[#EBF0F5] dark:border-[#1E222D]">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <FileText size={18} className="text-blue-600 flex-shrink-0" />
+                    <h2 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider truncate">
+                      Edit: {editingTemplate.name}
+                    </h2>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setPreviewResolved(!previewResolved)}
+                      className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold transition-colors cursor-pointer ${
+                        previewResolved
+                          ? 'bg-blue-600 text-white'
+                          : 'border border-[#EBF0F5] dark:border-[#1E222D] text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-[#161822]'
+                      }`}
+                    >
+                      <Eye size={13} />
+                      <span>{previewResolved ? 'Edit Mode' : 'Preview'}</span>
+                    </button>
+                    <MuiTooltip title="Delete Template">
+                      <button
+                        type="button"
+                        aria-label="Delete template"
+                        onClick={() => deleteTemplate(editingTemplate.id)}
+                        className="w-8 h-8 rounded-full border border-rose-200 dark:border-rose-900/60 flex items-center justify-center text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </MuiTooltip>
+                  </div>
+                </div>
+
+                {/* Sequence Step Chips */}
+                <div className="flex flex-wrap items-center gap-2 pb-4 border-b border-[#EBF0F5] dark:border-[#1E222D]">
+                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mr-1">
+                    Sequence Steps:
+                  </span>
                   {editingTemplate.steps?.map((step: any, idx: number) => (
                     <Chip
                       key={step.id || idx}
@@ -460,47 +494,56 @@ export default function TemplatesPage() {
                       onDelete={editingTemplate.steps.length > 1 ? () => removeStep(idx) : undefined}
                       color={activeStepIndex === idx ? 'primary' : 'default'}
                       variant={activeStepIndex === idx ? 'filled' : 'outlined'}
-                      sx={{ fontWeight: 700, fontSize: 10 }}
+                      sx={{ fontWeight: 700, fontSize: 11, borderRadius: '9999px' }}
                     />
                   ))}
-                  <Button size="small" variant="outlined" color="inherit" startIcon={<Plus size={12} />} onClick={addStep} sx={{ borderStyle: 'dashed', color: 'text.secondary', borderColor: 'divider' }}>
-                    Add Step
-                  </Button>
-                </Stack>
+                  <button
+                    type="button"
+                    onClick={addStep}
+                    className="inline-flex items-center gap-1 px-3 py-1 rounded-full border border-dashed border-[#EBF0F5] dark:border-[#1E222D] text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white text-xs font-semibold transition-colors cursor-pointer"
+                  >
+                    <Plus size={12} />
+                    <span>Add Step</span>
+                  </button>
+                </div>
 
+                {/* Mode: Preview or Edit */}
                 {previewResolved ? (
-                  <Stack spacing={2}>
-                    <Card sx={{ bgcolor: (t) => alpha(t.palette.primary.main, 0.06), borderColor: (t) => alpha(t.palette.primary.main, 0.2) }}>
-                      <CardContent sx={{ display: 'flex', gap: 1.5, alignItems: 'flex-start' }}>
-                        <Eye size={16} color="#2563EB" style={{ marginTop: 2, flexShrink: 0 }} />
-                        <Box>
-                          <Typography variant="overline" sx={{ color: 'primary.main', fontWeight: 700 }}>Live Preview (Step {activeStepIndex + 1})</Typography>
-                          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5 }}>
-                            Variables and Spintax resolved for sample contact <strong style={{ color: 'inherit' }}>Emily</strong> at <strong style={{ color: 'inherit' }}>Stark Industries</strong>.
-                          </Typography>
-                        </Box>
-                      </CardContent>
-                    </Card>
-                    <Card sx={{ bgcolor: 'action.hover' }}>
-                      <CardContent>
-                        <Box sx={{ pb: 1.5, borderBottom: 1, borderColor: 'divider', mb: 1.5 }}>
-                          <Typography variant="overline" sx={{ color: 'text.secondary', fontFamily: 'monospace' }}>Subject Preview:</Typography>
-                          <Typography variant="body2" sx={{ fontWeight: 600, mt: 0.5 }}>{personalizePreview(editingTemplate.steps?.[activeStepIndex]?.subject || '')}</Typography>
-                        </Box>
-                        <Typography variant="overline" sx={{ color: 'text.secondary', fontFamily: 'monospace', display: 'block', mb: 1 }}>Message Preview:</Typography>
+                  <div className="space-y-4">
+                    <div className="p-4 rounded-2xl bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-900/40 flex items-start gap-3">
+                      <Eye size={16} className="text-blue-600 mt-0.5 flex-shrink-0" />
+                      <div>
+                        <div className="text-xs font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wider">
+                          Live Preview (Step {activeStepIndex + 1})
+                        </div>
+                        <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
+                          Variables and Spintax resolved for sample contact <strong className="text-slate-900 dark:text-white">Emily</strong> at <strong className="text-slate-900 dark:text-white">Stark Industries</strong>.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-[#EBF0F5] dark:border-[#1E222D] bg-slate-50/40 dark:bg-[#161822]/40 p-5 space-y-4">
+                      <div className="pb-3 border-b border-[#EBF0F5] dark:border-[#1E222D]">
+                        <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider">Subject Preview:</span>
+                        <div className="text-sm font-semibold text-slate-900 dark:text-white mt-1">
+                          {personalizePreview(editingTemplate.steps?.[activeStepIndex]?.subject || '')}
+                        </div>
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider block mb-2">Message Preview:</span>
                         {bodyPreview?.isHtml ? (
-                          <Box component="iframe" srcDoc={bodyPreview.body} title="Email Preview" sandbox="" sx={{ width: '100%', height: 500, border: 1, borderColor: 'divider', borderRadius: '12px', bgcolor: '#fff' }} />
+                          <iframe srcDoc={bodyPreview.body} title="Email Preview" sandbox="" className="w-full h-[480px] border border-[#EBF0F5] dark:border-[#1E222D] rounded-xl bg-white" />
                         ) : (
-                          <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, color: 'text.primary' }}>
+                          <div className="whitespace-pre-wrap text-xs text-slate-900 dark:text-white leading-relaxed">
                             {bodyPreview?.body}
-                          </Typography>
+                          </div>
                         )}
-                      </CardContent>
-                    </Card>
-                  </Stack>
+                      </div>
+                    </div>
+                  </div>
                 ) : (
-                  <Stack spacing={2}>
-                    <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <TextField fullWidth size="small" label="Template Title" value={editingTemplate.name} onChange={(e) => setEditingTemplate({ ...editingTemplate, name: e.target.value })} />
                       <TextField
                         fullWidth size="small" label="Category" placeholder="e.g. Cold Outreach"
@@ -511,11 +554,11 @@ export default function TemplatesPage() {
                       <datalist id="categories-list">
                         {Array.from(new Set(templates.map(t => t.category))).map(cat => (<option key={cat} value={cat} />))}
                       </datalist>
-                    </Stack>
+                    </div>
 
                     {activeStepIndex > 0 && (
                       <TextField
-                        size="small" label="Wait days before sending this follow-up" type="number"
+                        size="small" label="Wait Days Before Sending This Follow-Up" type="number"
                         value={editingTemplate.steps?.[activeStepIndex]?.waitDays || 3}
                         onChange={(e) => updateStepField(activeStepIndex, 'waitDays', parseInt(e.target.value) || 1)}
                         slotProps={{ htmlInput: { min: 1 } }}
@@ -529,64 +572,76 @@ export default function TemplatesPage() {
                       slotProps={{ input: { sx: { fontFamily: 'monospace' } } }}
                     />
 
-                    <Box sx={{ bgcolor: 'action.hover', border: 1, borderColor: 'divider', borderRadius: '12px', px: 1.5, py: 1 }}>
+                    <div className="bg-slate-50 dark:bg-[#161822] border border-[#EBF0F5] dark:border-[#1E222D] rounded-xl px-3 py-2">
                       <VariableToolbar
                         onInsert={(v) => updateStepField(activeStepIndex, 'body', (editingTemplate.steps?.[activeStepIndex]?.body || '') + ' ' + v)}
                         onInsertSubject={(v) => updateStepField(activeStepIndex, 'subject', (editingTemplate.steps?.[activeStepIndex]?.subject || '') + ' ' + v)}
                       />
-                    </Box>
+                    </div>
 
                     <TextField
-                      fullWidth multiline minRows={16} label="Email Body (HTML or plain text)"
+                      fullWidth multiline minRows={14} label="Email Body (HTML or Plain Text)"
                       placeholder="Write your email copy or paste HTML template code here..."
                       value={editingTemplate.steps?.[activeStepIndex]?.body || ''}
                       onChange={(e) => updateStepField(activeStepIndex, 'body', e.target.value)}
                       slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: 12, lineHeight: 1.6 } } }}
                     />
 
-                    <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', pt: 1 }}>
-                      <Button
-                        size="small" variant="outlined" color="inherit"
-                        startIcon={copiedId === editingTemplate.id ? <Check size={14} color="#10b981" /> : <Copy size={14} />}
+                    <div className="flex items-center justify-between pt-2">
+                      <button
+                        type="button"
                         onClick={() => handleCopy(editingTemplate.id, editingTemplate.steps?.[activeStepIndex]?.body || '')}
-                        sx={{ borderColor: 'divider', color: 'text.secondary' }}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-[#EBF0F5] dark:border-[#1E222D] text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-[#161822] transition-colors cursor-pointer"
                       >
-                        {copiedId === editingTemplate.id ? 'Copied' : 'Copy Code'}
-                      </Button>
-                      <Button
-                        variant="contained"
-                        endIcon={saving ? <CircularProgress size={16} color="inherit" /> : <ArrowRight size={16} />}
+                        {copiedId === editingTemplate.id ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+                        <span>{copiedId === editingTemplate.id ? 'Copied' : 'Copy Code'}</span>
+                      </button>
+
+                      <button
+                        type="button"
                         onClick={handleSave}
                         disabled={saving}
+                        className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer disabled:opacity-50"
                       >
-                        Save Template
-                      </Button>
-                    </Stack>
-                  </Stack>
+                        {saving ? <CircularProgress size={14} color="inherit" /> : <ArrowRight size={14} />}
+                        <span>Save Template</span>
+                      </button>
+                    </div>
+                  </div>
                 )}
-              </CardContent>
-            </Card>
-          ) : !loading && templates.length === 0 ? (
-            <Card sx={{ borderStyle: 'dashed', textAlign: 'center', py: 8, px: 3 }}>
-              <FileText size={40} style={{ margin: '0 auto', opacity: 0.4 }} />
-              <Typography variant="overline" sx={{ color: 'text.secondary', display: 'block', mt: 1.5 }}>Your Copy Library Is Empty</Typography>
-              <Typography variant="body2" sx={{ color: 'text.secondary', maxWidth: 420, mx: 'auto', mt: 0.5 }}>
-                Create a template to write a reusable email sequence. Campaigns can then fill their steps from it with Use Template.
-              </Typography>
-              <Button variant="contained" startIcon={<Plus size={16} />} onClick={createNewTemplate} sx={{ mt: 2.5 }}>Create Template</Button>
-            </Card>
-          ) : (
-            <Card sx={{ borderStyle: 'dashed', textAlign: 'center', py: 8 }}>
-              <FileText size={40} style={{ margin: '0 auto', opacity: 0.4 }} />
-              <Typography variant="overline" sx={{ color: 'text.secondary', display: 'block', mt: 1.5 }}>Select template to configure copy</Typography>
-            </Card>
-          )}
-        </Box>
-      </Box>
+              </div>
+            ) : !loading && templates.length === 0 ? (
+              <div className="p-12 rounded-[24px] border border-dashed border-[#EBF0F5] dark:border-[#1E222D] text-center">
+                <FileText size={44} className="mx-auto text-slate-400 opacity-30 mb-3" />
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">
+                  Your Copy Library Is Empty
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto mt-1 mb-5">
+                  Create a template to write a reusable email sequence. Campaigns can then fill their steps from it with Use Template.
+                </p>
+                <button
+                  type="button"
+                  onClick={createNewTemplate}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-600 text-white text-xs font-semibold cursor-pointer"
+                >
+                  <Plus size={14} />
+                  <span>Create Template</span>
+                </button>
+              </div>
+            ) : (
+              <div className="p-12 rounded-[24px] border border-dashed border-[#EBF0F5] dark:border-[#1E222D] text-center">
+                <FileText size={44} className="mx-auto text-slate-400 opacity-30 mb-3" />
+                <span className="text-sm font-bold text-slate-500 uppercase tracking-wider">
+                  Select Template to Configure Copy
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
-      {/* Import HTML Files */}
-      <Dialog open={importOpen} onClose={closeImport} maxWidth="sm" fullWidth slotProps={{ paper: { sx: { borderRadius: '20px' } } }}>
+      {/* Import HTML Files Dialog */}
+      <Dialog open={importOpen} onClose={closeImport} maxWidth="sm" fullWidth slotProps={{ paper: { sx: { borderRadius: '24px' } } }}>
         <form onSubmit={(e) => { e.preventDefault(); runImport(); }}>
           <DialogTitle>
             <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
@@ -719,6 +774,6 @@ export default function TemplatesPage() {
         onConfirm={() => confirmState?.onConfirm()}
         onCancel={() => setConfirmState(null)}
       />
-    </Box>
+    </div>
   );
 }

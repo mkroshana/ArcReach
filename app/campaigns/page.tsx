@@ -1,4 +1,3 @@
-/* eslint-disable react-hooks/set-state-in-effect, react/no-unescaped-entities, react-hooks/exhaustive-deps */
 'use client';
 
 import { useState, useEffect, Fragment } from 'react';
@@ -17,6 +16,7 @@ import {
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
+import { ActionDrawer } from '@/components/ActionDrawer';
 import { queuedLeadsMessage } from '@/lib/campaignSteps';
 import { sendStepConfirmMessage, sequenceCounts, sequenceHeadline, stepRowState, stepWaitText } from '@/lib/campaignListPanel';
 import { type NextSend, nextSendTimes, viewerTimeZone } from '@/lib/campaignTiming';
@@ -55,6 +55,43 @@ interface DbCampaign {
 }
 
 const statusColorMap = { Active: 'success', Draft: 'default', Paused: 'warning', Stopped: 'error' } as const;
+
+/** Shopeers status pill badge with emerald pulse dot, pause indicator, stop indicator, or neutral dot. */
+function CampaignStatusPill({ status }: { status: 'Active' | 'Draft' | 'Paused' | 'Stopped' }) {
+  if (status === 'Active') {
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/50">
+        <span className="relative flex h-2 w-2">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+        </span>
+        <span>Active</span>
+      </span>
+    );
+  }
+  if (status === 'Paused') {
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border border-amber-200/60 dark:border-amber-800/50">
+        <Pause size={12} className="text-amber-500" />
+        <span>Paused</span>
+      </span>
+    );
+  }
+  if (status === 'Stopped') {
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 border border-rose-200/60 dark:border-rose-800/50">
+        <CircleStop size={12} className="text-rose-500" />
+        <span>Stopped</span>
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-slate-100 dark:bg-slate-800/60 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+      <span className="w-2 h-2 rounded-full bg-slate-400" />
+      <span>Draft</span>
+    </span>
+  );
+}
 
 /** A campaign's creation date with the month as a word, "8 Oct 2026" or "Oct 8, 2026" by locale, so day and month cannot be mixed up. */
 const createdDate = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
@@ -314,15 +351,23 @@ export default function CampaignsPage() {
         </Alert>
       )}
 
-      <Card>
+      <div className="rounded-[24px] border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] shadow-xs overflow-hidden">
         {/* Toolbar */}
-        <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ justifyContent: 'space-between', alignItems: { xs: 'flex-start', sm: 'center' }, gap: 1.5, p: 2, borderBottom: 1, borderColor: 'divider' }}>
-          <TextField
-            size="small" sx={{ width: { xs: '100%', sm: 280 } }} placeholder="Search campaigns..."
-            value={search} onChange={e => setSearch(e.target.value)}
-            slotProps={{ input: { startAdornment: <InputAdornment position="start"><Search size={14} /></InputAdornment> } }}
-          />
-        </Stack>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 sm:px-6 border-b border-[#EBF0F5] dark:border-[#1E222D]">
+          <div className="relative w-full sm:w-72">
+            <Search size={14} className="text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="Search campaigns..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full pl-9 pr-3.5 py-2 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors"
+            />
+          </div>
+          <div className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+            Showing {filteredCampaigns.length} {filteredCampaigns.length === 1 ? 'campaign' : 'campaigns'}
+          </div>
+        </div>
 
         {loading ? (
           <Stack sx={{ alignItems: 'center', py: 8, gap: 2 }}>
@@ -383,14 +428,7 @@ export default function CampaignsPage() {
                           </Stack>
                         </TableCell>
                         <TableCell>
-                          <Chip
-                            size="small"
-                            icon={campaign.status === 'Active' ? <PlayCircle size={10} /> : stopped ? <CircleStop size={10} /> : undefined}
-                            label={campaign.status}
-                            color={statusColorMap[campaign.status] as any === 'default' ? undefined : statusColorMap[campaign.status] as any}
-                            variant="outlined"
-                            sx={{ fontWeight: 700, fontSize: 10 }}
-                          />
+                          <CampaignStatusPill status={campaign.status} />
                           {resumeNote && (
                             <Typography variant="caption" sx={{ color: 'text.secondary', display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
                               <Clock size={11} style={{ flexShrink: 0 }} /> {resumeNote}
@@ -408,15 +446,19 @@ export default function CampaignsPage() {
                           )}
                         </TableCell>
                         <TableCell align="right" onClick={(e) => e.stopPropagation()}>
-                          <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
+                          <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end', alignItems: 'center' }}>
                             <MuiTooltip title="Delete">
                               <IconButton aria-label="Delete campaign" size="small" onClick={(e) => handleDeleteCampaign(campaign.id, e)} sx={{ color: 'error.main' }}>
                                 <Trash2 size={14} />
                               </IconButton>
                             </MuiTooltip>
-                            <Button component={Link as any} href={`/campaigns/${campaign.id}`} size="small" variant="text" endIcon={<ChevronRight size={14} />} color="inherit" sx={{ color: 'text.secondary' }}>
-                              Configure
-                            </Button>
+                            <Link
+                              href={`/campaigns/${campaign.id}`}
+                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                            >
+                              <span>Configure</span>
+                              <ChevronRight size={14} />
+                            </Link>
                           </Stack>
                         </TableCell>
                       </TableRow>
@@ -496,13 +538,24 @@ export default function CampaignsPage() {
                                 </Typography>
                               ) : (
                                 <>
-                                  {/* One segment per step: gone out, waiting to go, not reached yet. The rows below say the same in words. */}
-                                  <Box aria-hidden sx={{ display: 'grid', gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))`, gap: 0.5 }}>
+                                  {/* One segment per step: gone out, waiting to go, not reached yet. */}
+                                  <div aria-hidden className="grid gap-1 mb-2" style={{ gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))` }}>
                                     {steps.map((step) => {
                                       const state = stepRowState(stepStats.find(s => s.stepOrder === step.stepOrder));
-                                      return <Box key={step.id} sx={{ height: 6, borderRadius: '3px', bgcolor: state === 'waiting' ? 'primary.main' : state === 'sent' ? 'text.secondary' : 'divider' }} />;
+                                      return (
+                                        <div
+                                          key={step.id}
+                                          className={`h-1.5 rounded-full transition-colors ${
+                                            state === 'waiting'
+                                              ? 'bg-blue-600 dark:bg-blue-500'
+                                              : state === 'sent'
+                                              ? 'bg-slate-400 dark:bg-slate-500'
+                                              : 'bg-slate-200 dark:bg-slate-800'
+                                          }`}
+                                        />
+                                      );
                                     })}
-                                  </Box>
+                                  </div>
                                   <Box sx={{ overflowX: 'auto' }}>
                                     <Table size="small" sx={{ '& td, & th': { borderColor: 'divider' }, '& td': { fontVariantNumeric: 'tabular-nums' } }}>
                                       <TableHead>
@@ -632,70 +685,115 @@ export default function CampaignsPage() {
             </Table>
           </Box>
         )}
-      </Card>
+      </div>
 
-      {/* Create modal */}
-      <Dialog open={isAddOpen} onClose={() => setIsAddOpen(false)} maxWidth="sm" fullWidth slotProps={{ paper: { sx: { borderRadius: '20px' } } }}>
-        <form onSubmit={handleCreateCampaign}>
-          <DialogTitle>
-            <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
-              <Plus size={20} color="#2563EB" />
-              <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Create Campaign</Typography>
-            </Stack>
-          </DialogTitle>
-          <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <TextField label="Campaign Name" required value={campaignName} onChange={(e) => setCampaignName(e.target.value)} size="small" placeholder="e.g., Enterprise SaaS Seed Funding Round" />
-            <Box>
-              <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>
-                <Mail size={14} /> Connect Sender Mailbox
-              </Typography>
-              <Select size="small" fullWidth value={selectedMailboxId} onChange={(e) => setSelectedMailboxId(e.target.value)}>
-                {accounts.map((acc) => (
-                  <MenuItem key={acc.id} value={acc.id}>{acc.emailAddress} ({acc.provider})</MenuItem>
-                ))}
-              </Select>
-            </Box>
-            {accounts.filter((acc) => acc.id !== selectedMailboxId).length > 0 && (
-              <Box>
-                <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>
-                  <Mail size={14} /> Rotate Across Additional Mailboxes (optional)
-                </Typography>
-                <Box sx={{ maxHeight: 130, overflowY: 'auto', border: 1, borderColor: 'divider', borderRadius: '12px', p: 1, bgcolor: 'action.hover' }}>
-                  {accounts.filter((acc) => acc.id !== selectedMailboxId).map((acc) => (
-                    <FormControlLabel
-                      key={acc.id}
-                      sx={{ display: 'flex', m: 0 }}
-                      control={
-                        <Checkbox size="small" checked={selectedPoolIds.includes(acc.id)} onChange={(e) =>
-                          setSelectedPoolIds(prev => e.target.checked ? [...prev, acc.id] : prev.filter(id => id !== acc.id))
-                        } />
-                      }
-                      label={<Typography variant="caption">{acc.emailAddress} ({acc.provider})</Typography>}
-                    />
-                  ))}
-                </Box>
-                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5 }}>
-                  Sending volume spreads across the primary plus any selected mailboxes (least-loaded first).
-                </Typography>
-              </Box>
-            )}
-            <Card sx={{ bgcolor: (t) => alpha(t.palette.primary.main, 0.06), borderColor: (t) => alpha(t.palette.primary.main, 0.2) }}>
-              <CardContent sx={{ p: 2, '&:last-child': { pb: 2 }, display: 'flex', gap: 1.5, alignItems: 'flex-start' }}>
-                <Gauge size={16} color="#2563EB" style={{ marginTop: 2, flexShrink: 0 }} />
-                <Typography variant="caption" sx={{ color: 'primary.main', lineHeight: 1.6 }}>
-                  This campaign follows the sending limits set on its mailboxes.
-                </Typography>
-              </CardContent>
-            </Card>
-          </DialogContent>
-          <DialogActions sx={{ p: 2 }}>
-            <Button color="inherit" onClick={() => setIsAddOpen(false)}>Cancel</Button>
-            <Button type="submit" variant="contained" disabled={submitting}>
-              {submitting ? 'Creating…' : 'Create Campaign'}
-            </Button>
-          </DialogActions>
-        </form>
-      </Dialog>
+      {/* Create Campaign Action Drawer */}
+      <ActionDrawer
+        isOpen={isAddOpen}
+        onClose={() => setIsAddOpen(false)}
+        title="Create Campaign"
+        subtitle="Configure a new cold outbound email sequence"
+        icon={Plus}
+        width="md"
+        onSubmit={handleCreateCampaign}
+        primaryLabel={submitting ? 'Creating…' : 'Create Campaign'}
+        primaryLoading={submitting}
+        primaryDisabled={submitting || !campaignName.trim() || !selectedMailboxId}
+        cancelLabel="Cancel"
+        onCancel={() => setIsAddOpen(false)}
+      >
+        <div className="space-y-5">
+          {/* Campaign Name */}
+          <div>
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
+              Campaign Name <span className="text-rose-500">*</span>
+            </label>
+            <input
+              type="text"
+              required
+              value={campaignName}
+              onChange={(e) => setCampaignName(e.target.value)}
+              placeholder="e.g., Enterprise SaaS Seed Funding Round"
+              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors"
+            />
+          </div>
+
+          {/* Primary Sender Mailbox */}
+          <div>
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+              <Mail className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+              <span>Connect Sender Mailbox <span className="text-rose-500">*</span></span>
+            </label>
+            <select
+              value={selectedMailboxId}
+              onChange={(e) => setSelectedMailboxId(e.target.value)}
+              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors"
+            >
+              {accounts.map((acc) => (
+                <option key={acc.id} value={acc.id}>
+                  {acc.emailAddress} ({acc.provider})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Rotation Across Additional Mailboxes */}
+          {accounts.filter((acc) => acc.id !== selectedMailboxId).length > 0 && (
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                <Mail className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                <span>Rotate Across Additional Mailboxes</span>
+                <span className="text-[11px] font-normal text-slate-400 capitalize">(optional)</span>
+              </label>
+              <div className="max-h-40 overflow-y-auto border border-slate-200 dark:border-slate-800 rounded-xl p-2.5 bg-slate-50/50 dark:bg-slate-900/40 space-y-2">
+                {accounts
+                  .filter((acc) => acc.id !== selectedMailboxId)
+                  .map((acc) => {
+                    const isChecked = selectedPoolIds.includes(acc.id);
+                    return (
+                      <label
+                        key={acc.id}
+                        className={`flex items-center gap-3 p-2 rounded-lg border transition-all cursor-pointer ${
+                          isChecked
+                            ? 'bg-blue-50/60 dark:bg-blue-950/40 border-blue-200 dark:border-blue-900/50 text-blue-950 dark:text-blue-200'
+                            : 'bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800/80 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={(e) =>
+                            setSelectedPoolIds((prev) =>
+                              e.target.checked
+                                ? [...prev, acc.id]
+                                : prev.filter((id) => id !== acc.id)
+                            )
+                          }
+                          className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500/20 border-slate-300 dark:border-slate-700"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-medium truncate">{acc.emailAddress}</p>
+                          <p className="text-[10px] text-slate-400 dark:text-slate-500">{acc.provider}</p>
+                        </div>
+                      </label>
+                    );
+                  })}
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5">
+                Sending volume spreads across the primary plus any selected mailboxes (least-loaded first).
+              </p>
+            </div>
+          )}
+
+          {/* Sending Limits Notice */}
+          <div className="rounded-2xl bg-blue-50/70 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-900/40 p-4 flex items-start gap-3">
+            <Gauge className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+            <p className="text-xs text-blue-700 dark:text-blue-300 leading-relaxed font-medium">
+              This campaign follows the sending limits set on its mailboxes.
+            </p>
+          </div>
+        </div>
+      </ActionDrawer>
 
       <ConfirmDialog
         isOpen={!!confirmState}

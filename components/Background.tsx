@@ -2,7 +2,7 @@
 
 export function Background() {
   return (
-    <div className="fixed inset-0 h-full w-full z-[-1] overflow-hidden bg-slate-50 dark:bg-[#090a10] transition-colors duration-200">
+    <div className="fixed inset-0 h-full w-full z-[-1] overflow-hidden bg-[#F5F6F9] dark:bg-[#090A0F] transition-colors duration-200">
       {/* Subtle clean vertical & horizontal grid lines (Light Mode) */}
       <div 
         className="absolute inset-0 opacity-[0.035] dark:hidden" 

@@ -3,6 +3,11 @@ import { loadEnv } from 'vite';
 import path from 'path';
 
 export default defineConfig(({ mode }) => ({
+  oxc: {
+    jsx: {
+      runtime: 'automatic',
+    },
+  },
   test: {
     // Load .env into the test process so integration tests sign session cookies
     // with the same SESSION_SECRET the running dev server verifies against.

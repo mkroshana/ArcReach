@@ -557,15 +557,20 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
             {activeTab === 'Sequence' && (
               <>
-                <Card>
-                  <CardContent>
-                    <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1.5 }}>
-                      <Settings size={16} color="#2563EB" />
-                      <Typography variant="overline" sx={{ fontWeight: 700 }}>Campaign Title</Typography>
-                    </Stack>
-                    <TextField fullWidth size="small" placeholder="e.g. Q4 Inactive Leads Engagement" value={campaignName} disabled={stopped} onChange={(e) => setCampaignName(e.target.value)} />
-                  </CardContent>
-                </Card>
+                <div className="rounded-[24px] border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] shadow-xs p-5 mb-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Settings className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                    <span className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">Campaign Title</span>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="e.g. Q4 Inactive Leads Engagement"
+                    value={campaignName}
+                    disabled={stopped}
+                    onChange={(e) => setCampaignName(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors disabled:opacity-60"
+                  />
+                </div>
 
                 <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', pb: 0.5, borderBottom: 1, borderColor: 'divider' }}>
                   <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
@@ -600,92 +605,195 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                   const savedStep = (campaign?.steps || []).find((s: any) => s.id === step.id);
                   const savedStepStats = savedStep ? (campaign?.telemetry?.stepStats || []).find((s: any) => s.stepOrder === savedStep.stepOrder) : null;
                   return (
-                    <Card key={step.id || index} sx={stepIssue ? { borderColor: 'error.main' } : undefined}>
-                      <CardContent>
-                        <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 2, flexWrap: 'wrap', gap: 1 }}>
-                          <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
-                            <Box sx={{ width: 28, height: 28, borderRadius: '8px', display: 'grid', placeItems: 'center', bgcolor: (t) => alpha(t.palette.primary.main, 0.14), color: 'primary.main', fontWeight: 700, fontFamily: 'monospace' }}>{index + 1}</Box>
-                            {index > 0 ? (
-                              <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                                <Typography variant="body2" sx={{ fontWeight: 600 }}>Wait for</Typography>
-                                <TextField size="small" type="number" value={step.waitDays} disabled={stopped} onChange={(e) => updateStepField(index, 'waitDays', parseInt(e.target.value) || 0)} sx={{ width: 72 }} slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: 12 } } }} />
-                                <Typography variant="body2" sx={{ fontWeight: 600 }}>days</Typography>
-                              </Stack>
-                            ) : (<Typography variant="overline" sx={{ fontWeight: 700, color: 'text.secondary' }}>Initial Dispatch</Typography>)}
-                          </Stack>
-                          {!stopped && (
-                            <Stack direction="row" spacing={1}>
-                              <Button size="small" variant={showPreview ? 'contained' : 'outlined'} color={showPreview ? 'primary' : 'inherit'} onClick={() => toggleStepPreview(step.id || index)} sx={{ borderColor: showPreview ? undefined : 'divider', color: showPreview ? undefined : 'text.secondary', fontSize: 10 }}>
-                                {showPreview ? 'Edit Mode' : 'Preview Mode'}
-                              </Button>
-                              {steps.length > 1 && (
-                                <IconButton aria-label="Remove step" size="small" disabled={stepsLocked && savedStepIds.has(step.id)} onClick={() => removeStep(index)} sx={{ border: 1, borderColor: 'divider', color: 'text.secondary', '&:hover': { color: 'error.main', borderColor: 'error.main' } }}>
-                                  <Trash2 size={14} />
-                                </IconButton>
-                              )}
-                            </Stack>
-                          )}
-                        </Stack>
+                    <div
+                      key={step.id || index}
+                      className={`rounded-[24px] border ${
+                        stepIssue
+                          ? 'border-red-400 dark:border-red-700/80'
+                          : 'border-[#EBF0F5] dark:border-[#1E222D]'
+                      } bg-white dark:bg-[#11131A] shadow-xs p-6 transition-all hover:shadow-md mb-4`}
+                    >
+                      {/* Step Header */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+                        <div className="flex items-center gap-3">
+                          {/* Step Number Badge */}
+                          <div className="w-9 h-9 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 font-bold font-mono text-sm flex items-center justify-center border border-blue-100 dark:border-blue-900/50">
+                            {index + 1}
+                          </div>
 
-                        <StepStatStrip stats={savedStepStats} htmlStep={isHtmlTemplate(savedStep?.body ?? '')} caveats={statCaveats} />
-
-                        {stepIssue && (
-                          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 2, color: 'error.main' }}>
-                            <AlertTriangle size={14} />
-                            <Typography variant="caption" sx={{ fontWeight: 600 }}>
-                              This step has no {stepIssue.missing.map(m => m === 'subject' ? 'subject line' : 'message body').join(' or ')}. Complete it before publishing.
-                            </Typography>
-                          </Stack>
-                        )}
-
-                        {showPreview ? (
-                          <Stack spacing={2}>
-                            <Card sx={{ bgcolor: (t) => alpha(t.palette.primary.main, 0.06), borderColor: (t) => alpha(t.palette.primary.main, 0.2) }}>
-                              <CardContent sx={{ display: 'flex', gap: 1.5, alignItems: 'flex-start' }}>
-                                <Eye size={16} color="#2563EB" style={{ marginTop: 2, flexShrink: 0 }} />
-                                <Box>
-                                  <Typography variant="overline" sx={{ color: 'primary.main', fontWeight: 700 }}>Dynamic Resolve Preview</Typography>
-                                  <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>Showing output for contact <strong>Emily</strong> at <strong>Stark Industries</strong>.</Typography>
-                                </Box>
-                              </CardContent>
-                            </Card>
-                            <Card sx={{ bgcolor: 'action.hover' }}>
-                              <CardContent>
-                                <Box sx={{ pb: 1, borderBottom: 1, borderColor: 'divider', mb: 1 }}>
-                                  <Typography variant="overline" sx={{ color: 'text.secondary', fontFamily: 'monospace' }}>Subject:</Typography>
-                                  <Typography variant="body2" sx={{ fontWeight: 600, mt: 0.5 }}>{personalizePreview(step.subject || '')}</Typography>
-                                </Box>
-                                <Typography variant="overline" sx={{ color: 'text.secondary', fontFamily: 'monospace', display: 'block', mb: 1 }}>Message:</Typography>
-                                {bodyPreview?.isHtml ? (
-                                  <Box component="iframe" srcDoc={bodyPreview.body} title="Email Preview" sandbox="" sx={{ width: '100%', height: 500, border: 1, borderColor: 'divider', borderRadius: '12px', bgcolor: '#fff' }} />
-                                ) : (
-                                  <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{bodyPreview?.body}</Typography>
-                                )}
-                              </CardContent>
-                            </Card>
-                          </Stack>
-                        ) : (
-                          <Stack spacing={1.5}>
-                            <TextField fullWidth size="small" placeholder="Subject Line" value={step.subject} onChange={(e) => updateStepField(index, 'subject', e.target.value)} error={!!stepIssue?.missing.includes('subject')} />
-                            <Box sx={{ border: 1, borderColor: stepIssue?.missing.includes('body') ? 'error.main' : 'divider', borderRadius: '12px', overflow: 'hidden', bgcolor: 'action.hover' }}>
-                              <Box sx={{ px: 1.5, py: 1, borderBottom: 1, borderColor: 'divider', bgcolor: 'background.paper' }}>
-                                <VariableToolbar onInsert={(v) => insertVariable(v, index)} onInsertSubject={(v) => updateStepField(index, 'subject', (step.subject || '') + ' ' + v)} />
-                              </Box>
-                              <TextField multiline minRows={6} fullWidth value={step.body} onChange={(e) => updateStepField(index, 'body', e.target.value)} placeholder="Write your custom copy stream here..." variant="standard"
-                                slotProps={{ input: { disableUnderline: true, sx: { px: 1.5, py: 1, fontFamily: 'monospace', fontSize: 12, lineHeight: 1.6 } } }}
+                          {/* Timing condition */}
+                          {index > 0 ? (
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">Wait for</span>
+                              <input
+                                type="number"
+                                value={step.waitDays}
+                                disabled={stopped}
+                                onChange={(e) => updateStepField(index, 'waitDays', parseInt(e.target.value) || 0)}
+                                className="w-16 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 font-mono text-xs text-center font-bold text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                               />
-                            </Box>
-                          </Stack>
+                              <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">days</span>
+                            </div>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200/60 dark:border-blue-800/50">
+                              Initial Dispatch
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Top Right Controls: Preview / Edit Mode toggle & Delete */}
+                        {!stopped && (
+                          <div className="flex items-center gap-2 self-start sm:self-auto">
+                            <button
+                              type="button"
+                              onClick={() => toggleStepPreview(step.id || index)}
+                              className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                                showPreview
+                                  ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-xs'
+                                  : 'border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60'
+                              }`}
+                            >
+                              {showPreview ? (
+                                <>
+                                  <Eye className="w-3.5 h-3.5" />
+                                  <span>Edit Mode</span>
+                                </>
+                              ) : (
+                                <>
+                                  <AlignLeft className="w-3.5 h-3.5" />
+                                  <span>Preview Mode</span>
+                                </>
+                              )}
+                            </button>
+
+                            {steps.length > 1 && (
+                              <button
+                                type="button"
+                                aria-label="Remove step"
+                                disabled={stepsLocked && savedStepIds.has(step.id)}
+                                onClick={() => removeStep(index)}
+                                className="p-1.5 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-400 hover:text-rose-600 hover:border-rose-200 dark:hover:border-rose-900/60 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
                         )}
-                      </CardContent>
-                    </Card>
+                      </div>
+
+                      {/* Step Stat Strip */}
+                      <div className="my-3">
+                        <StepStatStrip stats={savedStepStats} htmlStep={isHtmlTemplate(savedStep?.body ?? '')} caveats={statCaveats} />
+                      </div>
+
+                      {/* Validation alert if incomplete */}
+                      {stepIssue && (
+                        <div className="flex items-center gap-2 p-3 mb-4 rounded-xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/40 text-red-700 dark:text-red-400 text-xs font-semibold">
+                          <AlertTriangle className="w-4 h-4 shrink-0 text-red-600 dark:text-red-400" />
+                          <span>
+                            This step has no {stepIssue.missing.map(m => m === 'subject' ? 'subject line' : 'message body').join(' or ')}. Complete it before publishing.
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Body: Preview Mode or Edit Mode */}
+                      {showPreview ? (
+                        <div className="space-y-4">
+                          <div className="flex items-center gap-3 p-3.5 rounded-xl bg-blue-50/60 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/30">
+                            <Eye className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                            <div className="text-xs">
+                              <span className="font-bold text-blue-900 dark:text-blue-200 uppercase tracking-wider text-[10px] block">
+                                Dynamic Resolve Preview
+                              </span>
+                              <span className="text-slate-600 dark:text-slate-400">
+                                Showing output for contact <strong className="text-slate-900 dark:text-white">Emily</strong> at <strong className="text-slate-900 dark:text-white">Stark Industries</strong>.
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30 p-4 space-y-3">
+                            <div className="pb-3 border-b border-slate-200 dark:border-slate-800">
+                              <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                                Subject:
+                              </span>
+                              <p className="text-sm font-semibold text-slate-900 dark:text-white">
+                                {personalizePreview(step.subject || '')}
+                              </p>
+                            </div>
+                            <div>
+                              <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400 block mb-2">
+                                Message:
+                              </span>
+                              {bodyPreview?.isHtml ? (
+                                <iframe
+                                  srcDoc={bodyPreview.body}
+                                  title="Email Preview"
+                                  sandbox=""
+                                  className="w-full h-[480px] border border-slate-200 dark:border-slate-800 rounded-xl bg-white"
+                                />
+                              ) : (
+                                <p className="text-xs text-slate-800 dark:text-slate-200 whitespace-pre-wrap leading-relaxed font-mono">
+                                  {bodyPreview?.body}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-3.5">
+                          <div>
+                            <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-1.5">
+                              Subject Line
+                            </label>
+                            <input
+                              type="text"
+                              value={step.subject}
+                              onChange={(e) => updateStepField(index, 'subject', e.target.value)}
+                              placeholder="e.g. Quick question regarding cold email infrastructure"
+                              className={`w-full px-3.5 py-2.5 rounded-xl border ${
+                                stepIssue?.missing.includes('subject')
+                                  ? 'border-red-400 dark:border-red-600 focus:ring-red-500/20'
+                                  : 'border-slate-200 dark:border-slate-800 focus:ring-blue-500/20 focus:border-blue-500'
+                              } bg-white dark:bg-slate-900/60 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 transition-colors`}
+                            />
+                          </div>
+
+                          <div
+                            className={`rounded-2xl border ${
+                              stepIssue?.missing.includes('body')
+                                ? 'border-red-400 dark:border-red-600'
+                                : 'border-slate-200 dark:border-slate-800'
+                            } overflow-hidden bg-white dark:bg-slate-900/60`}
+                          >
+                            <div className="px-3.5 py-2 border-b border-slate-200 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/80">
+                              <VariableToolbar
+                                onInsert={(v) => insertVariable(v, index)}
+                                onInsertSubject={(v) => updateStepField(index, 'subject', (step.subject || '') + ' ' + v)}
+                              />
+                            </div>
+                            <textarea
+                              rows={7}
+                              value={step.body}
+                              onChange={(e) => updateStepField(index, 'body', e.target.value)}
+                              placeholder="Write your custom copy stream here. Use {{firstName}}, {{company}}..."
+                              className="w-full px-4 py-3 bg-transparent text-xs font-mono leading-relaxed text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none resize-y"
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
 
                 {!stopped && (
-                  <Button fullWidth variant="outlined" color="inherit" startIcon={<Plus size={16} />} onClick={addStep} sx={{ py: 1.5, borderStyle: 'dashed', borderColor: 'divider', color: 'text.secondary', fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-                    Add Journey Step
-                  </Button>
+                  <button
+                    type="button"
+                    onClick={addStep}
+                    className="w-full py-3.5 rounded-[20px] border-2 border-dashed border-slate-200 dark:border-slate-800 hover:border-blue-500/50 dark:hover:border-blue-500/50 hover:bg-blue-50/20 dark:hover:bg-blue-950/20 text-slate-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-all flex items-center justify-center gap-2 text-xs font-bold uppercase tracking-wider"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Add Journey Step</span>
+                  </button>
                 )}
               </>
             )}

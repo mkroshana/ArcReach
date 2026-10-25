@@ -33,10 +33,12 @@ import {
   MailX,
   Hourglass,
   MailQuestionMark,
-  Loader2
+  Loader2,
+  UserPlus
 } from 'lucide-react';
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import { ActionDrawer } from '@/components/ActionDrawer';
 import { TableSkeleton } from '@/components/Skeleton';
 import { decodeMimeHeader } from '@/lib/mime';
 import { emailBodyToText } from '@/lib/emailText';
@@ -110,7 +112,7 @@ function SuppressionChip({ lead }: { lead: any }) {
   const title = lead.suppression ? describeSuppression(lead.suppression) : undefined;
   if (label === 'Bounced') {
     return (
-      <span title={title} className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wider bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400 border-red-200 dark:border-red-900/30">
+      <span title={title} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 border-red-200 dark:border-red-900/40">
         <Ban className="w-3.5 h-3.5" />
         Bounced
       </span>
@@ -118,7 +120,7 @@ function SuppressionChip({ lead }: { lead: any }) {
   }
   if (label === 'Unsubscribed') {
     return (
-      <span title={title} className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wider bg-orange-50 dark:bg-orange-950/30 text-orange-700 dark:text-orange-400 border-orange-200 dark:border-orange-900/30">
+      <span title={title} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border bg-orange-50 dark:bg-orange-950/40 text-orange-700 dark:text-orange-300 border-orange-200 dark:border-orange-900/40">
         <MailX className="w-3.5 h-3.5" />
         Unsubscribed
       </span>
@@ -126,13 +128,13 @@ function SuppressionChip({ lead }: { lead: any }) {
   }
   if (label) {
     return (
-      <span title={title} className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wider bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-900/30">
+      <span title={title} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-900/40">
         <AlertCircle className="w-3.5 h-3.5" />
         {label}
       </span>
     );
   }
-  return <span className="text-[10px] text-slate-400 dark:text-slate-500">Active</span>;
+  return <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-medium text-slate-500 dark:text-slate-400 bg-slate-100/60 dark:bg-slate-800/40">Active</span>;
 }
 
 /** What a Re-activate did, for its toast. */
@@ -276,6 +278,8 @@ export default function LeadsPage() {
   const [csvEncoding, setCsvEncoding] = useState<CsvEncoding>('utf-8');
   const [csvUnreadableRows, setCsvUnreadableRows] = useState<number>(0);
   const [showMapping, setShowMapping] = useState<boolean>(false);
+  const [showCsvDrawer, setShowCsvDrawer] = useState<boolean>(false);
+  const isCsvDrawerOpen = showCsvDrawer || showMapping;
   // Column index for each field, -1 when unmapped (headers can repeat or be blank)
   const [mappings, setMappings] = useState<CsvColumnMapping>({
     email: -1,
@@ -1038,6 +1042,7 @@ export default function LeadsPage() {
       setCsvRows([]);
       setCsvFileName('');
       setShowMapping(false);
+      setShowCsvDrawer(false);
     }
     setImportProgress('');
 
@@ -1058,6 +1063,12 @@ export default function LeadsPage() {
     setNewGroupNameForImport('');
   };
 
+  const handleCloseCsvDrawer = () => {
+    if (loading) return;
+    handleCancelImport();
+    setShowCsvDrawer(false);
+  };
+
   const handleDropUpload = async (e: any) => {
     e.preventDefault();
     setIsDragging(false);
@@ -1072,6 +1083,7 @@ export default function LeadsPage() {
     if (files && files.length > 0) {
       await processCSVFile(files[0]);
     }
+    e.target.value = '';
   };
 
   // The list the open table shows, one page at a time from the server: the Leads, Archived or Suppressed
@@ -1147,28 +1159,28 @@ export default function LeadsPage() {
 
   // The open table's page buttons: every leads table pages through its list on the server
   const paginationControls = leadTotal > 0 && (
-    <div className="px-5 py-4 border-t border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row justify-between items-center gap-4 bg-slate-50/20 dark:bg-slate-950/10">
-      <div className="text-xs text-slate-500 dark:text-slate-400">
-        Showing <span className="font-semibold text-slate-700 dark:text-white">{startIndex}</span> to{' '}
-        <span className="font-semibold text-slate-700 dark:text-white">{endIndex}</span> of{' '}
-        <span className="font-semibold text-slate-700 dark:text-white">{leadTotal}</span> leads
+    <div className="p-5 border-t border-[#EBF0F5] dark:border-[#1E222D] flex flex-col sm:flex-row justify-between items-center gap-4 bg-slate-50/20 dark:bg-slate-950/10">
+      <div className="text-xs text-slate-500 dark:text-slate-400 font-normal">
+        Showing <span className="font-semibold text-slate-900 dark:text-white">{startIndex}</span> to{' '}
+        <span className="font-semibold text-slate-900 dark:text-white">{endIndex}</span> of{' '}
+        <span className="font-semibold text-slate-900 dark:text-white">{leadTotal}</span> leads
       </div>
       <div className="flex items-center gap-1.5">
         <button
           disabled={currentPage === 1}
           onClick={() => setCurrentPage(1)}
-          className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+          className="p-1.5 rounded-xl border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer shadow-xs"
           title="First Page"
         >
-          <ChevronsLeft className="w-3.5 h-3.5" />
+          <ChevronsLeft className="w-4 h-4" />
         </button>
         <button
           disabled={currentPage === 1}
           onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-          className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+          className="p-1.5 rounded-xl border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer shadow-xs"
           title="Previous Page"
         >
-          <ChevronLeft className="w-3.5 h-3.5" />
+          <ChevronLeft className="w-4 h-4" />
         </button>
 
         {/* Page numbers */}
@@ -1186,10 +1198,10 @@ export default function LeadsPage() {
             <button
               key={pageNum}
               onClick={() => setCurrentPage(pageNum)}
-              className={`px-3 py-1 rounded-md text-xs font-semibold border transition-all cursor-pointer ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer shadow-xs ${
                 currentPage === pageNum
-                  ? 'bg-blue-600 border-blue-600 text-white shadow-xs'
-                  : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
+                  ? 'bg-blue-600 border-blue-600 text-white'
+                  : 'border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
               }`}
             >
               {pageNum}
@@ -1200,18 +1212,18 @@ export default function LeadsPage() {
         <button
           disabled={currentPage === totalPages}
           onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-          className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+          className="p-1.5 rounded-xl border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer shadow-xs"
           title="Next Page"
         >
-          <ChevronRight className="w-3.5 h-3.5" />
+          <ChevronRight className="w-4 h-4" />
         </button>
         <button
           disabled={currentPage === totalPages}
           onClick={() => setCurrentPage(totalPages)}
-          className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+          className="p-1.5 rounded-xl border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer shadow-xs"
           title="Last Page"
         >
-          <ChevronsRight className="w-3.5 h-3.5" />
+          <ChevronsRight className="w-4 h-4" />
         </button>
       </div>
     </div>
@@ -1222,36 +1234,57 @@ export default function LeadsPage() {
   return (
     <div className="space-y-6 animate-in fade-in duration-500 max-w-5xl mx-auto">
       {/* Header */}
-      <header className="flex justify-between items-start md:items-center flex-col md:flex-row gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
+      <header className="flex justify-between items-start md:items-center flex-col md:flex-row gap-4 pb-6 border-b border-[#EBF0F5] dark:border-[#1E222D]">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white mb-0.5">Leads Directory</h1>
-          <p className="text-slate-500 dark:text-slate-400 text-xs">Import contacts, check their email domains for mail servers, and organize your prospect lists.</p>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white mb-0.5">
+            Leads Directory
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400 text-xs">
+            Import contacts, check their email domains for mail servers, and organize your prospect lists.
+          </p>
         </div>
-        <div className="flex gap-2.5">
+
+        <div className="flex items-center gap-2.5 flex-wrap">
+          {/* Refresh Button */}
           <button
             onClick={reloadLeads}
-            className="p-2 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xs"
+            className="p-2.5 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white bg-white dark:bg-[#11131A] border border-[#EBF0F5] dark:border-[#1E222D] rounded-xl shadow-xs transition-colors cursor-pointer"
             title="Refresh Leads Catalog"
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading && !isVerifying ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-4 h-4 ${loading && !isVerifying ? 'animate-spin' : ''}`} />
           </button>
-          <button 
-            onClick={() => setShowAddLead(!showAddLead)}
-            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-white px-3.5 py-1.8 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs"
+
+          {/* Import CSV Button */}
+          <button
+            onClick={() => setShowCsvDrawer(true)}
+            className="bg-white hover:bg-slate-50 dark:bg-[#161822] dark:hover:bg-[#1E222D] border border-[#EBF0F5] dark:border-[#1E222D] text-slate-800 dark:text-slate-200 px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all shadow-xs cursor-pointer"
           >
-            <Plus className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
-            Add Single Lead
+            <UploadCloud className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+            <span>Import CSV</span>
           </button>
-          
-          <button 
+
+          {/* Add Single Lead Button */}
+          <button
+            onClick={() => setShowAddLead(true)}
+            className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all shadow-xs cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add Single Lead</span>
+          </button>
+
+          {/* Check Domain MX Button */}
+          <button
             onClick={handleBulkVerify}
             disabled={isVerifying || isCountingUnchecked || loading}
-            className="bg-blue-600 hover:bg-blue-500 disabled:bg-blue-700 text-white px-4 py-2 rounded-lg font-semibold flex items-center gap-2 transition-colors text-xs shadow-sm"
+            className="bg-white dark:bg-[#161822] border border-[#EBF0F5] dark:border-[#1E222D] hover:bg-slate-50 dark:hover:bg-[#1E222D] text-slate-700 dark:text-slate-300 disabled:opacity-50 px-4 py-2.5 rounded-xl font-semibold flex items-center gap-2 transition-colors text-xs shadow-xs cursor-pointer"
           >
-            <Globe className="w-3.5 h-3.5" />
-            {isVerifying && verifyProgress ? `Checking ${checkedOf(verifyProgress)}` : 'Check Domain MX'}
+            <Globe className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+            <span>
+              {isVerifying && verifyProgress ? `Checking ${checkedOf(verifyProgress)}` : 'Check Domain MX'}
+            </span>
           </button>
-          
+
+          {/* Admin: Delete All Leads */}
           {isAdmin && (
             <button
               onClick={() => {
@@ -1259,10 +1292,10 @@ export default function LeadsPage() {
                 setShowDeleteAllConfirm(true);
               }}
               disabled={loading || leadCount === 0}
-              className="bg-rose-600 hover:bg-rose-500 disabled:bg-rose-800/40 text-white px-3.5 py-1.8 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
+              className="bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/40 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-900/40 px-3.5 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer disabled:opacity-50"
             >
-              <Trash2 className="w-3.5 h-3.5" />
-              Delete All Leads
+              <Trash2 className="w-4 h-4" />
+              <span>Delete All Leads</span>
             </button>
           )}
         </div>
@@ -1305,162 +1338,293 @@ export default function LeadsPage() {
         </div>
       )}
 
-      {/* Add Lead dialog */}
-      {showAddLead && (
-        <form onSubmit={handleAddCustomLead} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-5 rounded-xl space-y-4 animate-in slide-in-from-top-3 duration-200 shadow-xs">
-          <h3 className="text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">Add Lead Record</h3>
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-            <input 
-              type="text" 
-              placeholder="Name (e.g. John Doe) *"
+      {/* Hidden File Input for CSV selection */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileChange}
+        accept=".csv"
+        className="hidden"
+      />
+
+      {/* Add Single Lead ActionDrawer */}
+      <ActionDrawer
+        isOpen={showAddLead}
+        onClose={() => setShowAddLead(false)}
+        title="Add Single Lead"
+        subtitle="Create an individual prospect record directly in your CRM directory."
+        icon={UserPlus}
+        width="md"
+        formId="add-single-lead-form"
+        onSubmit={handleAddCustomLead}
+        primaryLabel="Save Record"
+        cancelLabel="Cancel"
+        onCancel={() => setShowAddLead(false)}
+      >
+        <div className="space-y-4 font-sans">
+          {/* Full Name Field */}
+          <div className="space-y-1.5">
+            <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">
+              Full Name <span className="text-rose-500">*</span>
+            </label>
+            <input
+              type="text"
+              required
+              placeholder="e.g. John Doe"
               value={newLead.name}
-              required
-              onChange={e => setNewLead({...newLead, name: e.target.value})}
-              className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 p-2.5 rounded-lg text-xs placeholder:text-slate-400 text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/40"
+              onChange={(e) => setNewLead({ ...newLead, name: e.target.value })}
+              className="w-full bg-slate-50 dark:bg-slate-950 border border-[#EBF0F5] dark:border-[#1E222D] p-2.5 rounded-xl text-xs placeholder:text-slate-400 text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
             />
-            <input 
-              type="email" 
-              placeholder="Outreach Email *"
+          </div>
+
+          {/* Outreach Email Field */}
+          <div className="space-y-1.5">
+            <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">
+              Outreach Email <span className="text-rose-500">*</span>
+            </label>
+            <input
+              type="email"
+              required
+              placeholder="e.g. john@company.com"
               value={newLead.email}
-              required
-              onChange={e => setNewLead({...newLead, email: e.target.value})}
-              className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 p-2.5 rounded-lg text-xs placeholder:text-slate-400 text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/40"
+              onChange={(e) => setNewLead({ ...newLead, email: e.target.value })}
+              className="w-full bg-slate-50 dark:bg-slate-950 border border-[#EBF0F5] dark:border-[#1E222D] p-2.5 rounded-xl text-xs placeholder:text-slate-400 text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-mono transition-all"
             />
-            <input 
-              type="text" 
-              placeholder="Brand Company Name"
+          </div>
+
+          {/* Company Name Field */}
+          <div className="space-y-1.5">
+            <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">
+              Company Name
+            </label>
+            <input
+              type="text"
+              placeholder="e.g. Acme Corp"
               value={newLead.company}
-              onChange={e => setNewLead({...newLead, company: e.target.value})}
-              className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 p-2.5 rounded-lg text-xs placeholder:text-slate-400 text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/40"
+              onChange={(e) => setNewLead({ ...newLead, company: e.target.value })}
+              className="w-full bg-slate-50 dark:bg-slate-950 border border-[#EBF0F5] dark:border-[#1E222D] p-2.5 rounded-xl text-xs placeholder:text-slate-400 text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
             />
-            <input 
-              type="text" 
-              placeholder="Job Title (e.g. CEO)"
+          </div>
+
+          {/* Job Title Field */}
+          <div className="space-y-1.5">
+            <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">
+              Job Title
+            </label>
+            <input
+              type="text"
+              placeholder="e.g. Head of Growth"
               value={newLead.jobTitle}
-              onChange={e => setNewLead({...newLead, jobTitle: e.target.value})}
-              className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 p-2.5 rounded-lg text-xs placeholder:text-slate-400 text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/40"
+              onChange={(e) => setNewLead({ ...newLead, jobTitle: e.target.value })}
+              className="w-full bg-slate-50 dark:bg-slate-950 border border-[#EBF0F5] dark:border-[#1E222D] p-2.5 rounded-xl text-xs placeholder:text-slate-400 text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
             />
+          </div>
+
+          {/* Group Assignment Field */}
+          <div className="space-y-1.5 pt-2 border-t border-[#EBF0F5] dark:border-[#1E222D]">
+            <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">
+              Assign to Lead Group
+            </label>
             <select
               value={selectedGroupForAdd}
-              onChange={e => setSelectedGroupForAdd(e.target.value)}
-              className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 p-2.5 rounded-lg text-xs text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/40 cursor-pointer"
+              onChange={(e) => setSelectedGroupForAdd(e.target.value)}
+              className="w-full bg-slate-50 dark:bg-slate-950 border border-[#EBF0F5] dark:border-[#1E222D] p-2.5 rounded-xl text-xs text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer"
             >
               <option value="">-- No Group Assignment --</option>
-              {groups.map(g => (
-                <option key={g.id} value={g.id}>{g.name}</option>
+              {groups.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
+                </option>
               ))}
             </select>
           </div>
-          <div className="flex gap-2 justify-end">
-            <button 
-              type="button" 
-              onClick={() => setShowAddLead(false)}
-              className="px-3.5 py-1.5 text-xs text-slate-400 hover:text-slate-900 dark:hover:text-white font-medium"
-            >
-              Cancel
-            </button>
-            <button 
-              type="submit" 
-              className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-1.8 rounded-lg text-xs font-semibold"
-            >
-              Save Record
-            </button>
-          </div>
-        </form>
-      )}
+        </div>
+      </ActionDrawer>
 
-      {/* CSV Import container */}
-      <input 
-        type="file" 
-        ref={fileInputRef} 
-        onChange={handleFileChange} 
-        accept=".csv" 
-        className="hidden" 
-      />
-      {showMapping ? (
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-xl space-y-6 animate-in slide-in-from-top-3 duration-250 shadow-xs">
-          <div className="flex justify-between items-start border-b border-slate-100 dark:border-slate-800/80 pb-4">
-            <div>
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
-                <FileType className="w-4.5 h-4.5 text-blue-600 dark:text-blue-400" />
-                Map CSV Columns — {csvFileName}
+      {/* CSV Import & Column Mapping ActionDrawer */}
+      <ActionDrawer
+        isOpen={isCsvDrawerOpen}
+        onClose={handleCloseCsvDrawer}
+        title={showMapping ? `Map CSV Columns — ${csvFileName}` : 'Import Leads from CSV'}
+        subtitle={
+          showMapping
+            ? `${csvRows.length.toLocaleString()} prospects found in file. Match columns to CRM fields.`
+            : 'Upload a CSV spreadsheet to bulk import prospect contacts into your CRM.'
+        }
+        icon={showMapping ? FileType : UploadCloud}
+        width="lg"
+        isLoading={loading}
+        showCancel={true}
+        cancelLabel={showMapping ? 'Reset & Back' : 'Cancel'}
+        onCancel={showMapping ? handleCancelImport : handleCloseCsvDrawer}
+        primaryLabel={
+          loading
+            ? (importProgress || 'Importing...')
+            : showMapping
+            ? `Confirm & Import ${csvPlan.leads.length > 0 ? `(${csvPlan.leads.length})` : ''}`
+            : 'Browse CSV File'
+        }
+        primaryLoading={loading}
+        primaryDisabled={showMapping ? mappings.email === -1 || loading || csvPlan.leads.length === 0 : false}
+        onPrimary={showMapping ? handleExecuteImport : () => fileInputRef.current?.click()}
+      >
+        {!showMapping ? (
+          /* PHASE 1: Dropzone & Destination Pre-configuration */
+          <div className="space-y-6">
+            {/* Interactive Dropzone */}
+            <div
+              className={`relative overflow-hidden rounded-2xl border-2 border-dashed transition-all duration-200 p-8 flex flex-col items-center justify-center cursor-pointer ${
+                isDragging
+                  ? 'border-blue-500 bg-blue-50/60 dark:bg-blue-950/20'
+                  : 'border-slate-300 dark:border-slate-800 bg-slate-50/40 dark:bg-[#12141C]/40 hover:bg-slate-50 dark:hover:bg-slate-800/40'
+              }`}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setIsDragging(true);
+              }}
+              onDragLeave={() => setIsDragging(false)}
+              onDrop={handleDropUpload}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <div className="w-12 h-12 mb-3 rounded-2xl bg-blue-50 dark:bg-blue-950/50 flex items-center justify-center border border-blue-100 dark:border-blue-900/40">
+                <UploadCloud className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+              </div>
+              <h3 className="text-sm font-bold text-slate-800 dark:text-white tracking-tight mb-1">
+                Upload Prospect CSV Spreadsheet
               </h3>
-              <p className="text-slate-500 dark:text-slate-400 text-xs mt-1 font-medium">
-                {csvRows.length} prospects found. Match your CSV header columns to the corresponding CRM prospect fields.
+              <p className="text-slate-500 dark:text-slate-400 text-center max-w-sm text-xs mb-4 font-normal">
+                Drag and drop your spreadsheet here, or click to browse files from your computer.
               </p>
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-white dark:bg-slate-900 border border-[#EBF0F5] dark:border-[#1E222D] text-slate-700 dark:text-slate-300 shadow-xs">
+                Select .csv File
+              </span>
+              <span className="text-[10px] text-slate-400 dark:text-slate-500 mt-3 font-medium">
+                Supports UTF-8, Windows-1252 (Excel), and UTF-16 formats
+              </span>
+            </div>
+
+            {/* Destination Settings Card */}
+            <div className="bg-slate-50/60 dark:bg-[#12141C]/50 p-5 rounded-2xl border border-slate-200/60 dark:border-slate-800/60 space-y-3.5">
+              <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 tracking-tight flex items-center gap-2">
+                <Folder className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                <span>Destination Group Assignment</span>
+              </h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                    Add to Existing Group
+                  </label>
+                  <select
+                    value={selectedGroupForImport}
+                    onChange={(e) => {
+                      setSelectedGroupForImport(e.target.value);
+                      setNewGroupNameForImport('');
+                    }}
+                    className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-2.5 text-xs text-slate-800 dark:text-white cursor-pointer outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                  >
+                    <option value="">-- No Group (General CRM) --</option>
+                    {groups.map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                    Or Create New Group
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Q4 Growth Leads"
+                    value={newGroupNameForImport}
+                    onChange={(e) => {
+                      setNewGroupNameForImport(e.target.value);
+                      setSelectedGroupForImport('');
+                    }}
+                    className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-2.5 text-xs text-slate-800 dark:text-white placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* PHASE 2: Column Mapping & Batch Progress */
+          <div className="space-y-6">
+            {/* File Information & Warning Banners */}
+            <div className="space-y-2.5">
+              {/* Encoding alert */}
               {csvEncoding !== 'utf-8' && (
-                <p className="text-slate-500 dark:text-slate-400 text-xs mt-1 font-medium">
-                  {csvEncoding === 'windows-1252'
-                    ? 'Read as Windows-1252 because the file is not UTF-8.'
-                    : 'Read as UTF-16.'}{' '}
-                  Check that accented names look right in the previews.
-                </p>
+                <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/30 flex items-start gap-2 text-xs text-amber-800 dark:text-amber-300">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+                  <span>
+                    {csvEncoding === 'windows-1252' ? 'Read as Windows-1252 (Excel CSV).' : 'Read as UTF-16.'}{' '}
+                    Check that accented characters display properly in the previews below.
+                  </span>
+                </div>
               )}
+
+              {/* Unreadable rows alert */}
               {csvUnreadableRows > 0 && (
-                <p className="flex items-start gap-1.5 text-amber-700 dark:text-amber-400 text-xs mt-1 font-medium">
-                  <AlertCircle className="w-3.5 h-3.5 mt-px shrink-0" />
+                <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/30 flex items-start gap-2 text-xs text-amber-800 dark:text-amber-300">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
                   <span>
                     {csvUnreadableRows} {csvUnreadableRows === 1 ? 'row contains' : 'rows contain'} characters that could not be read (shown as {'\uFFFD'}).
                     They will be imported and emailed as shown, so fix them in the file and import it again.
                   </span>
-                </p>
+                </div>
               )}
+
+              {/* Skipped rows explanation */}
               {mappings.email !== -1 && describeCsvSkips(csvPlan) && (
-                <p className="flex items-start gap-1.5 text-amber-700 dark:text-amber-400 text-xs mt-1 font-medium">
-                  <AlertCircle className="w-3.5 h-3.5 mt-px shrink-0" />
+                <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/30 flex items-start gap-2 text-xs text-amber-800 dark:text-amber-300">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
                   <span>{describeCsvSkips(csvPlan)} These rows will be skipped.</span>
-                </p>
+                </div>
               )}
+
+              {/* Import Failure banner */}
               {importFailure && (
-                <p className="flex items-start gap-1.5 text-rose-700 dark:text-rose-400 text-xs mt-1 font-medium">
-                  <AlertCircle className="w-3.5 h-3.5 mt-px shrink-0" />
+                <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/40 flex items-start gap-2.5 text-xs text-rose-800 dark:text-rose-300">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-600 dark:text-rose-400" />
                   <span>{importFailure}</span>
-                </p>
+                </div>
               )}
             </div>
-            <button
-              onClick={handleCancelImport}
-              className="text-slate-400 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 p-1 rounded-lg"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-4">
-              <h4 className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">Field Matching</h4>
-              
-              {/* Email Mapping (Required) */}
-              <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-slate-800 dark:text-slate-300">
+            {/* Field Matching Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Email Address (Required) */}
+              <div className="p-4 rounded-xl bg-slate-50/60 dark:bg-[#12141C]/50 border border-slate-200/60 dark:border-slate-800/60 space-y-2">
+                <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">
                   Email Address <span className="text-rose-500">*</span>
                 </label>
                 <select
                   value={mappings.email === -1 ? '' : mappings.email}
-                  onChange={e => setMappings({ ...mappings, email: toColumnIndex(e.target.value) })}
-                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-2.5 text-xs text-slate-800 dark:text-white cursor-pointer outline-none focus:ring-2 focus:ring-blue-500/40"
+                  onChange={(e) => setMappings({ ...mappings, email: toColumnIndex(e.target.value) })}
+                  className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-2.5 text-xs text-slate-800 dark:text-white cursor-pointer outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                 >
-                  <option value="" disabled>-- Select Column --</option>
+                  <option value="" disabled>-- Select Email Column --</option>
                   {csvColumnOptions.map((label, i) => (
                     <option key={i} value={i}>{label}</option>
                   ))}
                 </select>
                 {mappings.email !== -1 && csvRows.length > 0 && (
-                  <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200/50 dark:border-slate-800/40 mt-1">
-                    Preview: {csvRows[0][mappings.email] || <em className="text-slate-400">Empty</em>}
+                  <div className="p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-400 font-mono truncate">
+                    Preview: {csvRows[0][mappings.email] || <em className="text-slate-400 font-sans">Empty</em>}
                   </div>
                 )}
               </div>
 
-              {/* Name Mapping (Optional) */}
-              <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-slate-800 dark:text-slate-300">
+              {/* Full Name (Optional) */}
+              <div className="p-4 rounded-xl bg-slate-50/60 dark:bg-[#12141C]/50 border border-slate-200/60 dark:border-slate-800/60 space-y-2">
+                <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">
                   Full Name
                 </label>
                 <select
                   value={mappings.name === -1 ? '' : mappings.name}
-                  onChange={e => setMappings({ ...mappings, name: toColumnIndex(e.target.value) })}
-                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-2.5 text-xs text-slate-800 dark:text-white cursor-pointer outline-none focus:ring-2 focus:ring-blue-500/40"
+                  onChange={(e) => setMappings({ ...mappings, name: toColumnIndex(e.target.value) })}
+                  className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-2.5 text-xs text-slate-800 dark:text-white cursor-pointer outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                 >
                   <option value="">{"[Don't Map - Leave Empty]"}</option>
                   {csvColumnOptions.map((label, i) => (
@@ -1468,21 +1632,21 @@ export default function LeadsPage() {
                   ))}
                 </select>
                 {mappings.name !== -1 && csvRows.length > 0 && (
-                  <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200/50 dark:border-slate-800/40 mt-1">
+                  <div className="p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-400 truncate">
                     Preview: {csvRows[0][mappings.name] || <em className="text-slate-400">Empty</em>}
                   </div>
                 )}
               </div>
 
-              {/* Company Mapping (Optional) */}
-              <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-slate-800 dark:text-slate-300">
+              {/* Company Name (Optional) */}
+              <div className="p-4 rounded-xl bg-slate-50/60 dark:bg-[#12141C]/50 border border-slate-200/60 dark:border-slate-800/60 space-y-2">
+                <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">
                   Company Name
                 </label>
                 <select
                   value={mappings.company === -1 ? '' : mappings.company}
-                  onChange={e => setMappings({ ...mappings, company: toColumnIndex(e.target.value) })}
-                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-2.5 text-xs text-slate-800 dark:text-white cursor-pointer outline-none focus:ring-2 focus:ring-blue-500/40"
+                  onChange={(e) => setMappings({ ...mappings, company: toColumnIndex(e.target.value) })}
+                  className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-2.5 text-xs text-slate-800 dark:text-white cursor-pointer outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                 >
                   <option value="">{"[Don't Map - Leave Empty]"}</option>
                   {csvColumnOptions.map((label, i) => (
@@ -1490,21 +1654,21 @@ export default function LeadsPage() {
                   ))}
                 </select>
                 {mappings.company !== -1 && csvRows.length > 0 && (
-                  <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200/50 dark:border-slate-800/40 mt-1">
+                  <div className="p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-400 truncate">
                     Preview: {csvRows[0][mappings.company] || <em className="text-slate-400">Empty</em>}
                   </div>
                 )}
               </div>
 
-              {/* Job Title Mapping (Optional) */}
-              <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-slate-800 dark:text-slate-300">
+              {/* Job Title (Optional) */}
+              <div className="p-4 rounded-xl bg-slate-50/60 dark:bg-[#12141C]/50 border border-slate-200/60 dark:border-slate-800/60 space-y-2">
+                <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">
                   Job Title
                 </label>
                 <select
                   value={mappings.jobTitle === -1 ? '' : mappings.jobTitle}
-                  onChange={e => setMappings({ ...mappings, jobTitle: toColumnIndex(e.target.value) })}
-                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-2.5 text-xs text-slate-800 dark:text-white cursor-pointer outline-none focus:ring-2 focus:ring-blue-500/40"
+                  onChange={(e) => setMappings({ ...mappings, jobTitle: toColumnIndex(e.target.value) })}
+                  className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-2.5 text-xs text-slate-800 dark:text-white cursor-pointer outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                 >
                   <option value="">{"[Don't Map - Leave Empty]"}</option>
                   {csvColumnOptions.map((label, i) => (
@@ -1512,128 +1676,63 @@ export default function LeadsPage() {
                   ))}
                 </select>
                 {mappings.jobTitle !== -1 && csvRows.length > 0 && (
-                  <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200/50 dark:border-slate-800/40 mt-1">
+                  <div className="p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-400 truncate">
                     Preview: {csvRows[0][mappings.jobTitle] || <em className="text-slate-400">Empty</em>}
                   </div>
                 )}
               </div>
             </div>
 
-            <div className="space-y-5 flex flex-col justify-between">
-              <div className="space-y-4">
-                <h4 className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">Destination Settings</h4>
-                <div className="space-y-3 bg-slate-50/50 dark:bg-[#12141c]/50 p-4 rounded-xl border border-slate-200/50 dark:border-slate-800/40">
-                  <div>
-                    <label className="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Add Imported to Group</label>
-                    <select
-                      value={selectedGroupForImport}
-                      onChange={e => {
-                        setSelectedGroupForImport(e.target.value);
-                        setNewGroupNameForImport('');
-                      }}
-                      className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-2 text-xs text-slate-800 dark:text-white cursor-pointer"
-                    >
-                      <option value="">-- No Group (General CRM) --</option>
-                      {groups.map(g => (
-                        <option key={g.id} value={g.id}>{g.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Or Create New Group</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Cold Leads June"
-                      value={newGroupNameForImport}
-                      onChange={e => {
-                        setNewGroupNameForImport(e.target.value);
-                        setSelectedGroupForImport('');
-                      }}
-                      className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-2 text-xs text-slate-800 dark:text-white placeholder:text-slate-400"
-                    />
-                  </div>
+            {/* Destination Group in Mapping View */}
+            <div className="bg-slate-50/60 dark:bg-[#12141C]/50 p-4 rounded-xl border border-slate-200/60 dark:border-slate-800/60 space-y-3">
+              <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">
+                Target Lead Group
+              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <select
+                  value={selectedGroupForImport}
+                  onChange={(e) => {
+                    setSelectedGroupForImport(e.target.value);
+                    setNewGroupNameForImport('');
+                  }}
+                  className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-2.5 text-xs text-slate-800 dark:text-white cursor-pointer"
+                >
+                  <option value="">-- No Group (General CRM) --</option>
+                  {groups.map((g) => (
+                    <option key={g.id} value={g.id}>{g.name}</option>
+                  ))}
+                </select>
+                <input
+                  type="text"
+                  placeholder="Or type new group name"
+                  value={newGroupNameForImport}
+                  onChange={(e) => {
+                    setNewGroupNameForImport(e.target.value);
+                    setSelectedGroupForImport('');
+                  }}
+                  className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-2.5 text-xs text-slate-800 dark:text-white placeholder:text-slate-400"
+                />
+              </div>
+            </div>
+
+            {/* Real-time Import Progress Bar */}
+            {loading && (
+              <div className="p-4 rounded-xl bg-blue-50 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-900/40 space-y-2">
+                <div className="flex items-center justify-between text-xs font-semibold text-blue-700 dark:text-blue-300">
+                  <span>Import In Progress</span>
+                  <span>{importProgress}</span>
+                </div>
+                <div className="w-full h-2 rounded-full bg-blue-200/60 dark:bg-blue-900/60 overflow-hidden">
+                  <div className="h-full bg-blue-600 rounded-full animate-pulse w-full" />
                 </div>
               </div>
-
-              <div className="flex gap-3 justify-end pt-4 border-t border-slate-100 dark:border-slate-800/60">
-                <button
-                  onClick={handleCancelImport}
-                  disabled={loading}
-                  className="px-4 py-2 text-xs text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white font-semibold transition-colors disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleExecuteImport}
-                  disabled={mappings.email === -1 || loading}
-                  className="bg-blue-600 hover:bg-blue-500 disabled:bg-slate-200 dark:disabled:bg-slate-800 text-white disabled:text-slate-400 dark:disabled:text-slate-600 px-5 py-2 rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer flex items-center gap-2"
-                >
-                  {loading && <Loader2 className="w-3 h-3 animate-spin" />}
-                  {loading ? (importProgress || 'Importing...') : 'Confirm & Import'}
-                </button>
-              </div>
-            </div>
+            )}
           </div>
-        </div>
-      ) : (
-        <div 
-          className={`relative overflow-hidden rounded-xl border border-dashed transition-all duration-200 ${
-            isDragging 
-              ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/20' 
-              : 'border-slate-400 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50/50 dark:hover:bg-slate-800/45'
-          } p-8 flex flex-col items-center justify-center cursor-pointer shadow-xs`}
-          onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-          onDragLeave={() => setIsDragging(false)}
-          onDrop={handleDropUpload}
-          onClick={() => fileInputRef.current?.click()}
-        >
-          <div className="w-10 h-10 mb-3 rounded-lg bg-slate-50 dark:bg-slate-950 flex items-center justify-center border border-slate-200 dark:border-slate-800">
-            <UploadCloud className="w-4.5 h-4.5 text-blue-600 dark:text-blue-400" />
-          </div>
-          <h3 className="text-sm font-semibold text-slate-800 dark:text-white uppercase tracking-widest mb-1">Import Bulk List CSV</h3>
-          <p className="text-slate-500 dark:text-slate-400 text-center max-w-md text-xs mb-3 font-medium">
-            Drag and drop contacts list, or click to select and import custom CSV spreadsheets.
-          </p>
-          <button className="bg-white dark:bg-slate-950 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors shadow-xs mb-2">
-            Browse Files (.csv)
-          </button>
-
-          <div className="mt-4 flex flex-col sm:flex-row gap-3 w-full max-w-md bg-slate-50/50 dark:bg-[#12141c]/50 p-4 rounded-xl border border-slate-200/50 dark:border-slate-800/40" onClick={(e) => e.stopPropagation()}>
-            <div className="flex-1 col-span-1">
-              <label className="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Add Imported to Group</label>
-              <select
-                value={selectedGroupForImport}
-                onChange={e => {
-                  setSelectedGroupForImport(e.target.value);
-                  setNewGroupNameForImport('');
-                }}
-                className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-2 text-xs text-slate-800 dark:text-white cursor-pointer"
-              >
-                <option value="">-- No Group (General CRM) --</option>
-                {groups.map(g => (
-                  <option key={g.id} value={g.id}>{g.name}</option>
-                ))}
-              </select>
-            </div>
-            <div className="flex-1 col-span-1">
-              <label className="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Or Create New Group</label>
-              <input
-                type="text"
-                placeholder="e.g. Cold Leads June"
-                value={newGroupNameForImport}
-                onChange={e => {
-                  setNewGroupNameForImport(e.target.value);
-                  setSelectedGroupForImport('');
-                }}
-                className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-2 text-xs text-slate-800 dark:text-white placeholder:text-slate-400"
-              />
-            </div>
-          </div>
-        </div>
-      )}
+        )}
+      </ActionDrawer>
 
       {/* Navigation Tabs */}
-      <div className="flex border-b border-slate-200 dark:border-slate-800 gap-4 mt-2">
+      <div className="flex border-b border-[#EBF0F5] dark:border-[#1E222D] gap-4 mt-2">
         {[
           { id: 'leads', name: 'Leads Directory', icon: FileType },
           { id: 'groups', name: 'Lead Groups', icon: Folder },
@@ -1665,35 +1764,35 @@ export default function LeadsPage() {
       </div>
 
       {/* Main CRM Board Area */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-xs mt-2 animate-in fade-in duration-300">
+      <div className="rounded-[24px] border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] shadow-xs overflow-hidden transition-all duration-200 mt-6">
         
         {/* Render for LEADS, ARCHIVED or SUPPRESSED Tab */}
         {(activeTab === 'leads' || activeTab === 'archived' || activeTab === 'suppressed') && (
           <>
             {/* Table Filter Top Bar */}
-            <div className="p-4 border-b border-slate-200 dark:border-slate-800/60 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-slate-50/50 dark:bg-slate-900/50">
-              <div className="flex flex-col md:flex-row gap-2.5 w-full md:w-auto">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
+            <div className="p-5 border-b border-[#EBF0F5] dark:border-[#1E222D] flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-slate-50/40 dark:bg-slate-900/20">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:w-auto">
+                {/* Shopeers Pill Search Bar */}
+                <div className="relative flex items-center">
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-slate-500 pointer-events-none" />
                   <input 
                     type="text" 
-                    placeholder="Search leads..."
+                    placeholder="Search leads by name, email, company..."
                     value={search}
                     onChange={e => setSearch(e.target.value)}
-                    className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg pl-9 pr-4 py-1.8 text-xs text-slate-800 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none w-full md:w-52 focus:ring-2 focus:ring-blue-500/40 shadow-xs"
+                    className="w-full sm:w-64 bg-white dark:bg-slate-950 border border-[#EBF0F5] dark:border-[#1E222D] rounded-full pl-9.5 pr-4 py-2 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shadow-xs"
                   />
                 </div>
                 
-                <div className="flex items-center gap-1 p-1 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg shadow-xs">
+                {/* Shopeers Status Filter Pills Container */}
+                <div className="p-1 bg-slate-100/70 dark:bg-slate-900/80 rounded-full border border-slate-200/60 dark:border-slate-800/60 flex items-center gap-1 overflow-x-auto max-w-full">
                   {LEAD_STATUS_FILTERS.map(statusOption => (
                     <button
                       key={statusOption}
                       onClick={() => setFilterStatus(statusOption)}
-                      className={`px-3 py-1 rounded-md text-[10px] font-bold transition-all uppercase tracking-wider cursor-pointer ${
+                      className={`px-3 py-1 rounded-full text-[11px] font-semibold transition-all cursor-pointer whitespace-nowrap ${
                         filterStatus === statusOption 
-                          ? statusOption === 'Bounced' ? 'bg-red-600 text-white shadow-xs'
-                          : statusOption === 'Unsubscribed' ? 'bg-orange-600 text-white shadow-xs'
-                          : 'bg-blue-600 dark:bg-blue-600 text-white shadow-xs' 
+                          ? 'bg-white dark:bg-[#1E222D] text-blue-600 dark:text-blue-400 shadow-xs border border-slate-200/50 dark:border-slate-700/50'
                           : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                       }`}
                     >
@@ -1703,13 +1802,14 @@ export default function LeadsPage() {
                 </div>
               </div>
               
+              {/* Export CSV Button */}
               <button
                 onClick={handleExportCSV}
                 disabled={exporting}
-                className="flex items-center gap-1.5 bg-white hover:bg-slate-50 dark:bg-slate-950 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-xs px-3.5 py-2 rounded-lg font-bold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors shadow-xs cursor-pointer"
+                className="flex items-center gap-1.5 bg-white hover:bg-slate-50 dark:bg-slate-950 dark:hover:bg-slate-900 border border-[#EBF0F5] dark:border-[#1E222D] text-xs px-3.5 py-2 rounded-xl font-semibold text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors shadow-xs cursor-pointer self-end md:self-auto"
               >
                 <Download className="w-3.5 h-3.5" />
-                {exporting ? 'Exporting...' : selectedLeads.length > 0 ? `Export selected (${selectedLeads.length})` : 'Export CSV'}
+                <span>{exporting ? 'Exporting...' : selectedLeads.length > 0 ? `Export Selected (${selectedLeads.length})` : 'Export CSV'}</span>
               </button>
             </div>
 
@@ -1723,13 +1823,12 @@ export default function LeadsPage() {
                 <div className="w-full overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="border-b border-slate-200 dark:border-slate-800/80 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest bg-slate-50/20 dark:bg-slate-950/10">
-                      <th className="px-5 py-3 w-10">
+                    <tr className="border-b border-[#EBF0F5] dark:border-[#1E222D] text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider bg-slate-50/50 dark:bg-slate-900/20">
+                      <th className="py-3.5 px-6 w-12">
                         <input
                           type="checkbox"
                           checked={leads.length > 0 && leads.every(l => isSelected(l.id))}
                           onChange={(e) => {
-                            // Selects or deselects this page's leads, keeping those selected on the view's other pages
                             if (e.target.checked) {
                               setSelectedLeads([...selectedLeads, ...leads.filter(l => !isSelected(l.id))]);
                             } else {
@@ -1738,19 +1837,19 @@ export default function LeadsPage() {
                             }
                           }}
                           onClick={(e) => e.stopPropagation()}
-                          className="w-3.5 h-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500/40 cursor-pointer"
+                          className="w-4 h-4 rounded-md border-slate-300 text-blue-600 focus:ring-blue-500/30 cursor-pointer"
                         />
                       </th>
-                      <th className="px-5 py-3">Name</th>
-                      <th className="px-5 py-3">Email</th>
-                      <th className="px-5 py-3">Company</th>
-                      <th className="px-5 py-3">Deliverability</th>
-                      <th className="px-5 py-3">Lead Status</th>
-                      {(activeTab === 'leads' || activeTab === 'suppressed') && <th className="px-5 py-3">Groups</th>}
-                      <th className="px-5 py-3 text-right">Actions</th>
+                      <th className="py-3.5 px-6 min-w-[200px]">Lead Name</th>
+                      <th className="py-3.5 px-6 min-w-[220px]">Email Address</th>
+                      <th className="py-3.5 px-6 min-w-[150px]">Company</th>
+                      <th className="py-3.5 px-6 min-w-[140px]">Deliverability</th>
+                      <th className="py-3.5 px-6 min-w-[130px]">Status</th>
+                      {(activeTab === 'leads' || activeTab === 'suppressed') && <th className="py-3.5 px-6 min-w-[160px]">Groups</th>}
+                      <th className="py-3.5 px-6 text-right w-[90px]">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50 text-slate-700 dark:text-slate-400">
+                  <tbody className="divide-y divide-slate-100 dark:divide-[#1E222D]/60 text-slate-700 dark:text-slate-300">
                     {leads.map((lead) => (
                       <tr
                         key={lead.id}
@@ -1758,11 +1857,11 @@ export default function LeadsPage() {
                           setSelectedLeadId(lead.id);
                           fetchLeadDetails(lead.id);
                         }}
-                        className={`hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-all group cursor-pointer ${
-                          isSelected(lead.id) ? 'bg-blue-50/20 dark:bg-blue-950/10' : ''
+                        className={`group transition-colors duration-150 ease-in-out hover:bg-slate-50/70 dark:hover:bg-[#161822]/80 cursor-pointer ${
+                          isSelected(lead.id) ? 'bg-blue-50/30 dark:bg-blue-950/20' : ''
                         }`}
                       >
-                        <td className="px-5 py-3.5 w-10" onClick={(e) => e.stopPropagation()}>
+                        <td className="py-4 px-6 w-12" onClick={(e) => e.stopPropagation()}>
                           <input
                             type="checkbox"
                             checked={isSelected(lead.id)}
@@ -1773,50 +1872,53 @@ export default function LeadsPage() {
                                 setSelectedLeads([...selectedLeads, lead]);
                               }
                             }}
-                            className="w-3.5 h-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500/40 cursor-pointer"
+                            className="w-4 h-4 rounded-md border-slate-300 text-blue-600 focus:ring-blue-500/30 cursor-pointer"
                           />
                         </td>
-                        <td className="px-5 py-3.5">
+                        <td className="py-4 px-6">
                           <div className="font-semibold text-xs text-slate-900 dark:text-white">{lead.name || 'N/A'}</div>
-                          {lead.jobTitle && <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5 font-medium">{lead.jobTitle}</div>}
+                          {lead.jobTitle && <div className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5 font-normal">{lead.jobTitle}</div>}
                         </td>
-                        <td className="px-5 py-3.5 text-xs text-slate-500 dark:text-slate-400 font-mono flex items-center gap-2">
-                          <Mail className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
-                          {lead.email}
+                        <td className="py-4 px-6 text-xs text-slate-600 dark:text-slate-400 font-mono flex items-center gap-2">
+                          <Mail className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 shrink-0" />
+                          <span className="truncate">{lead.email}</span>
                         </td>
-                        <td className="px-5 py-3.5 text-xs text-slate-600 dark:text-slate-400 font-medium">{lead.company || 'N/A'}</td>
-                        <td className="px-5 py-3.5">
-                          <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wider
-                            ${lead.validationStatus === 'Valid' ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900/30' : ''}
-                            ${lead.validationStatus === 'Invalid' ? 'bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-900/30' : ''}
-                            ${lead.validationStatus === 'Risky' ? 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-900/30' : ''}
-                            ${lead.validationStatus === 'Unverified' ? 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800' : ''}
-                          `}>
-                            {lead.validationStatus === 'Valid' && <CheckCircle2 className="w-3.5 h-3.5" />}
-                            {lead.validationStatus === 'Invalid' && <AlertCircle className="w-3.5 h-3.5" />}
-                            {lead.validationStatus === 'Risky' && <AlertCircle className="w-3.5 h-3.5" />}
-                            {lead.validationStatus === 'Unverified' && <span className="w-1.5 h-1.5 rounded-full bg-slate-400 dark:bg-slate-500 animate-pulse"></span>}
-                            {lead.validationStatus}
+                        <td className="py-4 px-6 text-xs text-slate-600 dark:text-slate-400 font-medium">{lead.company || 'N/A'}</td>
+                        <td className="py-4 px-6">
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border ${
+                            lead.validationStatus === 'Valid'
+                              ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/60'
+                              : lead.validationStatus === 'Invalid'
+                              ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800/60'
+                              : lead.validationStatus === 'Risky'
+                              ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/60'
+                              : 'bg-slate-100 dark:bg-slate-800/60 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700/60'
+                          }`}>
+                            {lead.validationStatus === 'Valid' && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />}
+                            {lead.validationStatus === 'Invalid' && <AlertCircle className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />}
+                            {lead.validationStatus === 'Risky' && <AlertCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />}
+                            {lead.validationStatus === 'Unverified' && <span className="w-1.5 h-1.5 rounded-full bg-slate-400 dark:bg-slate-500 animate-pulse" />}
+                            <span>{lead.validationStatus}</span>
                           </span>
                         </td>
-                        <td className="px-5 py-3.5">
+                        <td className="py-4 px-6">
                           <SuppressionChip lead={lead} />
                         </td>
                         {(activeTab === 'leads' || activeTab === 'suppressed') && (
-                          <td className="px-5 py-3.5">
-                            <div className="flex flex-wrap gap-1 max-w-[150px]">
+                          <td className="py-4 px-6">
+                            <div className="flex flex-wrap gap-1 max-w-[180px]">
                               {(lead.groups || []).map((g: any) => (
-                                <span key={g.groupId} className="px-1.5 py-0.5 rounded text-[8px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800 uppercase tracking-wider">
+                                <span key={g.groupId} className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/50">
                                   {g.group?.name}
                                 </span>
                               ))}
                               {(!lead.groups || lead.groups.length === 0) && (
-                                <span className="text-[10px] text-slate-400 dark:text-slate-500 italic">No Group</span>
+                                <span className="text-[11px] text-slate-400 italic">No Group</span>
                               )}
                             </div>
                           </td>
                         )}
-                        <td className="px-5 py-3.5 text-right" onClick={(e) => e.stopPropagation()}>
+                        <td className="py-4 px-6 text-right" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center justify-end gap-1">
                             <button 
                               onClick={async (e) => {
@@ -1829,7 +1931,6 @@ export default function LeadsPage() {
                                   });
                                   if (res.ok) {
                                     const updatedLead = await res.json();
-                                    // It moves to the other tab
                                     deselectLead(lead.id);
                                     reloadLeads();
                                     showToast(updatedLead.isArchived ? 'Prospect archived.' : 'Prospect unarchived.');
@@ -1838,14 +1939,14 @@ export default function LeadsPage() {
                                   console.error(err);
                                 }
                               }}
-                              className={`p-1.5 rounded transition-colors ${
+                              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
                                 lead.isArchived 
                                   ? 'hover:bg-blue-500/10 text-blue-500' 
                                   : 'hover:bg-amber-500/10 text-slate-400 hover:text-amber-500'
                               }`}
                               title={lead.isArchived ? "Restore Prospect" : "Archive Prospect"}
                             >
-                              <Archive className="w-3.5 h-3.5" />
+                              <Archive className="w-4 h-4" />
                             </button>
                             {isAdmin && (
                               <button
@@ -1853,9 +1954,10 @@ export default function LeadsPage() {
                                   e.stopPropagation();
                                   handleDeleteLead(lead.id);
                                 }}
-                                className="p-1.5 hover:bg-rose-500/10 text-slate-400 hover:text-rose-600 rounded transition-colors"
+                                className="p-1.5 hover:bg-rose-500/10 text-slate-400 hover:text-rose-600 rounded-lg transition-colors cursor-pointer"
+                                title="Delete Prospect"
                               >
-                                <Trash2 className="w-3.5 h-3.5" />
+                                <Trash2 className="w-4 h-4" />
                               </button>
                             )}
                           </div>
@@ -1864,7 +1966,7 @@ export default function LeadsPage() {
                     ))}
                     {leads.length === 0 && (
                       <tr>
-                        <td colSpan={(activeTab === 'leads' || activeTab === 'suppressed') ? 7 : 6} className="text-center py-10 text-slate-400 dark:text-slate-500 text-xs">
+                        <td colSpan={(activeTab === 'leads' || activeTab === 'suppressed') ? 8 : 7} className="text-center py-12 text-slate-400 dark:text-slate-500 text-xs">
                           {emptyListMessage('No lead records match your search filters.')}
                         </td>
                       </tr>

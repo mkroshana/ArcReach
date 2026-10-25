@@ -6,15 +6,17 @@ import { theme } from '@/lib/theme';
 
 /**
  * Mounts MUI with App Router-compatible Emotion SSR caching and the
- * Material 3 Expressive theme. No global CssBaseline — pages still on
- * Tailwind keep their existing styling; MUI components self-style.
+ * Shopeers theme. Synchronized with the custom ThemeProvider
+ * via modeStorageKey="arcreach-theme".
  */
 export function MuiProvider({ children }: { children: React.ReactNode }) {
   return (
     <AppRouterCacheProvider options={{ key: 'mui' }}>
-      {/* storageManager={null} disables MUI's own mode persistence — the custom
-          ThemeProvider is the single source of truth and drives MUI's mode. */}
-      <ThemeProvider theme={theme} defaultMode="light" storageManager={null}>
+      <ThemeProvider
+        theme={theme}
+        defaultMode="light"
+        modeStorageKey="arcreach-theme"
+      >
         {children}
       </ThemeProvider>
     </AppRouterCacheProvider>

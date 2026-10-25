@@ -3,50 +3,108 @@
 
 @theme {
   --font-sans: "Google Sans Flex", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+
+  /* Shopeers Semantic Color Tokens */
+  --color-canvas: var(--app-bg);
+  --color-card: var(--card-bg);
+  --color-panel: var(--panel-bg);
+  --color-card-border: var(--border-card);
+  --color-input-border: var(--border-input);
+  
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-subtle: var(--accent-blue-bg);
+  
+  --color-text-main: var(--text-primary);
+  --color-text-sub: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+
+  /* Shopeers Signature Radii */
+  --radius-card: 24px;
+  --radius-panel: 16px;
+  --radius-pill: 9999px;
+
+  /* Shopeers Brand Tokens */
+  --color-shopeers-blue: #2563eb;
+  --color-shopeers-blue-dark: #1d4ed8;
+  --color-shopeers-canvas: #f5f6f9;
+  --color-shopeers-border: #ebf0f5;
+  --color-shopeers-dark-canvas: #090a0f;
+  --color-shopeers-dark-card: #11131a;
+  --color-shopeers-dark-border: #1e222d;
 }
 
 @variant dark (&:where(.dark, .dark *));
 
-:root {
-  /* Dark mode is the absolute default */
-  --app-bg: #0a0a0f;
-  --card-bg: #0e1017;
-  --panel-bg: #12141d;
-  --border-card: #1b1c26;
-  --border-input: #1f2130;
-  --text-white: #ffffff;
-  --text-gray-400: #cbd5e1;
-  --text-gray-300: #d1d5db;
-  --text-gray-400: #94a3b8;
-  --text-gray-500: #64748b;
-  --accent-blue-bg: rgba(37, 99, 235, 0.15);
-  --accent-blue-border: rgba(37, 99, 235, 0.2);
-  --accent-blue-text: #60a5fa;
-}
-
+/* Shopeers Design Tokens (Light Mode Default) */
+:root,
 .light {
-  --app-bg: #f8fafc;
+  --app-bg: #f5f6f9;
   --card-bg: #ffffff;
-  --panel-bg: #f1f5f9;
-  --border-card: #e2e8f0;
-  --border-input: #cbd5e1;
+  --panel-bg: #f0f3f8;
+  --border-card: #ebf0f5;
+  --border-input: #e2e8f0;
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
   --text-white: #0f172a;
-  --text-gray-400: #334155;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+  --text-gray-200: #334155;
   --text-gray-300: #1e293b;
   --text-gray-400: #475569;
   --text-gray-500: #64748b;
   --accent-blue-bg: #eff6ff;
   --accent-blue-border: #bfdbfe;
-  --accent-blue-text: #1d4ed8;
+  --accent-blue-text: #2563eb;
+  --card-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 1px 2px -1px rgba(0, 0, 0, 0.02);
+  --card-shadow-hover: 0 10px 25px -5px rgba(0, 0, 0, 0.06), 0 8px 10px -6px rgba(0, 0, 0, 0.04);
+  --radius-card: 24px;
+}
+
+/* Shopeers Design Tokens (Dark Mode Counterpart) */
+.dark {
+  --app-bg: #090a0f;
+  --card-bg: #11131a;
+  --panel-bg: #161822;
+  --border-card: #1e222d;
+  --border-input: #262b38;
+  --primary: #3b82f6;
+  --primary-hover: #60a5fa;
+  --text-white: #ffffff;
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --text-gray-200: #e2e8f0;
+  --text-gray-300: #cbd5e1;
+  --text-gray-400: #94a3b8;
+  --text-gray-500: #64748b;
+  --accent-blue-bg: rgba(37, 99, 235, 0.15);
+  --accent-blue-border: rgba(37, 99, 235, 0.25);
+  --accent-blue-text: #60a5fa;
+  --card-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.4);
+  --card-shadow-hover: 0 10px 30px -4px rgba(0, 0, 0, 0.6);
+  --radius-card: 24px;
 }
 
 /* Base Body override */
+body,
 .light body {
+  background-color: var(--app-bg) !important;
+  color: var(--text-primary) !important;
+}
+
+.dark body {
   background-color: var(--app-bg) !important;
   color: var(--text-white) !important;
 }
 
-/* Background class mappings */
+/* Background canvas shell */
+.fixed.inset-0.z-\[-1\] {
+  background-color: var(--app-bg) !important;
+}
+
+/* Background class mappings (Light mode) */
 .light .bg-\[\#090a10\],
 .light .bg-\[\#0a0a0f\] {
   background-color: var(--app-bg) !important;
@@ -70,6 +128,28 @@
   background-color: var(--panel-bg) !important;
 }
 
+/* Background class mappings (Dark mode for legacy hex components) */
+.dark .bg-\[\#090a10\],
+.dark .bg-\[\#0a0a0f\] {
+  background-color: var(--app-bg) !important;
+}
+
+.dark .bg-\[\#0c0d14\],
+.dark .bg-\[\#0b0c13\],
+.dark .bg-\[\#0e1017\],
+.dark .bg-\[\#0e1017\]\/50 {
+  background-color: var(--card-bg) !important;
+}
+
+.dark .bg-\[\#12131d\],
+.dark .bg-\[\#12141d\],
+.dark .bg-\[\#12141d\]\/50,
+.dark .bg-\[\#12141d\]\/45,
+.dark .bg-\[\#12141d\]\/44,
+.dark .bg-\[\#12141d\]\/40 {
+  background-color: var(--panel-bg) !important;
+}
+
 /* Progress-bars, Toggle backdrops and slider track overrides in light mode */
 .light .bg-gray-800 {
   background-color: #e2e8f0 !important;
@@ -86,7 +166,7 @@
   background-color: #f43f5e !important;
 }
 
-/* Border overrides */
+/* Border overrides (Light mode) */
 .light .border-\[\#1a1b26\],
 .light .border-\[\#1b1c26\],
 .light .border-\[\#1b1c26\]\/60 {
@@ -97,6 +177,19 @@
 .light .border-\[\#1e202f\],
 .light .border-\[\#20222f\],
 .light .border-gray-700\/50 {
+  border-color: var(--border-input) !important;
+}
+
+/* Border overrides (Dark mode for legacy hex components) */
+.dark .border-\[\#1a1b26\],
+.dark .border-\[\#1b1c26\],
+.dark .border-\[\#1b1c26\]\/60 {
+  border-color: var(--border-card) !important;
+}
+
+.dark .border-\[\#1f2130\],
+.dark .border-\[\#1e202f\],
+.dark .border-\[\#20222f\] {
   border-color: var(--border-input) !important;
 }
 
@@ -115,9 +208,10 @@
 .light .text-white {
   color: var(--text-white) !important;
 }
-.light .text-gray-200,
-.light .text-gray-300,
-.light .text-gray-400 {
+.light .text-gray-200 {
+  color: var(--text-gray-200) !important;
+}
+.light .text-gray-300 {
   color: var(--text-gray-300) !important;
 }
 .light .text-gray-400 {
@@ -216,9 +310,6 @@
 .light .border-blue-500\/20 {
   border-color: #bfdbfe !important;
 }
-.light .border-blue-500\/15 {
-  border-color: #bfdbfe !important;
-}
 
 /* Special element overrides (e.g., active items in navigation) */
 .light .bg-blue-600\/10,
@@ -244,7 +335,7 @@
 }
 
 .light .bg-gradient-to-b {
-  background-image: linear-gradient(to bottom, transparent, rgba(248, 250, 252, 0.6) 50%, #f8fafc) !important;
+  background-image: linear-gradient(to bottom, transparent, rgba(245, 246, 249, 0.6) 50%, var(--app-bg)) !important;
 }
 
 /* Tooltip and dropdown shadow polish for light mode */
@@ -262,17 +353,63 @@
   color: var(--text-white) !important;
 }
 
-/* Handle some hardcoded chart SVG text/axis lines in light mode if needed */
-.light .recharts-cartesian-grid-horizontal line {
+/* Recharts tooltip and grid line customization */
+.light .recharts-cartesian-grid-horizontal line,
+.light .recharts-cartesian-grid-vertical line {
   stroke: var(--border-card) !important;
 }
 
-/* Recharts tooltip customization in light mode */
+.dark .recharts-cartesian-grid-horizontal line,
+.dark .recharts-cartesian-grid-vertical line {
+  stroke: var(--border-card) !important;
+}
+
 .light .recharts-default-tooltip {
   background-color: var(--card-bg) !important;
   border-color: var(--border-card) !important;
   color: var(--text-white) !important;
+  border-radius: 12px !important;
+  box-shadow: var(--card-shadow-hover) !important;
 }
+
+.dark .recharts-default-tooltip {
+  background-color: var(--card-bg) !important;
+  border-color: var(--border-card) !important;
+  color: #ffffff !important;
+  border-radius: 12px !important;
+  box-shadow: var(--card-shadow-hover) !important;
+}
+
 .light .recharts-tooltip-item {
   color: var(--text-white) !important;
+}
+
+.dark .recharts-tooltip-item {
+  color: #ffffff !important;
+}
+
+/* Shopeers Signature Utility Classes */
+.shopeers-card {
+  background-color: var(--card-bg);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-card);
+  box-shadow: var(--card-shadow);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.shopeers-card:hover {
+  box-shadow: var(--card-shadow-hover);
+}
+
+.shopeers-nav-active-bar {
+  width: 4px;
+  height: 24px;
+  border-radius: 9999px;
+  background-color: var(--primary);
+}
+
+.shopeers-engine-card {
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  color: #ffffff;
+  border-radius: var(--radius-card);
 }

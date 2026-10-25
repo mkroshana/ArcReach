@@ -4,10 +4,8 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Mail, Lock, AlertCircle, ArrowRight } from 'lucide-react';
 import {
-  Box, Card, CardContent, Stack, Typography, TextField, Button, Alert,
-  InputAdornment, CircularProgress,
+  TextField, Alert, InputAdornment, CircularProgress,
 } from '@mui/material';
-import { alpha } from '@mui/material/styles';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -49,51 +47,82 @@ export default function LoginPage() {
   };
 
   return (
-    <Box sx={{ minHeight: '100vh', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', px: 2, position: 'relative' }}>
-      {/* Decorative orbs (theme-aware) */}
-      <Box sx={{ position: 'absolute', top: '25%', left: '25%', width: 288, height: 288, borderRadius: '50%', filter: 'blur(96px)', pointerEvents: 'none', bgcolor: (t) => alpha(t.palette.primary.main, 0.1) }} />
-      <Box sx={{ position: 'absolute', bottom: '25%', right: '25%', width: 288, height: 288, borderRadius: '50%', filter: 'blur(96px)', pointerEvents: 'none', bgcolor: (t) => alpha(t.palette.error.main, 0.08) }} />
+    <div className="min-h-screen w-full flex items-center justify-center p-4 bg-[#F5F6F9] dark:bg-[#090A0F]">
+      {/* Strictly minimalist Shopeers auth card (0 decorative orbs, 0 emojis, 0 glow blobs) */}
+      <div className="w-full max-w-[420px] rounded-[24px] border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] p-8 shadow-xs transition-all">
+        {/* Brand Header */}
+        <div className="text-center mb-6">
+          <div className="w-12 h-12 rounded-2xl bg-blue-600 flex items-center justify-center text-white shadow-md shadow-blue-500/20 mx-auto mb-3">
+            <Mail size={22} />
+          </div>
+          <h1 className="text-2xl font-extrabold tracking-tight text-slate-900 dark:text-white uppercase">
+            ArcReach
+          </h1>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            Outbound Sequence Automation &amp; CRM Delivery Grid
+          </p>
+        </div>
 
-      <Card sx={{ width: '100%', maxWidth: 420, position: 'relative', zIndex: 10, boxShadow: 8 }}>
-        <CardContent sx={{ p: 4 }}>
-          {/* Brand header */}
-          <Stack sx={{ alignItems: 'center', textAlign: 'center', mb: 4 }}>
-            <Box sx={{ width: 48, height: 48, borderRadius: '14px', bgcolor: 'primary.main', display: 'grid', placeItems: 'center', boxShadow: 3, mb: 1.5 }}>
-              <Mail size={24} color="#fff" />
-            </Box>
-            <Typography variant="h5" sx={{ fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>ArcReach</Typography>
-            <Typography variant="caption" sx={{ color: 'text.secondary', mt: 0.5 }}>Outbound Sequence Automation &amp; CRM Delivery Grid</Typography>
-          </Stack>
+        {error && (
+          <Alert severity="error" icon={<AlertCircle size={18} />} sx={{ mb: 3, borderRadius: '14px' }}>
+            {error}
+          </Alert>
+        )}
 
-          {error && (
-            <Alert severity="error" icon={<AlertCircle size={18} />} sx={{ mb: 2.5, borderRadius: '12px' }}>
-              {error}
-            </Alert>
-          )}
+        <form onSubmit={handleLogin} className="space-y-4">
+          <TextField
+            fullWidth size="small" type="email" required label="Email Address"
+            placeholder="you@company.com" value={email} onChange={(e) => setEmail(e.target.value)}
+            slotProps={{
+              input: {
+                sx: { fontFamily: 'monospace' },
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <Mail size={16} className="text-slate-400" />
+                  </InputAdornment>
+                ),
+              },
+            }}
+          />
+          <TextField
+            fullWidth size="small" type="password" required label="Password"
+            placeholder="••••••••••••" value={password} onChange={(e) => setPassword(e.target.value)}
+            slotProps={{
+              input: {
+                sx: { fontFamily: 'monospace' },
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <Lock size={16} className="text-slate-400" />
+                  </InputAdornment>
+                ),
+              },
+            }}
+          />
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full mt-2 py-3 px-6 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm shadow-xs flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:opacity-60"
+          >
+            {loading ? (
+              <>
+                <CircularProgress size={16} color="inherit" />
+                <span>Authenticating…</span>
+              </>
+            ) : (
+              <>
+                <span>Sign In to Dashboard</span>
+                <ArrowRight size={16} />
+              </>
+            )}
+          </button>
+        </form>
 
-          <form onSubmit={handleLogin}>
-            <Stack spacing={2}>
-              <TextField
-                fullWidth size="small" type="email" required label="Email Address"
-                placeholder="you@company.com" value={email} onChange={(e) => setEmail(e.target.value)}
-                slotProps={{ input: { sx: { fontFamily: 'monospace' }, startAdornment: <InputAdornment position="start"><Mail size={16} /></InputAdornment> } }}
-              />
-              <TextField
-                fullWidth size="small" type="password" required label="Password"
-                placeholder="••••••••••••" value={password} onChange={(e) => setPassword(e.target.value)}
-                slotProps={{ input: { sx: { fontFamily: 'monospace' }, startAdornment: <InputAdornment position="start"><Lock size={16} /></InputAdornment> } }}
-              />
-              <Button
-                type="submit" variant="contained" size="large" disabled={loading}
-                endIcon={loading ? <CircularProgress size={16} color="inherit" /> : <ArrowRight size={16} />}
-                sx={{ mt: 1 }}
-              >
-                {loading ? 'Authenticating…' : 'Sign In to Dashboard'}
-              </Button>
-            </Stack>
-          </form>
-        </CardContent>
-      </Card>
-    </Box>
+        <div className="mt-6 pt-4 border-t border-[#EBF0F5] dark:border-[#1E222D] text-center">
+          <span className="text-[11px] font-mono text-slate-400 dark:text-slate-500">
+            ArcReach Engine • Secure Enterprise Access
+          </span>
+        </div>
+      </div>
+    </div>
   );
 }

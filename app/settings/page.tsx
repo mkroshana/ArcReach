@@ -10,19 +10,16 @@ import { profileInitials } from '@/lib/profileInitials';
 import { type RateLimitInput, type RateLimitPeriod, rateLimitInputFrom, rateLimitInputValue } from '@/lib/rateLimitPolicy';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import {
-  Box, Card, CardContent, Stack, Typography, Button, IconButton, TextField, Select, MenuItem,
-  FormControl, InputLabel, Snackbar, Alert, AlertTitle, InputAdornment, CircularProgress, Avatar,
-  Tabs, Tab, Autocomplete, Checkbox, FormControlLabel,
+  TextField, Select, MenuItem, FormControl, InputLabel, Snackbar, Alert, AlertTitle,
+  InputAdornment, CircularProgress, Autocomplete, Checkbox, FormControlLabel,
 } from '@mui/material';
-import { alpha } from '@mui/material/styles';
 
-/** One global rate limit: a whole number of emails, or an explicit No Limit, which saves null and leaves the period uncapped. */
 function RateLimitField({ per, input, error, onChange }: {
   per: RateLimitPeriod; input: RateLimitInput; error: string; onChange: (input: RateLimitInput) => void;
 }) {
   const unit = per === 'minute' ? 'Minute' : 'Hour';
   return (
-    <Box sx={{ flex: 1 }}>
+    <div className="flex-1 space-y-1.5">
       <TextField
         fullWidth size="small" type="number" label={`Max Emails / ${unit}`}
         value={input.noLimit ? '' : input.text} onChange={(e) => onChange({ ...input, text: e.target.value })}
@@ -32,9 +29,9 @@ function RateLimitField({ per, input, error, onChange }: {
       />
       <FormControlLabel
         control={<Checkbox size="small" checked={input.noLimit} onChange={(e) => onChange({ ...input, noLimit: e.target.checked })} />}
-        label={<Typography variant="body2">No Limit</Typography>}
+        label={<span className="text-xs font-semibold text-slate-700 dark:text-slate-300">No Limit</span>}
       />
-    </Box>
+    </div>
   );
 }
 
@@ -42,9 +39,7 @@ export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<'profile' | 'integrations'>('profile');
   const [toastMessage, setToastMessage] = useState<string>('');
   const [loading, setLoading] = useState(true);
-  // A failed load shows an error state; rendering the form would present defaults as saved values.
   const [loadError, setLoadError] = useState('');
-  // Delivery settings are admin-only (GET returns none for other roles), so only admins see that tab.
   const [isAdmin, setIsAdmin] = useState(false);
   const triggerToast = (msg: string) => { setToastMessage(msg); setTimeout(() => setToastMessage(''), 4000); };
 
@@ -61,14 +56,12 @@ export default function SettingsPage() {
   const [showNewPass, setShowNewPass] = useState(false);
   const [showConfirmPass, setShowConfirmPass] = useState(false);
 
-  // Empty until loaded: showing a provider before the server says which would be a guess.
   const [activeProvider, setActiveProvider] = useState('');
   const [pendingProvider, setPendingProvider] = useState<string | null>(null);
   const [azureConnString, setAzureConnString] = useState('');
   const [azureSenderDomains, setAzureSenderDomains] = useState<string[]>([]);
   const [showAzureConnString, setShowAzureConnString] = useState(false);
 
-  // Set from the stored values on load; null (No Limit) is shown as No Limit, never as a default number.
   const [rateLimitMinute, setRateLimitMinute] = useState<RateLimitInput>({ noLimit: false, text: '' });
   const [rateLimitHour, setRateLimitHour] = useState<RateLimitInput>({ noLimit: false, text: '' });
   const [rateLimitErrors, setRateLimitErrors] = useState({ minute: '', hour: '' });
@@ -80,8 +73,6 @@ export default function SettingsPage() {
       setLoadError('');
       const res = await fetch('/api/settings');
       const data = await res.json().catch(() => ({}));
-      // The server returns settings exactly when the session role is ADMIN, the same check PUT enforces,
-      // so that decides the admin view (the DB role can be ahead of a not-yet-refreshed session).
       const admin = data.settings != null;
       if (res.ok && data.user) {
         setIsAdmin(admin);
@@ -92,7 +83,6 @@ export default function SettingsPage() {
         setEmail(data.user.email || '');
         setOrgName(data.user.organization || '');
         if (data.settings) {
-          // Anything but AZURE (including the retired MOCK value) sends nothing.
           setActiveProvider(data.settings.activeProvider === 'AZURE' ? 'AZURE' : 'DISABLED');
           setAzureConnString(data.settings.azureConnString || '');
           const domains = Array.isArray(data.settings.azureSenderDomains) ? data.settings.azureSenderDomains
@@ -125,7 +115,6 @@ export default function SettingsPage() {
 
   const handleSaveRateLimits = async (e: React.FormEvent) => {
     e.preventDefault();
-    // An empty field is an error, not No Limit: only the No Limit choice saves null.
     const minute = rateLimitInputValue(rateLimitMinute, 'minute');
     const hour = rateLimitInputValue(rateLimitHour, 'hour');
     setRateLimitErrors({ minute: minute.error || '', hour: hour.error || '' });
@@ -138,7 +127,6 @@ export default function SettingsPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        // Show what was stored, so the form matches what the send engine reads.
         if (data.settings) {
           setRateLimitMinute(rateLimitInputFrom(data.settings.rateLimitMinute));
           setRateLimitHour(rateLimitInputFrom(data.settings.rateLimitHour));
@@ -204,29 +192,30 @@ export default function SettingsPage() {
 
   if (loading) {
     return (
-      <Stack sx={{ alignItems: 'center', py: 12, gap: 2 }}>
+      <div className="flex flex-col items-center justify-center py-24 gap-3">
         <CircularProgress size={28} />
-        <Typography variant="caption" sx={{ color: 'text.secondary' }}>Loading settings…</Typography>
-      </Stack>
+        <span className="text-xs text-slate-500">Loading settings…</span>
+      </div>
     );
   }
 
   if (loadError) {
     return (
-      <Box sx={{ maxWidth: 900, mx: 'auto', py: 8 }}>
+      <div className="max-w-[900px] mx-auto py-12">
         <Alert
           severity="error"
-          action={<Button color="inherit" size="small" startIcon={<RefreshCw size={14} />} onClick={() => loadSettings()}>Retry</Button>}
+          sx={{ borderRadius: '16px' }}
+          action={<button type="button" className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-white/20 hover:bg-white/30 text-inherit cursor-pointer" onClick={() => loadSettings()}><RefreshCw size={14} /> Retry</button>}
         >
           <AlertTitle>Settings Could Not Be Loaded</AlertTitle>
           {loadError}
         </Alert>
-      </Box>
+      </div>
     );
   }
 
   return (
-    <Box sx={{ maxWidth: 900, mx: 'auto', pb: 8, display: 'flex', flexDirection: 'column', gap: 3 }}>
+    <div className="max-w-[960px] mx-auto pb-16 space-y-6">
       <ConfirmDialog
         isOpen={pendingProvider !== null}
         title={pendingProvider === 'AZURE' ? 'Switch to Azure Communication Services?' : 'Disable Sending?'}
@@ -242,184 +231,254 @@ export default function SettingsPage() {
         {toastMessage ? <Alert severity="info" variant="filled" sx={{ borderRadius: '12px' }}>{toastMessage}</Alert> : undefined}
       </Snackbar>
 
-      <Box sx={{ pb: 2, borderBottom: 1, borderColor: 'divider' }}>
-        <Typography variant="h4" sx={{ fontWeight: 700 }}>Settings</Typography>
-        <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+      {/* Header */}
+      <div className="pb-2 border-b border-[#EBF0F5] dark:border-[#1E222D]">
+        <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+          Settings
+        </h1>
+        <p className="text-xs md:text-sm text-slate-500 dark:text-slate-400 mt-1">
           {isAdmin ? 'Manage your profile, password, and email delivery settings.' : 'Manage your profile and password. Email delivery is managed by your admin.'}
-        </Typography>
-      </Box>
+        </p>
+      </div>
 
-      <Box sx={{ display: 'flex', flexDirection: { xs: 'column', md: 'row' }, gap: 3 }}>
-        {/* Tabs */}
-        <Box sx={{ width: { xs: '100%', md: 220 }, flexShrink: 0 }}>
-          <Tabs
-            value={activeTab}
-            onChange={(_, v) => setActiveTab(v)}
-            orientation="vertical"
-            sx={{
-              '& .MuiTab-root': { alignItems: 'flex-start', justifyContent: 'flex-start', minHeight: 40, textTransform: 'none', borderRadius: '12px', mb: 0.5, fontSize: 13, fontWeight: 600 },
-              '& .MuiTabs-indicator': { display: 'none' },
-              '& .Mui-selected': { bgcolor: (t) => alpha(t.palette.primary.main, 0.12), color: 'primary.main' },
-            }}
-          >
-            <Tab value="profile" icon={<User size={16} />} iconPosition="start" label="My Profile" />
-            {isAdmin && <Tab value="integrations" icon={<Key size={16} />} iconPosition="start" label="Email Delivery" />}
-          </Tabs>
-        </Box>
+      <div className="flex flex-col md:flex-row gap-6">
+        {/* Left Navigation Rails */}
+        <div className="w-full md:w-56 flex-shrink-0">
+          <div className="flex md:flex-col gap-1.5 p-1.5 rounded-2xl bg-slate-100/70 dark:bg-[#161822]/70 border border-[#EBF0F5] dark:border-[#1E222D]">
+            <button
+              type="button"
+              onClick={() => setActiveTab('profile')}
+              className={`flex items-center gap-2.5 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                activeTab === 'profile'
+                  ? 'bg-white dark:bg-[#11131A] text-blue-600 dark:text-blue-400 shadow-xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+              }`}
+            >
+              <User size={15} />
+              <span>My Profile</span>
+            </button>
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => setActiveTab('integrations')}
+                className={`flex items-center gap-2.5 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  activeTab === 'integrations'
+                    ? 'bg-white dark:bg-[#11131A] text-blue-600 dark:text-blue-400 shadow-xs'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <Key size={15} />
+                <span>Email Delivery</span>
+              </button>
+            )}
+          </div>
+        </div>
 
-        {/* Content */}
-        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
+        {/* Content Area with 24px token spacing */}
+        <div className="flex-1 space-y-6">
           {activeTab === 'profile' && (
             <>
-              <Card>
-                <CardContent sx={{ p: 3 }}>
-                  <Typography variant="overline" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', pb: 1.5, mb: 2, borderBottom: 1, borderColor: 'divider' }}>Profile Information</Typography>
-                  <form onSubmit={handleSaveProfile}>
-                    <Stack direction="row" spacing={2.5} sx={{ alignItems: 'center', mb: 3 }}>
-                      <Avatar variant="rounded" sx={{ width: 56, height: 56, fontSize: 18, fontWeight: 700, bgcolor: (t) => alpha(t.palette.primary.main, 0.14), color: 'primary.main', fontFamily: 'monospace', borderRadius: '14px' }}>
-                        {avatarInitials || <User size={24} />}
-                      </Avatar>
-                    </Stack>
+              {/* Profile Information Card */}
+              <div className="rounded-[24px] border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] p-6 shadow-xs">
+                <div className="pb-3 mb-6 border-b border-[#EBF0F5] dark:border-[#1E222D]">
+                  <h2 className="text-sm font-bold uppercase tracking-wider text-slate-900 dark:text-white">
+                    Profile Information
+                  </h2>
+                </div>
 
-                    <Stack spacing={2.5}>
-                      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-                        <TextField fullWidth size="small" label="First Name" value={firstName} onChange={(e) => setFirstName(e.target.value)} />
-                        <TextField fullWidth size="small" label="Last Name" value={lastName} onChange={(e) => setLastName(e.target.value)} />
-                      </Stack>
-                      <TextField fullWidth size="small" label="Organization" value={orgName} onChange={(e) => setOrgName(e.target.value)} />
-                      <TextField fullWidth size="small" label="Email Address" type="email" value={email} disabled sx={{ '& .MuiInputBase-root.Mui-disabled': { bgcolor: 'action.hover' } }} />
-                    </Stack>
+                <form onSubmit={handleSaveProfile} className="space-y-6">
+                  <div className="flex items-center gap-4">
+                    <div className="w-14 h-14 rounded-2xl bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 text-lg font-bold font-mono flex items-center justify-center shadow-xs">
+                      {avatarInitials || <User size={24} />}
+                    </div>
+                    <div>
+                      <div className="text-sm font-bold text-slate-900 dark:text-white">
+                        {firstName} {lastName}
+                      </div>
+                      <div className="text-xs font-mono text-slate-400 dark:text-slate-500 mt-0.5">
+                        {email}
+                      </div>
+                    </div>
+                  </div>
 
-                    <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end', mt: 3, pt: 2.5, borderTop: 1, borderColor: 'divider' }}>
-                      <Button color="inherit" variant="outlined" onClick={() => loadSettings()} sx={{ borderColor: 'divider', color: 'text.secondary' }}>Reset Fields</Button>
-                      <Button type="submit" variant="contained" startIcon={<Save size={14} />}>Save Profile</Button>
-                    </Stack>
-                  </form>
-                </CardContent>
-              </Card>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <TextField fullWidth size="small" label="First Name" value={firstName} onChange={(e) => setFirstName(e.target.value)} />
+                    <TextField fullWidth size="small" label="Last Name" value={lastName} onChange={(e) => setLastName(e.target.value)} />
+                  </div>
 
-              <Card>
-                <CardContent sx={{ p: 3 }}>
-                  <Typography variant="overline" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', pb: 1.5, mb: 2, borderBottom: 1, borderColor: 'divider' }}>Change Password</Typography>
-                  <form onSubmit={handleUpdatePassword}>
-                    <Stack spacing={2}>
-                      <TextField
-                        fullWidth size="small" label="Current Password" type={showPass ? 'text' : 'password'}
-                        value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)}
-                        slotProps={{ input: { sx: { fontFamily: 'monospace' }, endAdornment: (<InputAdornment position="end"><IconButton aria-label={showPass ? 'Hide current password' : 'Show current password'} size="small" onClick={() => setShowPass(!showPass)}>{showPass ? <EyeOff size={14} /> : <Eye size={14} />}</IconButton></InputAdornment>) } }}
-                      />
-                      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-                        <TextField
-                          fullWidth size="small" label="New Password" type={showNewPass ? 'text' : 'password'}
-                          value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder={`Min. ${MIN_PASSWORD_LENGTH} characters`}
-                          slotProps={{ input: { sx: { fontFamily: 'monospace' }, endAdornment: (<InputAdornment position="end"><IconButton aria-label={showNewPass ? 'Hide new password' : 'Show new password'} size="small" onClick={() => setShowNewPass(!showNewPass)}>{showNewPass ? <EyeOff size={14} /> : <Eye size={14} />}</IconButton></InputAdornment>) } }}
-                        />
-                        <TextField
-                          fullWidth size="small" label="Confirm New Password" type={showConfirmPass ? 'text' : 'password'}
-                          value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Retype password"
-                          slotProps={{ input: { sx: { fontFamily: 'monospace' }, endAdornment: (<InputAdornment position="end"><IconButton aria-label={showConfirmPass ? 'Hide confirmation password' : 'Show confirmation password'} size="small" onClick={() => setShowConfirmPass(!showConfirmPass)}>{showConfirmPass ? <EyeOff size={14} /> : <Eye size={14} />}</IconButton></InputAdornment>) } }}
-                        />
-                      </Stack>
-                    </Stack>
-                    <Stack direction="row" sx={{ justifyContent: 'flex-end', mt: 2.5, pt: 2, borderTop: 1, borderColor: 'divider' }}>
-                      <Button type="submit" variant="contained" startIcon={<Lock size={14} />}>Update Password</Button>
-                    </Stack>
-                  </form>
-                </CardContent>
-              </Card>
+                  <div className="space-y-4">
+                    <TextField fullWidth size="small" label="Organization" value={orgName} onChange={(e) => setOrgName(e.target.value)} />
+                    <TextField fullWidth size="small" label="Email Address" type="email" value={email} disabled sx={{ '& .MuiInputBase-root.Mui-disabled': { bgcolor: 'action.hover' } }} />
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2.5 pt-4 border-t border-[#EBF0F5] dark:border-[#1E222D]">
+                    <button
+                      type="button"
+                      onClick={() => loadSettings()}
+                      className="px-4 py-2 rounded-full border border-[#EBF0F5] dark:border-[#1E222D] text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-[#161822] transition-colors cursor-pointer"
+                    >
+                      Reset Fields
+                    </button>
+                    <button
+                      type="submit"
+                      className="inline-flex items-center gap-2 px-5 py-2 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+                    >
+                      <Save size={14} />
+                      <span>Save Profile</span>
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              {/* Change Password Card */}
+              <div className="rounded-[24px] border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] p-6 shadow-xs">
+                <div className="pb-3 mb-6 border-b border-[#EBF0F5] dark:border-[#1E222D]">
+                  <h2 className="text-sm font-bold uppercase tracking-wider text-slate-900 dark:text-white">
+                    Change Password
+                  </h2>
+                </div>
+
+                <form onSubmit={handleUpdatePassword} className="space-y-4">
+                  <TextField
+                    fullWidth size="small" label="Current Password" type={showPass ? 'text' : 'password'}
+                    value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)}
+                    slotProps={{ input: { sx: { fontFamily: 'monospace' }, endAdornment: (<InputAdornment position="end"><button type="button" aria-label={showPass ? 'Hide current password' : 'Show current password'} className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer" onClick={() => setShowPass(!showPass)}>{showPass ? <EyeOff size={14} /> : <Eye size={14} />}</button></InputAdornment>) } }}
+                  />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <TextField
+                      fullWidth size="small" label="New Password" type={showNewPass ? 'text' : 'password'}
+                      value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder={`Min. ${MIN_PASSWORD_LENGTH} characters`}
+                      slotProps={{ input: { sx: { fontFamily: 'monospace' }, endAdornment: (<InputAdornment position="end"><button type="button" aria-label={showNewPass ? 'Hide new password' : 'Show new password'} className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer" onClick={() => setShowNewPass(!showNewPass)}>{showNewPass ? <EyeOff size={14} /> : <Eye size={14} />}</button></InputAdornment>) } }}
+                    />
+                    <TextField
+                      fullWidth size="small" label="Confirm New Password" type={showConfirmPass ? 'text' : 'password'}
+                      value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Retype password"
+                      slotProps={{ input: { sx: { fontFamily: 'monospace' }, endAdornment: (<InputAdornment position="end"><button type="button" aria-label={showConfirmPass ? 'Hide confirmation password' : 'Show confirmation password'} className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer" onClick={() => setShowConfirmPass(!showConfirmPass)}>{showConfirmPass ? <EyeOff size={14} /> : <Eye size={14} />}</button></InputAdornment>) } }}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-end pt-4 border-t border-[#EBF0F5] dark:border-[#1E222D]">
+                    <button
+                      type="submit"
+                      className="inline-flex items-center gap-2 px-5 py-2 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+                    >
+                      <Lock size={14} />
+                      <span>Update Password</span>
+                    </button>
+                  </div>
+                </form>
+              </div>
             </>
           )}
 
           {isAdmin && activeTab === 'integrations' && (
             <>
-              <Card>
-                <CardContent sx={{ p: 3 }}>
-                  <Box sx={{ pb: 1.5, mb: 2.5, borderBottom: 1, borderColor: 'divider' }}>
-                    <Typography variant="overline" sx={{ fontWeight: 700 }}>Email Delivery Provider</Typography>
-                    <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>Choose the provider used to send your outbound email.</Typography>
-                  </Box>
+              {/* Delivery Engine Provider Card */}
+              <div className="rounded-[24px] border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] p-6 shadow-xs space-y-5">
+                <div className="pb-3 border-b border-[#EBF0F5] dark:border-[#1E222D]">
+                  <h2 className="text-sm font-bold uppercase tracking-wider text-slate-900 dark:text-white">
+                    Email Delivery Provider
+                  </h2>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    Choose the provider used to send your outbound email.
+                  </p>
+                </div>
 
-                  <FormControl size="small" sx={{ maxWidth: 380, mb: 2.5 }} fullWidth>
-                    <InputLabel>Provider</InputLabel>
-                    <Select label="Provider" value={activeProvider} onChange={(e) => { if (e.target.value !== activeProvider) setPendingProvider(e.target.value); }}>
-                      <MenuItem value="DISABLED">Sending Disabled (no email is sent)</MenuItem>
-                      <MenuItem value="AZURE">Azure Communication Services</MenuItem>
-                    </Select>
-                  </FormControl>
+                <FormControl size="small" sx={{ maxWidth: 380 }} fullWidth>
+                  <InputLabel>Provider</InputLabel>
+                  <Select label="Provider" value={activeProvider} onChange={(e) => { if (e.target.value !== activeProvider) setPendingProvider(e.target.value); }}>
+                    <MenuItem value="DISABLED">Sending Disabled (no email is sent)</MenuItem>
+                    <MenuItem value="AZURE">Azure Communication Services</MenuItem>
+                  </Select>
+                </FormControl>
 
-                  {activeProvider === 'DISABLED' && (
-                    <Card sx={{ bgcolor: 'action.hover' }}>
-                      <CardContent sx={{ display: 'flex', gap: 1.5, alignItems: 'flex-start' }}>
-                        <MailX size={16} color="#d97706" style={{ marginTop: 2, flexShrink: 0 }} />
-                        <Box>
-                          <Typography variant="body2" sx={{ fontWeight: 700 }}>Sending Disabled</Typography>
-                          <Typography variant="caption" sx={{ color: 'text.secondary' }}>No email is sent and campaigns do not progress. Campaign runs, Unibox replies and test emails are refused until Azure Communication Services is selected and configured.</Typography>
-                        </Box>
-                      </CardContent>
-                    </Card>
-                  )}
+                {activeProvider === 'DISABLED' && (
+                  <div className="p-4 rounded-2xl bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-900/40 flex items-start gap-3">
+                    <MailX size={16} className="text-amber-600 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <div className="text-xs font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider">
+                        Sending Disabled
+                      </div>
+                      <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5 leading-relaxed">
+                        No email is sent and campaigns do not progress. Campaign runs, Unibox replies and test emails are refused until Azure Communication Services is selected and configured.
+                      </p>
+                    </div>
+                  </div>
+                )}
 
-                  {activeProvider === 'AZURE' && (
-                    <Card sx={{ bgcolor: 'action.hover' }}>
-                      <CardContent>
-                        <form onSubmit={handleSaveAzureConfig}>
-                          <Stack spacing={2}>
-                            <TextField
-                              fullWidth size="small" required label="Azure Connection String"
-                              type={showAzureConnString ? 'text' : 'password'}
-                              value={azureConnString} onChange={(e) => setAzureConnString(e.target.value)}
-                              placeholder="endpoint=https://...;accesskey=..."
-                              slotProps={{ input: { sx: { fontFamily: 'monospace' }, endAdornment: (<InputAdornment position="end"><IconButton aria-label={showAzureConnString ? 'Hide connection string' : 'Show connection string'} size="small" onClick={() => setShowAzureConnString(!showAzureConnString)}>{showAzureConnString ? <EyeOff size={14} /> : <Eye size={14} />}</IconButton></InputAdornment>) } }}
-                            />
-                            <Autocomplete
-                              multiple freeSolo options={[] as string[]}
-                              value={azureSenderDomains}
-                              onChange={(_, v) => setAzureSenderDomains(
-                                (v as string[]).map((d) => String(d).trim().toLowerCase()).filter(Boolean)
-                              )}
-                              renderInput={(params) => (
-                                <TextField
-                                  {...params} size="small" label="Verified Sender Domains"
-                                  placeholder="Type a domain and press Enter"
-                                  helperText="Each sender account sends from its own address; its domain must be verified here."
-                                  sx={{ '& .MuiInputBase-input': { fontFamily: 'monospace' } }}
-                                />
-                              )}
-                            />
-                            <Stack direction="row" sx={{ justifyContent: 'flex-end' }}>
-                              <Button type="submit" variant="contained" startIcon={<Save size={14} />}>Save Azure Configuration</Button>
-                            </Stack>
-                          </Stack>
-                        </form>
-                      </CardContent>
-                    </Card>
-                  )}
-                </CardContent>
-              </Card>
+                {activeProvider === 'AZURE' && (
+                  <div className="p-5 rounded-2xl bg-slate-50/50 dark:bg-[#161822]/50 border border-[#EBF0F5] dark:border-[#1E222D]">
+                    <form onSubmit={handleSaveAzureConfig} className="space-y-4">
+                      <TextField
+                        fullWidth size="small" required label="Azure Connection String"
+                        type={showAzureConnString ? 'text' : 'password'}
+                        value={azureConnString} onChange={(e) => setAzureConnString(e.target.value)}
+                        placeholder="endpoint=https://...;accesskey=..."
+                        slotProps={{ input: { sx: { fontFamily: 'monospace' }, endAdornment: (<InputAdornment position="end"><button type="button" aria-label={showAzureConnString ? 'Hide connection string' : 'Show connection string'} className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer" onClick={() => setShowAzureConnString(!showAzureConnString)}>{showAzureConnString ? <EyeOff size={14} /> : <Eye size={14} />}</button></InputAdornment>) } }}
+                      />
+                      <Autocomplete
+                        multiple freeSolo options={[] as string[]}
+                        value={azureSenderDomains}
+                        onChange={(_, v) => setAzureSenderDomains(
+                          (v as string[]).map((d) => String(d).trim().toLowerCase()).filter(Boolean)
+                        )}
+                        renderInput={(params) => (
+                          <TextField
+                            {...params} size="small" label="Verified Sender Domains"
+                            placeholder="Type a domain and press Enter"
+                            helperText="Each sender account sends from its own address; its domain must be verified here."
+                            sx={{ '& .MuiInputBase-input': { fontFamily: 'monospace' } }}
+                          />
+                        )}
+                      />
+                      <div className="flex items-center justify-end pt-2">
+                        <button
+                          type="submit"
+                          className="inline-flex items-center gap-2 px-5 py-2 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+                        >
+                          <Save size={14} />
+                          <span>Save Azure Configuration</span>
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                )}
+              </div>
 
-              <Card>
-                <CardContent sx={{ p: 3 }}>
-                  <Typography variant="overline" sx={{ fontWeight: 700 }}>Global Sending Rate Limits</Typography>
-                  <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 2 }}>Caps total outbound volume across all campaigns and sender mailboxes. Choose No Limit to leave a period uncapped. While either limit is set, mailboxes have no daily limits of their own: together they share 24 times the hourly limit in any 24 hours (or 1,440 times the per-minute limit, if that is lower), and only a warmup ramp holds a mailbox below that. With both set to No Limit, each mailbox is held to its own daily limit.</Typography>
-                  <form onSubmit={handleSaveRateLimits}>
-                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-                      <RateLimitField per="minute" input={rateLimitMinute} error={rateLimitErrors.minute}
-                        onChange={(v) => { setRateLimitMinute(v); setRateLimitErrors((errs) => ({ ...errs, minute: '' })); }} />
-                      <RateLimitField per="hour" input={rateLimitHour} error={rateLimitErrors.hour}
-                        onChange={(v) => { setRateLimitHour(v); setRateLimitErrors((errs) => ({ ...errs, hour: '' })); }} />
-                    </Stack>
-                    <Stack direction="row" sx={{ justifyContent: 'flex-end', mt: 2.5, pt: 2, borderTop: 1, borderColor: 'divider' }}>
-                      <Button type="submit" variant="contained" disabled={rateLimitLoading} startIcon={<Save size={14} />}>
-                        {rateLimitLoading ? 'Saving…' : 'Save Limits'}
-                      </Button>
-                    </Stack>
-                  </form>
-                </CardContent>
-              </Card>
+              {/* Rate Limits Card */}
+              <div className="rounded-[24px] border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] p-6 shadow-xs space-y-5">
+                <div className="pb-3 border-b border-[#EBF0F5] dark:border-[#1E222D]">
+                  <h2 className="text-sm font-bold uppercase tracking-wider text-slate-900 dark:text-white">
+                    Global Sending Rate Limits
+                  </h2>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
+                    Caps total outbound volume across all campaigns and sender mailboxes. Choose No Limit to leave a period uncapped. While either limit is set, mailboxes have no daily limits of their own: together they share 24 times the hourly limit in any 24 hours (or 1,440 times the per-minute limit, if that is lower), and only a warmup ramp holds a mailbox below that. With both set to No Limit, each mailbox is held to its own daily limit.
+                  </p>
+                </div>
+
+                <form onSubmit={handleSaveRateLimits} className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <RateLimitField per="minute" input={rateLimitMinute} error={rateLimitErrors.minute}
+                      onChange={(v) => { setRateLimitMinute(v); setRateLimitErrors((errs) => ({ ...errs, minute: '' })); }} />
+                    <RateLimitField per="hour" input={rateLimitHour} error={rateLimitErrors.hour}
+                      onChange={(v) => { setRateLimitHour(v); setRateLimitErrors((errs) => ({ ...errs, hour: '' })); }} />
+                  </div>
+                  <div className="flex items-center justify-end pt-3 border-t border-[#EBF0F5] dark:border-[#1E222D]">
+                    <button
+                      type="submit"
+                      disabled={rateLimitLoading}
+                      className="inline-flex items-center gap-2 px-5 py-2 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      <Save size={14} />
+                      <span>{rateLimitLoading ? 'Saving…' : 'Save Limits'}</span>
+                    </button>
+                  </div>
+                </form>
+              </div>
             </>
           )}
-        </Box>
-      </Box>
-    </Box>
+        </div>
+      </div>
+    </div>
   );
 }

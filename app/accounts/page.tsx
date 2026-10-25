@@ -18,6 +18,7 @@ import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { RecipientDomainsInput } from '@/components/RecipientDomainsInput';
 import { MAILBOX_LIMIT_FIELDS, type MailboxLimitField, MailboxSettingsSaves, mailboxLimitInputValue } from '@/lib/mailboxSettingsSave';
 import { combinedDailyCapacity, mailboxRemaining, type GlobalDailyAllowance } from '@/lib/mailboxCapacity';
+import { ActionDrawer } from '@/components/ActionDrawer';
 import {
   Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
   Dialog, DialogTitle, DialogContent, DialogActions, Table, TableHead, TableBody, TableRow, TableCell,
@@ -25,6 +26,106 @@ import {
   Tooltip as MuiTooltip, FormControlLabel, Alert, AlertTitle,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
+
+interface MailboxCapacityGaugeProps {
+  used: number;
+  total: number;
+  warmup?: boolean;
+  warmupCap?: number;
+  remaining?: number;
+  compact?: boolean;
+}
+
+/** Clean daily capacity gauge showing volume used, capacity limit, and progress bar or circular SVG indicator. */
+function MailboxCapacityGauge({
+  used,
+  total,
+  warmup = false,
+  warmupCap,
+  remaining,
+  compact = false,
+}: MailboxCapacityGaugeProps) {
+  const effectiveLimit = warmupCap ?? total;
+  const pct = effectiveLimit > 0 ? Math.min(100, Math.round((used / effectiveLimit) * 100)) : 0;
+
+  const barColor =
+    pct > 90
+      ? 'bg-rose-500'
+      : pct > 75
+      ? 'bg-amber-500'
+      : 'bg-blue-600';
+
+  const textColor =
+    pct > 90
+      ? 'text-rose-600 dark:text-rose-400'
+      : pct > 75
+      ? 'text-amber-600 dark:text-amber-400'
+      : 'text-blue-600 dark:text-blue-400';
+
+  if (compact) {
+    return (
+      <div className="w-full max-w-[170px] space-y-1 font-mono text-[11px]">
+        <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
+          <span className={`font-bold ${textColor}`}>{used.toLocaleString()}</span>
+          <span>/ {effectiveLimit.toLocaleString()}{warmup ? ' (cap)' : ''}</span>
+        </div>
+        <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+          <div className={`h-full rounded-full transition-all duration-300 ${barColor}`} style={{ width: `${pct}%` }} />
+        </div>
+        {remaining !== undefined && (
+          <div className="text-[10px] text-slate-400 dark:text-slate-500">
+            {remaining.toLocaleString()} left
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  const radius = 20;
+  const circumference = 2 * Math.PI * radius;
+  const strokeOffset = circumference - (pct / 100) * circumference;
+
+  return (
+    <div className="flex items-center gap-3">
+      <div className="relative w-12 h-12 shrink-0 flex items-center justify-center">
+        <svg className="w-12 h-12 -rotate-90" viewBox="0 0 48 48">
+          <circle
+            cx="24"
+            cy="24"
+            r={radius}
+            className="stroke-slate-100 dark:stroke-slate-800"
+            strokeWidth="4"
+            fill="none"
+          />
+          <circle
+            cx="24"
+            cy="24"
+            r={radius}
+            className={`transition-all duration-500 ${
+              pct > 90 ? 'stroke-rose-500' : pct > 75 ? 'stroke-amber-500' : 'stroke-blue-600'
+            }`}
+            strokeWidth="4"
+            strokeDasharray={circumference}
+            strokeDashoffset={strokeOffset}
+            strokeLinecap="round"
+            fill="none"
+          />
+        </svg>
+        <span className={`absolute text-[10px] font-bold font-mono ${textColor}`}>
+          {pct}%
+        </span>
+      </div>
+      <div className="min-w-0 font-mono text-xs">
+        <div className="font-bold text-slate-900 dark:text-white">
+          {used.toLocaleString()} / {effectiveLimit.toLocaleString()}
+        </div>
+        <div className="text-[10px] text-slate-400 dark:text-slate-500">
+          {remaining !== undefined ? `${remaining.toLocaleString()} left today` : 'Daily capacity'}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 /** Per-mailbox opt-in that turns off IMAP certificate verification, labelled with what it risks. */
 function AllowSelfSignedSwitch({ checked, onChange }: { checked: boolean; onChange: (checked: boolean) => void }) {
@@ -502,37 +603,42 @@ export default function AccountsPage() {
 
           {/* KPIs */}
           {!loadError && (
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, 1fr)' }, gap: 2 }}>
-            {[
-              { label: 'Total Senders', value: loading ? '…' : `${accounts.length} Senders`, color: undefined, note: '' },
-              globalDaily
-                ? { label: 'Global Limit Remaining', value: loading ? '…' : `${globalDaily.remaining.toLocaleString()} Emails`, color: '#2563EB', note: `Of ${globalDaily.limit.toLocaleString()} in any 24 hours (${globalDailySource}), shared by all mailboxes.` }
-                : { label: 'Combined Daily Limit', value: loading ? '…' : `${totalDailyLimit.toLocaleString()} Emails`, color: '#2563EB', note: '' },
-            ].map((kpi, i) => (
-              <Card key={i}>
-                <CardContent>
-                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                    <Typography variant="overline" sx={{ color: 'text.secondary', fontWeight: 700 }}>{kpi.label}</Typography>
-                  </Stack>
-                  <Typography variant="h6" sx={{ fontWeight: 700, fontFamily: 'monospace', mt: 0.5, color: kpi.color }}>{kpi.value}</Typography>
-                  {kpi.note && !loading && <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>{kpi.note}</Typography>}
-                </CardContent>
-              </Card>
-            ))}
-          </Box>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {[
+                { label: 'Total Senders', value: loading ? '…' : `${accounts.length} Senders`, color: undefined, note: '' },
+                globalDaily
+                  ? { label: 'Global Limit Remaining', value: loading ? '…' : `${globalDaily.remaining.toLocaleString()} Emails`, color: '#2563EB', note: `Of ${globalDaily.limit.toLocaleString()} in any 24 hours (${globalDailySource}), shared by all mailboxes.` }
+                  : { label: 'Combined Daily Limit', value: loading ? '…' : `${totalDailyLimit.toLocaleString()} Emails`, color: '#2563EB', note: '' },
+              ].map((kpi, i) => (
+                <div key={i} className="rounded-[24px] border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] shadow-xs p-5 transition-all">
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">{kpi.label}</span>
+                  <div className="text-2xl font-bold font-mono mt-1 text-slate-900 dark:text-white" style={{ color: kpi.color }}>
+                    {kpi.value}
+                  </div>
+                  {kpi.note && !loading && (
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">{kpi.note}</p>
+                  )}
+                </div>
+              ))}
+            </div>
           )}
 
           {/* Table */}
           {loading ? (
-            <Card><CardContent><TableSkeleton rows={4} cols={5} /></CardContent></Card>
+            <div className="rounded-[24px] border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] shadow-xs p-6">
+              <TableSkeleton rows={4} cols={5} />
+            </div>
           ) : loadError ? null : (
-            <Card>
-              <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', p: 2, borderBottom: 1, borderColor: 'divider' }}>
-                <Typography variant="overline" sx={{ fontWeight: 700, letterSpacing: '0.1em' }}>Connected Outreach Senders</Typography>
+            <div className="rounded-[24px] border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] shadow-xs overflow-hidden">
+              <div className="flex items-center justify-between p-4 sm:px-6 border-b border-[#EBF0F5] dark:border-[#1E222D]">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">Connected Outreach Senders</h3>
                 {failingSyncCount > 0 && (
-                  <Chip size="small" icon={<MailWarning size={11} />} label={`${failingSyncCount} ${failingSyncCount === 1 ? 'Mailbox' : 'Mailboxes'} Failing Reply Sync`} color="error" variant="outlined" sx={{ fontWeight: 700, fontSize: 9, fontFamily: 'monospace' }} />
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 border border-rose-200/60 dark:border-rose-800/50 font-mono">
+                    <MailWarning size={12} className="text-rose-500" />
+                    <span>{failingSyncCount} {failingSyncCount === 1 ? 'Mailbox' : 'Mailboxes'} Failing Reply Sync</span>
+                  </span>
                 )}
-              </Stack>
+              </div>
               <Box sx={{ overflowX: 'auto' }}>
                 <Table size="small">
                   <TableHead>
@@ -581,38 +687,47 @@ export default function AccountsPage() {
                         <TableCell>
                           <ReplySyncChip account={account} accounts={accounts} />
                         </TableCell>
-                        <TableCell sx={{ fontFamily: 'monospace', fontSize: 12 }}>
-                          {globalDaily ? (
-                            // Daily limits are off: what the mailbox may still send of the shared allowance,
-                            // which only its warmup ramp holds it below.
-                            account.warmupEnabled ? (
-                              <>
-                                <Box component="span" sx={{ color: 'warning.main', fontWeight: 700 }}>{remainingOfAllowance(account).toLocaleString()} left</Box>
-                                <Box component="span" sx={{ color: 'text.secondary' }}> / {currentCap(account).toLocaleString()} warmup cap</Box>
-                              </>
-                            ) : (<>{remainingOfAllowance(account).toLocaleString()} left</>)
-                          ) : account.warmupEnabled ? (
-                            <>
-                              <Box component="span" sx={{ color: 'warning.main', fontWeight: 700 }}>{account.effectiveDailyCap} now</Box>
-                              <Box component="span" sx={{ color: 'text.secondary' }}> / {account.dailyLimit}</Box>
-                            </>
-                          ) : (<>{account.dailyLimit} daily max</>)}
+                        <TableCell>
+                          <MailboxCapacityGauge
+                            used={account.sentLast24Hours ?? 0}
+                            total={account.dailyLimit ?? 0}
+                            warmup={account.warmupEnabled}
+                            warmupCap={account.warmupEnabled ? currentCap(account) : undefined}
+                            remaining={globalDaily ? remainingOfAllowance(account) : mailboxRemaining(account)}
+                            compact={true}
+                          />
                         </TableCell>
                         <TableCell sx={{ color: 'text.secondary' }}>
                           <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}><User size={12} /> {getOwnerName(account.userId)}</Stack>
                         </TableCell>
                         <TableCell>
-                          <Chip size="small" icon={account.status === 'Active' ? <CheckCircle2 size={11} /> : <AlertCircle size={11} />} label={account.status} color={account.status === 'Active' ? 'success' : 'default'} variant="outlined" sx={{ fontWeight: 700, fontSize: 10 }} />
+                          {account.status === 'Active' ? (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/50">
+                              <span className="relative flex h-2 w-2">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                              </span>
+                              <span>Active</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-slate-100 dark:bg-slate-800/60 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                              <AlertCircle size={12} className="text-slate-400" />
+                              <span>{account.status}</span>
+                            </span>
+                          )}
                         </TableCell>
                         <TableCell align="right">
-                          <Button size="small" variant="text" color="inherit" endIcon={<ChevronRight size={14} />} sx={{ color: 'text.secondary' }}>Configure</Button>
+                          <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+                            <span>Configure</span>
+                            <ChevronRight size={14} />
+                          </span>
                         </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                 </Table>
               </Box>
-            </Card>
+            </div>
           )}
         </Stack>
       ) : (
@@ -809,119 +924,118 @@ export default function AccountsPage() {
         </Stack>
       )}
 
-      {/* Add mailbox dialog */}
-      <Dialog open={isAddOpen} onClose={() => setIsAddOpen(false)} maxWidth="md" fullWidth slotProps={{ paper: { sx: { borderRadius: '20px' } } }}>
-        <form onSubmit={handleAddAccount}>
-          <DialogTitle>
-            <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
-              <Plus size={20} color="#2563EB" />
-              <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Connect Sender Mailbox</Typography>
-            </Stack>
-          </DialogTitle>
-          <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
-            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '2fr 1fr' }, gap: 2 }}>
-              <TextField label="Sender Email Address" type="email" required value={emailAddress} onChange={(e) => setEmailAddress(e.target.value)} size="small" placeholder="outreach@mycompany.com" slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-              <TextField label="Internal Label" required value={senderName} onChange={(e) => setSenderName(e.target.value)} size="small" placeholder="Sales Outreach" helperText="Shown only in ArcReach. Recipients see the From name set on the sender username in Azure." />
-              <TextField label="Reply-To (Optional)" type="email" value={replyTo} onChange={(e) => setReplyTo(e.target.value)} size="small" placeholder="replies@mycompany.com" slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-              <ReplyToNameField value={replyToName} onChange={setReplyToName} replyTo={replyTo} />
-              <FormControl size="small" sx={{ gridColumn: { md: '1 / -1' } }}>
-                <InputLabel>Email Provider</InputLabel>
-                <Select label="Email Provider" value={provider} onChange={(e) => handleProviderChange(e.target.value)}>
-                  <MenuItem value="Google Workspace">Google Workspace</MenuItem>
-                  <MenuItem value="Microsoft 365">Microsoft 365</MenuItem>
-                  <MenuItem value="IMAP/SMTP Custom Protocol">IMAP/SMTP Custom</MenuItem>
-                  <MenuItem value="SendGrid Relay Node">SendGrid Relay</MenuItem>
-                  <MenuItem value="Azure Relay Node">Azure Relay</MenuItem>
-                </Select>
-              </FormControl>
-            </Box>
-
-            <FormControl size="small" disabled={session?.role !== 'ADMIN'}>
-              <InputLabel>Assign Mailbox Owner</InputLabel>
-              <Select label="Assign Mailbox Owner" value={assignedUserId} onChange={(e) => setAssignedUserId(e.target.value)}>
-                {session?.role !== 'ADMIN' ? (
-                  <MenuItem value={session?.id}>Me ({session?.name})</MenuItem>
-                ) : (
-                  // Disabled users cannot sign in, so they are not offered as owners.
-                  users.filter((u) => !u.disabledAt).map((u) => <MenuItem key={u.id} value={u.id}>{u.name} ({u.role})</MenuItem>)
-                )}
+      {/* Connect Mailbox Action Drawer */}
+      <ActionDrawer
+        isOpen={isAddOpen}
+        onClose={() => setIsAddOpen(false)}
+        title="Connect Mailbox"
+        subtitle="Add an authenticated SMTP or Microsoft 365 sending account"
+        icon={Plus}
+        width="md"
+        onSubmit={handleAddAccount}
+        primaryLabel={submitting ? 'Connecting…' : 'Connect Mailbox'}
+        primaryLoading={submitting}
+        primaryDisabled={submitting || !emailAddress.trim() || !senderName.trim()}
+        cancelLabel="Cancel"
+        onCancel={() => setIsAddOpen(false)}
+      >
+        <div className="space-y-6">
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '2fr 1fr' }, gap: 2 }}>
+            <TextField label="Sender Email Address" type="email" required value={emailAddress} onChange={(e) => setEmailAddress(e.target.value)} size="small" placeholder="outreach@mycompany.com" slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
+            <TextField label="Internal Label" required value={senderName} onChange={(e) => setSenderName(e.target.value)} size="small" placeholder="Sales Outreach" helperText="Shown only in ArcReach. Recipients see the From name set on the sender username in Azure." />
+            <TextField label="Reply-To (Optional)" type="email" value={replyTo} onChange={(e) => setReplyTo(e.target.value)} size="small" placeholder="replies@mycompany.com" slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
+            <ReplyToNameField value={replyToName} onChange={setReplyToName} replyTo={replyTo} />
+            <FormControl size="small" sx={{ gridColumn: { md: '1 / -1' } }}>
+              <InputLabel>Email Provider</InputLabel>
+              <Select label="Email Provider" value={provider} onChange={(e) => handleProviderChange(e.target.value)}>
+                <MenuItem value="Google Workspace">Google Workspace</MenuItem>
+                <MenuItem value="Microsoft 365">Microsoft 365</MenuItem>
+                <MenuItem value="IMAP/SMTP Custom Protocol">IMAP/SMTP Custom</MenuItem>
+                <MenuItem value="SendGrid Relay Node">SendGrid Relay</MenuItem>
+                <MenuItem value="Azure Relay Node">Azure Relay</MenuItem>
               </Select>
             </FormControl>
+          </Box>
 
+          <FormControl fullWidth size="small" disabled={session?.role !== 'ADMIN'}>
+            <InputLabel>Assign Mailbox Owner</InputLabel>
+            <Select label="Assign Mailbox Owner" value={assignedUserId} onChange={(e) => setAssignedUserId(e.target.value)}>
+              {session?.role !== 'ADMIN' ? (
+                <MenuItem value={session?.id}>Me ({session?.name})</MenuItem>
+              ) : (
+                // Disabled users cannot sign in, so they are not offered as owners.
+                users.filter((u) => !u.disabledAt).map((u) => <MenuItem key={u.id} value={u.id}>{u.name} ({u.role})</MenuItem>)
+              )}
+            </Select>
+          </FormControl>
+
+          <div className="rounded-xl bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-800 p-3.5">
             <SmtpNotUsedNote />
+          </div>
 
-            {/* Any mailbox can sync replies over IMAP, whatever its provider label */}
-            <Card variant="outlined" sx={{ bgcolor: 'action.hover' }}>
-              <CardContent>
-                <Typography variant="overline" sx={{ color: 'text.secondary', fontWeight: 700, display: 'block', mb: 1.5 }}>Inbound Replies (IMAP)</Typography>
-                <Stack spacing={1.5}>
-                  {(provider === 'Microsoft 365' || isMicrosoftImapHost(imapHost)) && (
-                    <Typography variant="caption" sx={{ color: 'warning.main', display: 'block' }}>{MICROSOFT_IMAP_NOTE}</Typography>
-                  )}
-                  <Stack direction="row" spacing={1.5}>
-                    <TextField fullWidth size="small" label="IMAP Host" value={imapHost} onChange={(e) => setImapHost(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { autoComplete: 'off' } }} />
-                    <TextField fullWidth size="small" label="Port" value={imapPort} onChange={(e) => setImapPort(e.target.value)} placeholder="993" slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { autoComplete: 'off' } }} />
-                  </Stack>
-                  <Stack direction="row" spacing={1.5}>
-                    <TextField fullWidth size="small" label="Username" value={imapUser} onChange={(e) => setImapUser(e.target.value)} placeholder="user@domain.com" slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { autoComplete: 'off' } }} />
-                    <PwField label="Password" value={imapPass} onChange={setImapPass} show={showAddImapPass} setShow={setShowAddImapPass} placeholder="Password or App Key" />
-                  </Stack>
-                  <AllowSelfSignedSwitch checked={imapAllowSelfSigned} onChange={setImapAllowSelfSigned} />
-                </Stack>
-              </CardContent>
-            </Card>
+          {/* Any mailbox can sync replies over IMAP, whatever its provider label */}
+          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 p-4 space-y-4">
+            <Typography variant="overline" sx={{ color: 'text.secondary', fontWeight: 700, display: 'block' }}>Inbound Replies (IMAP)</Typography>
+            <Stack spacing={1.5}>
+              {(provider === 'Microsoft 365' || isMicrosoftImapHost(imapHost)) && (
+                <Typography variant="caption" sx={{ color: 'warning.main', display: 'block' }}>{MICROSOFT_IMAP_NOTE}</Typography>
+              )}
+              <Stack direction="row" spacing={1.5}>
+                <TextField fullWidth size="small" label="IMAP Host" value={imapHost} onChange={(e) => setImapHost(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { autoComplete: 'off' } }} />
+                <TextField fullWidth size="small" label="Port" value={imapPort} onChange={(e) => setImapPort(e.target.value)} placeholder="993" slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { autoComplete: 'off' } }} />
+              </Stack>
+              <Stack direction="row" spacing={1.5}>
+                <TextField fullWidth size="small" label="Username" value={imapUser} onChange={(e) => setImapUser(e.target.value)} placeholder="user@domain.com" slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { autoComplete: 'off' } }} />
+                <PwField label="Password" value={imapPass} onChange={setImapPass} show={showAddImapPass} setShow={setShowAddImapPass} placeholder="Password or App Key" />
+              </Stack>
+              <AllowSelfSignedSwitch checked={imapAllowSelfSigned} onChange={setImapAllowSelfSigned} />
+            </Stack>
+          </div>
 
-            <Card variant="outlined">
-              <CardContent>
-                <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1.5 }}>
-                  <Activity size={14} color="#2563EB" />
-                  <Typography variant="overline" sx={{ fontWeight: 700, color: 'text.secondary' }}>Sending Limits</Typography>
+          <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 p-4 space-y-4">
+            <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
+              <Activity size={14} color="#2563EB" />
+              <Typography variant="overline" sx={{ fontWeight: 700, color: 'text.secondary' }}>Sending Limits</Typography>
+            </Stack>
+            {!globalDaily && (
+              <TextField fullWidth size="small" label="Max / Day" type="number" value={dailyLimit} onChange={(e) => setDailyLimit(parseInt(e.target.value) || 10)} sx={{ maxWidth: 240 }} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { min: 10 } }} />
+            )}
+            <Box sx={{ mt: globalDaily ? 0 : 2 }}><GlobalRateLimits limits={globalRateLimits} /></Box>
+            {globalDaily ? (
+              <Box sx={{ mt: 2, pt: 2, borderTop: 1, borderColor: 'divider' }}>
+                <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                  <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Global Daily Allowance</Typography>
+                  <Typography variant="caption" sx={{ fontWeight: 700, color: 'primary.main', fontFamily: 'monospace' }}>{globalDaily.sent.toLocaleString()} / {globalDaily.limit.toLocaleString()} sent in the last 24 hours</Typography>
                 </Stack>
-                {!globalDaily && (
-                  <TextField fullWidth size="small" label="Max / Day" type="number" value={dailyLimit} onChange={(e) => setDailyLimit(parseInt(e.target.value) || 10)} sx={{ maxWidth: 240 }} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { min: 10 } }} />
-                )}
-                <Box sx={{ mt: globalDaily ? 0 : 2 }}><GlobalRateLimits limits={globalRateLimits} /></Box>
-                {globalDaily ? (
-                  <Box sx={{ mt: 2, pt: 2, borderTop: 1, borderColor: 'divider' }}>
-                    <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                      <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Global Daily Allowance</Typography>
-                      <Typography variant="caption" sx={{ fontWeight: 700, color: 'primary.main', fontFamily: 'monospace' }}>{globalDaily.sent.toLocaleString()} / {globalDaily.limit.toLocaleString()} sent in the last 24 hours</Typography>
-                    </Stack>
-                    <LinearProgress variant="determinate" value={Math.min(100, (globalDaily.sent / globalDaily.limit) * 100)} sx={{ height: 6, borderRadius: 999 }} />
-                    <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 1 }}>
-                      All mailboxes share this allowance, which is {globalDaily.per === 'hour' ? '24' : '1,440'} times the global limit of {globalDailySource}. A mailbox has no daily limit of its own while a global rate limit is set; only its warmup ramp holds it lower.
-                    </Typography>
-                    <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 1.5, mt: 2, p: 1.5, borderRadius: '12px', bgcolor: 'action.hover', border: 1, borderColor: 'divider', textAlign: 'center', fontSize: 10 }}>
-                      <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Remaining</Typography><Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{globalDaily.remaining.toLocaleString()} / day</Typography></Box>
-                      <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Mailboxes</Typography><Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{accounts.length}</Typography></Box>
-                    </Box>
-                  </Box>
-                ) : accounts.length > 0 && (
-                  <Box sx={{ mt: 2, pt: 2, borderTop: 1, borderColor: 'divider' }}>
-                    <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                      <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Combined Daily Capacity</Typography>
-                      <Typography variant="caption" sx={{ fontWeight: 700, color: 'primary.main', fontFamily: 'monospace' }}>{dailyCapacity.sent.toLocaleString()} / {dailyCapacity.cap.toLocaleString()} sent in the last 24 hours</Typography>
-                    </Stack>
-                    <LinearProgress variant="determinate" value={Math.min(100, dailyCapacity.cap > 0 ? (dailyCapacity.sent / dailyCapacity.cap) * 100 : 0)} sx={{ height: 6, borderRadius: 999 }} />
-                    <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 1.5, mt: 2, p: 1.5, borderRadius: '12px', bgcolor: 'action.hover', border: 1, borderColor: 'divider', textAlign: 'center', fontSize: 10 }}>
-                      <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Remaining</Typography><Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{dailyCapacity.remaining.toLocaleString()} / day</Typography></Box>
-                      <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Mailboxes</Typography><Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{accounts.length}</Typography></Box>
-                      <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Avg / Account</Typography><Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{accounts.length > 0 ? Math.round(dailyCapacity.cap / accounts.length).toLocaleString() : 0}</Typography></Box>
-                    </Box>
-                  </Box>
-                )}
-                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 1.5 }}>
-                  Keep volumes conservative — most mailboxes shouldn't exceed ~500 emails/day to protect sender reputation.
+                <LinearProgress variant="determinate" value={Math.min(100, (globalDaily.sent / globalDaily.limit) * 100)} sx={{ height: 6, borderRadius: 999 }} />
+                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 1 }}>
+                  All mailboxes share this allowance, which is {globalDaily.per === 'hour' ? '24' : '1,440'} times the global limit of {globalDailySource}. A mailbox has no daily limit of its own while a global rate limit is set; only its warmup ramp holds it lower.
                 </Typography>
-              </CardContent>
-            </Card>
-          </DialogContent>
-          <DialogActions sx={{ p: 2 }}>
-            <Button color="inherit" onClick={() => setIsAddOpen(false)}>Cancel</Button>
-            <Button type="submit" variant="contained" disabled={submitting}>{submitting ? 'Connecting…' : 'Connect Mailbox'}</Button>
-          </DialogActions>
-        </form>
-      </Dialog>
+                <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 1.5, mt: 2, p: 1.5, borderRadius: '12px', bgcolor: 'action.hover', border: 1, borderColor: 'divider', textAlign: 'center', fontSize: 10 }}>
+                  <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Remaining</Typography><Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{globalDaily.remaining.toLocaleString()} / day</Typography></Box>
+                  <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Mailboxes</Typography><Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{accounts.length}</Typography></Box>
+                </Box>
+              </Box>
+            ) : accounts.length > 0 && (
+              <Box sx={{ mt: 2, pt: 2, borderTop: 1, borderColor: 'divider' }}>
+                <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                  <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Combined Daily Capacity</Typography>
+                  <Typography variant="caption" sx={{ fontWeight: 700, color: 'primary.main', fontFamily: 'monospace' }}>{dailyCapacity.sent.toLocaleString()} / {dailyCapacity.cap.toLocaleString()} sent in the last 24 hours</Typography>
+                </Stack>
+                <LinearProgress variant="determinate" value={Math.min(100, dailyCapacity.cap > 0 ? (dailyCapacity.sent / dailyCapacity.cap) * 100 : 0)} sx={{ height: 6, borderRadius: 999 }} />
+                <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 1.5, mt: 2, p: 1.5, borderRadius: '12px', bgcolor: 'action.hover', border: 1, borderColor: 'divider', textAlign: 'center', fontSize: 10 }}>
+                  <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Remaining</Typography><Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{dailyCapacity.remaining.toLocaleString()} / day</Typography></Box>
+                  <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Mailboxes</Typography><Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{accounts.length}</Typography></Box>
+                  <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Avg / Account</Typography><Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{accounts.length > 0 ? Math.round(dailyCapacity.cap / accounts.length).toLocaleString() : 0}</Typography></Box>
+                </Box>
+              </Box>
+            )}
+            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 1.5 }}>
+              Keep volumes conservative — most mailboxes shouldn't exceed ~500 emails/day to protect sender reputation.
+            </Typography>
+          </div>
+        </div>
+      </ActionDrawer>
 
       <ConfirmDialog
         isOpen={confirmOpen}

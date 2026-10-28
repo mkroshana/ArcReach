@@ -1,19 +1,26 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useId, type InputHTMLAttributes, type ReactNode } from 'react';
 import {
-  Users, Shield, Trash2, UserPlus, UserX, UserCheck, AlertTriangle, Mail, Lock, Eye, EyeOff, Copy, RefreshCw, KeyRound,
+  Users, Shield, Trash2, UserPlus, UserX, UserCheck, Mail, Lock, Eye, EyeOff, Copy, RefreshCw, KeyRound, Loader2,
 } from 'lucide-react';
-import {
-  Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
-  Dialog, DialogTitle, DialogContent, DialogActions, Table, TableHead, TableBody, TableRow, TableCell,
-  Alert, Snackbar, ToggleButtonGroup, ToggleButton, InputAdornment, Tooltip as MuiTooltip,
-  Avatar, CircularProgress,
-} from '@mui/material';
-import { alpha } from '@mui/material/styles';
+import { Snackbar, Alert, Tooltip as MuiTooltip, Dialog } from '@mui/material';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { passwordPolicyError } from '@/lib/passwordPolicy';
+import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
+import { Card } from '@/components/ui/Card';
+import { inputClasses } from '@/components/ui/Input';
+import { Notice } from '@/components/ui/Notice';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { Segmented } from '@/components/ui/Segmented';
+import { Table, THead, TH, TR, TD } from '@/components/ui/Table';
+import { cn } from '@/lib/utils';
+
+const LABEL = 'mb-1.5 block text-[13px] font-medium text-text-main';
+const HINT = 'mt-1 text-[11px] text-text-muted';
+const DIALOG_PAPER = { paper: { sx: { borderRadius: '12px', backgroundImage: 'none' } } };
 
 interface DbUser {
   id: string;
@@ -31,9 +38,27 @@ function generatePassword(length = 16): string {
   return Array.from(arr, (n) => charset[n % charset.length]).join('');
 }
 
+/** A labelled native text field, the label above it and an optional leading icon. */
+function TextInput({ label, icon, className, ...props }: InputHTMLAttributes<HTMLInputElement> & { label: ReactNode; icon?: ReactNode }) {
+  const id = useId();
+  return (
+    <div className={className}>
+      <label htmlFor={id} className={LABEL}>
+        {label}{props.required && <span className="text-rose-500"> *</span>}
+      </label>
+      <div className="relative">
+        {icon && <span aria-hidden className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-text-muted">{icon}</span>}
+        <input id={id} className={inputClasses(cn('h-9', !!icon && 'pl-9'))} {...props} />
+      </div>
+    </div>
+  );
+}
+
+/** Password field with a show/hide toggle, plus Generate and Copy buttons beside it. */
 function PasswordInput({
-  value, onChange, show, setShow, onGenerate, onCopy,
+  label, value, onChange, show, setShow, onGenerate, onCopy,
 }: {
+  label: string;
   value: string;
   onChange: (v: string) => void;
   show: boolean;
@@ -41,39 +66,45 @@ function PasswordInput({
   onGenerate: () => void;
   onCopy: () => void;
 }) {
+  const id = useId();
   return (
-    <Stack direction="row" spacing={1}>
-      <TextField
-        fullWidth
-        size="small"
-        type={show ? 'text' : 'password'}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder="Enter or generate a password"
-        slotProps={{
-          input: {
-            sx: { fontFamily: 'monospace' },
-            endAdornment: (
-              <InputAdornment position="end">
-                <IconButton aria-label={show ? 'Hide password' : 'Show password'} size="small" onClick={() => setShow(!show)} edge="end">
-                  {show ? <EyeOff size={16} /> : <Eye size={16} />}
-                </IconButton>
-              </InputAdornment>
-            ),
-          },
-        }}
-      />
-      <MuiTooltip title="Generate strong password">
-        <IconButton aria-label="Generate strong password" onClick={onGenerate} sx={{ border: 1, borderColor: 'divider', borderRadius: '12px' }}>
-          <RefreshCw size={16} />
-        </IconButton>
-      </MuiTooltip>
-      <MuiTooltip title="Copy password">
-        <IconButton aria-label="Copy password" onClick={onCopy} sx={{ border: 1, borderColor: 'divider', borderRadius: '12px' }}>
-          <Copy size={16} />
-        </IconButton>
-      </MuiTooltip>
-    </Stack>
+    <div>
+      <label htmlFor={id} className={cn(LABEL, 'flex items-center gap-1.5')}>
+        <Lock size={14} className="text-text-muted" /> {label}
+      </label>
+      <div className="flex gap-2">
+        <div className="relative min-w-0 flex-1">
+          <input
+            id={id}
+            type={show ? 'text' : 'password'}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder="Enter or generate a password"
+            autoComplete="new-password"
+            className={inputClasses('h-9 pr-9 font-mono text-xs')}
+          />
+          <button
+            type="button"
+            aria-label={show ? 'Hide password' : 'Show password'}
+            onClick={() => setShow(!show)}
+            className="absolute top-1/2 right-1.5 flex size-6 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md text-text-muted transition-colors hover:text-text-main"
+          >
+            {show ? <EyeOff size={14} /> : <Eye size={14} />}
+          </button>
+        </div>
+        <MuiTooltip title="Generate strong password">
+          <Button iconOnly aria-label="Generate strong password" onClick={onGenerate} className="size-9">
+            <RefreshCw size={14} />
+          </Button>
+        </MuiTooltip>
+        <MuiTooltip title="Copy password">
+          <Button iconOnly aria-label="Copy password" onClick={onCopy} className="size-9">
+            <Copy size={14} />
+          </Button>
+        </MuiTooltip>
+      </div>
+      <p className={HINT}>Share this with the user securely — they can change it later from Settings.</p>
+    </div>
   );
 }
 
@@ -270,7 +301,7 @@ export default function UsersAdminPage() {
   };
 
   return (
-    <Box sx={{ maxWidth: 1100, mx: 'auto', pb: 4, display: 'flex', flexDirection: 'column', gap: 3 }}>
+    <div className="mx-auto flex w-full max-w-[1100px] flex-col gap-4 pb-12">
       <Snackbar
         open={!!toast}
         anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
@@ -280,213 +311,191 @@ export default function UsersAdminPage() {
         {toast ? <Alert severity={toast.type} variant="filled" sx={{ borderRadius: '12px' }}>{toast.message}</Alert> : undefined}
       </Snackbar>
 
-      {/* Header */}
-      <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ justifyContent: 'space-between', alignItems: { xs: 'flex-start', sm: 'center' }, gap: 2, pb: 2, borderBottom: 1, borderColor: 'divider' }}>
-        <Box>
-          <Typography variant="h4" sx={{ fontWeight: 700 }}>Team Directory</Typography>
-          <Typography variant="body2" sx={{ color: 'text.secondary' }}>Manage team members and their roles.</Typography>
-        </Box>
-        <Button variant="contained" startIcon={<UserPlus size={16} />} onClick={() => setIsAddOpen(true)}>Add User</Button>
-      </Stack>
+      <PageHeader
+        title="Team Directory"
+        actions={
+          <Button variant="primary" onClick={() => setIsAddOpen(true)}>
+            <UserPlus size={14} />
+            Add User
+          </Button>
+        }
+      />
 
       {error ? (
-        <Card sx={{ maxWidth: 520, mx: 'auto', bgcolor: (t) => alpha(t.palette.error.main, 0.06), borderColor: (t) => alpha(t.palette.error.main, 0.3) }}>
-          <CardContent sx={{ textAlign: 'center', py: 4 }}>
-            <AlertTriangle size={36} color="#ef4444" style={{ marginBottom: 12 }} />
-            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Privileged Access Required</Typography>
-            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 1 }}>{error}</Typography>
-          </CardContent>
-        </Card>
+        <Notice tone="error" title="Privileged Access Required">{error}</Notice>
       ) : loading ? (
-        <Stack sx={{ alignItems: 'center', py: 8, gap: 2 }}>
-          <CircularProgress size={28} />
-          <Typography variant="caption" sx={{ color: 'text.secondary' }}>Loading users…</Typography>
-        </Stack>
+        <div className="flex items-center justify-center gap-2 py-24 text-xs text-text-muted">
+          <Loader2 size={14} className="animate-spin" /> Loading users…
+        </div>
       ) : (
-        <Card>
-          <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', p: 2, borderBottom: 1, borderColor: 'divider' }}>
-            <Typography variant="overline" sx={{ fontWeight: 700, letterSpacing: '0.1em' }}>All Users</Typography>
-          </Stack>
-          <Box sx={{ overflowX: 'auto' }}>
-            <Table size="small">
-              <TableHead>
-                <TableRow sx={{ '& th': { fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', fontSize: 10, color: 'text.secondary' } }}>
-                  <TableCell>Name</TableCell>
-                  <TableCell>Email</TableCell>
-                  <TableCell>Role</TableCell>
-                  <TableCell>Joined</TableCell>
-                  <TableCell align="right">Actions</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
+        <Card className="overflow-hidden">
+          <div className="overflow-x-auto">
+            <Table>
+              <THead>
+                <tr>
+                  <TH>Name</TH>
+                  <TH>Email</TH>
+                  <TH>Role</TH>
+                  <TH>Joined</TH>
+                  <TH className="text-right">Actions</TH>
+                </tr>
+              </THead>
+              <tbody>
                 {users.map((item) => {
                   const isSelf = item.id === currentSession?.id;
                   return (
-                    <TableRow key={item.id} hover>
-                      <TableCell>
-                        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
-                          <Avatar sx={{ width: 32, height: 32, fontSize: 12, bgcolor: 'action.hover', color: 'text.primary' }}>
+                    <TR key={item.id}>
+                      <TD>
+                        <div className="flex items-center gap-3">
+                          <span aria-hidden className="flex size-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold text-text-sub dark:bg-white/5">
                             {(item.name || item.email)[0]?.toUpperCase()}
-                          </Avatar>
-                          <Box>
-                            <Typography variant="body2" sx={{ fontWeight: 700 }}>{item.name || 'Unnamed Employee'}</Typography>
-                            <Typography variant="caption" sx={{ color: 'text.secondary' }}>UID: {item.id.slice(0, 13)}…</Typography>
-                          </Box>
-                        </Stack>
-                      </TableCell>
-                      <TableCell sx={{ fontSize: 12, color: 'text.secondary' }}>{item.email}</TableCell>
-                      <TableCell>
-                        <Stack direction="row" spacing={1}>
-                          <Chip
-                            size="small"
-                            icon={item.role === 'ADMIN' ? <Shield size={12} /> : <Users size={12} />}
-                            label={item.role}
-                            color={item.role === 'ADMIN' ? 'error' : 'primary'}
-                            variant="outlined"
-                            sx={{ fontWeight: 700, fontSize: 10 }}
-                          />
+                          </span>
+                          <div className="min-w-0">
+                            <div className="font-medium">{item.name || 'Unnamed Employee'}</div>
+                            <div className="text-[11px] text-text-muted">UID: {item.id.slice(0, 13)}…</div>
+                          </div>
+                        </div>
+                      </TD>
+                      <TD className="text-text-sub">{item.email}</TD>
+                      <TD>
+                        <div className="flex flex-wrap gap-1.5">
+                          <Badge tone={item.role === 'ADMIN' ? 'red' : 'blue'}>
+                            {item.role === 'ADMIN' ? <Shield size={12} aria-hidden /> : <Users size={12} aria-hidden />}
+                            {item.role}
+                          </Badge>
                           {item.disabledAt && (
-                            <Chip size="small" icon={<UserX size={12} />} label="Disabled" variant="outlined" sx={{ fontWeight: 700, fontSize: 10 }} />
+                            <Badge>
+                              <UserX size={12} aria-hidden />
+                              Disabled
+                            </Badge>
                           )}
-                        </Stack>
-                      </TableCell>
-                      <TableCell sx={{ color: 'text.secondary' }}>
+                        </div>
+                      </TD>
+                      <TD className="whitespace-nowrap text-text-sub">
                         {new Date(item.createdAt).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' })}
-                      </TableCell>
-                      <TableCell align="right">
-                        <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end' }}>
-                          <Button
-                            size="small"
-                            variant="outlined"
-                            color="inherit"
-                            disabled={isSelf}
-                            onClick={() => handleToggleRole(item.id, item.role)}
-                            sx={{ fontSize: 10, borderColor: 'divider', color: 'text.secondary' }}
-                          >
+                      </TD>
+                      <TD>
+                        <div className="flex items-center justify-end gap-1">
+                          <Button size="sm" variant="ghost" disabled={isSelf} onClick={() => handleToggleRole(item.id, item.role)}>
                             {item.role === 'ADMIN' ? 'Demote' : 'Promote'}
                           </Button>
                           <MuiTooltip title="Reset password">
-                            <IconButton aria-label="Reset password" size="small" sx={{ border: 1, borderColor: 'divider' }} onClick={() => { setResetUser(item); setResetPassword(''); setShowResetPassword(true); }}>
+                            <Button iconOnly size="sm" variant="ghost" aria-label="Reset password" onClick={() => { setResetUser(item); setResetPassword(''); setShowResetPassword(true); }}>
                               <KeyRound size={14} />
-                            </IconButton>
+                            </Button>
                           </MuiTooltip>
                           {item.disabledAt ? (
                             <MuiTooltip title="Enable user">
-                              <IconButton aria-label="Enable user" size="small" sx={{ border: 1, borderColor: 'divider' }} onClick={() => setUserDisabled(item, false)}>
+                              <Button iconOnly size="sm" variant="ghost" aria-label="Enable user" onClick={() => setUserDisabled(item, false)}>
                                 <UserCheck size={14} />
-                              </IconButton>
+                              </Button>
                             </MuiTooltip>
                           ) : (
                             <MuiTooltip title={isSelf ? 'Cannot disable yourself' : 'Disable user'}>
                               <span>
-                                <IconButton aria-label="Disable user" size="small" disabled={isSelf} onClick={() => handleDisableUser(item)} sx={{ border: 1, borderColor: 'divider' }}>
+                                <Button iconOnly size="sm" variant="ghost" aria-label="Disable user" disabled={isSelf} onClick={() => handleDisableUser(item)}>
                                   <UserX size={14} />
-                                </IconButton>
+                                </Button>
                               </span>
                             </MuiTooltip>
                           )}
                           <MuiTooltip title={isSelf ? 'Cannot delete yourself' : 'Delete user'}>
                             <span>
-                              <IconButton aria-label="Delete user" size="small" disabled={isSelf} onClick={() => handleDeleteUser(item.id)} sx={{ border: 1, borderColor: (t) => alpha(t.palette.error.main, 0.3), color: 'error.main' }}>
+                              <Button
+                                iconOnly
+                                size="sm"
+                                variant="ghost"
+                                aria-label="Delete user"
+                                disabled={isSelf}
+                                onClick={() => handleDeleteUser(item.id)}
+                                className="text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:text-rose-400 dark:hover:bg-rose-500/10 dark:hover:text-rose-300"
+                              >
                                 <Trash2 size={14} />
-                              </IconButton>
+                              </Button>
                             </span>
                           </MuiTooltip>
-                        </Stack>
-                      </TableCell>
-                    </TableRow>
+                        </div>
+                      </TD>
+                    </TR>
                   );
                 })}
-              </TableBody>
+              </tbody>
             </Table>
-          </Box>
+          </div>
         </Card>
       )}
 
       {/* Add User Dialog */}
-      <Dialog open={isAddOpen} onClose={() => setIsAddOpen(false)} maxWidth="sm" fullWidth slotProps={{ paper: { sx: { borderRadius: '20px' } } }}>
+      <Dialog open={isAddOpen} onClose={() => setIsAddOpen(false)} maxWidth="sm" fullWidth slotProps={DIALOG_PAPER}>
         <form onSubmit={handleCreateUser}>
-          <DialogTitle>
-            <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
-              <UserPlus size={20} color="#2563EB" />
-              <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Add User</Typography>
-            </Stack>
-          </DialogTitle>
-          <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
-            <TextField label="Name" required value={newName} onChange={(e) => setNewName(e.target.value)} size="small" />
-            <TextField
-              label="Email" type="email" required value={newEmail} onChange={(e) => setNewEmail(e.target.value)} size="small"
-              slotProps={{ input: { startAdornment: <InputAdornment position="start"><Mail size={16} /></InputAdornment> } }}
+          <h2 className="flex items-center gap-2 px-5 pt-5 pb-4 text-[15px] font-semibold text-text-main">
+            <UserPlus size={16} className="text-primary" /> Add User
+          </h2>
+          <div className="space-y-4 border-y border-card-border px-5 py-4">
+            <TextInput label="Name" required autoFocus value={newName} onChange={(e) => setNewName(e.target.value)} />
+            <TextInput
+              label="Email" type="email" required icon={<Mail size={14} />}
+              value={newEmail} onChange={(e) => setNewEmail(e.target.value)}
             />
-            <Box>
-              <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>
-                <Lock size={14} /> Password
-              </Typography>
-              <PasswordInput
-                value={newPassword}
-                onChange={setNewPassword}
-                show={showNewPassword}
-                setShow={setShowNewPassword}
-                onGenerate={() => { setNewPassword(generatePassword()); setShowNewPassword(true); }}
-                onCopy={() => copyToClipboard(newPassword)}
+            <PasswordInput
+              label="Password"
+              value={newPassword}
+              onChange={setNewPassword}
+              show={showNewPassword}
+              setShow={setShowNewPassword}
+              onGenerate={() => { setNewPassword(generatePassword()); setShowNewPassword(true); }}
+              onCopy={() => copyToClipboard(newPassword)}
+            />
+            <div>
+              <span className={LABEL}>Role</span>
+              <Segmented
+                label="Role"
+                value={newRole}
+                onChange={setNewRole}
+                options={[
+                  { value: 'USER', label: 'User' },
+                  { value: 'ADMIN', label: 'Admin' },
+                ]}
               />
-              <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.75 }}>
-                Share this with the user securely — they can change it later from Settings.
-              </Typography>
-            </Box>
-            <Box>
-              <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1 }}>Role</Typography>
-              <ToggleButtonGroup value={newRole} exclusive onChange={(_, v) => v && setNewRole(v)} fullWidth>
-                <ToggleButton value="USER">User</ToggleButton>
-                <ToggleButton value="ADMIN" sx={{ color: 'error.main', '&.Mui-selected': { bgcolor: (t) => alpha(t.palette.error.main, 0.14), color: 'error.main' } }}>Admin</ToggleButton>
-              </ToggleButtonGroup>
-            </Box>
-          </DialogContent>
-          <DialogActions sx={{ p: 2 }}>
-            <Button onClick={() => setIsAddOpen(false)} color="inherit">Cancel</Button>
-            <Button type="submit" variant="contained" disabled={submitting}>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 px-5 py-4">
+            <Button variant="ghost" onClick={() => setIsAddOpen(false)}>Cancel</Button>
+            <Button type="submit" variant="primary" disabled={submitting}>
+              {submitting ? <Loader2 size={14} className="animate-spin" /> : <UserPlus size={14} />}
               {submitting ? 'Adding…' : 'Add User'}
             </Button>
-          </DialogActions>
+          </div>
         </form>
       </Dialog>
 
       {/* Reset Password Dialog */}
-      <Dialog open={!!resetUser} onClose={() => setResetUser(null)} maxWidth="sm" fullWidth slotProps={{ paper: { sx: { borderRadius: '20px' } } }}>
+      <Dialog open={!!resetUser} onClose={() => setResetUser(null)} maxWidth="sm" fullWidth slotProps={DIALOG_PAPER}>
         <form onSubmit={handleResetPassword}>
-          <DialogTitle>
-            <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
-              <KeyRound size={20} color="#2563EB" />
-              <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Reset Password</Typography>
-            </Stack>
-          </DialogTitle>
-          <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-              Set a new password for <Box component="strong" sx={{ color: 'text.primary' }}>{resetUser?.email}</Box>.
-            </Typography>
-            <Box>
-              <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>
-                <Lock size={14} /> New Password
-              </Typography>
-              <PasswordInput
-                value={resetPassword}
-                onChange={setResetPassword}
-                show={showResetPassword}
-                setShow={setShowResetPassword}
-                onGenerate={() => { setResetPassword(generatePassword()); setShowResetPassword(true); }}
-                onCopy={() => copyToClipboard(resetPassword)}
-              />
-              <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.75 }}>
-                Share this with the user securely — they can change it later from Settings.
-              </Typography>
-            </Box>
-          </DialogContent>
-          <DialogActions sx={{ p: 2 }}>
-            <Button onClick={() => setResetUser(null)} color="inherit">Cancel</Button>
-            <Button type="submit" variant="contained" disabled={resetting}>
+          <h2 className="flex items-center gap-2 px-5 pt-5 pb-4 text-[15px] font-semibold text-text-main">
+            <KeyRound size={16} className="text-primary" /> Reset Password
+          </h2>
+          <div className="space-y-4 border-y border-card-border px-5 py-4">
+            <p className="text-[13px] text-text-sub">
+              Set a new password for <strong className="font-semibold text-text-main">{resetUser?.email}</strong>.
+            </p>
+            <PasswordInput
+              label="New Password"
+              value={resetPassword}
+              onChange={setResetPassword}
+              show={showResetPassword}
+              setShow={setShowResetPassword}
+              onGenerate={() => { setResetPassword(generatePassword()); setShowResetPassword(true); }}
+              onCopy={() => copyToClipboard(resetPassword)}
+            />
+          </div>
+          <div className="flex justify-end gap-2 px-5 py-4">
+            <Button variant="ghost" onClick={() => setResetUser(null)}>Cancel</Button>
+            <Button type="submit" variant="primary" disabled={resetting}>
+              {resetting ? <Loader2 size={14} className="animate-spin" /> : <KeyRound size={14} />}
               {resetting ? 'Resetting…' : 'Reset Password'}
             </Button>
-          </DialogActions>
+          </div>
         </form>
       </Dialog>
 
@@ -499,6 +508,6 @@ export default function UsersAdminPage() {
         onConfirm={() => confirmState?.onConfirm()}
         onCancel={() => setConfirmState(null)}
       />
-    </Box>
+    </div>
   );
 }

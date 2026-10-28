@@ -2,9 +2,9 @@
 /* eslint-disable react-hooks/exhaustive-deps */
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useId, type InputHTMLAttributes, type ReactNode } from 'react';
 import {
-  FileText, Search, Plus, Eye, Copy, Check, Trash2, ArrowRight, Upload, AlertTriangle, RefreshCw,
+  FileText, Plus, Eye, PenLine, Copy, Check, Trash2, Upload, AlertTriangle, RefreshCw, Loader2, X,
 } from 'lucide-react';
 import VariableToolbar from '@/components/VariableToolbar';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -14,11 +14,36 @@ import {
   readEmailFile, importRefusal, sortImportedEmails, importWaitDays, sequenceTemplate, separateTemplates,
   DEFAULT_IMPORT_WAIT_DAYS, type ImportedEmail, type ImportedTemplate,
 } from '@/lib/templateImport';
-import {
-  Box, Stack, Typography, Button, Chip, TextField,
-  ToggleButtonGroup, ToggleButton, Snackbar, Alert, AlertTitle,
-  CircularProgress, Tooltip as MuiTooltip, Dialog, DialogTitle, DialogContent, DialogActions,
-} from '@mui/material';
+import { Snackbar, Alert, Tooltip as MuiTooltip, Dialog } from '@mui/material';
+import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
+import { Card } from '@/components/ui/Card';
+import { inputClasses, SearchInput } from '@/components/ui/Input';
+import { Notice } from '@/components/ui/Notice';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { Segmented } from '@/components/ui/Segmented';
+import { cn } from '@/lib/utils';
+
+const LABEL = 'mb-1.5 block text-[13px] font-medium text-text-main';
+const CAPTION = 'text-xs text-text-sub';
+const WARN_LINE = 'mt-0.5 flex items-center gap-1 text-[11px] text-amber-700 dark:text-amber-400';
+const WARN_BOX = 'rounded-control border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-500/10 dark:text-amber-300';
+const ERROR_BOX = 'rounded-control border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800 dark:border-rose-900/50 dark:bg-rose-500/10 dark:text-rose-300';
+const INFO_BOX = 'rounded-control bg-primary-subtle p-3 text-xs text-text-main';
+const EMPTY_BOX = 'rounded-card border border-dashed border-card-border text-center';
+
+/** A labelled native text field, the label above it. */
+function TextInput({ label, className, ...props }: InputHTMLAttributes<HTMLInputElement> & { label: ReactNode }) {
+  const id = useId();
+  return (
+    <div className={className}>
+      <label htmlFor={id} className={LABEL}>
+        {label}{props.required && <span className="text-rose-500"> *</span>}
+      </label>
+      <input id={id} className={inputClasses('h-9 disabled:cursor-not-allowed disabled:opacity-60')} {...props} />
+    </div>
+  );
+}
 
 export default function TemplatesPage() {
   const [templates, setTemplates] = useState<any[]>([]);
@@ -304,464 +329,377 @@ export default function TemplatesPage() {
   };
 
   const bodyPreview = previewResolved && editingTemplate ? previewEmailBody(editingTemplate.steps?.[activeStepIndex]?.body || '') : null;
+  const categoryOptions = categories.map(cat => ({ value: cat, label: cat }));
+  const knownCategories = Array.from(new Set(templates.map(t => t.category)));
 
   return (
-    <div className="space-y-6 pb-12 w-full">
+    <div className="w-full space-y-5 pb-12">
       <Snackbar open={!!toastMessage} anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }} autoHideDuration={3000} onClose={() => setToastMessage('')}>
         {toastMessage ? <Alert severity="info" variant="filled" sx={{ borderRadius: '12px' }}>{toastMessage}</Alert> : undefined}
       </Snackbar>
 
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-[#EBF0F5] dark:border-[#1E222D]">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-            Copy Library
-          </h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Write and manage reusable email templates with personalization variables and Spintax.
-          </p>
-        </div>
-        <div className="flex items-center gap-2.5">
-          <input ref={fileInputRef} type="file" accept=".html,.htm,text/html" multiple hidden onChange={handleImportFiles} />
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={!!loadError}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-[#161822] transition-colors cursor-pointer disabled:opacity-50"
-          >
-            <Upload size={14} />
-            <span>Import HTML</span>
-          </button>
-          <button
-            type="button"
-            onClick={createNewTemplate}
-            disabled={!!loadError}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer disabled:opacity-50"
-          >
-            <Plus size={14} />
-            <span>Create Template</span>
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Copy Library"
+        actions={
+          <>
+            <input ref={fileInputRef} type="file" accept=".html,.htm,text/html" multiple hidden onChange={handleImportFiles} />
+            <Button onClick={() => fileInputRef.current?.click()} disabled={!!loadError}>
+              <Upload size={14} /> Import HTML
+            </Button>
+            <Button variant="primary" onClick={createNewTemplate} disabled={!!loadError}>
+              <Plus size={14} /> Create Template
+            </Button>
+          </>
+        }
+      />
 
       {loadError ? (
-        <Alert
-          severity="error"
-          sx={{ borderRadius: '16px' }}
-          action={<Button color="inherit" size="small" startIcon={<RefreshCw size={14} />} onClick={() => fetchTemplates()}>Retry</Button>}
+        <Notice
+          tone="error"
+          title="Templates Could Not Be Loaded"
+          action={<Button size="sm" onClick={() => fetchTemplates()}><RefreshCw size={12} /> Retry</Button>}
         >
-          <AlertTitle>Templates Could Not Be Loaded</AlertTitle>
           {loadError}
-        </Alert>
+        </Notice>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left Column: Template Library */}
-          <div className="space-y-4">
-            <div className="relative">
-              <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Search templates..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full pl-10 pr-4 py-2.5 rounded-xl text-xs bg-white dark:bg-[#11131A] border border-[#EBF0F5] dark:border-[#1E222D] text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-blue-500 shadow-xs transition-colors"
-              />
-            </div>
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+          {/* Left column: the template library */}
+          <div className="space-y-3">
+            <SearchInput
+              aria-label="Search templates"
+              placeholder="Search templates..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
 
-            {/* Category Pills Bar */}
-            <div className="flex flex-wrap gap-1.5 p-1.5 rounded-2xl bg-slate-100/70 dark:bg-[#161822]/70 border border-[#EBF0F5] dark:border-[#1E222D]">
-              {categories.map(cat => (
-                <button
-                  key={cat}
-                  type="button"
-                  onClick={() => setSelectedCategory(cat)}
-                  className={`px-3 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer ${
-                    selectedCategory === cat
-                      ? 'bg-blue-600 text-white shadow-xs'
-                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                  }`}
-                >
-                  {cat}
-                </button>
-              ))}
-            </div>
+            <Segmented label="Template categories" options={categoryOptions} value={selectedCategory} onChange={setSelectedCategory} className="flex flex-wrap" />
 
-            {/* Template Card List */}
-            <div className="max-h-[580px] overflow-y-auto space-y-2.5 pr-1">
+            <div className="max-h-[580px] space-y-2 overflow-y-auto pr-1">
               {loading ? (
-                <div className="flex flex-col items-center justify-center py-12 gap-2">
-                  <CircularProgress size={24} />
-                  <span className="text-xs text-slate-500 dark:text-slate-400">Retrieving templates…</span>
+                <div className="flex items-center justify-center gap-2 py-12 text-xs text-text-muted">
+                  <Loader2 size={14} className="animate-spin" /> Retrieving templates…
                 </div>
               ) : filteredTemplates.length === 0 ? (
-                <div className="p-8 rounded-2xl border border-dashed border-[#EBF0F5] dark:border-[#1E222D] text-center">
-                  <FileText size={28} className="mx-auto text-slate-400 opacity-40 mb-2" />
-                  <span className="text-xs text-slate-500 dark:text-slate-400">
-                    {templates.length === 0 ? 'No templates yet' : 'No templates match this search or category'}
-                  </span>
+                <div className={cn(EMPTY_BOX, 'p-8 text-xs text-text-muted')}>
+                  {templates.length === 0 ? 'No templates yet' : 'No templates match this search or category'}
                 </div>
               ) : (
                 filteredTemplates.map(t => {
                   const isSelected = editingTemplate?.id === t.id;
                   return (
-                    <div
+                    <button
                       key={t.id}
+                      type="button"
+                      aria-pressed={isSelected}
                       onClick={() => selectTemplate(t)}
-                      className={`p-4 rounded-xl border transition-all cursor-pointer ${
+                      className={cn(
+                        'block w-full cursor-pointer rounded-card border p-3.5 text-left transition-colors focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:outline-none',
                         isSelected
-                          ? 'border-blue-600 dark:border-blue-500 bg-blue-50/40 dark:bg-blue-950/20 shadow-xs'
-                          : 'border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] hover:border-slate-300 dark:hover:border-slate-700'
-                      }`}
+                          ? 'border-primary bg-primary-subtle'
+                          : 'border-card-border bg-card hover:border-input-border hover:bg-slate-50 dark:hover:bg-white/[0.02]',
+                      )}
                     >
-                      <div className="flex items-start justify-between gap-2 mb-1.5">
-                        <span className="text-xs font-bold text-slate-900 dark:text-white truncate">
-                          {t.name}
+                      <span className="mb-1 flex items-start justify-between gap-2">
+                        <span className="truncate text-[13px] font-semibold text-text-main">{t.name}</span>
+                        <span className="flex shrink-0 items-center gap-1">
+                          {t.steps && Array.isArray(t.steps) && t.steps.length > 1 && <Badge>{t.steps.length} Steps</Badge>}
+                          <Badge tone="blue">{t.category}</Badge>
                         </span>
-                        <div className="flex items-center gap-1.5 flex-shrink-0">
-                          {t.steps && Array.isArray(t.steps) && t.steps.length > 1 && (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                              {t.steps.length} Steps
-                            </span>
-                          )}
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900/40">
-                            {t.category}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="text-[11px] text-slate-500 dark:text-slate-400 truncate mb-1">
-                        {t.steps?.[0]?.subject || t.subject}
-                      </div>
-
-                      <p className="text-xs text-slate-600 dark:text-slate-400 line-clamp-2 leading-relaxed">
-                        {t.steps?.[0]?.body || t.body}
-                      </p>
-                    </div>
+                      </span>
+                      <span className="mb-1 block truncate text-xs text-text-sub">{t.steps?.[0]?.subject || t.subject}</span>
+                      <span className="line-clamp-2 text-xs leading-relaxed text-text-muted">{t.steps?.[0]?.body || t.body}</span>
+                    </button>
                   );
                 })
               )}
             </div>
           </div>
 
-          {/* Right Column: Template Editor / Preview */}
+          {/* Right column: the template editor or its preview */}
           <div className="lg:col-span-2">
             {editingTemplate ? (
-              <div className="rounded-2xl border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] p-6 shadow-xs space-y-5">
-                {/* Editor Header */}
-                <div className="flex items-center justify-between pb-4 border-b border-[#EBF0F5] dark:border-[#1E222D]">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <FileText size={18} className="text-blue-600 flex-shrink-0" />
-                    <h2 className="text-sm font-bold text-slate-900 dark:text-white tracking-tight truncate">
-                      Edit: {editingTemplate.name}
-                    </h2>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setPreviewResolved(!previewResolved)}
-                      className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold transition-colors cursor-pointer ${
-                        previewResolved
-                          ? 'bg-blue-600 text-white'
-                          : 'border border-[#EBF0F5] dark:border-[#1E222D] text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-[#161822]'
-                      }`}
-                    >
-                      <Eye size={13} />
-                      <span>{previewResolved ? 'Edit Mode' : 'Preview'}</span>
-                    </button>
+              <Card className="space-y-4 p-5">
+                <div className="flex items-center justify-between gap-3">
+                  <h2 className="min-w-0 truncate text-sm font-semibold text-text-main">Edit: {editingTemplate.name}</h2>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <Button size="sm" aria-pressed={previewResolved} onClick={() => setPreviewResolved(!previewResolved)}>
+                      {previewResolved ? <><PenLine size={12} /> Edit Mode</> : <><Eye size={12} /> Preview</>}
+                    </Button>
                     <MuiTooltip title="Delete Template">
-                      <button
-                        type="button"
-                        aria-label="Delete template"
+                      <Button
+                        variant="ghost" size="sm" iconOnly aria-label="Delete template"
                         onClick={() => deleteTemplate(editingTemplate.id)}
-                        className="w-8 h-8 rounded-full border border-rose-200 dark:border-rose-900/60 flex items-center justify-center text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                        className="hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-500/10 dark:hover:text-rose-400"
                       >
                         <Trash2 size={14} />
-                      </button>
+                      </Button>
                     </MuiTooltip>
                   </div>
                 </div>
 
-                {/* Sequence Step Chips */}
-                <div className="flex flex-wrap items-center gap-2 pb-4 border-b border-[#EBF0F5] dark:border-[#1E222D]">
-                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mr-1">
-                    Sequence Steps:
-                  </span>
-                  {editingTemplate.steps?.map((step: any, idx: number) => (
-                    <Chip
-                      key={step.id || idx}
-                      label={`Step ${idx + 1}${idx > 0 ? ` (+${step.waitDays}d)` : ''}`}
-                      onClick={() => setActiveStepIndex(idx)}
-                      onDelete={editingTemplate.steps.length > 1 ? () => removeStep(idx) : undefined}
-                      color={activeStepIndex === idx ? 'primary' : 'default'}
-                      variant={activeStepIndex === idx ? 'filled' : 'outlined'}
-                      sx={{ fontWeight: 700, fontSize: 11, borderRadius: '9999px' }}
-                    />
-                  ))}
-                  <button
-                    type="button"
-                    onClick={addStep}
-                    className="inline-flex items-center gap-1 px-3 py-1 rounded-full border border-dashed border-[#EBF0F5] dark:border-[#1E222D] text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white text-xs font-semibold transition-colors cursor-pointer"
-                  >
-                    <Plus size={12} />
-                    <span>Add Step</span>
-                  </button>
+                {/* Sequence steps */}
+                <div className="flex flex-wrap items-center gap-1.5 border-y border-card-border py-3">
+                  <span className="mr-1 text-xs text-text-sub">Sequence Steps</span>
+                  {editingTemplate.steps?.map((step: any, idx: number) => {
+                    const active = activeStepIndex === idx;
+                    return (
+                      <span
+                        key={step.id || idx}
+                        className={cn(
+                          'inline-flex h-7 items-center rounded-control border text-xs font-medium transition-colors',
+                          active ? 'border-primary bg-primary-subtle text-primary' : 'border-input-border bg-card text-text-sub hover:text-text-main',
+                        )}
+                      >
+                        <button
+                          type="button"
+                          aria-pressed={active}
+                          onClick={() => setActiveStepIndex(idx)}
+                          className={cn('h-full cursor-pointer px-2.5', editingTemplate.steps.length > 1 && 'pr-1.5')}
+                        >
+                          Step {idx + 1}{idx > 0 && <span className="font-normal opacity-70"> (+{step.waitDays}d)</span>}
+                        </button>
+                        {editingTemplate.steps.length > 1 && (
+                          <button
+                            type="button"
+                            aria-label={`Remove step ${idx + 1}`}
+                            onClick={() => removeStep(idx)}
+                            className="mr-1 flex size-5 cursor-pointer items-center justify-center rounded opacity-60 hover:bg-rose-50 hover:text-rose-600 hover:opacity-100 dark:hover:bg-rose-500/10 dark:hover:text-rose-400"
+                          >
+                            <X size={12} />
+                          </button>
+                        )}
+                      </span>
+                    );
+                  })}
+                  <Button variant="ghost" size="sm" onClick={addStep}>
+                    <Plus size={12} /> Add Step
+                  </Button>
                 </div>
 
-                {/* Mode: Preview or Edit */}
                 {previewResolved ? (
-                  <div className="space-y-4">
-                    <div className="p-4 rounded-2xl bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-900/40 flex items-start gap-3">
-                      <Eye size={16} className="text-blue-600 mt-0.5 flex-shrink-0" />
-                      <div>
-                        <div className="text-xs font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wider">
-                          Live Preview (Step {activeStepIndex + 1})
-                        </div>
-                        <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
-                          Variables and Spintax resolved for sample contact <strong className="text-slate-900 dark:text-white">Emily</strong> at <strong className="text-slate-900 dark:text-white">Stark Industries</strong>.
-                        </p>
-                      </div>
+                  <div className="space-y-3">
+                    <div className={INFO_BOX}>
+                      <div className="font-medium">Live Preview (Step {activeStepIndex + 1})</div>
+                      <p className="mt-0.5 text-text-sub">
+                        Variables and Spintax resolved for sample contact <strong className="font-medium text-text-main">Emily</strong> at <strong className="font-medium text-text-main">Stark Industries</strong>.
+                      </p>
                     </div>
 
-                    <div className="rounded-2xl border border-[#EBF0F5] dark:border-[#1E222D] bg-slate-50/40 dark:bg-[#161822]/40 p-5 space-y-4">
-                      <div className="pb-3 border-b border-[#EBF0F5] dark:border-[#1E222D]">
-                        <span className="text-[10px] text-slate-400 uppercase tracking-wider">Subject Preview:</span>
-                        <div className="text-sm font-semibold text-slate-900 dark:text-white mt-1">
+                    <div className="rounded-control border border-card-border">
+                      <div className="border-b border-card-border px-4 py-3">
+                        <div className="text-[11px] text-text-muted">Subject Preview</div>
+                        <p className="mt-0.5 text-[13px] font-medium text-text-main">
                           {personalizePreview(editingTemplate.steps?.[activeStepIndex]?.subject || '')}
-                        </div>
+                        </p>
                       </div>
-                      <div>
-                        <span className="text-[10px] text-slate-400 uppercase tracking-wider block mb-2">Message Preview:</span>
+                      <div className="px-4 py-3">
+                        <div className="mb-1.5 text-[11px] text-text-muted">Message Preview</div>
                         {bodyPreview?.isHtml ? (
-                          <iframe srcDoc={bodyPreview.body} title="Email Preview" sandbox="" className="w-full h-[480px] border border-[#EBF0F5] dark:border-[#1E222D] rounded-xl bg-white" />
+                          <iframe srcDoc={bodyPreview.body} title="Email Preview" sandbox="" className="h-[480px] w-full rounded-control border border-card-border bg-white" />
                         ) : (
-                          <div className="whitespace-pre-wrap text-xs text-slate-900 dark:text-white leading-relaxed">
-                            {bodyPreview?.body}
-                          </div>
+                          <p className="text-[13px] leading-relaxed whitespace-pre-wrap text-text-main">{bodyPreview?.body}</p>
                         )}
                       </div>
                     </div>
                   </div>
                 ) : (
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <TextField fullWidth size="small" label="Template Title" value={editingTemplate.name} onChange={(e) => setEditingTemplate({ ...editingTemplate, name: e.target.value })} />
-                      <TextField
-                        fullWidth size="small" label="Category" placeholder="e.g. Cold Outreach"
+                  <div className="space-y-3.5">
+                    <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2">
+                      <TextInput label="Template Title" value={editingTemplate.name} onChange={(e) => setEditingTemplate({ ...editingTemplate, name: e.target.value })} />
+                      <TextInput
+                        label="Category" placeholder="e.g. Cold Outreach" list="categories-list"
                         value={editingTemplate.category}
                         onChange={(e) => setEditingTemplate({ ...editingTemplate, category: e.target.value })}
-                        slotProps={{ htmlInput: { list: 'categories-list' } }}
                       />
                       <datalist id="categories-list">
-                        {Array.from(new Set(templates.map(t => t.category))).map(cat => (<option key={cat} value={cat} />))}
+                        {knownCategories.map(cat => (<option key={cat} value={cat} />))}
                       </datalist>
                     </div>
 
                     {activeStepIndex > 0 && (
-                      <TextField
-                        size="small" label="Wait Days Before Sending This Follow-Up" type="number"
+                      <TextInput
+                        label="Wait Days Before Sending This Follow-Up" type="number" min={1} className="sm:max-w-xs"
                         value={editingTemplate.steps?.[activeStepIndex]?.waitDays || 3}
                         onChange={(e) => updateStepField(activeStepIndex, 'waitDays', parseInt(e.target.value) || 1)}
-                        slotProps={{ htmlInput: { min: 1 } }}
                       />
                     )}
 
-                    <TextField
-                      fullWidth size="small" label="Subject Line"
+                    <TextInput
+                      label="Subject Line"
                       value={editingTemplate.steps?.[activeStepIndex]?.subject || ''}
                       onChange={(e) => updateStepField(activeStepIndex, 'subject', e.target.value)}
-
                     />
 
-                    <div className="bg-slate-50 dark:bg-[#161822] border border-[#EBF0F5] dark:border-[#1E222D] rounded-xl px-3 py-2">
-                      <VariableToolbar
-                        onInsert={(v) => updateStepField(activeStepIndex, 'body', (editingTemplate.steps?.[activeStepIndex]?.body || '') + ' ' + v)}
-                        onInsertSubject={(v) => updateStepField(activeStepIndex, 'subject', (editingTemplate.steps?.[activeStepIndex]?.subject || '') + ' ' + v)}
-                      />
+                    <div>
+                      <label htmlFor="template-body" className={LABEL}>Email Body (HTML or Plain Text)</label>
+                      <div className="overflow-hidden rounded-control border border-input-border bg-card focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20">
+                        <div className="border-b border-card-border bg-slate-50/70 px-3 py-2 dark:bg-white/[0.02]">
+                          <VariableToolbar
+                            onInsert={(v) => updateStepField(activeStepIndex, 'body', (editingTemplate.steps?.[activeStepIndex]?.body || '') + ' ' + v)}
+                            onInsertSubject={(v) => updateStepField(activeStepIndex, 'subject', (editingTemplate.steps?.[activeStepIndex]?.subject || '') + ' ' + v)}
+                          />
+                        </div>
+                        <textarea
+                          id="template-body"
+                          rows={16}
+                          placeholder="Write your email copy or paste HTML template code here..."
+                          value={editingTemplate.steps?.[activeStepIndex]?.body || ''}
+                          onChange={(e) => updateStepField(activeStepIndex, 'body', e.target.value)}
+                          className="block w-full resize-y bg-transparent px-3 py-2.5 font-mono text-xs leading-relaxed text-text-main placeholder:text-text-muted focus:outline-none"
+                        />
+                      </div>
                     </div>
 
-                    <TextField
-                      fullWidth multiline minRows={14} label="Email Body (HTML or Plain Text)"
-                      placeholder="Write your email copy or paste HTML template code here..."
-                      value={editingTemplate.steps?.[activeStepIndex]?.body || ''}
-                      onChange={(e) => updateStepField(activeStepIndex, 'body', e.target.value)}
-                      slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: 12, lineHeight: 1.6 } } }}
-                    />
-
-                    <div className="flex items-center justify-between pt-2">
-                      <button
-                        type="button"
-                        onClick={() => handleCopy(editingTemplate.id, editingTemplate.steps?.[activeStepIndex]?.body || '')}
-                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-[#EBF0F5] dark:border-[#1E222D] text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-[#161822] transition-colors cursor-pointer"
-                      >
+                    <div className="flex items-center justify-between gap-3 pt-1">
+                      <Button onClick={() => handleCopy(editingTemplate.id, editingTemplate.steps?.[activeStepIndex]?.body || '')}>
                         {copiedId === editingTemplate.id ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
-                        <span>{copiedId === editingTemplate.id ? 'Copied' : 'Copy Code'}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={handleSave}
-                        disabled={saving}
-                        className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer disabled:opacity-50"
-                      >
-                        {saving ? <CircularProgress size={14} color="inherit" /> : <ArrowRight size={14} />}
-                        <span>Save Template</span>
-                      </button>
+                        {copiedId === editingTemplate.id ? 'Copied' : 'Copy Code'}
+                      </Button>
+                      <Button variant="primary" onClick={handleSave} disabled={saving}>
+                        {saving && <Loader2 size={14} className="animate-spin" />}
+                        Save Template
+                      </Button>
                     </div>
                   </div>
                 )}
-              </div>
+              </Card>
             ) : !loading && templates.length === 0 ? (
-              <div className="p-12 rounded-2xl border border-dashed border-[#EBF0F5] dark:border-[#1E222D] text-center">
-                <FileText size={44} className="mx-auto text-slate-400 opacity-30 mb-3" />
-                <h3 className="text-sm font-bold text-slate-900 dark:text-white tracking-tight">
-                  Your Copy Library Is Empty
-                </h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto mt-1 mb-5">
+              <div className={cn(EMPTY_BOX, 'p-12')}>
+                <FileText size={28} className="mx-auto mb-3 text-text-muted" />
+                <h3 className="text-sm font-semibold text-text-main">Your Copy Library Is Empty</h3>
+                <p className="mx-auto mt-1 mb-5 max-w-sm text-xs text-text-sub">
                   Create a template to write a reusable email sequence. Campaigns can then fill their steps from it with Use Template.
                 </p>
-                <button
-                  type="button"
-                  onClick={createNewTemplate}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-600 text-white text-xs font-semibold cursor-pointer"
-                >
-                  <Plus size={14} />
-                  <span>Create Template</span>
-                </button>
+                <Button variant="primary" onClick={createNewTemplate} className="mx-auto">
+                  <Plus size={14} /> Create Template
+                </Button>
               </div>
             ) : (
-              <div className="p-12 rounded-2xl border border-dashed border-[#EBF0F5] dark:border-[#1E222D] text-center">
-                <FileText size={44} className="mx-auto text-slate-400 opacity-30 mb-3" />
-                <span className="text-sm font-semibold text-slate-500 dark:text-slate-400">
-                  Select Template to Configure Copy
-                </span>
+              <div className={cn(EMPTY_BOX, 'p-12 text-[13px] text-text-muted')}>
+                Select Template to Configure Copy
               </div>
             )}
           </div>
         </div>
       )}
 
-      {/* Import HTML Files Dialog */}
-      <Dialog open={importOpen} onClose={closeImport} maxWidth="sm" fullWidth slotProps={{ paper: { sx: { borderRadius: '16px' } } }}>
+      {/* Import HTML files dialog */}
+      <Dialog open={importOpen} onClose={closeImport} maxWidth="sm" fullWidth slotProps={{ paper: { sx: { borderRadius: '12px', backgroundImage: 'none' } } }}>
         <form onSubmit={(e) => { e.preventDefault(); runImport(); }}>
-          <DialogTitle>
-            <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
-              <Upload size={20} color="#2563EB" />
-              <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Import HTML Files</Typography>
-            </Stack>
-          </DialogTitle>
-          <DialogContent dividers sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {importError && <Alert severity="error">{importError}</Alert>}
+          <h2 className="px-5 pt-5 pb-4 text-[15px] font-semibold text-text-main">Import HTML Files</h2>
+          <div className="space-y-4 border-y border-card-border px-5 py-4">
+            {importError && <div role="alert" className={ERROR_BOX}>{importError}</div>}
 
             {importRefused.length > 0 && (
-              <Alert severity="warning">
-                <AlertTitle>{importRefused.length === 1 ? '1 File Was Not Read' : `${importRefused.length} Files Were Not Read`}</AlertTitle>
+              <div className={WARN_BOX}>
+                <div className="mb-1 font-semibold">{importRefused.length === 1 ? '1 File Was Not Read' : `${importRefused.length} Files Were Not Read`}</div>
                 {importRefused.map((file, idx) => (
-                  <Typography key={idx} variant="caption" sx={{ display: 'block' }}>{file.fileName}: {file.reason}</Typography>
+                  <div key={idx}>{file.fileName}: {file.reason}</div>
                 ))}
-              </Alert>
+              </div>
             )}
 
             {importEmails.length === 0 ? (
-              <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+              <p className="text-[13px] text-text-sub">
                 None of the files picked can be imported. Pick .html or .htm files, one per email.
-              </Typography>
+              </p>
             ) : (
               <>
                 {importEmails.length > 1 && (
-                  <Box>
-                    <ToggleButtonGroup value={importMode} exclusive fullWidth size="small" disabled={importing} onChange={(_, v) => v && setImportMode(v)}>
-                      <ToggleButton value="sequence" sx={{ fontWeight: 700 }}>One Template, {importEmails.length} Steps</ToggleButton>
-                      <ToggleButton value="separate" sx={{ fontWeight: 700 }}>{importEmails.length} Separate Templates</ToggleButton>
-                    </ToggleButtonGroup>
-                    <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 1 }}>
+                  <fieldset disabled={importing} className="min-w-0">
+                    <Segmented
+                      label="Import as"
+                      value={importMode}
+                      onChange={setImportMode}
+                      options={[
+                        { value: 'sequence', label: `One Template, ${importEmails.length} Steps` },
+                        { value: 'separate', label: `${importEmails.length} Separate Templates` },
+                      ]}
+                    />
+                    <p className={cn(CAPTION, 'mt-1.5')}>
                       {importMode === 'sequence'
                         ? 'The files become the steps of one template, in file-name order. Use Template on a campaign then fills every step at once.'
                         : 'Each file becomes its own single-step template, named after the file.'}
-                    </Typography>
-                  </Box>
+                    </p>
+                  </fieldset>
                 )}
 
                 {importAsOne && (
-                  <TextField
-                    label="Template Name" required size="small" autoFocus
+                  <TextInput
+                    label="Template Name" required autoFocus
                     placeholder="e.g. Win-Back Emails"
                     value={importName} onChange={(e) => setImportName(e.target.value)} disabled={importing}
                   />
                 )}
-                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-                  <TextField
-                    fullWidth size="small" label="Category" placeholder="e.g. Cold Outreach"
+                <div className="flex flex-col gap-3.5 sm:flex-row">
+                  <TextInput
+                    label="Category" placeholder="e.g. Cold Outreach" list="import-categories-list" className="flex-1"
                     value={importCategory} onChange={(e) => setImportCategory(e.target.value)} disabled={importing}
-                    slotProps={{ htmlInput: { list: 'import-categories-list' } }}
                   />
                   <datalist id="import-categories-list">
-                    {Array.from(new Set(templates.map(t => t.category))).map(cat => (<option key={cat} value={cat} />))}
+                    {knownCategories.map(cat => (<option key={cat} value={cat} />))}
                   </datalist>
                   {importAsOne && importEmails.length > 1 && (
-                    <TextField
-                      fullWidth size="small" type="number" label="Days Between Steps"
+                    <TextInput
+                      label="Days Between Steps" type="number" min={1} className="flex-1"
                       value={importWait} onChange={(e) => setImportWait(e.target.value)}
                       onBlur={() => setImportWait(String(importWaitDays(importWait)))} disabled={importing}
-                      slotProps={{ htmlInput: { min: 1 } }}
                     />
                   )}
-                </Stack>
+                </div>
                 {importAsOne && importEmails.length > 1 && (
-                  <Typography variant="caption" sx={{ color: 'text.secondary', mt: -1 }}>
+                  <p className={cn(CAPTION, '-mt-2')}>
                     Step 1 is sent on enrollment. Each later step waits this many days after the one before it; any step&apos;s wait can be changed after the import.
-                  </Typography>
+                  </p>
                 )}
 
-                <Box sx={{ maxHeight: 280, overflowY: 'auto', border: 1, borderColor: 'divider', borderRadius: '12px' }}>
-                  {importEmails.map((email, idx) => (
-                    <Stack key={`${idx}-${email.fileName}`} direction="row" spacing={1.5} sx={{ alignItems: 'flex-start', px: 1.5, py: 1.25, borderTop: idx === 0 ? 0 : 1, borderColor: 'divider' }}>
-                      {importAsOne && importEmails.length > 1 && (
-                        <Chip size="small" label={`Step ${idx + 1}`} sx={{ height: 20, fontSize: 10, fontWeight: 700, flexShrink: 0, mt: 0.25 }} />
-                      )}
-                      <Box sx={{ minWidth: 0, flex: 1 }}>
-                        <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap title={email.subject}>{email.subject}</Typography>
-                        <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }} noWrap title={email.fileName}>{email.fileName}</Typography>
-                        {!email.subjectFromTitle && (
-                          <Typography variant="caption" sx={{ color: 'warning.main', display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.25 }}>
-                            <AlertTriangle size={12} style={{ flexShrink: 0 }} /> No &lt;title&gt; in the file, so the file name is used as the subject.
-                          </Typography>
-                        )}
-                        {email.hasUnreadableText && (
-                          <Typography variant="caption" sx={{ color: 'warning.main', display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.25 }}>
-                            <AlertTriangle size={12} style={{ flexShrink: 0 }} /> Some characters could not be read and would be sent as {'\uFFFD'}. Save the file as UTF-8 and import it again.
-                          </Typography>
-                        )}
-                      </Box>
-                    </Stack>
-                  ))}
-                </Box>
-                <Typography variant="caption" sx={{ color: 'text.secondary', mt: -1 }}>
-                  Each subject is its file&apos;s &lt;title&gt;. The whole file becomes the email body, unchanged.
-                </Typography>
+                <div>
+                  <div className="max-h-[280px] divide-y divide-card-border overflow-y-auto rounded-control border border-card-border">
+                    {importEmails.map((email, idx) => (
+                      <div key={`${idx}-${email.fileName}`} className="flex items-start gap-2.5 px-3 py-2.5">
+                        {importAsOne && importEmails.length > 1 && <Badge className="mt-0.5">Step {idx + 1}</Badge>}
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-[13px] font-medium text-text-main" title={email.subject}>{email.subject}</div>
+                          <div className="truncate text-[11px] text-text-muted" title={email.fileName}>{email.fileName}</div>
+                          {!email.subjectFromTitle && (
+                            <div className={WARN_LINE}>
+                              <AlertTriangle size={12} className="shrink-0" /> No &lt;title&gt; in the file, so the file name is used as the subject.
+                            </div>
+                          )}
+                          {email.hasUnreadableText && (
+                            <div className={WARN_LINE}>
+                              <AlertTriangle size={12} className="shrink-0" /> Some characters could not be read and would be sent as {'�'}. Save the file as UTF-8 and import it again.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <p className={cn(CAPTION, 'mt-1.5')}>
+                    Each subject is its file&apos;s &lt;title&gt;. The whole file becomes the email body, unchanged.
+                  </p>
+                </div>
 
                 {importNameClashes.length > 0 && (
-                  <Alert severity="info">
+                  <div role="status" className={INFO_BOX}>
                     {importNameClashes.length === 1
                       ? `A template named "${importNameClashes[0]}" is already in the library.`
                       : `${importNameClashes.length} of these names are already in the library.`}{' '}
                     The import adds new templates and leaves the existing ones as they are.
-                  </Alert>
+                  </div>
                 )}
               </>
             )}
-          </DialogContent>
-          <DialogActions sx={{ p: 2 }}>
-            <Button color="inherit" onClick={closeImport} disabled={importing}>{importEmails.length === 0 ? 'Close' : 'Cancel'}</Button>
+          </div>
+          <div className="flex justify-end gap-2 px-5 py-4">
+            <Button variant="ghost" onClick={closeImport} disabled={importing}>{importEmails.length === 0 ? 'Close' : 'Cancel'}</Button>
             {importEmails.length > 0 && (
-              <Button
-                type="submit" variant="contained"
-                startIcon={importing ? <CircularProgress size={16} color="inherit" /> : <Upload size={16} />}
-                disabled={importing || (importAsOne && !importName.trim())}
-              >
+              <Button type="submit" variant="primary" disabled={importing || (importAsOne && !importName.trim())}>
+                {importing ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
                 {importAsOne ? 'Import Template' : `Import ${importEmails.length} Templates`}
               </Button>
             )}
-          </DialogActions>
+          </div>
         </form>
       </Dialog>
 

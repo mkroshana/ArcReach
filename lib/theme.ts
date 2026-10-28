@@ -9,6 +9,7 @@ import { createTheme } from '@mui/material/styles';
  * - Shape: 12px cards and dialogs, 8px buttons and inputs, 6px chips; surfaces are flat (1px border, no shadow).
  * - Typography: Clean modern type scale with tighter headlines, Title Case, purposeful spacing.
  * - CSS Variables: Mode switching driven by class selector 'class' (generating .light and .dark selectors).
+ *   Overrides read (theme.vars ?? theme).palette: theme.palette holds only the light values, theme.vars follows the class.
  */
 export const theme = createTheme({
   cssVariables: {
@@ -174,12 +175,12 @@ export const theme = createTheme({
           fontSize: '0.875rem',
         },
         outlined: ({ theme }) => ({
-          borderColor: theme.palette.divider,
-          color: theme.palette.text.primary,
-          backgroundColor: theme.palette.background.paper,
+          borderColor: (theme.vars ?? theme).palette.divider,
+          color: (theme.vars ?? theme).palette.text.primary,
+          backgroundColor: (theme.vars ?? theme).palette.background.paper,
           '&:hover': {
-            borderColor: theme.palette.divider,
-            backgroundColor: theme.palette.action.hover,
+            borderColor: (theme.vars ?? theme).palette.divider,
+            backgroundColor: (theme.vars ?? theme).palette.action.hover,
           },
         }),
       },
@@ -192,8 +193,8 @@ export const theme = createTheme({
         root: ({ theme }) => ({
           borderRadius: 12,
           backgroundImage: 'none',
-          backgroundColor: theme.palette.background.paper,
-          border: `1px solid ${theme.palette.divider}`,
+          backgroundColor: (theme.vars ?? theme).palette.background.paper,
+          border: `1px solid ${(theme.vars ?? theme).palette.divider}`,
           boxShadow: 'none',
         }),
       },
@@ -216,8 +217,8 @@ export const theme = createTheme({
         paper: ({ theme }) => ({
           borderRadius: 12,
           backgroundImage: 'none',
-          backgroundColor: theme.palette.background.paper,
-          border: `1px solid ${theme.palette.divider}`,
+          backgroundColor: (theme.vars ?? theme).palette.background.paper,
+          border: `1px solid ${(theme.vars ?? theme).palette.divider}`,
           boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
         }),
       },
@@ -247,18 +248,18 @@ export const theme = createTheme({
       styleOverrides: {
         root: ({ theme }) => ({
           borderRadius: 8,
-          backgroundColor: theme.palette.background.paper,
+          backgroundColor: (theme.vars ?? theme).palette.background.paper,
           '& .MuiOutlinedInput-notchedOutline': {
-            borderColor: theme.palette.divider,
+            borderColor: (theme.vars ?? theme).palette.divider,
             transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
           },
           '&:hover .MuiOutlinedInput-notchedOutline': {
-            borderColor: theme.palette.text.disabled,
+            borderColor: (theme.vars ?? theme).palette.text.disabled,
           },
           '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-            borderColor: theme.palette.primary.main,
+            borderColor: (theme.vars ?? theme).palette.primary.main,
             borderWidth: '1px',
-            boxShadow: `0 0 0 3px ${theme.palette.action.selected}`,
+            boxShadow: `0 0 0 3px ${(theme.vars ?? theme).palette.action.selected}`,
           },
         }),
         input: {
@@ -269,13 +270,13 @@ export const theme = createTheme({
     MuiTableCell: {
       styleOverrides: {
         root: ({ theme }) => ({
-          borderColor: theme.palette.divider,
+          borderColor: (theme.vars ?? theme).palette.divider,
           paddingBlock: 12,
           paddingInline: 16,
           fontSize: '0.8125rem',
         }),
         head: ({ theme }) => ({
-          color: theme.palette.text.secondary,
+          color: (theme.vars ?? theme).palette.text.secondary,
           fontWeight: 500,
           textTransform: 'uppercase',
           fontSize: '0.6875rem',

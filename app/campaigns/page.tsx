@@ -4,17 +4,18 @@ import { useState, useEffect, Fragment } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
-  Plus, PlayCircle, Search, Layers, RefreshCw, Loader2,
-  Mail, User, ChevronRight, ChevronDown, Gauge, Inbox, Trash2, Play, Pause, Send, Check, Clock, TimerOff, UserX,
-  CircleStop, RotateCcw, SendHorizontal,
+  Plus, PlayCircle, RefreshCw, Loader2, ChevronRight, Gauge, Trash2, Play, Pause, Send, Check, Clock, TimerOff, UserX,
+  CircleStop, RotateCcw,
 } from 'lucide-react';
-import {
-  Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
-  Dialog, DialogTitle, DialogContent, DialogActions, Table, TableHead, TableBody, TableRow, TableCell,
-  Snackbar, Alert, AlertTitle, InputAdornment, CircularProgress, Tooltip as MuiTooltip, Select, MenuItem,
-  Checkbox, FormControlLabel,
-} from '@mui/material';
-import { alpha } from '@mui/material/styles';
+import { Snackbar, Alert, Tooltip as MuiTooltip } from '@mui/material';
+import { Badge, type BadgeTone } from '@/components/ui/Badge';
+import { Button, buttonClasses } from '@/components/ui/Button';
+import { Card } from '@/components/ui/Card';
+import { inputClasses, SearchInput } from '@/components/ui/Input';
+import { Notice } from '@/components/ui/Notice';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { Table, TD, TH, THead, TR } from '@/components/ui/Table';
+import { cn } from '@/lib/utils';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { ActionDrawer } from '@/components/ActionDrawer';
 import { queuedLeadsMessage } from '@/lib/campaignSteps';
@@ -54,44 +55,8 @@ interface DbCampaign {
   skipLeadsEmailedBy?: string[];
 }
 
-const statusColorMap = { Active: 'success', Draft: 'default', Paused: 'warning', Stopped: 'error' } as const;
-
-/** Shopeers status pill badge with emerald pulse dot, pause indicator, stop indicator, or neutral dot. */
-function CampaignStatusPill({ status }: { status: 'Active' | 'Draft' | 'Paused' | 'Stopped' }) {
-  if (status === 'Active') {
-    return (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/50">
-        <span className="relative flex h-2 w-2">
-          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
-        </span>
-        <span>Active</span>
-      </span>
-    );
-  }
-  if (status === 'Paused') {
-    return (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border border-amber-200/60 dark:border-amber-800/50">
-        <Pause size={12} className="text-amber-500" />
-        <span>Paused</span>
-      </span>
-    );
-  }
-  if (status === 'Stopped') {
-    return (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 border border-rose-200/60 dark:border-rose-800/50">
-        <CircleStop size={12} className="text-rose-500" />
-        <span>Stopped</span>
-      </span>
-    );
-  }
-  return (
-    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-slate-100 dark:bg-slate-800/60 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-      <span className="w-2 h-2 rounded-full bg-slate-400" />
-      <span>Draft</span>
-    </span>
-  );
-}
+/** Status tag colours, matching the dashboard's Recent Campaigns. */
+const STATUS_TONE: Record<DbCampaign['status'], BadgeTone> = { Active: 'green', Draft: 'neutral', Paused: 'amber', Stopped: 'red' };
 
 /** A campaign's creation date with the month as a word, "8 Oct 2026" or "Oct 8, 2026" by locale, so day and month cannot be mixed up. */
 const createdDate = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
@@ -248,7 +213,10 @@ export default function CampaignsPage() {
   };
 
   const retryButton = (
-    <Button color="inherit" size="small" startIcon={<RefreshCw size={14} />} onClick={() => loadData()}>Retry</Button>
+    <Button size="sm" onClick={() => loadData()}>
+      <RefreshCw size={12} />
+      Retry
+    </Button>
   );
 
   useEffect(() => { loadData(); }, []);
@@ -315,95 +283,84 @@ export default function CampaignsPage() {
   // Send times are given in the campaign's time zone and, where it reads differently, in the viewer's.
   const viewerZone = viewerTimeZone();
 
+
   return (
-    <div className="space-y-6 pb-12 w-full">
+    <div className="w-full space-y-4 pb-12">
       <Snackbar open={!!toast} anchorOrigin={{ vertical: 'top', horizontal: 'right' }} autoHideDuration={toast?.duration ?? null} onClose={(_, reason) => { if (reason !== 'clickaway') setToast(null); }}>
         {toast ? <Alert severity={toast.type} variant="filled" onClose={() => setToast(null)} sx={{ borderRadius: '12px', maxWidth: 520 }}>{toast.message}</Alert> : undefined}
       </Snackbar>
 
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-[#EBF0F5] dark:border-[#1E222D]">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-            Campaign Sequences
-          </h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Each campaign, where its leads are in the sequence and when the next step goes out.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => {
-            if (!accountsLoaded) { showToast('Your mailboxes could not be loaded, so a campaign cannot be created yet. Use Retry to load them.', 'error'); return; }
-            if (accounts.length === 0) { showToast('Please first connect at least one Mailbox of your own in the Senders view before starting a campaign.', 'error'); return; }
-            setIsAddOpen(true);
-          }}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs md:text-sm font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition-colors cursor-pointer self-start sm:self-auto"
-        >
-          <Plus size={16} />
-          <span>Create Campaign</span>
-        </button>
-      </div>
+      <PageHeader
+        title="Campaigns"
+        actions={
+          <Button
+            variant="primary"
+            onClick={() => {
+              if (!accountsLoaded) { showToast('Your mailboxes could not be loaded, so a campaign cannot be created yet. Use Retry to load them.', 'error'); return; }
+              if (accounts.length === 0) { showToast('Please first connect at least one Mailbox of your own in the Senders view before starting a campaign.', 'error'); return; }
+              setIsAddOpen(true);
+            }}
+          >
+            <Plus size={14} />
+            Create Campaign
+          </Button>
+        }
+      />
 
       {loadError && campaignsLoaded && !loading && (
-        <Alert severity="warning" action={retryButton}>
-          <AlertTitle>Campaigns Could Not Be Refreshed</AlertTitle>
+        <Notice tone="warning" title="Campaigns Could Not Be Refreshed" action={retryButton}>
           This list may be out of date. {loadError}
-        </Alert>
+        </Notice>
       )}
 
       {accountsError && !accountsLoaded && !loading && (
-        <Alert severity="warning" action={retryButton}>
-          <AlertTitle>Mailboxes Could Not Be Loaded</AlertTitle>
+        <Notice tone="warning" title="Mailboxes Could Not Be Loaded" action={retryButton}>
           A campaign cannot be created until your mailboxes load. {accountsError}
-        </Alert>
+        </Notice>
       )}
 
-      <div className="rounded-2xl border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] shadow-xs overflow-hidden">
+      <Card className="overflow-hidden">
         {/* Toolbar */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 sm:px-6 border-b border-[#EBF0F5] dark:border-[#1E222D]">
-          <div className="relative w-full sm:w-72">
-            <Search size={14} className="text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              placeholder="Search campaigns..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-9 pr-3.5 py-2 rounded-xl text-xs border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors"
-            />
-          </div>
-          <div className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-            Showing {filteredCampaigns.length} {filteredCampaigns.length === 1 ? 'campaign' : 'campaigns'}
-          </div>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-card-border px-4 py-3">
+          <SearchInput
+            aria-label="Search campaigns"
+            placeholder="Search campaigns"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full sm:w-64"
+          />
+          <span className="text-xs text-text-muted tabular-nums">
+            {filteredCampaigns.length} {filteredCampaigns.length === 1 ? 'campaign' : 'campaigns'}
+          </span>
         </div>
 
         {loading ? (
-          <Stack sx={{ alignItems: 'center', py: 8, gap: 2 }}>
-            <CircularProgress size={24} />
-            <Typography variant="caption" sx={{ color: 'text.secondary' }}>Loading campaigns…</Typography>
-          </Stack>
+          <div className="flex flex-col items-center gap-2 py-16 text-xs text-text-muted">
+            <Loader2 size={18} className="animate-spin" />
+            Loading campaigns…
+          </div>
         ) : !campaignsLoaded ? (
-          <Box sx={{ p: 2 }}>
-            <Alert severity="error" action={retryButton}>
-              <AlertTitle>Campaigns Could Not Be Loaded</AlertTitle>
+          <div className="p-4">
+            <Notice tone="error" title="Campaigns Could Not Be Loaded" action={retryButton}>
               {loadError || 'Campaigns could not be loaded.'}
-            </Alert>
-          </Box>
+            </Notice>
+          </div>
         ) : (
-          <Box sx={{ overflowX: 'auto' }}>
-            <Table size="small">
-              <TableHead>
-                <TableRow sx={{ '& th': { fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', fontSize: 10, color: 'text.secondary' } }}>
-                  <TableCell>Campaign</TableCell>
-                  <TableCell>Sender Mailbox</TableCell>
-                  <TableCell>Owner</TableCell>
-                  <TableCell>Status</TableCell>
-                  <TableCell align="right">Configure</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
+          <div className="overflow-x-auto">
+            <Table>
+              <THead>
+                <tr>
+                  <TH>Campaign</TH>
+                  <TH>Sender Mailbox</TH>
+                  <TH>Owner</TH>
+                  <TH>Status</TH>
+                  <TH className="text-right"><span className="sr-only">Actions</span></TH>
+                </tr>
+              </THead>
+              <tbody>
                 {filteredCampaigns.map(campaign => {
                   const isExpanded = expandedCampaignId === campaign.id;
+                  const toggleExpanded = () => setExpandedCampaignId(isExpanded ? null : campaign.id);
                   const resumeNote = autoResumeNote(campaign);
                   const ownerNote = ownerDisabledNote(campaign);
                   const stopNote = stoppedNote(campaign);
@@ -414,169 +371,139 @@ export default function CampaignsPage() {
                   const skippedBy = (campaign.skipLeadsEmailedBy ?? []).map(id => campaigns.find(c => c.id === id)?.name ?? null);
                   return (
                     <Fragment key={campaign.id}>
-                      <TableRow hover onClick={() => setExpandedCampaignId(isExpanded ? null : campaign.id)} sx={{ cursor: 'pointer', bgcolor: isExpanded ? 'action.hover' : undefined }}>
-                        <TableCell>
-                          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                            {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                            <SendHorizontal size={16} className="text-slate-400 dark:text-slate-500 shrink-0" />
-                            <Typography variant="body2" sx={{ fontWeight: 700 }}>{campaign.name}</Typography>
-                          </Stack>
-                          <Typography variant="caption" sx={{ color: 'text.secondary', ml: '46px', display: 'block' }}>
+                      <TR onClick={toggleExpanded} className={cn('cursor-pointer', isExpanded && 'border-b-0 bg-slate-50/70 dark:bg-white/[0.02]')}>
+                        <TD>
+                          <button
+                            type="button"
+                            aria-expanded={isExpanded}
+                            onClick={(e) => { e.stopPropagation(); toggleExpanded(); }}
+                            className="flex cursor-pointer items-center gap-1.5 text-left font-medium text-text-main"
+                          >
+                            <ChevronRight size={14} className={cn('shrink-0 text-text-muted transition-transform', isExpanded && 'rotate-90')} />
+                            {campaign.name}
+                          </button>
+                          <div className="mt-0.5 pl-5 text-xs text-text-muted">
                             Created {createdDate.format(new Date(campaign.createdAt))}
-                          </Typography>
-                        </TableCell>
-                        <TableCell sx={{ color: 'text.secondary' }}>
-                          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                            <Mail size={14} /> {campaign.senderAccount?.emailAddress || 'N/A'}
-                          </Stack>
-                        </TableCell>
-                        <TableCell sx={{ color: 'text.secondary' }}>
-                          <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                            <User size={14} /> {campaign.userId === session?.id ? `Me (${session?.name})` : (campaign.user?.name || campaign.user?.email || 'Company Admin')}
-                          </Stack>
-                        </TableCell>
-                        <TableCell>
-                          <CampaignStatusPill status={campaign.status} />
+                          </div>
+                        </TD>
+                        <TD className="text-text-sub">{campaign.senderAccount?.emailAddress || 'N/A'}</TD>
+                        <TD className="text-text-sub">
+                          {campaign.userId === session?.id ? `Me (${session?.name})` : (campaign.user?.name || campaign.user?.email || 'Company Admin')}
+                        </TD>
+                        <TD>
+                          <Badge tone={STATUS_TONE[campaign.status]} dot>{campaign.status}</Badge>
                           {resumeNote && (
-                            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
-                              <Clock size={11} style={{ flexShrink: 0 }} /> {resumeNote}
-                            </Typography>
+                            <div className="mt-1 flex items-center gap-1 text-xs text-text-muted">
+                              <Clock size={11} className="shrink-0" /> {resumeNote}
+                            </div>
                           )}
                           {ownerNote && (
-                            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
-                              <UserX size={11} style={{ flexShrink: 0 }} /> {ownerNote}
-                            </Typography>
+                            <div className="mt-1 flex items-center gap-1 text-xs text-text-muted">
+                              <UserX size={11} className="shrink-0" /> {ownerNote}
+                            </div>
                           )}
-                          {stopNote && (
-                            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5 }}>
-                              {stopNote}
-                            </Typography>
-                          )}
-                        </TableCell>
-                        <TableCell align="right" onClick={(e) => e.stopPropagation()}>
-                          <Stack direction="row" spacing={1} sx={{ justifyContent: 'flex-end', alignItems: 'center' }}>
+                          {stopNote && <div className="mt-1 text-xs text-text-muted">{stopNote}</div>}
+                        </TD>
+                        <TD className="text-right" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center justify-end gap-1">
                             <MuiTooltip title="Delete">
-                              <IconButton aria-label="Delete campaign" size="small" onClick={(e) => handleDeleteCampaign(campaign.id, e)} sx={{ color: 'error.main' }}>
+                              <Button
+                                variant="ghost" size="sm" iconOnly aria-label="Delete campaign"
+                                onClick={(e) => handleDeleteCampaign(campaign.id, e)}
+                                className="text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:text-rose-400 dark:hover:bg-rose-500/10"
+                              >
                                 <Trash2 size={14} />
-                              </IconButton>
+                              </Button>
                             </MuiTooltip>
-                            <Link
-                              href={`/campaigns/${campaign.id}`}
-                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-200 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                            >
-                              <span>Configure</span>
-                              <ChevronRight size={14} />
+                            <Link href={`/campaigns/${campaign.id}`} className={buttonClasses({ size: 'sm' })}>
+                              Configure
                             </Link>
-                          </Stack>
-                        </TableCell>
-                      </TableRow>
+                          </div>
+                        </TD>
+                      </TR>
                       {isExpanded && (
-                        <TableRow sx={{ bgcolor: 'action.hover' }}>
-                          <TableCell colSpan={5} sx={{ p: 3 }}>
-                            <Stack spacing={2}>
-                              <Stack direction={{ xs: 'column', md: 'row' }} sx={{ justifyContent: 'space-between', alignItems: { md: 'center' }, gap: 1.5 }}>
-                                <Box sx={{ minWidth: 0 }}>
-                                  <Typography variant="subtitle1" sx={{ fontWeight: 700, lineHeight: 1.4 }}>
+                        <tr className="border-b border-card-border bg-slate-50/70 dark:bg-white/[0.02]">
+                          <td colSpan={5} className="px-4 pt-1 pb-4">
+                            <div className="space-y-3">
+                              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                                <div className="min-w-0">
+                                  <div className="text-sm font-semibold text-text-main">
                                     {sequenceHeadline(campaign, new Date(), (send) => nextSendTimes(send, viewerZone).campaign)}
-                                  </Typography>
-                                  <Typography variant="body2" sx={{ color: 'text.secondary' }}>{sequenceCounts(stepStats, campaign.enrollmentSummary, skippedBy)}</Typography>
-                                </Box>
-                                <Stack direction="row" spacing={1} sx={{ flexShrink: 0 }}>
+                                  </div>
+                                  <div className="mt-0.5 text-xs text-text-sub">{sequenceCounts(stepStats, campaign.enrollmentSummary, skippedBy)}</div>
+                                </div>
+                                <div className="flex shrink-0 flex-wrap gap-2">
                                   {resumeNote && (
-                                    <Button
-                                      size="small" variant="outlined" color="inherit"
-                                      startIcon={<TimerOff size={12} />}
-                                      onClick={(e) => handleKeepPaused(campaign.id, e)}
-                                      sx={{ borderColor: 'divider' }}
-                                    >
-                                      Keep Paused
+                                    <Button size="sm" onClick={(e) => handleKeepPaused(campaign.id, e)}>
+                                      <TimerOff size={12} /> Keep Paused
                                     </Button>
                                   )}
                                   {stopped ? (
-                                    <Button
-                                      size="small" variant="outlined" color="inherit"
-                                      startIcon={<RotateCcw size={12} />}
-                                      onClick={(e) => confirmStopOrRestart(campaign, e)}
-                                      sx={{ borderColor: 'divider' }}
-                                    >
-                                      Restart
+                                    <Button size="sm" onClick={(e) => confirmStopOrRestart(campaign, e)}>
+                                      <RotateCcw size={12} /> Restart
                                     </Button>
                                   ) : (
                                     <>
-                                      <Button
-                                        size="small" variant="outlined" color="inherit"
-                                        startIcon={campaign.status === 'Active' ? <Pause size={12} color="#d97706" /> : <Play size={12} color="#10b981" />}
-                                        onClick={(e) => handleToggleStatus(campaign.id, campaign.status, e)}
-                                        sx={{ borderColor: 'divider' }}
-                                      >
+                                      <Button size="sm" onClick={(e) => handleToggleStatus(campaign.id, campaign.status, e)}>
+                                        {campaign.status === 'Active'
+                                          ? <Pause size={12} className="text-amber-600 dark:text-amber-400" />
+                                          : <Play size={12} className="text-emerald-600 dark:text-emerald-400" />}
                                         {campaign.status === 'Active' ? 'Pause' : 'Activate'}
                                       </Button>
                                       {STOPPABLE_STATUSES.includes(campaign.status) && (
-                                        <Button
-                                          size="small" variant="outlined" color="error"
-                                          startIcon={<CircleStop size={12} />}
-                                          onClick={(e) => confirmStopOrRestart(campaign, e)}
-                                        >
-                                          Stop
+                                        <Button variant="danger" size="sm" onClick={(e) => confirmStopOrRestart(campaign, e)}>
+                                          <CircleStop size={12} /> Stop
                                         </Button>
                                       )}
                                     </>
                                   )}
                                   {campaign.status === 'Active' && (
                                     <MuiTooltip title="Queue the leads that are due now. A lead still waiting out a step's wait days stays put.">
-                                      <Box component="span">
-                                        <Button
-                                          size="small" variant="outlined" color="inherit"
-                                          startIcon={executingId === campaign.id ? <Loader2 size={12} className="animate-spin" /> : <PlayCircle size={12} />}
-                                          onClick={() => handleRunCampaign(campaign.id)}
-                                          disabled={executingId !== null}
-                                          sx={{ borderColor: 'divider' }}
-                                        >
+                                      <span>
+                                        <Button size="sm" onClick={() => handleRunCampaign(campaign.id)} disabled={executingId !== null}>
+                                          {executingId === campaign.id ? <Loader2 size={12} className="animate-spin" /> : <PlayCircle size={12} />}
                                           {executingId === campaign.id ? 'Running…' : 'Run Now'}
                                         </Button>
-                                      </Box>
+                                      </span>
                                     </MuiTooltip>
                                   )}
-                                </Stack>
-                              </Stack>
+                                </div>
+                              </div>
 
                               {steps.length === 0 ? (
-                                <Typography variant="body2" sx={{ color: 'text.secondary', py: 2 }}>
+                                <p className="py-2 text-[13px] text-text-sub">
                                   This campaign has no steps yet. Add them on its Sequence tab.
-                                </Typography>
+                                </p>
                               ) : (
                                 <>
                                   {/* One segment per step: gone out, waiting to go, not reached yet. */}
-                                  <div aria-hidden className="grid gap-1 mb-2" style={{ gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))` }}>
+                                  <div aria-hidden className="grid gap-1" style={{ gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))` }}>
                                     {steps.map((step) => {
                                       const state = stepRowState(stepStats.find(s => s.stepOrder === step.stepOrder));
                                       return (
                                         <div
                                           key={step.id}
-                                          className={`h-1.5 rounded-full transition-colors ${
-                                            state === 'waiting'
-                                              ? 'bg-blue-600 dark:bg-blue-500'
-                                              : state === 'sent'
-                                              ? 'bg-slate-400 dark:bg-slate-500'
-                                              : 'bg-slate-200 dark:bg-slate-800'
-                                          }`}
+                                          className={cn(
+                                            'h-1.5 rounded-full transition-colors',
+                                            state === 'waiting' ? 'bg-primary' : state === 'sent' ? 'bg-slate-400 dark:bg-slate-500' : 'bg-slate-200 dark:bg-white/10',
+                                          )}
                                         />
                                       );
                                     })}
                                   </div>
-                                  <Box sx={{ overflowX: 'auto' }}>
-                                    <Table size="small" sx={{ '& td, & th': { borderColor: 'divider' }, '& td': { fontVariantNumeric: 'tabular-nums' } }}>
-                                      <TableHead>
-                                        <TableRow sx={{ '& th': { fontSize: 12, fontWeight: 600, color: 'text.secondary', whiteSpace: 'nowrap' } }}>
-                                          <TableCell>Step</TableCell>
-                                          <TableCell>State</TableCell>
-                                          <TableCell align="right">{stopped ? 'Stopped Here' : 'Waiting'}</TableCell>
-                                          <TableCell align="right">Sent</TableCell>
-                                          <TableCell align="right">Delivered</TableCell>
-                                          <TableCell />
-                                        </TableRow>
-                                      </TableHead>
-                                      <TableBody>
+                                  <Card className="overflow-x-auto">
+                                    <Table className="tabular-nums">
+                                      <THead>
+                                        <tr>
+                                          <TH>Step</TH>
+                                          <TH>State</TH>
+                                          <TH className="text-right">{stopped ? 'Stopped Here' : 'Waiting'}</TH>
+                                          <TH className="text-right">Sent</TH>
+                                          <TH className="text-right">Delivered</TH>
+                                          <TH><span className="sr-only">Send</span></TH>
+                                        </tr>
+                                      </THead>
+                                      <tbody>
                                         {steps.map((step) => {
                                           const stats = stepStats.find(s => s.stepOrder === step.stepOrder);
                                           const state = stepRowState(stats);
@@ -593,107 +520,101 @@ export default function CampaignsPage() {
                                           const sendTimes = send ? nextSendTimes(send, viewerZone) : null;
                                           const dueNow = !!send && new Date(send.at).getTime() <= Date.now();
                                           const sendingStep = executingId === `${campaign.id}-${step.stepOrder}`;
-                                          const stateIcon = { display: 'flex', alignItems: 'center', gap: 0.75 };
+                                          const cell = cn('py-2.5', state === 'upcoming' && 'text-text-sub');
                                           return (
-                                            <TableRow
-                                              key={step.id}
-                                              sx={{
-                                                bgcolor: state === 'waiting' ? (t) => alpha(t.palette.primary.main, 0.07) : undefined,
-                                                '& td': { color: state === 'upcoming' ? 'text.secondary' : undefined },
-                                                '&:last-child td': { borderBottom: 0 },
-                                              }}
-                                            >
-                                              <TableCell sx={{ maxWidth: 340 }}>
-                                                <Stack direction="row" spacing={1.5} sx={{ alignItems: 'baseline', minWidth: 0 }}>
-                                                  <Box component="span" sx={{ fontWeight: 700, flexShrink: 0, minWidth: 16, color: state === 'waiting' ? 'primary.main' : 'text.secondary' }}>{step.stepOrder}</Box>
-                                                  <Typography variant="body2" noWrap title={step.subject} sx={{ fontWeight: state === 'waiting' ? 700 : 500 }}>{step.subject || '(No Subject)'}</Typography>
-                                                </Stack>
-                                              </TableCell>
-                                              <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                                            <TR key={step.id} className={cn(state === 'waiting' && 'bg-primary-subtle hover:bg-primary-subtle')}>
+                                              <TD className={cn(cell, 'max-w-[340px]')}>
+                                                <div className="flex min-w-0 items-baseline gap-3">
+                                                  <span className={cn('min-w-4 shrink-0 font-semibold', state === 'waiting' ? 'text-primary' : 'text-text-muted')}>{step.stepOrder}</span>
+                                                  <span title={step.subject} className={cn('truncate', state === 'waiting' && 'font-semibold')}>{step.subject || '(No Subject)'}</span>
+                                                </div>
+                                              </TD>
+                                              <TD className={cn(cell, 'whitespace-nowrap')}>
                                                 {state === 'sent' ? (
-                                                  <Box sx={{ ...stateIcon, color: 'text.secondary' }}><Check size={14} /> Sent</Box>
+                                                  <span className="inline-flex items-center gap-1.5 text-text-sub"><Check size={14} /> Sent</span>
                                                 ) : state === 'upcoming' ? (
                                                   stepWaitText(steps, step.stepOrder)
                                                 ) : stopped ? (
-                                                  <Box sx={stateIcon}><CircleStop size={14} /> Held while stopped</Box>
+                                                  <span className="inline-flex items-center gap-1.5"><CircleStop size={14} /> Held while stopped</span>
                                                 ) : campaign.status === 'Paused' ? (
-                                                  <Box sx={stateIcon}><Pause size={14} /> Held while paused</Box>
+                                                  <span className="inline-flex items-center gap-1.5"><Pause size={14} /> Held while paused</span>
                                                 ) : campaign.status !== 'Active' ? (
                                                   'Not published'
                                                 ) : !sendTimes ? (
                                                   campaign.hasSendingSchedule ? 'Waiting' : 'No sending schedule'
                                                 ) : dueNow ? (
-                                                  <Box sx={{ ...stateIcon, color: 'primary.main', fontWeight: 700 }}><Send size={14} /> Due now</Box>
+                                                  <span className="inline-flex items-center gap-1.5 font-semibold text-primary"><Send size={14} /> Due now</span>
                                                 ) : (
                                                   <>
-                                                    <Box sx={{ ...stateIcon, color: 'primary.main', fontWeight: 700 }}><Clock size={14} /> {sendTimes.campaign}</Box>
-                                                    {sendTimes.viewer && <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', pl: '22px' }}>{sendTimes.viewer} your time</Typography>}
+                                                    <span className="inline-flex items-center gap-1.5 font-semibold text-primary"><Clock size={14} /> {sendTimes.campaign}</span>
+                                                    {sendTimes.viewer && <span className="block pl-5 text-xs text-text-muted">{sendTimes.viewer} your time</span>}
                                                   </>
                                                 )}
-                                              </TableCell>
-                                              <TableCell align="right" sx={{ fontWeight: waitingCount > 0 ? 700 : 400, color: waitingCount > 0 ? undefined : 'text.disabled' }}>
+                                              </TD>
+                                              <TD className={cn(cell, 'text-right', waitingCount > 0 ? 'font-semibold' : 'text-text-muted')}>
                                                 {waitingCount.toLocaleString()}
-                                              </TableCell>
-                                              <TableCell align="right">
-                                                <Box component="span" sx={{ color: sentCount > 0 ? undefined : 'text.disabled' }}>{sentCount.toLocaleString()}</Box>
+                                              </TD>
+                                              <TD className={cn(cell, 'text-right')}>
+                                                <span className={sentCount > 0 ? undefined : 'text-text-muted'}>{sentCount.toLocaleString()}</span>
                                                 {sentLeads > 0 && sentLeads !== sentCount && (
-                                                  <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }} title="Some leads got this step more than once.">to {sentLeads.toLocaleString()} {sentLeads === 1 ? 'lead' : 'leads'}</Typography>
+                                                  <span className="block text-xs text-text-muted" title="Some leads got this step more than once.">to {sentLeads.toLocaleString()} {sentLeads === 1 ? 'lead' : 'leads'}</span>
                                                 )}
-                                                {failedCount > 0 && <Typography variant="caption" sx={{ color: 'error.main', display: 'block' }}>{failedCount.toLocaleString()} failed</Typography>}
-                                              </TableCell>
-                                              <TableCell align="right">
+                                                {failedCount > 0 && <span className="block text-xs text-rose-600 dark:text-rose-400">{failedCount.toLocaleString()} failed</span>}
+                                              </TD>
+                                              <TD className={cn(cell, 'text-right')}>
                                                 {sentCount === 0 ? (
-                                                  <Box component="span" sx={{ color: 'text.disabled' }}>–</Box>
+                                                  <span className="text-text-muted">–</span>
                                                 ) : reportedCount === 0 ? (
                                                   <MuiTooltip title={NO_DELIVERY_REPORTS_NOTE}>
-                                                    <Box component="span" tabIndex={0} aria-label="No delivery reports" sx={{ color: 'text.secondary' }}>—</Box>
+                                                    <span tabIndex={0} aria-label="No delivery reports" className="text-text-sub">—</span>
                                                   </MuiTooltip>
                                                 ) : (
                                                   <>
                                                     {(stats?.delivered || 0).toLocaleString()}
-                                                    {reportedCount < sentCount && <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }} title={PARTLY_REPORTED_NOTE}>of {reportedCount.toLocaleString()} reported</Typography>}
+                                                    {reportedCount < sentCount && <span className="block text-xs text-text-muted" title={PARTLY_REPORTED_NOTE}>of {reportedCount.toLocaleString()} reported</span>}
                                                   </>
                                                 )}
-                                              </TableCell>
-                                              <TableCell align="right" sx={{ width: 120 }}>
+                                              </TD>
+                                              <TD className={cn(cell, 'w-[120px] text-right')}>
                                                 {campaign.status === 'Active' && waitingCount > 0 && (
                                                   <MuiTooltip title={`Queue the ${waitingCount.toLocaleString()} ${waitingCount === 1 ? 'lead' : 'leads'} at this step now${dueNow ? '' : ', skipping the rest of the wait'}.`}>
-                                                    <Box component="span">
-                                                      <Button size="small" variant="outlined" startIcon={sendingStep ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />} onClick={(e) => { e.stopPropagation(); setSendStepPrompt({ campaignId: campaign.id, stepOrder: step.stepOrder, message: sendStepConfirmMessage(campaign.name, step.stepOrder, waitingCount, sendTimes && !dueNow ? sendTimes.campaign : null) }); }} disabled={executingId !== null} sx={{ whiteSpace: 'nowrap' }}>
+                                                    <span>
+                                                      <Button size="sm" onClick={(e) => { e.stopPropagation(); setSendStepPrompt({ campaignId: campaign.id, stepOrder: step.stepOrder, message: sendStepConfirmMessage(campaign.name, step.stepOrder, waitingCount, sendTimes && !dueNow ? sendTimes.campaign : null) }); }} disabled={executingId !== null}>
+                                                        {sendingStep ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
                                                         Send Step
                                                       </Button>
-                                                    </Box>
+                                                    </span>
                                                   </MuiTooltip>
                                                 )}
-                                              </TableCell>
-                                            </TableRow>
+                                              </TD>
+                                            </TR>
                                           );
                                         })}
-                                      </TableBody>
+                                      </tbody>
                                     </Table>
-                                  </Box>
+                                  </Card>
                                 </>
                               )}
-                            </Stack>
-                          </TableCell>
-                        </TableRow>
+                            </div>
+                          </td>
+                        </tr>
                       )}
                     </Fragment>
                   );
                 })}
                 {filteredCampaigns.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={5} sx={{ textAlign: 'center', py: 8, color: 'text.secondary' }}>
-                      <Inbox size={24} style={{ margin: '0 auto', opacity: 0.5 }} />
-                      <Typography variant="caption" sx={{ display: 'block', mt: 1 }}>{search ? 'No campaigns match your search.' : 'No campaigns yet.'}</Typography>
-                    </TableCell>
-                  </TableRow>
+                  <tr>
+                    <td colSpan={5} className="py-16 text-center text-xs text-text-muted">
+                      <Send size={20} className="mx-auto mb-2 opacity-60" />
+                      {search ? 'No campaigns match your search.' : 'No campaigns yet.'}
+                    </td>
+                  </tr>
                 )}
-              </TableBody>
+              </tbody>
             </Table>
-          </Box>
+          </div>
         )}
-      </div>
+      </Card>
 
       {/* Create Campaign Action Drawer */}
       <ActionDrawer
@@ -711,31 +632,30 @@ export default function CampaignsPage() {
         onCancel={() => setIsAddOpen(false)}
       >
         <div className="space-y-5">
-          {/* Campaign Name */}
           <div>
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2">
+            <label htmlFor="campaign-name" className="mb-1.5 block text-[13px] font-medium text-text-main">
               Campaign Name <span className="text-rose-500">*</span>
             </label>
             <input
+              id="campaign-name"
               type="text"
               required
               value={campaignName}
               onChange={(e) => setCampaignName(e.target.value)}
               placeholder="e.g., Enterprise SaaS Seed Funding Round"
-              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors"
+              className={inputClasses('h-9')}
             />
           </div>
 
-          {/* Primary Sender Mailbox */}
           <div>
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-              <Mail className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-              <span>Connect Sender Mailbox <span className="text-rose-500">*</span></span>
+            <label htmlFor="campaign-sender" className="mb-1.5 block text-[13px] font-medium text-text-main">
+              Connect Sender Mailbox <span className="text-rose-500">*</span>
             </label>
             <select
+              id="campaign-sender"
               value={selectedMailboxId}
               onChange={(e) => setSelectedMailboxId(e.target.value)}
-              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors"
+              className={inputClasses('h-9')}
             >
               {accounts.map((acc) => (
                 <option key={acc.id} value={acc.id}>
@@ -747,13 +667,11 @@ export default function CampaignsPage() {
 
           {/* Rotation Across Additional Mailboxes */}
           {accounts.filter((acc) => acc.id !== selectedMailboxId).length > 0 && (
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
-                <Mail className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                <span>Rotate Across Additional Mailboxes</span>
-                <span className="text-[11px] font-normal text-slate-400 capitalize">(optional)</span>
-              </label>
-              <div className="max-h-40 overflow-y-auto border border-slate-200 dark:border-slate-800 rounded-xl p-2.5 bg-slate-50/50 dark:bg-slate-900/40 space-y-2">
+            <fieldset>
+              <legend className="mb-1.5 text-[13px] font-medium text-text-main">
+                Rotate Across Additional Mailboxes <span className="font-normal text-text-muted">(optional)</span>
+              </legend>
+              <div className="max-h-40 divide-y divide-card-border overflow-y-auto rounded-control border border-card-border">
                 {accounts
                   .filter((acc) => acc.id !== selectedMailboxId)
                   .map((acc) => {
@@ -761,11 +679,10 @@ export default function CampaignsPage() {
                     return (
                       <label
                         key={acc.id}
-                        className={`flex items-center gap-3 p-2 rounded-lg border transition-all cursor-pointer ${
-                          isChecked
-                            ? 'bg-blue-50/60 dark:bg-blue-950/40 border-blue-200 dark:border-blue-900/50 text-blue-950 dark:text-blue-200'
-                            : 'bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800/80 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60'
-                        }`}
+                        className={cn(
+                          'flex cursor-pointer items-center gap-3 px-3 py-2 transition-colors',
+                          isChecked ? 'bg-primary-subtle' : 'hover:bg-slate-50 dark:hover:bg-white/[0.03]',
+                        )}
                       >
                         <input
                           type="checkbox"
@@ -777,26 +694,26 @@ export default function CampaignsPage() {
                                 : prev.filter((id) => id !== acc.id)
                             )
                           }
-                          className="w-4 h-4 rounded text-blue-600 focus:ring-blue-500/20 border-slate-300 dark:border-slate-700"
+                          className="size-4 shrink-0 accent-blue-600"
                         />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-medium truncate">{acc.emailAddress}</p>
-                          <p className="text-[10px] text-slate-400 dark:text-slate-500">{acc.provider}</p>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[13px] text-text-main">{acc.emailAddress}</p>
+                          <p className="text-[11px] text-text-muted">{acc.provider}</p>
                         </div>
                       </label>
                     );
                   })}
               </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1.5">
+              <p className="mt-1.5 text-xs text-text-muted">
                 Sending volume spreads across the primary plus any selected mailboxes (least-loaded first).
               </p>
-            </div>
+            </fieldset>
           )}
 
           {/* Sending Limits Notice */}
-          <div className="rounded-2xl bg-blue-50/70 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-900/40 p-4 flex items-start gap-3">
-            <Gauge className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
-            <p className="text-xs text-blue-700 dark:text-blue-300 leading-relaxed font-medium">
+          <div className="flex items-start gap-2.5 rounded-control bg-primary-subtle px-3 py-2.5">
+            <Gauge size={14} className="mt-0.5 shrink-0 text-primary" />
+            <p className="text-xs text-text-sub">
               This campaign follows the sending limits set on its mailboxes.
             </p>
           </div>

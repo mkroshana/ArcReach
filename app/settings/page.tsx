@@ -2,38 +2,98 @@
 'use client';
 
 import {
-  Save, User, Key, Eye, EyeOff, RefreshCw, Lock, MailX,
+  Save, User, Send, Eye, EyeOff, RefreshCw, Lock, MailX, Loader2,
 } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useId, type InputHTMLAttributes, type ReactNode } from 'react';
 import { MIN_PASSWORD_LENGTH, passwordPolicyError } from '@/lib/passwordPolicy';
 import { profileInitials } from '@/lib/profileInitials';
 import { type RateLimitInput, type RateLimitPeriod, rateLimitInputFrom, rateLimitInputValue } from '@/lib/rateLimitPolicy';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-import {
-  TextField, Select, MenuItem, FormControl, InputLabel, Snackbar, Alert, AlertTitle,
-  InputAdornment, CircularProgress, Autocomplete, Checkbox, FormControlLabel,
-} from '@mui/material';
+import { Snackbar, Alert, Autocomplete, TextField } from '@mui/material';
+import { Button } from '@/components/ui/Button';
+import { Card, CardHeader } from '@/components/ui/Card';
+import { inputClasses } from '@/components/ui/Input';
+import { Notice } from '@/components/ui/Notice';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { cn } from '@/lib/utils';
+
+const LABEL = 'mb-1.5 block text-[13px] font-medium text-text-main';
+const CARD_DESC = 'mt-1 text-xs leading-relaxed text-text-sub';
+const FORM_FOOTER = 'flex items-center justify-end gap-2 border-t border-card-border pt-4';
+
+/** A labelled native text field, the label above it and an optional hint or error below. */
+function TextInput({ label, hint, error, reserveHint, className, ...props }: InputHTMLAttributes<HTMLInputElement> & {
+  label: ReactNode; hint?: ReactNode; error?: string;
+  /** Keep the hint line's height when there is no hint, so fields side by side stay aligned. */
+  reserveHint?: boolean;
+}) {
+  const id = useId();
+  return (
+    <div className={className}>
+      <label htmlFor={id} className={LABEL}>
+        {label}{props.required && <span className="text-rose-500"> *</span>}
+      </label>
+      <input
+        id={id}
+        aria-invalid={!!error || undefined}
+        className={inputClasses(cn('h-9 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-text-sub dark:disabled:bg-white/[0.03]', error && 'border-rose-400 dark:border-rose-700'))}
+        {...props}
+      />
+      {error
+        ? <p className="mt-1 min-h-4 text-[11px] leading-4 text-rose-600 dark:text-rose-400">{error}</p>
+        : (hint || reserveHint) && <p className="mt-1 min-h-4 text-[11px] leading-4 text-text-muted">{hint}</p>}
+    </div>
+  );
+}
+
+/** A secret field with a show/hide toggle at its end. */
+function SecretInput({ label, show, setShow, toggleLabel, mono, className, ...props }: InputHTMLAttributes<HTMLInputElement> & {
+  label: ReactNode; show: boolean; setShow: (show: boolean) => void; toggleLabel: string; mono?: boolean;
+}) {
+  const id = useId();
+  return (
+    <div className={className}>
+      <label htmlFor={id} className={LABEL}>
+        {label}{props.required && <span className="text-rose-500"> *</span>}
+      </label>
+      <div className="relative">
+        <input id={id} type={show ? 'text' : 'password'} className={inputClasses(cn('h-9 pr-9', mono && 'font-mono text-xs'))} {...props} />
+        <button
+          type="button"
+          aria-label={`${show ? 'Hide' : 'Show'} ${toggleLabel}`}
+          onClick={() => setShow(!show)}
+          className="absolute top-1/2 right-1.5 flex size-6 -translate-y-1/2 cursor-pointer items-center justify-center rounded-md text-text-muted transition-colors hover:text-text-main"
+        >
+          {show ? <EyeOff size={14} /> : <Eye size={14} />}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function RateLimitField({ per, input, error, onChange }: {
   per: RateLimitPeriod; input: RateLimitInput; error: string; onChange: (input: RateLimitInput) => void;
 }) {
   const unit = per === 'minute' ? 'Minute' : 'Hour';
   return (
-    <div className="flex-1 space-y-1.5">
-      <TextField
-        fullWidth size="small" type="number" label={`Max Emails / ${unit}`}
+    <div className="flex-1 space-y-2">
+      <TextInput
+        type="number" min={1} step={1} label={`Max Emails / ${unit}`}
         value={input.noLimit ? '' : input.text} onChange={(e) => onChange({ ...input, text: e.target.value })}
         disabled={input.noLimit} required={!input.noLimit} placeholder={input.noLimit ? 'No limit' : undefined}
-        error={!!error} helperText={error || (input.noLimit ? `Emails are not capped per ${per}.` : ' ')}
-        slotProps={{ htmlInput: { min: 1, step: 1 } }}
+        error={error} hint={input.noLimit ? `Emails are not capped per ${per}.` : undefined} reserveHint
       />
-      <FormControlLabel
-        control={<Checkbox size="small" checked={input.noLimit} onChange={(e) => onChange({ ...input, noLimit: e.target.checked })} />}
-        label={<span className="text-xs font-semibold text-slate-700 dark:text-slate-300">No Limit</span>}
-      />
+      <label className="inline-flex cursor-pointer items-center gap-2 text-[13px] text-text-main">
+        <input type="checkbox" className="size-4 cursor-pointer accent-primary" checked={input.noLimit} onChange={(e) => onChange({ ...input, noLimit: e.target.checked })} />
+        No Limit
+      </label>
     </div>
   );
 }
+
+const NAV_ITEM = 'flex w-full cursor-pointer items-center gap-2.5 rounded-control px-3 py-2 text-[13px] font-medium whitespace-nowrap transition-colors';
+const NAV_ON = 'bg-primary-subtle text-primary';
+const NAV_OFF = 'text-text-sub hover:bg-slate-100 hover:text-text-main dark:hover:bg-white/5';
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<'profile' | 'integrations'>('profile');
@@ -192,30 +252,28 @@ export default function SettingsPage() {
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center py-24 gap-3">
-        <CircularProgress size={28} />
-        <span className="text-xs text-slate-500">Loading settings…</span>
+      <div className="flex items-center justify-center gap-2 py-24 text-xs text-text-muted">
+        <Loader2 size={14} className="animate-spin" /> Loading settings…
       </div>
     );
   }
 
   if (loadError) {
     return (
-      <div className="max-w-[900px] mx-auto py-12">
-        <Alert
-          severity="error"
-          sx={{ borderRadius: '16px' }}
-          action={<button type="button" className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-white/20 hover:bg-white/30 text-inherit cursor-pointer" onClick={() => loadSettings()}><RefreshCw size={14} /> Retry</button>}
+      <div className="mx-auto max-w-[900px] py-12">
+        <Notice
+          tone="error"
+          title="Settings Could Not Be Loaded"
+          action={<Button size="sm" onClick={() => loadSettings()}><RefreshCw size={12} /> Retry</Button>}
         >
-          <AlertTitle>Settings Could Not Be Loaded</AlertTitle>
           {loadError}
-        </Alert>
+        </Notice>
       </div>
     );
   }
 
   return (
-    <div className="max-w-[960px] mx-auto pb-16 space-y-6">
+    <div className="mx-auto max-w-[960px] space-y-5 pb-16">
       <ConfirmDialog
         isOpen={pendingProvider !== null}
         title={pendingProvider === 'AZURE' ? 'Switch to Azure Communication Services?' : 'Disable Sending?'}
@@ -231,175 +289,123 @@ export default function SettingsPage() {
         {toastMessage ? <Alert severity="info" variant="filled" sx={{ borderRadius: '12px' }}>{toastMessage}</Alert> : undefined}
       </Snackbar>
 
-      {/* Header */}
-      <div className="pb-2 border-b border-[#EBF0F5] dark:border-[#1E222D]">
-        <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-          Settings
-        </h1>
-        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+      <div>
+        <PageHeader title="Settings" />
+        <p className="mt-1 text-xs text-text-sub">
           {isAdmin ? 'Manage your profile, password, and email delivery settings.' : 'Manage your profile and password. Email delivery is managed by your admin.'}
         </p>
       </div>
 
-      <div className="flex flex-col md:flex-row gap-6">
-        {/* Left Navigation Rails */}
-        <div className="w-full md:w-56 flex-shrink-0">
-          <div className="flex md:flex-col gap-1.5 p-1.5 rounded-2xl bg-slate-100/70 dark:bg-[#161822]/70 border border-[#EBF0F5] dark:border-[#1E222D]">
+      <div className="flex flex-col gap-5 md:flex-row">
+        <nav aria-label="Settings sections" className="w-full shrink-0 md:w-52">
+          <div className="flex gap-1 md:flex-col">
             <button
               type="button"
+              aria-current={activeTab === 'profile' ? 'page' : undefined}
               onClick={() => setActiveTab('profile')}
-              className={`flex items-center gap-2.5 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                activeTab === 'profile'
-                  ? 'bg-white dark:bg-[#11131A] text-blue-600 dark:text-blue-400 shadow-xs'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
+              className={cn(NAV_ITEM, activeTab === 'profile' ? NAV_ON : NAV_OFF)}
             >
-              <User size={15} />
-              <span>My Profile</span>
+              <User size={15} /> My Profile
             </button>
             {isAdmin && (
               <button
                 type="button"
+                aria-current={activeTab === 'integrations' ? 'page' : undefined}
                 onClick={() => setActiveTab('integrations')}
-                className={`flex items-center gap-2.5 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  activeTab === 'integrations'
-                    ? 'bg-white dark:bg-[#11131A] text-blue-600 dark:text-blue-400 shadow-xs'
-                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                }`}
+                className={cn(NAV_ITEM, activeTab === 'integrations' ? NAV_ON : NAV_OFF)}
               >
-                <Key size={15} />
-                <span>Email Delivery</span>
+                <Send size={15} /> Email Delivery
               </button>
             )}
           </div>
-        </div>
+        </nav>
 
-        {/* Content Area with 24px token spacing */}
-        <div className="flex-1 space-y-6">
+        <div className="min-w-0 flex-1 space-y-5">
           {activeTab === 'profile' && (
             <>
-              {/* Profile Information Card */}
-              <div className="rounded-2xl border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] p-6 shadow-xs">
-                <div className="pb-3 mb-6 border-b border-[#EBF0F5] dark:border-[#1E222D]">
-                  <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
-                    Profile Information
-                  </h2>
-                </div>
-
-                <form onSubmit={handleSaveProfile} className="space-y-6">
-                  <div className="flex items-center gap-4">
-                    <div className="w-14 h-14 rounded-2xl bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 text-lg font-bold flex items-center justify-center shadow-xs">
-                      {avatarInitials || <User size={24} />}
+              <Card className="p-5">
+                <CardHeader title="Profile Information" />
+                <form onSubmit={handleSaveProfile} className="mt-4 space-y-4">
+                  <div className="flex items-center gap-3">
+                    <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-primary-subtle text-base font-semibold text-primary">
+                      {avatarInitials || <User size={20} />}
                     </div>
-                    <div>
-                      <div className="text-sm font-bold text-slate-900 dark:text-white">
-                        {firstName} {lastName}
-                      </div>
-                      <div className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
-                        {email}
-                      </div>
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-text-main">{firstName} {lastName}</div>
+                      <div className="mt-0.5 truncate text-xs text-text-muted">{email}</div>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <TextField fullWidth size="small" label="First Name" value={firstName} onChange={(e) => setFirstName(e.target.value)} />
-                    <TextField fullWidth size="small" label="Last Name" value={lastName} onChange={(e) => setLastName(e.target.value)} />
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <TextInput label="First Name" value={firstName} onChange={(e) => setFirstName(e.target.value)} autoComplete="given-name" />
+                    <TextInput label="Last Name" value={lastName} onChange={(e) => setLastName(e.target.value)} autoComplete="family-name" />
                   </div>
+                  <TextInput label="Organization" value={orgName} onChange={(e) => setOrgName(e.target.value)} autoComplete="organization" />
+                  <TextInput label="Email Address" type="email" value={email} disabled />
 
-                  <div className="space-y-4">
-                    <TextField fullWidth size="small" label="Organization" value={orgName} onChange={(e) => setOrgName(e.target.value)} />
-                    <TextField fullWidth size="small" label="Email Address" type="email" value={email} disabled sx={{ '& .MuiInputBase-root.Mui-disabled': { bgcolor: 'action.hover' } }} />
-                  </div>
-
-                  <div className="flex items-center justify-end gap-2.5 pt-4 border-t border-[#EBF0F5] dark:border-[#1E222D]">
-                    <button
-                      type="button"
-                      onClick={() => loadSettings()}
-                      className="px-4 py-2 rounded-full border border-[#EBF0F5] dark:border-[#1E222D] text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-[#161822] transition-colors cursor-pointer"
-                    >
-                      Reset Fields
-                    </button>
-                    <button
-                      type="submit"
-                      className="inline-flex items-center gap-2 px-5 py-2 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer"
-                    >
-                      <Save size={14} />
-                      <span>Save Profile</span>
-                    </button>
+                  <div className={FORM_FOOTER}>
+                    <Button variant="ghost" onClick={() => loadSettings()}>Reset Fields</Button>
+                    <Button type="submit" variant="primary"><Save size={14} /> Save Profile</Button>
                   </div>
                 </form>
-              </div>
+              </Card>
 
-              {/* Change Password Card */}
-              <div className="rounded-2xl border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] p-6 shadow-xs">
-                <div className="pb-3 mb-6 border-b border-[#EBF0F5] dark:border-[#1E222D]">
-                  <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
-                    Change Password
-                  </h2>
-                </div>
-
-                <form onSubmit={handleUpdatePassword} className="space-y-4">
-                  <TextField
-                    fullWidth size="small" label="Current Password" type={showPass ? 'text' : 'password'}
+              <Card className="p-5">
+                <CardHeader title="Change Password" />
+                <form onSubmit={handleUpdatePassword} className="mt-4 space-y-4">
+                  <SecretInput
+                    label="Current Password" toggleLabel="current password" autoComplete="current-password"
+                    show={showPass} setShow={setShowPass}
                     value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)}
-                    slotProps={{ input: { sx: { fontFamily: 'monospace' }, endAdornment: (<InputAdornment position="end"><button type="button" aria-label={showPass ? 'Hide current password' : 'Show current password'} className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer" onClick={() => setShowPass(!showPass)}>{showPass ? <EyeOff size={14} /> : <Eye size={14} />}</button></InputAdornment>) } }}
                   />
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <TextField
-                      fullWidth size="small" label="New Password" type={showNewPass ? 'text' : 'password'}
-                      value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder={`Min. ${MIN_PASSWORD_LENGTH} characters`}
-                      slotProps={{ input: { sx: { fontFamily: 'monospace' }, endAdornment: (<InputAdornment position="end"><button type="button" aria-label={showNewPass ? 'Hide new password' : 'Show new password'} className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer" onClick={() => setShowNewPass(!showNewPass)}>{showNewPass ? <EyeOff size={14} /> : <Eye size={14} />}</button></InputAdornment>) } }}
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <SecretInput
+                      label="New Password" toggleLabel="new password" autoComplete="new-password"
+                      show={showNewPass} setShow={setShowNewPass} placeholder={`Min. ${MIN_PASSWORD_LENGTH} characters`}
+                      value={newPassword} onChange={(e) => setNewPassword(e.target.value)}
                     />
-                    <TextField
-                      fullWidth size="small" label="Confirm New Password" type={showConfirmPass ? 'text' : 'password'}
-                      value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Retype password"
-                      slotProps={{ input: { sx: { fontFamily: 'monospace' }, endAdornment: (<InputAdornment position="end"><button type="button" aria-label={showConfirmPass ? 'Hide confirmation password' : 'Show confirmation password'} className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer" onClick={() => setShowConfirmPass(!showConfirmPass)}>{showConfirmPass ? <EyeOff size={14} /> : <Eye size={14} />}</button></InputAdornment>) } }}
+                    <SecretInput
+                      label="Confirm New Password" toggleLabel="confirmation password" autoComplete="new-password"
+                      show={showConfirmPass} setShow={setShowConfirmPass} placeholder="Retype password"
+                      value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)}
                     />
                   </div>
 
-                  <div className="flex items-center justify-end pt-4 border-t border-[#EBF0F5] dark:border-[#1E222D]">
-                    <button
-                      type="submit"
-                      className="inline-flex items-center gap-2 px-5 py-2 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer"
-                    >
-                      <Lock size={14} />
-                      <span>Update Password</span>
-                    </button>
+                  <div className={FORM_FOOTER}>
+                    <Button type="submit" variant="primary"><Lock size={14} /> Update Password</Button>
                   </div>
                 </form>
-              </div>
+              </Card>
             </>
           )}
 
           {isAdmin && activeTab === 'integrations' && (
             <>
-              {/* Delivery Engine Provider Card */}
-              <div className="rounded-2xl border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] p-6 shadow-xs space-y-5">
-                <div className="pb-3 border-b border-[#EBF0F5] dark:border-[#1E222D]">
-                  <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
-                    Email Delivery Provider
-                  </h2>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                    Choose the provider used to send your outbound email.
-                  </p>
+              <Card className="space-y-4 p-5">
+                <div>
+                  <CardHeader title="Email Delivery Provider" />
+                  <p className={CARD_DESC}>Choose the provider used to send your outbound email.</p>
                 </div>
 
-                <FormControl size="small" sx={{ maxWidth: 380 }} fullWidth>
-                  <InputLabel>Provider</InputLabel>
-                  <Select label="Provider" value={activeProvider} onChange={(e) => { if (e.target.value !== activeProvider) setPendingProvider(e.target.value); }}>
-                    <MenuItem value="DISABLED">Sending Disabled (no email is sent)</MenuItem>
-                    <MenuItem value="AZURE">Azure Communication Services</MenuItem>
-                  </Select>
-                </FormControl>
+                <div className="max-w-[380px]">
+                  <label htmlFor="delivery-provider" className={LABEL}>Provider</label>
+                  <select
+                    id="delivery-provider"
+                    value={activeProvider}
+                    onChange={(e) => { if (e.target.value !== activeProvider) setPendingProvider(e.target.value); }}
+                    className={inputClasses('h-9 cursor-pointer')}
+                  >
+                    <option value="DISABLED">Sending Disabled (no email is sent)</option>
+                    <option value="AZURE">Azure Communication Services</option>
+                  </select>
+                </div>
 
                 {activeProvider === 'DISABLED' && (
-                  <div className="p-4 rounded-2xl bg-amber-50/60 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-900/40 flex items-start gap-3">
-                    <MailX size={16} className="text-amber-600 mt-0.5 flex-shrink-0" />
+                  <div className="flex items-start gap-2.5 rounded-control border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/50 dark:bg-amber-500/10">
+                    <MailX size={16} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
                     <div>
-                      <div className="text-xs font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider">
-                        Sending Disabled
-                      </div>
-                      <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5 leading-relaxed">
+                      <div className="text-[13px] font-semibold text-amber-800 dark:text-amber-300">Sending Disabled</div>
+                      <p className="mt-0.5 text-xs leading-relaxed text-amber-800/90 dark:text-amber-300/90">
                         No email is sent and campaigns do not progress. Campaign runs, Unibox replies and test emails are refused until Azure Communication Services is selected and configured.
                       </p>
                     </div>
@@ -407,74 +413,55 @@ export default function SettingsPage() {
                 )}
 
                 {activeProvider === 'AZURE' && (
-                  <div className="p-5 rounded-2xl bg-slate-50/50 dark:bg-[#161822]/50 border border-[#EBF0F5] dark:border-[#1E222D]">
-                    <form onSubmit={handleSaveAzureConfig} className="space-y-4">
-                      <TextField
-                        fullWidth size="small" required label="Azure Connection String"
-                        type={showAzureConnString ? 'text' : 'password'}
-                        value={azureConnString} onChange={(e) => setAzureConnString(e.target.value)}
-                        placeholder="endpoint=https://...;accesskey=..."
-                        slotProps={{ input: { sx: { fontFamily: 'monospace' }, endAdornment: (<InputAdornment position="end"><button type="button" aria-label={showAzureConnString ? 'Hide connection string' : 'Show connection string'} className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer" onClick={() => setShowAzureConnString(!showAzureConnString)}>{showAzureConnString ? <EyeOff size={14} /> : <Eye size={14} />}</button></InputAdornment>) } }}
-                      />
-                      <Autocomplete
-                        multiple freeSolo options={[] as string[]}
-                        value={azureSenderDomains}
-                        onChange={(_, v) => setAzureSenderDomains(
-                          (v as string[]).map((d) => String(d).trim().toLowerCase()).filter(Boolean)
-                        )}
-                        renderInput={(params) => (
-                          <TextField
-                            {...params} size="small" label="Verified Sender Domains"
-                            placeholder="Type a domain and press Enter"
-                            helperText="Each sender account sends from its own address; its domain must be verified here."
-
-                          />
-                        )}
-                      />
-                      <div className="flex items-center justify-end pt-2">
-                        <button
-                          type="submit"
-                          className="inline-flex items-center gap-2 px-5 py-2 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer"
-                        >
-                          <Save size={14} />
-                          <span>Save Azure Configuration</span>
-                        </button>
-                      </div>
-                    </form>
-                  </div>
+                  <form onSubmit={handleSaveAzureConfig} className="space-y-4 rounded-control border border-card-border bg-slate-50/60 p-4 dark:bg-white/[0.02]">
+                    <SecretInput
+                      label="Azure Connection String" toggleLabel="connection string" required mono autoComplete="off"
+                      show={showAzureConnString} setShow={setShowAzureConnString}
+                      value={azureConnString} onChange={(e) => setAzureConnString(e.target.value)}
+                      placeholder="endpoint=https://...;accesskey=..."
+                    />
+                    <Autocomplete
+                      multiple freeSolo options={[] as string[]}
+                      value={azureSenderDomains}
+                      onChange={(_, v) => setAzureSenderDomains(
+                        (v as string[]).map((d) => String(d).trim().toLowerCase()).filter(Boolean)
+                      )}
+                      renderInput={(params) => (
+                        <TextField
+                          {...params} size="small" label="Verified Sender Domains"
+                          placeholder="Type a domain and press Enter"
+                          helperText="Each sender account sends from its own address; its domain must be verified here."
+                        />
+                      )}
+                    />
+                    <div className="flex justify-end">
+                      <Button type="submit" variant="primary"><Save size={14} /> Save Azure Configuration</Button>
+                    </div>
+                  </form>
                 )}
-              </div>
+              </Card>
 
-              {/* Rate Limits Card */}
-              <div className="rounded-2xl border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] p-6 shadow-xs space-y-5">
-                <div className="pb-3 border-b border-[#EBF0F5] dark:border-[#1E222D]">
-                  <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
-                    Global Sending Rate Limits
-                  </h2>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 leading-relaxed">
-                    Caps total outbound volume across all campaigns and sender mailboxes. Choose No Limit to leave a period uncapped. While either limit is set, mailboxes have no daily limits of their own: together they share 24 times the hourly limit in any 24 hours (or 1,440 times the per-minute limit, if that is lower), and only a warmup ramp holds a mailbox below that. With both set to No Limit, each mailbox is held to its own daily limit.
-                  </p>
-                </div>
+              <Card className="p-5">
+                <CardHeader title="Global Sending Rate Limits" />
+                <p className={CARD_DESC}>
+                  Caps total outbound volume across all campaigns and sender mailboxes. Choose No Limit to leave a period uncapped. While either limit is set, mailboxes have no daily limits of their own: together they share 24 times the hourly limit in any 24 hours (or 1,440 times the per-minute limit, if that is lower), and only a warmup ramp holds a mailbox below that. With both set to No Limit, each mailbox is held to its own daily limit.
+                </p>
 
-                <form onSubmit={handleSaveRateLimits} className="space-y-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <form onSubmit={handleSaveRateLimits} className="mt-4 space-y-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <RateLimitField per="minute" input={rateLimitMinute} error={rateLimitErrors.minute}
                       onChange={(v) => { setRateLimitMinute(v); setRateLimitErrors((errs) => ({ ...errs, minute: '' })); }} />
                     <RateLimitField per="hour" input={rateLimitHour} error={rateLimitErrors.hour}
                       onChange={(v) => { setRateLimitHour(v); setRateLimitErrors((errs) => ({ ...errs, hour: '' })); }} />
                   </div>
-                  <div className="flex items-center justify-end pt-3 border-t border-[#EBF0F5] dark:border-[#1E222D]">
-                    <button
-                      type="submit"
-                      disabled={rateLimitLoading}
-                      className="inline-flex items-center gap-2 px-5 py-2 rounded-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer disabled:opacity-50"
-                    >
-                      <Save size={14} />
-                      <span>{rateLimitLoading ? 'Saving…' : 'Save Limits'}</span>
-                    </button>
+                  <div className={FORM_FOOTER}>
+                    <Button type="submit" variant="primary" disabled={rateLimitLoading}>
+                      {rateLimitLoading ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+                      {rateLimitLoading ? 'Saving…' : 'Save Limits'}
+                    </Button>
                   </div>
                 </form>
-              </div>
+              </Card>
             </>
           )}
         </div>

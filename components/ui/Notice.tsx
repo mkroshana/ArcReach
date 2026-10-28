@@ -5,9 +5,10 @@ import { cn } from '@/lib/utils';
 const TONES = {
   error: { border: 'border-rose-200 dark:border-rose-900/50', title: 'text-rose-700 dark:text-rose-300' },
   warning: { border: 'border-amber-200 dark:border-amber-900/50', title: 'text-amber-700 dark:text-amber-300' },
+  info: { border: '', title: 'text-text-main' },
 } as const;
 
-/** A card saying something went wrong: a coloured title, the reason, and an action such as Retry on the right. */
+/** A card saying something went wrong (or, as info, a state worth knowing): a title, the reason, and an action such as Retry on the right. */
 export function Notice({
   tone,
   title,

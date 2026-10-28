@@ -75,7 +75,6 @@ export default function LoginPage() {
             placeholder="you@company.com" value={email} onChange={(e) => setEmail(e.target.value)}
             slotProps={{
               input: {
-                sx: { fontFamily: 'monospace' },
                 startAdornment: (
                   <InputAdornment position="start">
                     <Mail size={16} className="text-slate-400" />
@@ -89,7 +88,6 @@ export default function LoginPage() {
             placeholder="••••••••••••" value={password} onChange={(e) => setPassword(e.target.value)}
             slotProps={{
               input: {
-                sx: { fontFamily: 'monospace' },
                 startAdornment: (
                   <InputAdornment position="start">
                     <Lock size={16} className="text-slate-400" />
@@ -118,7 +116,7 @@ export default function LoginPage() {
         </form>
 
         <div className="mt-6 pt-4 border-t border-[#EBF0F5] dark:border-[#1E222D] text-center">
-          <span className="text-[11px] font-mono text-slate-400 dark:text-slate-500">
+          <span className="text-[11px] text-slate-400 dark:text-slate-500">
             ArcReach Engine • Secure Enterprise Access
           </span>
         </div>

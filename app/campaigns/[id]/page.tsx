@@ -617,7 +617,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
                         <div className="flex items-center gap-3">
                           {/* Step Number Badge */}
-                          <div className="w-9 h-9 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 font-bold font-mono text-sm flex items-center justify-center border border-blue-100 dark:border-blue-900/50">
+                          <div className="w-9 h-9 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 font-bold text-sm flex items-center justify-center border border-blue-100 dark:border-blue-900/50">
                             {index + 1}
                           </div>
 
@@ -630,7 +630,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                                 value={step.waitDays}
                                 disabled={stopped}
                                 onChange={(e) => updateStepField(index, 'waitDays', parseInt(e.target.value) || 0)}
-                                className="w-16 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 font-mono text-xs text-center font-bold text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                                className="w-16 px-2.5 py-1 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-xs text-center font-bold text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                               />
                               <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">days</span>
                             </div>
@@ -713,7 +713,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
 
                           <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/30 p-4 space-y-3">
                             <div className="pb-3 border-b border-slate-200 dark:border-slate-800">
-                              <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
                                 Subject:
                               </span>
                               <p className="text-sm font-semibold text-slate-900 dark:text-white">
@@ -721,7 +721,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                               </p>
                             </div>
                             <div>
-                              <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400 block mb-2">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-2">
                                 Message:
                               </span>
                               {bodyPreview?.isHtml ? (
@@ -732,7 +732,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                                   className="w-full h-[480px] border border-slate-200 dark:border-slate-800 rounded-xl bg-white"
                                 />
                               ) : (
-                                <p className="text-xs text-slate-800 dark:text-slate-200 whitespace-pre-wrap leading-relaxed font-mono">
+                                <p className="text-xs text-slate-800 dark:text-slate-200 whitespace-pre-wrap leading-relaxed">
                                   {bodyPreview?.body}
                                 </p>
                               )}
@@ -834,9 +834,9 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                     <Box>
                       <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Cadence Delivery Window (Local Senders Clock)</Typography>
                       <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
-                        <TextField fullWidth size="small" type="time" value={startTime} disabled={stopped} onChange={(e) => setStartTime(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
+                        <TextField fullWidth size="small" type="time" value={startTime} disabled={stopped} onChange={(e) => setStartTime(e.target.value)} />
                         <Typography variant="caption" sx={{ color: 'text.secondary' }}>to</Typography>
-                        <TextField fullWidth size="small" type="time" value={endTime} disabled={stopped} onChange={(e) => setEndTime(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
+                        <TextField fullWidth size="small" type="time" value={endTime} disabled={stopped} onChange={(e) => setEndTime(e.target.value)} />
                       </Stack>
                     </Box>
                   </Stack>
@@ -996,14 +996,14 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                                 <Box>
                                   <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
                                     <Typography variant="body2" sx={{ fontWeight: 700 }}>{mailbox.name || 'SMTP Account'}</Typography>
-                                    <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace' }}>({mailbox.emailAddress})</Typography>
+                                    <Typography variant="caption" sx={{ color: 'text.secondary' }}>({mailbox.emailAddress})</Typography>
                                     {isPrimary && <Chip size="small" label="PRIMARY" color="primary" sx={{ height: 16, fontSize: 8, fontWeight: 800 }} />}
                                     {mailbox.warmupEnabled && <Chip size="small" label="WARMUP" color="warning" sx={{ height: 16, fontSize: 8, fontWeight: 800 }} />}
                                   </Stack>
                                   <Stack direction="row" spacing={2} sx={{ mt: 0.5, color: 'text.secondary', fontSize: 10, flexWrap: 'wrap', rowGap: 0.25 }}>
                                     <span>Provider: <Box component="strong" sx={{ color: 'text.primary' }}>{mailbox.provider}</Box></span>
                                     <Box component="strong" sx={{ color: replySync.state === 'failing' ? 'error.main' : undefined }}>{mailboxReplySyncLabel(replySync)}</Box>
-                                    {replyTo && <span>Replies go to <Box component="strong" sx={{ color: 'text.primary', fontFamily: 'monospace' }}>{replyTo}</Box></span>}
+                                    {replyTo && <span>Replies go to <Box component="strong" sx={{ color: 'text.primary' }}>{replyTo}</Box></span>}
                                     {/* No cap of its own while a global rate limit is set, unless it is warming up */}
                                     <span>Last 24 Hours: <Box component="strong">{mailbox.sentLast24Hours}{mailbox.effectiveDailyCap != null && ` / ${mailbox.effectiveDailyCap}`}</Box></span>
                                     <span>Total: <Box component="strong">{mailbox.sentTotal}</Box></span>
@@ -1054,7 +1054,7 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                 <Stack spacing={1} sx={{ fontSize: 12 }}>
                   <Stack direction="row" sx={{ justifyContent: 'space-between', pb: 0.75, borderBottom: 1, borderColor: 'divider' }}><span>Total Emails</span><Box component="strong">{steps.length} Steps</Box></Stack>
                   <Stack direction="row" sx={{ justifyContent: 'space-between', pb: 0.75, borderBottom: 1, borderColor: 'divider' }}><span>Duration</span><Box component="strong">{sequenceDurationDays(steps)} Days</Box></Stack>
-                  <Stack direction="row" sx={{ justifyContent: 'space-between' }}><span>Active Cohort</span><Box component="strong" sx={{ color: 'primary.main', fontFamily: 'monospace' }}>{campaign?.telemetry?.activeEnrollments || 0} leads</Box></Stack>
+                  <Stack direction="row" sx={{ justifyContent: 'space-between' }}><span>Active Cohort</span><Box component="strong" sx={{ color: 'primary.main' }}>{campaign?.telemetry?.activeEnrollments || 0} leads</Box></Stack>
                 </Stack>
               </CardContent>
             </Card>

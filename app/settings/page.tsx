@@ -25,7 +25,7 @@ function RateLimitField({ per, input, error, onChange }: {
         value={input.noLimit ? '' : input.text} onChange={(e) => onChange({ ...input, text: e.target.value })}
         disabled={input.noLimit} required={!input.noLimit} placeholder={input.noLimit ? 'No limit' : undefined}
         error={!!error} helperText={error || (input.noLimit ? `Emails are not capped per ${per}.` : ' ')}
-        slotProps={{ htmlInput: { min: 1, step: 1 }, input: { sx: { fontFamily: 'monospace' } } }}
+        slotProps={{ htmlInput: { min: 1, step: 1 } }}
       />
       <FormControlLabel
         control={<Checkbox size="small" checked={input.noLimit} onChange={(e) => onChange({ ...input, noLimit: e.target.checked })} />}
@@ -288,14 +288,14 @@ export default function SettingsPage() {
 
                 <form onSubmit={handleSaveProfile} className="space-y-6">
                   <div className="flex items-center gap-4">
-                    <div className="w-14 h-14 rounded-2xl bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 text-lg font-bold font-mono flex items-center justify-center shadow-xs">
+                    <div className="w-14 h-14 rounded-2xl bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 text-lg font-bold flex items-center justify-center shadow-xs">
                       {avatarInitials || <User size={24} />}
                     </div>
                     <div>
                       <div className="text-sm font-bold text-slate-900 dark:text-white">
                         {firstName} {lastName}
                       </div>
-                      <div className="text-xs font-mono text-slate-400 dark:text-slate-500 mt-0.5">
+                      <div className="text-xs text-slate-400 dark:text-slate-500 mt-0.5">
                         {email}
                       </div>
                     </div>
@@ -427,7 +427,7 @@ export default function SettingsPage() {
                             {...params} size="small" label="Verified Sender Domains"
                             placeholder="Type a domain and press Enter"
                             helperText="Each sender account sends from its own address; its domain must be verified here."
-                            sx={{ '& .MuiInputBase-input': { fontFamily: 'monospace' } }}
+
                           />
                         )}
                       />

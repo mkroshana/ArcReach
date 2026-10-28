@@ -224,7 +224,7 @@ function ShopeersMetricCard({
         {hasDelta ? (
           <>
             <span
-              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold font-mono border ${
+              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${
                 isPositive
                   ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border-emerald-200/80 dark:border-emerald-800/60'
                   : isNegative
@@ -268,7 +268,7 @@ function CustomAreaTooltip({ active, payload, label }: any) {
               <span className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.stroke || entry.color }} />
               <span className="text-slate-500 dark:text-slate-400 text-[11px] font-medium">{entry.name}</span>
             </div>
-            <span className="font-bold font-mono text-slate-800 dark:text-slate-100 text-xs">
+            <span className="font-bold text-slate-800 dark:text-slate-100 text-xs">
               {Number(entry.value).toLocaleString()}
             </span>
           </div>
@@ -611,7 +611,7 @@ export default function Dashboard() {
           </MuiTooltip>
         </div>
         {loadedAt && (
-          <span className="font-mono text-[11px] text-slate-400">
+          <span className="text-[11px] text-slate-400">
             Updated {loadedAt.toLocaleTimeString()}
           </span>
         )}
@@ -854,7 +854,7 @@ export default function Dashboard() {
                           <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
                             Failed Sends
                           </div>
-                          <div className="text-sm font-semibold text-slate-900 dark:text-white font-mono mt-0.5">
+                          <div className="text-sm font-semibold text-slate-900 dark:text-white mt-0.5">
                             {(stats.failed ?? 0).toLocaleString()}
                           </div>
                         </div>
@@ -871,7 +871,7 @@ export default function Dashboard() {
                           <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
                             Bounced
                           </div>
-                          <div className="text-sm font-semibold text-slate-900 dark:text-white font-mono mt-0.5">
+                          <div className="text-sm font-semibold text-slate-900 dark:text-white mt-0.5">
                             {(stats.bounced ?? 0).toLocaleString()}
                           </div>
                         </div>
@@ -888,7 +888,7 @@ export default function Dashboard() {
                           <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
                             Unsubscribed
                           </div>
-                          <div className="text-sm font-semibold text-slate-900 dark:text-white font-mono mt-0.5">
+                          <div className="text-sm font-semibold text-slate-900 dark:text-white mt-0.5">
                             {(stats.unsubscribed ?? 0).toLocaleString()}
                           </div>
                         </div>
@@ -1063,7 +1063,7 @@ export default function Dashboard() {
                       <span className="w-2 h-2 rounded-full bg-emerald-500" />
                       <span>Positive</span>
                     </div>
-                    <span className="block text-sm font-semibold text-slate-900 dark:text-white font-mono mt-0.5">
+                    <span className="block text-sm font-semibold text-slate-900 dark:text-white mt-0.5">
                       {positiveSentiment.toLocaleString()}
                     </span>
                   </div>
@@ -1074,7 +1074,7 @@ export default function Dashboard() {
                       <span className="w-2 h-2 rounded-full bg-slate-400 dark:bg-slate-500" />
                       <span>Neutral</span>
                     </div>
-                    <span className="block text-sm font-semibold text-slate-900 dark:text-white font-mono mt-0.5">
+                    <span className="block text-sm font-semibold text-slate-900 dark:text-white mt-0.5">
                       {neutralSentiment.toLocaleString()}
                     </span>
                   </div>
@@ -1085,7 +1085,7 @@ export default function Dashboard() {
                       <span className="w-2 h-2 rounded-full bg-rose-500" />
                       <span>Negative</span>
                     </div>
-                    <span className="block text-sm font-semibold text-slate-900 dark:text-white font-mono mt-0.5">
+                    <span className="block text-sm font-semibold text-slate-900 dark:text-white mt-0.5">
                       {negativeSentiment.toLocaleString()}
                     </span>
                   </div>
@@ -1243,7 +1243,7 @@ export default function Dashboard() {
 
                           {/* Total Leads */}
                           <td className="py-3.5 px-6">
-                            <div className="text-sm font-semibold text-slate-800 dark:text-slate-200 font-mono">
+                            <div className="text-sm font-semibold text-slate-800 dark:text-slate-200">
                               {totalLeads.toLocaleString()}
                             </div>
                             <span className="text-[11px] text-slate-400">leads enrolled</span>
@@ -1251,7 +1251,7 @@ export default function Dashboard() {
 
                           {/* Dispatches / Sent */}
                           <td className="py-3.5 px-6">
-                            <div className="text-sm font-semibold text-slate-800 dark:text-slate-200 font-mono">
+                            <div className="text-sm font-semibold text-slate-800 dark:text-slate-200">
                               {totalSent.toLocaleString()}
                             </div>
                             <span className="text-[11px] text-slate-400">emails sent</span>
@@ -1261,7 +1261,7 @@ export default function Dashboard() {
                           <td className="py-3.5 px-6">
                             {hasOpenRate ? (
                               <div className="space-y-1.5">
-                                <div className="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-slate-300 font-mono">
+                                <div className="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-slate-300">
                                   <span>{openRateValue.toFixed(1)}%</span>
                                 </div>
                                 <div className="w-24 h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
@@ -1272,7 +1272,7 @@ export default function Dashboard() {
                                 </div>
                               </div>
                             ) : (
-                              <span className="text-xs font-mono text-slate-400 dark:text-slate-500">
+                              <span className="text-xs text-slate-400 dark:text-slate-500">
                                 {totalSent > 0 ? '—' : '0.0%'}
                               </span>
                             )}

@@ -1388,7 +1388,7 @@ export default function LeadsPage() {
               placeholder="e.g. john@company.com"
               value={newLead.email}
               onChange={(e) => setNewLead({ ...newLead, email: e.target.value })}
-              className="w-full bg-slate-50 dark:bg-slate-950 border border-[#EBF0F5] dark:border-[#1E222D] p-2.5 rounded-xl text-xs placeholder:text-slate-400 text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-mono transition-all"
+              className="w-full bg-slate-50 dark:bg-slate-950 border border-[#EBF0F5] dark:border-[#1E222D] p-2.5 rounded-xl text-xs placeholder:text-slate-400 text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
             />
           </div>
 
@@ -1610,7 +1610,7 @@ export default function LeadsPage() {
                   ))}
                 </select>
                 {mappings.email !== -1 && csvRows.length > 0 && (
-                  <div className="p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-400 font-mono truncate">
+                  <div className="p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-400 truncate">
                     Preview: {csvRows[0][mappings.email] || <em className="text-slate-400 font-sans">Empty</em>}
                   </div>
                 )}
@@ -1879,7 +1879,7 @@ export default function LeadsPage() {
                           <div className="font-semibold text-xs text-slate-900 dark:text-white">{lead.name || 'N/A'}</div>
                           {lead.jobTitle && <div className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5 font-normal">{lead.jobTitle}</div>}
                         </td>
-                        <td className="py-4 px-4 text-xs text-slate-600 dark:text-slate-400 font-mono flex items-center gap-2">
+                        <td className="py-4 px-4 text-xs text-slate-600 dark:text-slate-400 flex items-center gap-2">
                           <Mail className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 shrink-0" />
                           <span className="truncate">{lead.email}</span>
                         </td>
@@ -2044,7 +2044,7 @@ export default function LeadsPage() {
                             <div className="font-semibold text-xs text-slate-900 dark:text-white">{lead.name || 'N/A'}</div>
                             {lead.jobTitle && <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5 font-medium">{lead.jobTitle}</div>}
                           </td>
-                          <td className="px-5 py-3.5 text-xs text-slate-500 dark:text-slate-400 font-mono flex items-center gap-2">
+                          <td className="px-5 py-3.5 text-xs text-slate-500 dark:text-slate-400 flex items-center gap-2">
                             <Mail className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
                             {lead.email}
                           </td>
@@ -2262,7 +2262,7 @@ export default function LeadsPage() {
                         <div className="font-semibold text-xs text-slate-900 dark:text-white">{lead.name || 'N/A'}</div>
                         {lead.jobTitle && <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5 font-medium">{lead.jobTitle}</div>}
                       </td>
-                      <td className="px-5 py-3.5 text-xs text-slate-500 dark:text-slate-400 font-mono flex items-center gap-2">
+                      <td className="px-5 py-3.5 text-xs text-slate-500 dark:text-slate-400 flex items-center gap-2">
                         <Mail className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
                         {lead.email}
                       </td>
@@ -2405,7 +2405,7 @@ export default function LeadsPage() {
                       <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-200/60 dark:border-slate-800/40 text-[11px]">
                         <div>
                           <span className="text-slate-400 dark:text-slate-500 font-medium uppercase tracking-wider text-[9px]">Email Address</span>
-                          <p className="font-mono text-slate-700 dark:text-slate-400 mt-0.5 break-all">{leadDetails.email}</p>
+                          <p className="text-slate-700 dark:text-slate-400 mt-0.5 break-all">{leadDetails.email}</p>
                         </div>
                         <div>
                           <span className="text-slate-400 dark:text-slate-500 font-medium uppercase tracking-wider text-[9px]">Company</span>
@@ -2649,7 +2649,7 @@ export default function LeadsPage() {
                                   {/* Body copy container — plain text only; bodies are untrusted HTML */}
                                   {isExpanded && (
                                     <div
-                                      className="text-xs mt-2.5 p-3 rounded-lg bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 font-mono whitespace-pre-wrap max-h-56 overflow-y-auto break-words leading-relaxed"
+                                      className="text-xs mt-2.5 p-3 rounded-lg bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 whitespace-pre-wrap max-h-56 overflow-y-auto break-words leading-relaxed"
                                     >
                                       {emailBodyToText(event.body)}
                                     </div>

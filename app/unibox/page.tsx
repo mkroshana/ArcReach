@@ -443,7 +443,7 @@ export default function UniboxPage() {
                 Unified Inbox
               </h2>
               {listLoaded && (
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold font-mono bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900/40">
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900/40">
                   {unreadCount} Unread
                 </span>
               )}
@@ -534,7 +534,7 @@ export default function UniboxPage() {
                         {item.lead?.name || item.lead?.email || 'Prospect'}
                       </span>
                     </div>
-                    <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500 flex-shrink-0">
+                    <span className="text-[10px] text-slate-400 dark:text-slate-500 flex-shrink-0">
                       {dateStr}
                     </span>
                   </div>
@@ -589,7 +589,7 @@ export default function UniboxPage() {
 
             {nextOffset !== null && (
               <div className="pt-2 pb-3 flex flex-col items-center gap-1.5">
-                <span className="text-[10px] text-slate-400 font-mono">
+                <span className="text-[10px] text-slate-400">
                   Showing {replies.length} of {totalThreads} conversations
                 </span>
                 <Button size="small" variant="outlined" onClick={loadMoreThreads} disabled={loadingMore} startIcon={loadingMore ? <CircularProgress size={12} /> : undefined}>
@@ -619,7 +619,7 @@ export default function UniboxPage() {
                     <span className="text-xs font-bold text-slate-900 dark:text-white">
                       {selectedEmail.lead?.name || 'Prospect'}
                     </span>
-                    <span className="text-[11px] font-mono text-slate-400 dark:text-slate-500">
+                    <span className="text-[11px] text-slate-400 dark:text-slate-500">
                       {selectedEmail.lead?.email}
                     </span>
                   </div>
@@ -724,7 +724,7 @@ export default function UniboxPage() {
                           The text of this reply could not be read. Open it in the mailbox to see it.
                         </p>
                       )}
-                      <div className={`mt-2 text-[10px] font-mono text-slate-400 dark:text-slate-500 ${outbound ? 'text-right' : 'text-left'}`}>
+                      <div className={`mt-2 text-[10px] text-slate-400 dark:text-slate-500 ${outbound ? 'text-right' : 'text-left'}`}>
                         {formatWhen(msg.timestamp, true)}
                       </div>
                     </div>
@@ -743,7 +743,7 @@ export default function UniboxPage() {
                     <p className="whitespace-pre-wrap leading-relaxed text-xs text-slate-800 dark:text-slate-200">
                       {sent.body}
                     </p>
-                    <div className="mt-2 text-[10px] font-mono text-slate-400 text-right">
+                    <div className="mt-2 text-[10px] text-slate-400 text-right">
                       {sent.sentAt}
                     </div>
                   </div>
@@ -774,12 +774,12 @@ export default function UniboxPage() {
                     value={currentReplyText}
                     onChange={(e) => setReplyText(e.target.value)}
                     placeholder="Type your reply here..."
-                    className="w-full p-3 bg-transparent text-xs font-mono text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none resize-none leading-relaxed"
+                    className="w-full p-3 bg-transparent text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none resize-none leading-relaxed"
                   />
                 )}
 
                 <div className="flex items-center justify-between px-3 py-2 border-t border-[#EBF0F5] dark:border-[#1E222D] bg-white/50 dark:bg-[#11131A]/50">
-                  <span className="text-[10px] text-slate-400 font-mono">
+                  <span className="text-[10px] text-slate-400">
                     Markdown supported
                   </span>
                   <button

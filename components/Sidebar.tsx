@@ -69,8 +69,8 @@ function CurrentTime() {
   const zone = now ? viewerTimeZone() : '';
   const row = (
     <div className="flex items-center justify-between px-3 py-1.5 rounded-xl bg-slate-50 dark:bg-[#161822] border border-[#EBF0F5] dark:border-[#1E222D] text-xs">
-      <span className="text-[10px] font-bold font-mono tracking-wider text-slate-400 uppercase">Your Time</span>
-      <div className="flex items-baseline gap-1.5 font-mono">
+      <span className="text-[10px] font-bold tracking-wider text-slate-400 uppercase">Your Time</span>
+      <div className="flex items-baseline gap-1.5">
         <span className="font-bold text-slate-700 dark:text-slate-200">{now ? zonedClock(now, zone) : '--:--:--'}</span>
         <span className="text-[10px] text-slate-400 truncate max-w-[80px]">{now ? zonedDate(now, zone) : ''}</span>
       </div>
@@ -363,7 +363,7 @@ export function Sidebar({ mobileOpen = false, onMobileClose, session: propSessio
                 <span className="text-blue-100 flex items-center gap-1.5 text-[11px]">
                   <Database size={12} /> Database
                 </span>
-                <span className="font-mono text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 text-white">
+                <span className="text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 text-white">
                   <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: dbColor }} />
                   {dbText}
                 </span>
@@ -375,7 +375,7 @@ export function Sidebar({ mobileOpen = false, onMobileClose, session: propSessio
                   <span className="text-blue-100 flex items-center gap-1.5 text-[11px]">
                     <Cloud size={12} /> Azure ACS
                   </span>
-                  <span className="font-mono text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 text-white">
+                  <span className="text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 text-white">
                     <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: azure.color }} />
                     {azure.text}
                   </span>
@@ -388,7 +388,7 @@ export function Sidebar({ mobileOpen = false, onMobileClose, session: propSessio
                   <span className="text-blue-100 flex items-center gap-1.5 text-[11px]">
                     <Activity size={12} /> Send Worker
                   </span>
-                  <span className="font-mono text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 text-white">
+                  <span className="text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 text-white">
                     <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: worker.color }} />
                     {worker.text}
                   </span>

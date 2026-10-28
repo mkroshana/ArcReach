@@ -1,14 +1,14 @@
 import type {Metadata} from 'next';
-import { Roboto } from 'next/font/google';
+import { Inter } from 'next/font/google';
 import { headers } from 'next/headers';
 import './globals.css';
 import { AppLayoutClient } from '@/components/AppLayoutClient';
 import { MuiProvider } from '@/components/MuiProvider';
 
-const roboto = Roboto({
+// One typeface for MUI and Tailwind alike; Inter is a variable font, so no weight list.
+const inter = Inter({
   subsets: ['latin'],
-  weight: ['300', '400', '500', '700'],
-  variable: '--font-roboto',
+  variable: '--font-inter',
   display: 'swap',
 });
 
@@ -25,7 +25,7 @@ export default async function RootLayout({children}: {children: React.ReactNode}
   // headers renders every page per request, which a fresh nonce needs.
   const nonce = (await headers()).get('x-nonce') ?? undefined;
   return (
-    <html lang="en" suppressHydrationWarning className={`antialiased ${roboto.variable}`}>
+    <html lang="en" suppressHydrationWarning className={`antialiased ${inter.variable}`}>
       <head>
         {/* Browsers hide a nonce attribute once the script is in the page, so hydration would
             see it as a mismatch. */}

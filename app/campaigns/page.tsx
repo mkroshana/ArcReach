@@ -425,7 +425,7 @@ export default function CampaignsPage() {
                             Created {createdDate.format(new Date(campaign.createdAt))}
                           </Typography>
                         </TableCell>
-                        <TableCell sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
+                        <TableCell sx={{ color: 'text.secondary' }}>
                           <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
                             <Mail size={14} /> {campaign.senderAccount?.emailAddress || 'N/A'}
                           </Stack>
@@ -605,7 +605,7 @@ export default function CampaignsPage() {
                                             >
                                               <TableCell sx={{ maxWidth: 340 }}>
                                                 <Stack direction="row" spacing={1.5} sx={{ alignItems: 'baseline', minWidth: 0 }}>
-                                                  <Box component="span" sx={{ fontFamily: 'monospace', fontWeight: 700, flexShrink: 0, minWidth: 16, color: state === 'waiting' ? 'primary.main' : 'text.secondary' }}>{step.stepOrder}</Box>
+                                                  <Box component="span" sx={{ fontWeight: 700, flexShrink: 0, minWidth: 16, color: state === 'waiting' ? 'primary.main' : 'text.secondary' }}>{step.stepOrder}</Box>
                                                   <Typography variant="body2" noWrap title={step.subject} sx={{ fontWeight: state === 'waiting' ? 700 : 500 }}>{step.subject || '(No Subject)'}</Typography>
                                                 </Stack>
                                               </TableCell>

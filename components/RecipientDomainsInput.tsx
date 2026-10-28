@@ -54,7 +54,7 @@ export function RecipientDomainsInput({ value, onChange, onInvalid, helperText, 
           {...params} label="Recipient Domains"
           placeholder={value.length === 0 ? 'gmail.com, or pick a mail provider' : ''}
           helperText={helperText}
-          sx={{ '& .MuiInputBase-input': { fontFamily: 'monospace' } }}
+
         />
       )}
     />

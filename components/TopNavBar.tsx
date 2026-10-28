@@ -307,7 +307,7 @@ export function TopNavBar({ session, systemStatus, onMobileMenuToggle }: TopNavB
                 <Search size={15} className="text-slate-400 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors" />
                 <span className="text-xs font-normal">Search anything...</span>
               </span>
-              <kbd className="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-semibold font-mono rounded bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shadow-2xs">
+              <kbd className="inline-flex items-center gap-0.5 px-1.5 py-0.5 font-sans text-[10px] font-semibold rounded bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shadow-2xs">
                 {mounted && isMac ? '⌘K' : 'Ctrl K'}
               </kbd>
             </button>
@@ -341,7 +341,7 @@ export function TopNavBar({ session, systemStatus, onMobileMenuToggle }: TopNavB
                   )}
                   <span className={`relative inline-flex rounded-full h-2 w-2 ${currentDelivery.dotClass}`} />
                 </span>
-                <span className="font-mono text-[11px] tracking-tight">{currentDelivery.label}</span>
+                <span className="text-[11px] tracking-tight">{currentDelivery.label}</span>
               </div>
             </Tooltip>
 
@@ -440,7 +440,7 @@ export function TopNavBar({ session, systemStatus, onMobileMenuToggle }: TopNavB
                         {session?.name || 'User'}
                       </span>
                       <span
-                        className={`text-[9px] font-bold font-mono px-1.5 py-0.5 rounded-full ${
+                        className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
                           session?.role === 'ADMIN'
                             ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-900'
                             : 'bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-900'
@@ -541,7 +541,7 @@ export function TopNavBar({ session, systemStatus, onMobileMenuToggle }: TopNavB
 
             {/* Command Items List */}
             <div className="max-h-80 overflow-y-auto p-2">
-              <div className="px-2 py-1.5 text-[10px] font-bold font-mono tracking-wider text-slate-400 uppercase">
+              <div className="px-2 py-1.5 text-[10px] font-bold tracking-wider text-slate-400 uppercase">
                 Navigation & Routes
               </div>
 
@@ -590,7 +590,7 @@ export function TopNavBar({ session, systemStatus, onMobileMenuToggle }: TopNavB
             </div>
 
             {/* Footer keyboard hints */}
-            <div className="flex items-center justify-between px-4 py-2 border-t border-[#EBF0F5] dark:border-[#1E222D] bg-slate-50 dark:bg-[#161822] text-[11px] text-slate-500 dark:text-slate-400 font-mono">
+            <div className="flex items-center justify-between px-4 py-2 border-t border-[#EBF0F5] dark:border-[#1E222D] bg-slate-50 dark:bg-[#161822] text-[11px] text-slate-500 dark:text-slate-400">
               <span>Use ↑ ↓ to navigate</span>
               <span>↵ to select · ESC to close</span>
             </div>

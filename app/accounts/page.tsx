@@ -64,7 +64,7 @@ function MailboxCapacityGauge({
 
   if (compact) {
     return (
-      <div className="w-full max-w-[170px] space-y-1 font-mono text-[11px]">
+      <div className="w-full max-w-[170px] space-y-1 text-[11px]">
         <div className="flex items-center justify-between text-slate-500 dark:text-slate-400">
           <span className={`font-bold ${textColor}`}>{used.toLocaleString()}</span>
           <span>/ {effectiveLimit.toLocaleString()}{warmup ? ' (cap)' : ''}</span>
@@ -111,11 +111,11 @@ function MailboxCapacityGauge({
             fill="none"
           />
         </svg>
-        <span className={`absolute text-[10px] font-bold font-mono ${textColor}`}>
+        <span className={`absolute text-[10px] font-bold ${textColor}`}>
           {pct}%
         </span>
       </div>
-      <div className="min-w-0 font-mono text-xs">
+      <div className="min-w-0 text-xs">
         <div className="font-bold text-slate-900 dark:text-white">
           {used.toLocaleString()} / {effectiveLimit.toLocaleString()}
         </div>
@@ -193,8 +193,8 @@ function GlobalRateLimits({ limits }: { limits: GlobalRateLimitValues | null }) 
       <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block' }}>Global Rate Limits</Typography>
       {limits && (
         <Stack direction="row" spacing={3} sx={{ mt: 0.5 }}>
-          <Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{formatRateLimit(limits.minute, 'minute')}</Typography>
-          <Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{formatRateLimit(limits.hour, 'hour')}</Typography>
+          <Typography sx={{ fontWeight: 700 }}>{formatRateLimit(limits.minute, 'minute')}</Typography>
+          <Typography sx={{ fontWeight: 700 }}>{formatRateLimit(limits.hour, 'hour')}</Typography>
         </Stack>
       )}
       <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5 }}>
@@ -673,7 +673,7 @@ export default function AccountsPage() {
               <div className="flex items-center justify-between p-4 sm:px-6 border-b border-[#EBF0F5] dark:border-[#1E222D]">
                 <h3 className="text-sm font-semibold text-slate-900 dark:text-white tracking-tight">Connected Outreach Senders</h3>
                 {failingSyncCount > 0 && (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 border border-rose-200/60 dark:border-rose-800/50 font-mono">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 border border-rose-200/60 dark:border-rose-800/50">
                     <MailWarning size={12} className="text-rose-500" />
                     <span>{failingSyncCount} {failingSyncCount === 1 ? 'Mailbox' : 'Mailboxes'} Failing Reply Sync</span>
                   </span>
@@ -705,7 +705,7 @@ export default function AccountsPage() {
                                 {account.warmupEnabled && <Chip size="small" icon={<Flame size={10} />} label="Warmup" sx={{ height: 18, fontSize: 9, fontWeight: 700, bgcolor: (t) => alpha(t.palette.warning.main, 0.14), color: 'warning.main', '.MuiChip-icon': { color: 'warning.main' } }} />}
                               </Stack>
                               <Typography variant="caption" sx={{ color: 'text.secondary' }}>{account.name} • {account.provider}</Typography>
-                              <Stack direction="row" spacing={1.5} sx={{ mt: 0.5, fontFamily: 'monospace', fontSize: 9, color: 'text.secondary', flexWrap: 'wrap' }}>
+                              <Stack direction="row" spacing={1.5} sx={{ mt: 0.5, fontSize: 9, color: 'text.secondary', flexWrap: 'wrap' }}>
                                 <span>Sent: <strong>{account.sentTotal ?? 0}</strong></span>
                                 <span>Delivered: {deliveryUnknown(account) ? (
                                   <MuiTooltip title={NO_DELIVERY_REPORTS_NOTE}>
@@ -823,7 +823,7 @@ export default function AccountsPage() {
                 ].map((s: StatTile, idx) => (
                   <Box key={idx} sx={{ p: 1.5, bgcolor: 'action.hover', borderRadius: '12px', border: 1, borderColor: 'divider' }}>
                     <Typography variant="overline" sx={{ color: 'text.secondary', fontWeight: 700, fontSize: 9 }}>{s.title}</Typography>
-                    <Typography variant="h6" sx={{ fontWeight: 700, fontFamily: 'monospace' }}>{s.value.toLocaleString()}</Typography>
+                    <Typography variant="h6" sx={{ fontWeight: 700 }}>{s.value.toLocaleString()}</Typography>
                     <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: 9, display: 'block' }}>{s.desc}{s.caveat && <CaveatMark note={s.caveat} />}</Typography>
                   </Box>
                 ))}
@@ -841,7 +841,7 @@ export default function AccountsPage() {
                 </Stack>
                 <form onSubmit={handleSaveAccountCredentials}>
                   <Stack spacing={2}>
-                    <TextField size="small" label="Reply-To Address (Optional)" type="email" placeholder="replies@mycompany.com" value={editReplyTo} onChange={(e) => setEditReplyTo(e.target.value)} sx={{ maxWidth: 360 }} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
+                    <TextField size="small" label="Reply-To Address (Optional)" type="email" placeholder="replies@mycompany.com" value={editReplyTo} onChange={(e) => setEditReplyTo(e.target.value)} sx={{ maxWidth: 360 }} />
                     <ReplyToNameField value={editReplyToName} onChange={setEditReplyToName} replyTo={editReplyTo} sx={{ maxWidth: 360 }} />
                     <SmtpNotUsedNote />
                     {/* Any mailbox can sync replies over IMAP, whatever its provider label */}
@@ -859,11 +859,11 @@ export default function AccountsPage() {
                             <Typography variant="caption" sx={{ color: 'warning.main', display: 'block' }}>{MICROSOFT_IMAP_NOTE}</Typography>
                           )}
                           <Stack direction="row" spacing={1.5}>
-                            <TextField fullWidth size="small" label="IMAP Host" value={editImapHost} onChange={(e) => setEditImapHost(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { autoComplete: 'off' } }} />
-                            <TextField fullWidth size="small" label="Port" value={editImapPort} onChange={(e) => setEditImapPort(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { autoComplete: 'off' } }} />
+                            <TextField fullWidth size="small" label="IMAP Host" value={editImapHost} onChange={(e) => setEditImapHost(e.target.value)} slotProps={{ htmlInput: { autoComplete: 'off' } }} />
+                            <TextField fullWidth size="small" label="Port" value={editImapPort} onChange={(e) => setEditImapPort(e.target.value)} slotProps={{ htmlInput: { autoComplete: 'off' } }} />
                           </Stack>
                           <Stack direction="row" spacing={1.5}>
-                            <TextField fullWidth size="small" label="Username" value={editImapUser} onChange={(e) => setEditImapUser(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { autoComplete: 'off' } }} />
+                            <TextField fullWidth size="small" label="Username" value={editImapUser} onChange={(e) => setEditImapUser(e.target.value)} slotProps={{ htmlInput: { autoComplete: 'off' } }} />
                             <PwField label="Password" value={editImapPass} onChange={setEditImapPass} show={showEditImapPass} setShow={setShowEditImapPass} />
                           </Stack>
                           <AllowSelfSignedSwitch checked={editImapAllowSelfSigned} onChange={setEditImapAllowSelfSigned} />
@@ -890,10 +890,10 @@ export default function AccountsPage() {
                   </Stack>
                   {globalDaily ? (
                     <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                      This mailbox has no daily limit of its own while a global rate limit is set. All mailboxes share {globalDaily.limit.toLocaleString()} emails in any 24 hours ({globalDailySource}), and <Box component="strong" sx={{ fontFamily: 'monospace', color: 'text.primary' }}>{remainingOfAllowance(selectedWarmupAccount).toLocaleString()}</Box> {selectedWarmupAccount.warmupEnabled ? 'are left for this mailbox under its warmup cap.' : 'are left.'}
+                      This mailbox has no daily limit of its own while a global rate limit is set. All mailboxes share {globalDaily.limit.toLocaleString()} emails in any 24 hours ({globalDailySource}), and <Box component="strong" sx={{ color: 'text.primary' }}>{remainingOfAllowance(selectedWarmupAccount).toLocaleString()}</Box> {selectedWarmupAccount.warmupEnabled ? 'are left for this mailbox under its warmup cap.' : 'are left.'}
                     </Typography>
                   ) : (
-                    <TextField fullWidth size="small" label={MAILBOX_LIMIT_FIELDS.dailyLimit.label} type="number" {...limitInputProps('dailyLimit', selectedWarmupAccount.dailyLimit)} sx={{ maxWidth: 240 }} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { min: MAILBOX_LIMIT_FIELDS.dailyLimit.min } }} />
+                    <TextField fullWidth size="small" label={MAILBOX_LIMIT_FIELDS.dailyLimit.label} type="number" {...limitInputProps('dailyLimit', selectedWarmupAccount.dailyLimit)} sx={{ maxWidth: 240 }} slotProps={{ htmlInput: { min: MAILBOX_LIMIT_FIELDS.dailyLimit.min } }} />
                   )}
                   <Box sx={{ mt: 2 }}><GlobalRateLimits limits={globalRateLimits} /></Box>
                 </CardContent>
@@ -937,8 +937,8 @@ export default function AccountsPage() {
                   {selectedWarmupAccount.warmupEnabled && (
                     <Stack spacing={2} sx={{ mt: 2 }}>
                       <Stack direction="row" spacing={2}>
-                        <TextField fullWidth size="small" label={MAILBOX_LIMIT_FIELDS.warmupLimit.label} type="number" {...limitInputProps('warmupLimit', selectedWarmupAccount.warmupLimit ?? 50)} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { min: MAILBOX_LIMIT_FIELDS.warmupLimit.min, max: globalDaily ? undefined : selectedWarmupAccount.dailyLimit } }} />
-                        <TextField fullWidth size="small" label={MAILBOX_LIMIT_FIELDS.warmupRamp.label} type="number" {...limitInputProps('warmupRamp', selectedWarmupAccount.warmupRamp ?? 2)} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { min: MAILBOX_LIMIT_FIELDS.warmupRamp.min } }} />
+                        <TextField fullWidth size="small" label={MAILBOX_LIMIT_FIELDS.warmupLimit.label} type="number" {...limitInputProps('warmupLimit', selectedWarmupAccount.warmupLimit ?? 50)} slotProps={{ htmlInput: { min: MAILBOX_LIMIT_FIELDS.warmupLimit.min, max: globalDaily ? undefined : selectedWarmupAccount.dailyLimit } }} />
+                        <TextField fullWidth size="small" label={MAILBOX_LIMIT_FIELDS.warmupRamp.label} type="number" {...limitInputProps('warmupRamp', selectedWarmupAccount.warmupRamp ?? 2)} slotProps={{ htmlInput: { min: MAILBOX_LIMIT_FIELDS.warmupRamp.min } }} />
                       </Stack>
                       <Card sx={{ bgcolor: (t) => alpha(t.palette.warning.main, 0.06), borderColor: (t) => alpha(t.palette.warning.main, 0.2) }}>
                         <CardContent>
@@ -947,9 +947,9 @@ export default function AccountsPage() {
                             <Box>
                               <Typography variant="caption" sx={{ fontWeight: 700, color: 'warning.main', display: 'block', mb: 0.5 }}>Warmup Progress</Typography>
                               <Box component="ul" sx={{ pl: 2, m: 0, fontSize: 11, color: 'warning.main' }}>
-                                <li>Started On: <Box component="strong" sx={{ fontFamily: 'monospace' }}>{selectedWarmupAccount.warmupStartedAt ? new Date(selectedWarmupAccount.warmupStartedAt).toLocaleDateString() : 'Just now'}</Box></li>
-                                <li>Emails Sent This Ramp: <Box component="strong" sx={{ fontFamily: 'monospace' }}>{selectedWarmupAccount.warmupSent ?? 0}</Box></li>
-                                <li>Current Limit: <Box component="strong" sx={{ fontFamily: 'monospace' }}>{currentCap(selectedWarmupAccount)}</Box> emails per 24 hours</li>
+                                <li>Started On: <Box component="strong">{selectedWarmupAccount.warmupStartedAt ? new Date(selectedWarmupAccount.warmupStartedAt).toLocaleDateString() : 'Just now'}</Box></li>
+                                <li>Emails Sent This Ramp: <Box component="strong">{selectedWarmupAccount.warmupSent ?? 0}</Box></li>
+                                <li>Current Limit: <Box component="strong">{currentCap(selectedWarmupAccount)}</Box> emails per 24 hours</li>
                               </Box>
                             </Box>
                           </Stack>
@@ -981,9 +981,9 @@ export default function AccountsPage() {
       >
         <div className="space-y-6">
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '2fr 1fr' }, gap: 2 }}>
-            <TextField label="Sender Email Address" type="email" required value={emailAddress} onChange={(e) => setEmailAddress(e.target.value)} size="small" placeholder="outreach@mycompany.com" slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
+            <TextField label="Sender Email Address" type="email" required value={emailAddress} onChange={(e) => setEmailAddress(e.target.value)} size="small" placeholder="outreach@mycompany.com" />
             <TextField label="Internal Label" required value={senderName} onChange={(e) => setSenderName(e.target.value)} size="small" placeholder="Sales Outreach" helperText="Shown only in ArcReach. Recipients see the From name set on the sender username in Azure." />
-            <TextField label="Reply-To (Optional)" type="email" value={replyTo} onChange={(e) => setReplyTo(e.target.value)} size="small" placeholder="replies@mycompany.com" slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
+            <TextField label="Reply-To (Optional)" type="email" value={replyTo} onChange={(e) => setReplyTo(e.target.value)} size="small" placeholder="replies@mycompany.com" />
             <ReplyToNameField value={replyToName} onChange={setReplyToName} replyTo={replyTo} />
             <FormControl size="small" sx={{ gridColumn: { md: '1 / -1' } }}>
               <InputLabel>Email Provider</InputLabel>
@@ -1021,11 +1021,11 @@ export default function AccountsPage() {
                 <Typography variant="caption" sx={{ color: 'warning.main', display: 'block' }}>{MICROSOFT_IMAP_NOTE}</Typography>
               )}
               <Stack direction="row" spacing={1.5}>
-                <TextField fullWidth size="small" label="IMAP Host" value={imapHost} onChange={(e) => setImapHost(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { autoComplete: 'off' } }} />
-                <TextField fullWidth size="small" label="Port" value={imapPort} onChange={(e) => setImapPort(e.target.value)} placeholder="993" slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { autoComplete: 'off' } }} />
+                <TextField fullWidth size="small" label="IMAP Host" value={imapHost} onChange={(e) => setImapHost(e.target.value)} slotProps={{ htmlInput: { autoComplete: 'off' } }} />
+                <TextField fullWidth size="small" label="Port" value={imapPort} onChange={(e) => setImapPort(e.target.value)} placeholder="993" slotProps={{ htmlInput: { autoComplete: 'off' } }} />
               </Stack>
               <Stack direction="row" spacing={1.5}>
-                <TextField fullWidth size="small" label="Username" value={imapUser} onChange={(e) => setImapUser(e.target.value)} placeholder="user@domain.com" slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { autoComplete: 'off' } }} />
+                <TextField fullWidth size="small" label="Username" value={imapUser} onChange={(e) => setImapUser(e.target.value)} placeholder="user@domain.com" slotProps={{ htmlInput: { autoComplete: 'off' } }} />
                 <PwField label="Password" value={imapPass} onChange={setImapPass} show={showAddImapPass} setShow={setShowAddImapPass} placeholder="Password or App Key" />
               </Stack>
               <AllowSelfSignedSwitch checked={imapAllowSelfSigned} onChange={setImapAllowSelfSigned} />
@@ -1038,35 +1038,35 @@ export default function AccountsPage() {
               <Typography variant="overline" sx={{ fontWeight: 700, color: 'text.secondary' }}>Sending Limits</Typography>
             </Stack>
             {!globalDaily && (
-              <TextField fullWidth size="small" label="Max / Day" type="number" value={dailyLimit} onChange={(e) => setDailyLimit(parseInt(e.target.value) || 10)} sx={{ maxWidth: 240 }} slotProps={{ input: { sx: { fontFamily: 'monospace' } }, htmlInput: { min: 10 } }} />
+              <TextField fullWidth size="small" label="Max / Day" type="number" value={dailyLimit} onChange={(e) => setDailyLimit(parseInt(e.target.value) || 10)} sx={{ maxWidth: 240 }} slotProps={{ htmlInput: { min: 10 } }} />
             )}
             <Box sx={{ mt: globalDaily ? 0 : 2 }}><GlobalRateLimits limits={globalRateLimits} /></Box>
             {globalDaily ? (
               <Box sx={{ mt: 2, pt: 2, borderTop: 1, borderColor: 'divider' }}>
                 <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                   <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Global Daily Allowance</Typography>
-                  <Typography variant="caption" sx={{ fontWeight: 700, color: 'primary.main', fontFamily: 'monospace' }}>{globalDaily.sent.toLocaleString()} / {globalDaily.limit.toLocaleString()} sent in the last 24 hours</Typography>
+                  <Typography variant="caption" sx={{ fontWeight: 700, color: 'primary.main' }}>{globalDaily.sent.toLocaleString()} / {globalDaily.limit.toLocaleString()} sent in the last 24 hours</Typography>
                 </Stack>
                 <LinearProgress variant="determinate" value={Math.min(100, (globalDaily.sent / globalDaily.limit) * 100)} sx={{ height: 6, borderRadius: 999 }} />
                 <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 1 }}>
                   All mailboxes share this allowance, which is {globalDaily.per === 'hour' ? '24' : '1,440'} times the global limit of {globalDailySource}. A mailbox has no daily limit of its own while a global rate limit is set; only its warmup ramp holds it lower.
                 </Typography>
                 <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 1.5, mt: 2, p: 1.5, borderRadius: '12px', bgcolor: 'action.hover', border: 1, borderColor: 'divider', textAlign: 'center', fontSize: 10 }}>
-                  <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Remaining</Typography><Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{globalDaily.remaining.toLocaleString()} / day</Typography></Box>
-                  <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Mailboxes</Typography><Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{accounts.length}</Typography></Box>
+                  <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Remaining</Typography><Typography sx={{ fontWeight: 700 }}>{globalDaily.remaining.toLocaleString()} / day</Typography></Box>
+                  <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Mailboxes</Typography><Typography sx={{ fontWeight: 700 }}>{accounts.length}</Typography></Box>
                 </Box>
               </Box>
             ) : accounts.length > 0 && (
               <Box sx={{ mt: 2, pt: 2, borderTop: 1, borderColor: 'divider' }}>
                 <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                   <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Combined Daily Capacity</Typography>
-                  <Typography variant="caption" sx={{ fontWeight: 700, color: 'primary.main', fontFamily: 'monospace' }}>{dailyCapacity.sent.toLocaleString()} / {dailyCapacity.cap.toLocaleString()} sent in the last 24 hours</Typography>
+                  <Typography variant="caption" sx={{ fontWeight: 700, color: 'primary.main' }}>{dailyCapacity.sent.toLocaleString()} / {dailyCapacity.cap.toLocaleString()} sent in the last 24 hours</Typography>
                 </Stack>
                 <LinearProgress variant="determinate" value={Math.min(100, dailyCapacity.cap > 0 ? (dailyCapacity.sent / dailyCapacity.cap) * 100 : 0)} sx={{ height: 6, borderRadius: 999 }} />
                 <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 1.5, mt: 2, p: 1.5, borderRadius: '12px', bgcolor: 'action.hover', border: 1, borderColor: 'divider', textAlign: 'center', fontSize: 10 }}>
-                  <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Remaining</Typography><Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{dailyCapacity.remaining.toLocaleString()} / day</Typography></Box>
-                  <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Mailboxes</Typography><Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{accounts.length}</Typography></Box>
-                  <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Avg / Account</Typography><Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{accounts.length > 0 ? Math.round(dailyCapacity.cap / accounts.length).toLocaleString() : 0}</Typography></Box>
+                  <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Remaining</Typography><Typography sx={{ fontWeight: 700 }}>{dailyCapacity.remaining.toLocaleString()} / day</Typography></Box>
+                  <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Mailboxes</Typography><Typography sx={{ fontWeight: 700 }}>{accounts.length}</Typography></Box>
+                  <Box><Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>Avg / Account</Typography><Typography sx={{ fontWeight: 700 }}>{accounts.length > 0 ? Math.round(dailyCapacity.cap / accounts.length).toLocaleString() : 0}</Typography></Box>
                 </Box>
               </Box>
             )}

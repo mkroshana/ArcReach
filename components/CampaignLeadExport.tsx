@@ -157,7 +157,7 @@ export default function CampaignLeadExport({ campaignId, campaignName, groups, o
                   <Box>
                     <Stack direction="row" spacing={1} sx={{ alignItems: 'baseline' }}>
                       <Typography variant="body2" sx={{ fontWeight: 700 }}>{list.title}</Typography>
-                      <Typography variant="body2" sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>{count === undefined ? '…' : leadCount(count)}</Typography>
+                      <Typography variant="body2" sx={{ color: 'text.secondary' }}>{count === undefined ? '…' : leadCount(count)}</Typography>
                     </Stack>
                     <Typography variant="caption" sx={{ color: 'text.secondary' }}>{list.meaning}</Typography>
                   </Box>

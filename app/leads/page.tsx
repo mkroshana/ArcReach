@@ -6,7 +6,6 @@ import {
   FileType, 
   CheckCircle2, 
   AlertCircle, 
-  Search, 
   Download, 
   Globe, 
   Trash2, 
@@ -25,8 +24,6 @@ import {
   MessageSquare,
   Clock,
   Calendar,
-  Folder,
-  Copy,
   Archive,
   FolderPlus,
   Ban,
@@ -34,7 +31,8 @@ import {
   Hourglass,
   MailQuestionMark,
   Loader2,
-  UserPlus
+  UserPlus,
+  ArrowLeft
 } from 'lucide-react';
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -77,6 +75,16 @@ import {
   type LeadStatusFilter
 } from '@/lib/leadView';
 import type { SuppressionReason } from '@prisma/client';
+import { Badge, type BadgeTone } from '@/components/ui/Badge';
+import { Button, buttonClasses } from '@/components/ui/Button';
+import { Card, CardHeader } from '@/components/ui/Card';
+import { inputClasses, SearchInput } from '@/components/ui/Input';
+import { Notice } from '@/components/ui/Notice';
+import { OverflowMenu } from '@/components/ui/OverflowMenu';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { Segmented, type SegmentedOption } from '@/components/ui/Segmented';
+import { Table, THead, TH, TR, TD } from '@/components/ui/Table';
+import { cn } from '@/lib/utils';
 
 /** A lead's suppression-list entry, as /api/leads returns it on each lead. */
 type SuppressionInfo = { reason: SuppressionReason; source: string; createdAt: string };
@@ -109,33 +117,57 @@ function suppressionLabel(lead: any): string | null {
 
 function SuppressionChip({ lead }: { lead: any }) {
   const label = suppressionLabel(lead);
-  const title = lead.suppression ? describeSuppression(lead.suppression) : undefined;
-  if (label === 'Bounced') {
-    return (
-      <span title={title} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300 border-red-200 dark:border-red-900/40">
-        <Ban className="w-3.5 h-3.5" />
-        Bounced
-      </span>
-    );
-  }
-  if (label === 'Unsubscribed') {
-    return (
-      <span title={title} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border bg-orange-50 dark:bg-orange-950/40 text-orange-700 dark:text-orange-300 border-orange-200 dark:border-orange-900/40">
-        <MailX className="w-3.5 h-3.5" />
-        Unsubscribed
-      </span>
-    );
-  }
-  if (label) {
-    return (
-      <span title={title} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-900/40">
-        <AlertCircle className="w-3.5 h-3.5" />
+  if (!label) return <Badge>Active</Badge>;
+  const Icon = label === 'Bounced' ? Ban : label === 'Unsubscribed' ? MailX : AlertCircle;
+  return (
+    <span title={lead.suppression ? describeSuppression(lead.suppression) : undefined}>
+      <Badge tone={label === 'Unsubscribed' ? 'amber' : 'red'}>
+        <Icon size={12} aria-hidden />
         {label}
-      </span>
-    );
-  }
-  return <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-medium text-slate-500 dark:text-slate-400 bg-slate-100/60 dark:bg-slate-800/40">Active</span>;
+      </Badge>
+    </span>
+  );
 }
+
+const VALIDATION_TONE: Record<string, BadgeTone> = { Valid: 'green', Invalid: 'red', Risky: 'amber' };
+
+/** A lead's domain check result: Valid, Risky, Invalid, or Unverified with a dot. */
+function ValidationBadge({ status }: { status: string }) {
+  return (
+    <Badge tone={VALIDATION_TONE[status] ?? 'neutral'} dot={status === 'Unverified'}>
+      {status === 'Valid' && <CheckCircle2 size={12} aria-hidden />}
+      {(status === 'Invalid' || status === 'Risky') && <AlertCircle size={12} aria-hidden />}
+      {status}
+    </Badge>
+  );
+}
+
+type LeadTab = 'leads' | 'groups' | 'overlaps' | 'archived' | 'suppressed';
+
+const LEAD_TABS: SegmentedOption<LeadTab>[] = [
+  { value: 'leads', label: 'Leads Directory' },
+  { value: 'groups', label: 'Lead Groups' },
+  { value: 'overlaps', label: 'Cross-Check & Overlaps' },
+  { value: 'suppressed', label: 'Suppressed Leads' },
+  { value: 'archived', label: 'Archived Leads' },
+];
+
+const STATUS_OPTIONS: SegmentedOption<LeadStatusFilter>[] = LEAD_STATUS_FILTERS.map(status => ({ value: status, label: status }));
+
+const LABEL = 'mb-1.5 block text-[13px] font-medium text-text-main';
+const FIELD_LABEL = 'text-[11px] font-medium text-text-muted';
+const CHECKBOX = 'size-4 cursor-pointer accent-primary';
+const DELETE_ICON = 'hover:text-rose-600 dark:hover:text-rose-400';
+const EMPTY_CELL = 'py-12 text-center text-xs text-text-muted';
+const WARN_BOX = 'flex items-start gap-2 rounded-control border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-500/10 dark:text-amber-300';
+const ERROR_BOX = 'flex items-start gap-2 rounded-control border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800 dark:border-rose-900/50 dark:bg-rose-500/10 dark:text-rose-300';
+const MAP_BOX = 'space-y-2 rounded-control border border-card-border p-3';
+const PREVIEW_BOX = 'truncate rounded-md bg-slate-50 px-2 py-1.5 text-[11px] text-text-sub dark:bg-white/[0.03]';
+const TOGGLE = 'cursor-pointer rounded-control border font-medium transition-colors';
+const TOGGLE_ON = 'border-primary bg-primary-subtle text-primary';
+const TOGGLE_OFF = 'border-input-border bg-card text-text-sub hover:text-text-main';
+const RADIO_ROW = 'flex cursor-pointer items-start gap-3 rounded-control border border-card-border p-3 transition-colors hover:bg-slate-50 has-[:checked]:border-primary has-[:checked]:bg-primary-subtle dark:hover:bg-white/[0.02]';
+const MODAL = 'fixed top-1/2 left-1/2 z-55 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-card border border-card-border bg-card p-6 shadow-2xl';
 
 /** What a Re-activate did, for its toast. */
 function describeReactivation(result: { reactivated: number; unsubscribed: number; suppressed: number; notSuppressed: number }): string {
@@ -257,7 +289,7 @@ export default function LeadsPage() {
   const [expandedEmailId, setExpandedEmailId] = useState<string | null>(null);
 
   // Lead Groups and Archiving states
-  const [activeTab, setActiveTab] = useState<'leads' | 'groups' | 'overlaps' | 'archived' | 'suppressed'>('leads');
+  const [activeTab, setActiveTab] = useState<LeadTab>('leads');
   const [groups, setGroups] = useState<any[]>([]);
   const [loadingGroups, setLoadingGroups] = useState(false);
   // Why the lead groups could not be loaded; group lists and pickers then say so instead of showing none
@@ -1159,29 +1191,19 @@ export default function LeadsPage() {
 
   // The open table's page buttons: every leads table pages through its list on the server
   const paginationControls = leadTotal > 0 && (
-    <div className="p-5 border-t border-[#EBF0F5] dark:border-[#1E222D] flex flex-col sm:flex-row justify-between items-center gap-4 bg-slate-50/20 dark:bg-slate-950/10">
-      <div className="text-xs text-slate-500 dark:text-slate-400 font-normal">
-        Showing <span className="font-semibold text-slate-900 dark:text-white">{startIndex}</span> to{' '}
-        <span className="font-semibold text-slate-900 dark:text-white">{endIndex}</span> of{' '}
-        <span className="font-semibold text-slate-900 dark:text-white">{leadTotal}</span> leads
+    <div className="flex flex-col items-center justify-between gap-3 border-t border-card-border px-4 py-3 sm:flex-row">
+      <div className="text-xs text-text-sub">
+        Showing <span className="font-medium text-text-main">{startIndex}</span> to{' '}
+        <span className="font-medium text-text-main">{endIndex}</span> of{' '}
+        <span className="font-medium text-text-main">{leadTotal}</span> leads
       </div>
-      <div className="flex items-center gap-1.5">
-        <button
-          disabled={currentPage === 1}
-          onClick={() => setCurrentPage(1)}
-          className="p-1.5 rounded-xl border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer shadow-xs"
-          title="First Page"
-        >
-          <ChevronsLeft className="w-4 h-4" />
-        </button>
-        <button
-          disabled={currentPage === 1}
-          onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-          className="p-1.5 rounded-xl border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer shadow-xs"
-          title="Previous Page"
-        >
-          <ChevronLeft className="w-4 h-4" />
-        </button>
+      <nav aria-label="Pages" className="flex items-center gap-1">
+        <Button size="sm" iconOnly disabled={currentPage === 1} onClick={() => setCurrentPage(1)} aria-label="First page" title="First Page">
+          <ChevronsLeft size={14} />
+        </Button>
+        <Button size="sm" iconOnly disabled={currentPage === 1} onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))} aria-label="Previous page" title="Previous Page">
+          <ChevronLeft size={14} />
+        </Button>
 
         {/* Page numbers */}
         {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
@@ -1195,147 +1217,104 @@ export default function LeadsPage() {
           }
           if (pageNum < 1 || pageNum > totalPages) return null;
           return (
-            <button
+            <Button
               key={pageNum}
+              size="sm"
+              variant={currentPage === pageNum ? 'primary' : 'ghost'}
+              aria-current={currentPage === pageNum ? 'page' : undefined}
               onClick={() => setCurrentPage(pageNum)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer shadow-xs ${
-                currentPage === pageNum
-                  ? 'bg-blue-600 border-blue-600 text-white'
-                  : 'border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800'
-              }`}
+              className="min-w-7 px-2"
             >
               {pageNum}
-            </button>
+            </Button>
           );
         })}
 
-        <button
-          disabled={currentPage === totalPages}
-          onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-          className="p-1.5 rounded-xl border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer shadow-xs"
-          title="Next Page"
-        >
-          <ChevronRight className="w-4 h-4" />
-        </button>
-        <button
-          disabled={currentPage === totalPages}
-          onClick={() => setCurrentPage(totalPages)}
-          className="p-1.5 rounded-xl border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer shadow-xs"
-          title="Last Page"
-        >
-          <ChevronsRight className="w-4 h-4" />
-        </button>
-      </div>
+        <Button size="sm" iconOnly disabled={currentPage === totalPages} onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))} aria-label="Next page" title="Next Page">
+          <ChevronRight size={14} />
+        </Button>
+        <Button size="sm" iconOnly disabled={currentPage === totalPages} onClick={() => setCurrentPage(totalPages)} aria-label="Last page" title="Last Page">
+          <ChevronsRight size={14} />
+        </Button>
+      </nav>
     </div>
   );
   // What an empty table says: no match, or that its page could not be loaded
   const emptyListMessage = (noMatch: string) => (listError ? 'Leads could not be loaded. Use Refresh to try again.' : noMatch);
 
   return (
-    <div className="space-y-6 pb-12 w-full">
-      {/* Header */}
-      <header className="flex justify-between items-start md:items-center flex-col md:flex-row gap-4 pb-2 border-b border-[#EBF0F5] dark:border-[#1E222D]">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-            Leads Directory
-          </h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            Import contacts, check email deliverability, and organize outreach prospect lists.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2.5 flex-wrap">
-          {/* Refresh Button */}
-          <button
-            onClick={reloadLeads}
-            className="p-2.5 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white bg-white dark:bg-[#11131A] border border-[#EBF0F5] dark:border-[#1E222D] rounded-xl shadow-xs transition-colors cursor-pointer"
-            title="Refresh Leads Catalog"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading && !isVerifying ? 'animate-spin' : ''}`} />
-          </button>
-
-          {/* Import CSV Button */}
-          <button
-            onClick={() => setShowCsvDrawer(true)}
-            className="bg-white hover:bg-slate-50 dark:bg-[#161822] dark:hover:bg-[#1E222D] border border-[#EBF0F5] dark:border-[#1E222D] text-slate-800 dark:text-slate-200 px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all shadow-xs cursor-pointer"
-          >
-            <UploadCloud className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-            <span>Import CSV</span>
-          </button>
-
-          {/* Add Single Lead Button */}
-          <button
-            onClick={() => setShowAddLead(true)}
-            className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all shadow-xs cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Add Single Lead</span>
-          </button>
-
-          {/* Check Domain MX Button */}
-          <button
-            onClick={handleBulkVerify}
-            disabled={isVerifying || isCountingUnchecked || loading}
-            className="bg-white dark:bg-[#161822] border border-[#EBF0F5] dark:border-[#1E222D] hover:bg-slate-50 dark:hover:bg-[#1E222D] text-slate-700 dark:text-slate-300 disabled:opacity-50 px-4 py-2.5 rounded-xl font-semibold flex items-center gap-2 transition-colors text-xs shadow-xs cursor-pointer"
-          >
-            <Globe className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-            <span>
+    <div className="flex w-full flex-col gap-4 pb-12">
+      <PageHeader
+        title="Leads"
+        actions={
+          <>
+            <Button iconOnly onClick={reloadLeads} aria-label="Refresh leads" title="Refresh Leads">
+              <RefreshCw size={14} className={cn(loading && !isVerifying && 'animate-spin')} />
+            </Button>
+            <Button onClick={handleBulkVerify} disabled={isVerifying || isCountingUnchecked || loading}>
+              <Globe size={14} />
               {isVerifying && verifyProgress ? `Checking ${checkedOf(verifyProgress)}` : 'Check Domain MX'}
-            </span>
-          </button>
-
-          {/* Admin: Delete All Leads */}
-          {isAdmin && (
-            <button
-              onClick={() => {
-                setDeleteAllConfirmText('');
-                setShowDeleteAllConfirm(true);
-              }}
-              disabled={loading || leadCount === 0}
-              className="bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/40 text-rose-600 dark:text-rose-300 border border-rose-200 dark:border-rose-900/40 px-3.5 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer disabled:opacity-50"
-            >
-              <Trash2 className="w-4 h-4" />
-              <span>Delete All Leads</span>
-            </button>
-          )}
-        </div>
-      </header>
+            </Button>
+            <Button onClick={() => setShowCsvDrawer(true)}>
+              <UploadCloud size={14} />
+              Import CSV
+            </Button>
+            <Button variant="primary" onClick={() => setShowAddLead(true)}>
+              <Plus size={14} />
+              Add Single Lead
+            </Button>
+            {/* Admin: Delete All Leads, kept out of the toolbar */}
+            {isAdmin && (
+              <OverflowMenu
+                label="More lead actions"
+                items={[
+                  {
+                    label: 'Delete All Leads',
+                    icon: <Trash2 size={14} />,
+                    danger: true,
+                    disabled: loading || leadCount === 0,
+                    onSelect: () => {
+                      setDeleteAllConfirmText('');
+                      setShowDeleteAllConfirm(true);
+                    },
+                  },
+                ]}
+              />
+            )}
+          </>
+        }
+      />
 
       {/* The groups feed the Groups tab and every group picker here, so a failed load is shown above them all */}
       {groupsError && !loadingGroups && (
-        <div className="bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/30 p-4 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-start gap-2.5">
-            <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-px" />
-            <div>
-              <p className="text-xs font-bold text-rose-700 dark:text-rose-400">Lead Groups Could Not Be Loaded</p>
-              <p className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">{groupsError} Group lists and group choices on this page may be missing groups until they load.</p>
-            </div>
-          </div>
-          <button
-            onClick={fetchGroups}
-            className="self-start sm:self-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-white px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 shrink-0 cursor-pointer"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-            Retry
-          </button>
-        </div>
+        <Notice
+          tone="error"
+          title="Lead Groups Could Not Be Loaded"
+          action={
+            <Button size="sm" onClick={fetchGroups}>
+              <RefreshCw size={14} />
+              Retry
+            </Button>
+          }
+        >
+          {groupsError} Group lists and group choices on this page may be missing groups until they load.
+        </Notice>
       )}
 
       {/* Domain MX check progress: real counts from the batches finished so far */}
       {isVerifying && verifyProgress && (
-        <div className="bg-blue-50 dark:bg-blue-950/25 border border-blue-100 dark:border-blue-500/10 p-4 rounded-xl flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <Globe className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
-            <div>
-              <p className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-wider">Checking Domain MX Records</p>
-              <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-medium">Looks up each email domain&apos;s MX records, or its A record when it has none. Mailboxes are not checked.</p>
+        <Notice
+          tone="info"
+          title="Checking Domain MX Records"
+          action={
+            <div className="shrink-0 space-y-0.5 text-right text-xs">
+              <p className="font-medium text-primary">Checked {checkedOf(verifyProgress)} leads</p>
+              <p className="text-text-sub">{verifyProgress.valid} Valid, {verifyProgress.risky} Risky, {verifyProgress.invalid} Invalid</p>
             </div>
-          </div>
-          <div className="w-full md:w-64 font-sans text-[11px] font-bold space-y-1">
-            <p className="text-blue-600 dark:text-blue-400">Checked {checkedOf(verifyProgress)} leads</p>
-            <p className="text-slate-500 dark:text-slate-400">{verifyProgress.valid} Valid, {verifyProgress.risky} Risky, {verifyProgress.invalid} Invalid</p>
-          </div>
-        </div>
+          }
+        >
+          Looks up each email domain&apos;s MX records, or its A record when it has none. Mailboxes are not checked.
+        </Notice>
       )}
 
       {/* Hidden File Input for CSV selection */}
@@ -1361,74 +1340,74 @@ export default function LeadsPage() {
         cancelLabel="Cancel"
         onCancel={() => setShowAddLead(false)}
       >
-        <div className="space-y-4 font-sans">
-          {/* Full Name Field */}
-          <div className="space-y-1.5">
-            <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">
+        <div className="space-y-4">
+          <div>
+            <label htmlFor="add-lead-name" className={LABEL}>
               Full Name <span className="text-rose-500">*</span>
             </label>
             <input
+              id="add-lead-name"
               type="text"
               required
               placeholder="e.g. John Doe"
               value={newLead.name}
               onChange={(e) => setNewLead({ ...newLead, name: e.target.value })}
-              className="w-full bg-slate-50 dark:bg-slate-950 border border-[#EBF0F5] dark:border-[#1E222D] p-2.5 rounded-xl text-xs placeholder:text-slate-400 text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+              className={inputClasses('h-9')}
             />
           </div>
 
-          {/* Outreach Email Field */}
-          <div className="space-y-1.5">
-            <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">
+          <div>
+            <label htmlFor="add-lead-email" className={LABEL}>
               Outreach Email <span className="text-rose-500">*</span>
             </label>
             <input
+              id="add-lead-email"
               type="email"
               required
               placeholder="e.g. john@company.com"
               value={newLead.email}
               onChange={(e) => setNewLead({ ...newLead, email: e.target.value })}
-              className="w-full bg-slate-50 dark:bg-slate-950 border border-[#EBF0F5] dark:border-[#1E222D] p-2.5 rounded-xl text-xs placeholder:text-slate-400 text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+              className={inputClasses('h-9')}
             />
           </div>
 
-          {/* Company Name Field */}
-          <div className="space-y-1.5">
-            <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">
+          <div>
+            <label htmlFor="add-lead-company" className={LABEL}>
               Company Name
             </label>
             <input
+              id="add-lead-company"
               type="text"
               placeholder="e.g. Acme Corp"
               value={newLead.company}
               onChange={(e) => setNewLead({ ...newLead, company: e.target.value })}
-              className="w-full bg-slate-50 dark:bg-slate-950 border border-[#EBF0F5] dark:border-[#1E222D] p-2.5 rounded-xl text-xs placeholder:text-slate-400 text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+              className={inputClasses('h-9')}
             />
           </div>
 
-          {/* Job Title Field */}
-          <div className="space-y-1.5">
-            <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">
+          <div>
+            <label htmlFor="add-lead-title" className={LABEL}>
               Job Title
             </label>
             <input
+              id="add-lead-title"
               type="text"
               placeholder="e.g. Head of Growth"
               value={newLead.jobTitle}
               onChange={(e) => setNewLead({ ...newLead, jobTitle: e.target.value })}
-              className="w-full bg-slate-50 dark:bg-slate-950 border border-[#EBF0F5] dark:border-[#1E222D] p-2.5 rounded-xl text-xs placeholder:text-slate-400 text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+              className={inputClasses('h-9')}
             />
           </div>
 
-          {/* Group Assignment Field */}
-          <div className="space-y-1.5 pt-2 border-t border-[#EBF0F5] dark:border-[#1E222D]">
-            <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">
+          <div className="border-t border-card-border pt-4">
+            <label htmlFor="add-lead-group" className={LABEL}>
               Assign to Lead Group
             </label>
             <select
+              id="add-lead-group"
               value={selectedGroupForAdd}
               onChange={(e) => setSelectedGroupForAdd(e.target.value)}
-              className="w-full bg-slate-50 dark:bg-slate-950 border border-[#EBF0F5] dark:border-[#1E222D] p-2.5 rounded-xl text-xs text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer"
+              className={inputClasses('h-9 cursor-pointer')}
             >
               <option value="">-- No Group Assignment --</option>
               {groups.map((g) => (
@@ -1470,14 +1449,13 @@ export default function LeadsPage() {
       >
         {!showMapping ? (
           /* PHASE 1: Dropzone & Destination Pre-configuration */
-          <div className="space-y-6">
+          <div className="space-y-5">
             {/* Interactive Dropzone */}
             <div
-              className={`relative overflow-hidden rounded-2xl border-2 border-dashed transition-all duration-200 p-8 flex flex-col items-center justify-center cursor-pointer ${
-                isDragging
-                  ? 'border-blue-500 bg-blue-50/60 dark:bg-blue-950/20'
-                  : 'border-slate-300 dark:border-slate-800 bg-slate-50/40 dark:bg-[#12141C]/40 hover:bg-slate-50 dark:hover:bg-slate-800/40'
-              }`}
+              className={cn(
+                'flex cursor-pointer flex-col items-center justify-center rounded-card border-2 border-dashed p-8 transition-colors',
+                isDragging ? 'border-primary bg-primary-subtle' : 'border-input-border hover:bg-slate-50 dark:hover:bg-white/[0.02]',
+              )}
               onDragOver={(e) => {
                 e.preventDefault();
                 setIsDragging(true);
@@ -1486,41 +1464,33 @@ export default function LeadsPage() {
               onDrop={handleDropUpload}
               onClick={() => fileInputRef.current?.click()}
             >
-              <div className="w-12 h-12 mb-3 rounded-2xl bg-blue-50 dark:bg-blue-950/50 flex items-center justify-center border border-blue-100 dark:border-blue-900/40">
-                <UploadCloud className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+              <div className="mb-3 flex size-10 items-center justify-center rounded-control bg-primary-subtle text-primary">
+                <UploadCloud size={20} />
               </div>
-              <h3 className="text-sm font-bold text-slate-800 dark:text-white tracking-tight mb-1">
-                Upload Prospect CSV Spreadsheet
-              </h3>
-              <p className="text-slate-500 dark:text-slate-400 text-center max-w-sm text-xs mb-4 font-normal">
+              <h3 className="mb-1 text-sm font-semibold text-text-main">Upload Prospect CSV Spreadsheet</h3>
+              <p className="mb-4 max-w-sm text-center text-xs text-text-sub">
                 Drag and drop your spreadsheet here, or click to browse files from your computer.
               </p>
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-white dark:bg-slate-900 border border-[#EBF0F5] dark:border-[#1E222D] text-slate-700 dark:text-slate-300 shadow-xs">
-                Select .csv File
-              </span>
-              <span className="text-[10px] text-slate-400 dark:text-slate-500 mt-3 font-medium">
-                Supports UTF-8, Windows-1252 (Excel), and UTF-16 formats
-              </span>
+              <span className={buttonClasses({ size: 'sm' })}>Select .csv File</span>
+              <span className="mt-3 text-[11px] text-text-muted">Supports UTF-8, Windows-1252 (Excel), and UTF-16 formats</span>
             </div>
 
-            {/* Destination Settings Card */}
-            <div className="bg-slate-50/60 dark:bg-[#12141C]/50 p-5 rounded-2xl border border-slate-200/60 dark:border-slate-800/60 space-y-3.5">
-              <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 tracking-tight flex items-center gap-2">
-                <Folder className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                <span>Destination Group Assignment</span>
-              </h4>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Destination Settings */}
+            <div className="space-y-3 rounded-control border border-card-border p-4">
+              <h4 className="text-[13px] font-semibold text-text-main">Destination Group Assignment</h4>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                  <label htmlFor="import-group" className={LABEL}>
                     Add to Existing Group
                   </label>
                   <select
+                    id="import-group"
                     value={selectedGroupForImport}
                     onChange={(e) => {
                       setSelectedGroupForImport(e.target.value);
                       setNewGroupNameForImport('');
                     }}
-                    className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-2.5 text-xs text-slate-800 dark:text-white cursor-pointer outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                    className={inputClasses('h-9 cursor-pointer')}
                   >
                     <option value="">-- No Group (General CRM) --</option>
                     {groups.map((g) => (
@@ -1531,10 +1501,11 @@ export default function LeadsPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                  <label htmlFor="import-new-group" className={LABEL}>
                     Or Create New Group
                   </label>
                   <input
+                    id="import-new-group"
                     type="text"
                     placeholder="e.g. Q4 Growth Leads"
                     value={newGroupNameForImport}
@@ -1542,7 +1513,7 @@ export default function LeadsPage() {
                       setNewGroupNameForImport(e.target.value);
                       setSelectedGroupForImport('');
                     }}
-                    className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-2.5 text-xs text-slate-800 dark:text-white placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                    className={inputClasses('h-9')}
                   />
                 </div>
               </div>
@@ -1550,13 +1521,13 @@ export default function LeadsPage() {
           </div>
         ) : (
           /* PHASE 2: Column Mapping & Batch Progress */
-          <div className="space-y-6">
+          <div className="space-y-5">
             {/* File Information & Warning Banners */}
-            <div className="space-y-2.5">
+            <div className="space-y-2">
               {/* Encoding alert */}
               {csvEncoding !== 'utf-8' && (
-                <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/30 flex items-start gap-2 text-xs text-amber-800 dark:text-amber-300">
-                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+                <div className={WARN_BOX}>
+                  <AlertCircle size={14} className="mt-px shrink-0" />
                   <span>
                     {csvEncoding === 'windows-1252' ? 'Read as Windows-1252 (Excel CSV).' : 'Read as UTF-16.'}{' '}
                     Check that accented characters display properly in the previews below.
@@ -1566,10 +1537,10 @@ export default function LeadsPage() {
 
               {/* Unreadable rows alert */}
               {csvUnreadableRows > 0 && (
-                <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/30 flex items-start gap-2 text-xs text-amber-800 dark:text-amber-300">
-                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+                <div className={WARN_BOX}>
+                  <AlertCircle size={14} className="mt-px shrink-0" />
                   <span>
-                    {csvUnreadableRows} {csvUnreadableRows === 1 ? 'row contains' : 'rows contain'} characters that could not be read (shown as {'\uFFFD'}).
+                    {csvUnreadableRows} {csvUnreadableRows === 1 ? 'row contains' : 'rows contain'} characters that could not be read (shown as {'�'}).
                     They will be imported and emailed as shown, so fix them in the file and import it again.
                   </span>
                 </div>
@@ -1577,32 +1548,33 @@ export default function LeadsPage() {
 
               {/* Skipped rows explanation */}
               {mappings.email !== -1 && describeCsvSkips(csvPlan) && (
-                <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/30 flex items-start gap-2 text-xs text-amber-800 dark:text-amber-300">
-                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+                <div className={WARN_BOX}>
+                  <AlertCircle size={14} className="mt-px shrink-0" />
                   <span>{describeCsvSkips(csvPlan)} These rows will be skipped.</span>
                 </div>
               )}
 
               {/* Import Failure banner */}
               {importFailure && (
-                <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/40 flex items-start gap-2.5 text-xs text-rose-800 dark:text-rose-300">
-                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-600 dark:text-rose-400" />
+                <div className={ERROR_BOX}>
+                  <AlertCircle size={14} className="mt-px shrink-0" />
                   <span>{importFailure}</span>
                 </div>
               )}
             </div>
 
             {/* Field Matching Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {/* Email Address (Required) */}
-              <div className="p-4 rounded-xl bg-slate-50/60 dark:bg-[#12141C]/50 border border-slate-200/60 dark:border-slate-800/60 space-y-2">
-                <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">
+              <div className={MAP_BOX}>
+                <label htmlFor="map-email" className={LABEL}>
                   Email Address <span className="text-rose-500">*</span>
                 </label>
                 <select
+                  id="map-email"
                   value={mappings.email === -1 ? '' : mappings.email}
                   onChange={(e) => setMappings({ ...mappings, email: toColumnIndex(e.target.value) })}
-                  className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-2.5 text-xs text-slate-800 dark:text-white cursor-pointer outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                  className={inputClasses('h-9 cursor-pointer')}
                 >
                   <option value="" disabled>-- Select Email Column --</option>
                   {csvColumnOptions.map((label, i) => (
@@ -1610,21 +1582,22 @@ export default function LeadsPage() {
                   ))}
                 </select>
                 {mappings.email !== -1 && csvRows.length > 0 && (
-                  <div className="p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-400 truncate">
-                    Preview: {csvRows[0][mappings.email] || <em className="text-slate-400 font-sans">Empty</em>}
+                  <div className={PREVIEW_BOX}>
+                    Preview: {csvRows[0][mappings.email] || <em className="text-text-muted">Empty</em>}
                   </div>
                 )}
               </div>
 
               {/* Full Name (Optional) */}
-              <div className="p-4 rounded-xl bg-slate-50/60 dark:bg-[#12141C]/50 border border-slate-200/60 dark:border-slate-800/60 space-y-2">
-                <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">
+              <div className={MAP_BOX}>
+                <label htmlFor="map-name" className={LABEL}>
                   Full Name
                 </label>
                 <select
+                  id="map-name"
                   value={mappings.name === -1 ? '' : mappings.name}
                   onChange={(e) => setMappings({ ...mappings, name: toColumnIndex(e.target.value) })}
-                  className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-2.5 text-xs text-slate-800 dark:text-white cursor-pointer outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                  className={inputClasses('h-9 cursor-pointer')}
                 >
                   <option value="">{"[Don't Map - Leave Empty]"}</option>
                   {csvColumnOptions.map((label, i) => (
@@ -1632,21 +1605,22 @@ export default function LeadsPage() {
                   ))}
                 </select>
                 {mappings.name !== -1 && csvRows.length > 0 && (
-                  <div className="p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-400 truncate">
-                    Preview: {csvRows[0][mappings.name] || <em className="text-slate-400">Empty</em>}
+                  <div className={PREVIEW_BOX}>
+                    Preview: {csvRows[0][mappings.name] || <em className="text-text-muted">Empty</em>}
                   </div>
                 )}
               </div>
 
               {/* Company Name (Optional) */}
-              <div className="p-4 rounded-xl bg-slate-50/60 dark:bg-[#12141C]/50 border border-slate-200/60 dark:border-slate-800/60 space-y-2">
-                <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">
+              <div className={MAP_BOX}>
+                <label htmlFor="map-company" className={LABEL}>
                   Company Name
                 </label>
                 <select
+                  id="map-company"
                   value={mappings.company === -1 ? '' : mappings.company}
                   onChange={(e) => setMappings({ ...mappings, company: toColumnIndex(e.target.value) })}
-                  className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-2.5 text-xs text-slate-800 dark:text-white cursor-pointer outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                  className={inputClasses('h-9 cursor-pointer')}
                 >
                   <option value="">{"[Don't Map - Leave Empty]"}</option>
                   {csvColumnOptions.map((label, i) => (
@@ -1654,21 +1628,22 @@ export default function LeadsPage() {
                   ))}
                 </select>
                 {mappings.company !== -1 && csvRows.length > 0 && (
-                  <div className="p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-400 truncate">
-                    Preview: {csvRows[0][mappings.company] || <em className="text-slate-400">Empty</em>}
+                  <div className={PREVIEW_BOX}>
+                    Preview: {csvRows[0][mappings.company] || <em className="text-text-muted">Empty</em>}
                   </div>
                 )}
               </div>
 
               {/* Job Title (Optional) */}
-              <div className="p-4 rounded-xl bg-slate-50/60 dark:bg-[#12141C]/50 border border-slate-200/60 dark:border-slate-800/60 space-y-2">
-                <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">
+              <div className={MAP_BOX}>
+                <label htmlFor="map-title" className={LABEL}>
                   Job Title
                 </label>
                 <select
+                  id="map-title"
                   value={mappings.jobTitle === -1 ? '' : mappings.jobTitle}
                   onChange={(e) => setMappings({ ...mappings, jobTitle: toColumnIndex(e.target.value) })}
-                  className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-2.5 text-xs text-slate-800 dark:text-white cursor-pointer outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                  className={inputClasses('h-9 cursor-pointer')}
                 >
                   <option value="">{"[Don't Map - Leave Empty]"}</option>
                   {csvColumnOptions.map((label, i) => (
@@ -1676,26 +1651,25 @@ export default function LeadsPage() {
                   ))}
                 </select>
                 {mappings.jobTitle !== -1 && csvRows.length > 0 && (
-                  <div className="p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-400 truncate">
-                    Preview: {csvRows[0][mappings.jobTitle] || <em className="text-slate-400">Empty</em>}
+                  <div className={PREVIEW_BOX}>
+                    Preview: {csvRows[0][mappings.jobTitle] || <em className="text-text-muted">Empty</em>}
                   </div>
                 )}
               </div>
             </div>
 
             {/* Destination Group in Mapping View */}
-            <div className="bg-slate-50/60 dark:bg-[#12141C]/50 p-4 rounded-xl border border-slate-200/60 dark:border-slate-800/60 space-y-3">
-              <label className="block text-xs font-bold text-slate-800 dark:text-slate-200">
-                Target Lead Group
-              </label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className={MAP_BOX}>
+              <span className={LABEL}>Target Lead Group</span>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <select
+                  aria-label="Existing lead group"
                   value={selectedGroupForImport}
                   onChange={(e) => {
                     setSelectedGroupForImport(e.target.value);
                     setNewGroupNameForImport('');
                   }}
-                  className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-2.5 text-xs text-slate-800 dark:text-white cursor-pointer"
+                  className={inputClasses('h-9 cursor-pointer')}
                 >
                   <option value="">-- No Group (General CRM) --</option>
                   {groups.map((g) => (
@@ -1704,26 +1678,27 @@ export default function LeadsPage() {
                 </select>
                 <input
                   type="text"
+                  aria-label="New lead group name"
                   placeholder="Or type new group name"
                   value={newGroupNameForImport}
                   onChange={(e) => {
                     setNewGroupNameForImport(e.target.value);
                     setSelectedGroupForImport('');
                   }}
-                  className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-2.5 text-xs text-slate-800 dark:text-white placeholder:text-slate-400"
+                  className={inputClasses('h-9')}
                 />
               </div>
             </div>
 
             {/* Real-time Import Progress Bar */}
             {loading && (
-              <div className="p-4 rounded-xl bg-blue-50 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-900/40 space-y-2">
-                <div className="flex items-center justify-between text-xs font-semibold text-blue-700 dark:text-blue-300">
+              <div className="space-y-2 rounded-control bg-primary-subtle p-3">
+                <div className="flex items-center justify-between text-xs font-medium text-primary">
                   <span>Import In Progress</span>
                   <span>{importProgress}</span>
                 </div>
-                <div className="w-full h-2 rounded-full bg-blue-200/60 dark:bg-blue-900/60 overflow-hidden">
-                  <div className="h-full bg-blue-600 rounded-full animate-pulse w-full" />
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-primary/20">
+                  <div className="h-full w-full animate-pulse rounded-full bg-primary" />
                 </div>
               </div>
             )}
@@ -1732,85 +1707,45 @@ export default function LeadsPage() {
       </ActionDrawer>
 
       {/* Navigation Tabs */}
-      <div className="flex border-b border-[#EBF0F5] dark:border-[#1E222D] gap-4 mt-2">
-        {[
-          { id: 'leads', name: 'Leads Directory', icon: FileType },
-          { id: 'groups', name: 'Lead Groups', icon: Folder },
-          { id: 'overlaps', name: 'Cross-Check & Overlaps', icon: Copy },
-          { id: 'suppressed', name: 'Suppressed Leads', icon: MailX },
-          { id: 'archived', name: 'Archived Leads', icon: Archive }
-        ].map(tab => {
-          const Icon = tab.icon;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => {
-                setActiveTab(tab.id as any);
-                setSelectedGroupIdForView(null);
-                // Each tab has its own bulk actions, so a selection never carries over
-                setSelectedLeads([]);
-              }}
-              className={`pb-3 text-xs font-semibold flex items-center gap-2 border-b-2 transition-all cursor-pointer ${
-                activeTab === tab.id
-                  ? 'border-blue-600 text-blue-600 dark:text-blue-400 dark:border-blue-400'
-                  : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
-              }`}
-            >
-              <Icon className="w-3.5 h-3.5" />
-              {tab.name}
-            </button>
-          );
-        })}
+      <div className="max-w-full overflow-x-auto">
+        <Segmented
+          label="Lead views"
+          options={LEAD_TABS}
+          value={activeTab}
+          onChange={(tab) => {
+            setActiveTab(tab);
+            setSelectedGroupIdForView(null);
+            // Each tab has its own bulk actions, so a selection never carries over
+            setSelectedLeads([]);
+          }}
+        />
       </div>
 
       {/* Main CRM Board Area */}
-      <div className="rounded-2xl border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] shadow-xs overflow-hidden transition-all duration-200 mt-6">
-        
+      <Card className="overflow-hidden">
+
         {/* Render for LEADS, ARCHIVED or SUPPRESSED Tab */}
         {(activeTab === 'leads' || activeTab === 'archived' || activeTab === 'suppressed') && (
           <>
             {/* Table Filter Top Bar */}
-            <div className="p-5 border-b border-[#EBF0F5] dark:border-[#1E222D] flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-slate-50/40 dark:bg-slate-900/20">
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:w-auto">
-                {/* Shopeers Pill Search Bar */}
-                <div className="relative flex items-center">
-                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-slate-500 pointer-events-none" />
-                  <input 
-                    type="text" 
-                    placeholder="Search leads by name, email, company..."
-                    value={search}
-                    onChange={e => setSearch(e.target.value)}
-                    className="w-full sm:w-64 bg-white dark:bg-slate-950 border border-[#EBF0F5] dark:border-[#1E222D] rounded-full pl-9.5 pr-4 py-2 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all shadow-xs"
-                  />
-                </div>
-                
-                {/* Shopeers Status Filter Pills Container */}
-                <div className="p-1 bg-slate-100/70 dark:bg-slate-900/80 rounded-full border border-slate-200/60 dark:border-slate-800/60 flex items-center gap-1 overflow-x-auto max-w-full">
-                  {LEAD_STATUS_FILTERS.map(statusOption => (
-                    <button
-                      key={statusOption}
-                      onClick={() => setFilterStatus(statusOption)}
-                      className={`px-3 py-1 rounded-full text-[11px] font-semibold transition-all cursor-pointer whitespace-nowrap ${
-                        filterStatus === statusOption 
-                          ? 'bg-white dark:bg-[#1E222D] text-blue-600 dark:text-blue-400 shadow-xs border border-slate-200/50 dark:border-slate-700/50'
-                          : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                      }`}
-                    >
-                      {statusOption}
-                    </button>
-                  ))}
+            <div className="flex flex-col justify-between gap-3 border-b border-card-border p-4 md:flex-row md:items-center">
+              <div className="flex w-full flex-col items-stretch gap-3 sm:flex-row sm:items-center md:w-auto">
+                <SearchInput
+                  aria-label="Search leads"
+                  placeholder="Search leads by name, email, company..."
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  className="w-full sm:w-80"
+                />
+                <div className="max-w-full overflow-x-auto">
+                  <Segmented label="Deliverability filter" options={STATUS_OPTIONS} value={filterStatus} onChange={setFilterStatus} />
                 </div>
               </div>
-              
-              {/* Export CSV Button */}
-              <button
-                onClick={handleExportCSV}
-                disabled={exporting}
-                className="flex items-center gap-1.5 bg-white hover:bg-slate-50 dark:bg-slate-950 dark:hover:bg-slate-900 border border-[#EBF0F5] dark:border-[#1E222D] text-xs px-3.5 py-2 rounded-xl font-semibold text-slate-700 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors shadow-xs cursor-pointer self-end md:self-auto"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>{exporting ? 'Exporting...' : selectedLeads.length > 0 ? `Export Selected (${selectedLeads.length})` : 'Export CSV'}</span>
-              </button>
+
+              <Button onClick={handleExportCSV} disabled={exporting} className="self-end md:self-auto">
+                <Download size={14} />
+                {exporting ? 'Exporting...' : selectedLeads.length > 0 ? `Export Selected (${selectedLeads.length})` : 'Export CSV'}
+              </Button>
             </div>
 
             {/* Lead Rows list */}
@@ -1821,263 +1756,244 @@ export default function LeadsPage() {
             ) : (
               <>
                 <div className="w-full overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="border-b border-[#EBF0F5] dark:border-[#1E222D] text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider bg-slate-50/50 dark:bg-slate-900/20">
-                      <th className="py-3.5 px-4 w-10">
-                        <input
-                          type="checkbox"
-                          checked={leads.length > 0 && leads.every(l => isSelected(l.id))}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedLeads([...selectedLeads, ...leads.filter(l => !isSelected(l.id))]);
-                            } else {
-                              const pageIds = leads.map(l => l.id);
-                              setSelectedLeads(selectedLeads.filter(l => !pageIds.includes(l.id)));
-                            }
-                          }}
-                          onClick={(e) => e.stopPropagation()}
-                          className="w-4 h-4 rounded-md border-slate-300 text-blue-600 focus:ring-blue-500/30 cursor-pointer"
-                        />
-                      </th>
-                      <th className="py-3.5 px-4 min-w-[150px]">Lead Name</th>
-                      <th className="py-3.5 px-4 min-w-[170px]">Email Address</th>
-                      <th className="py-3.5 px-4 min-w-[120px]">Company</th>
-                      <th className="py-3.5 px-4 min-w-[120px]">Deliverability</th>
-                      <th className="py-3.5 px-4 min-w-[110px]">Status</th>
-                      {(activeTab === 'leads' || activeTab === 'suppressed') && <th className="py-3.5 px-4 min-w-[130px]">Groups</th>}
-                      <th className="py-3.5 px-4 text-right w-[80px]">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-[#1E222D]/60 text-slate-700 dark:text-slate-300">
-                    {leads.map((lead) => (
-                      <tr
-                        key={lead.id}
-                        onClick={() => {
-                          setSelectedLeadId(lead.id);
-                          fetchLeadDetails(lead.id);
-                        }}
-                        className={`group transition-colors duration-150 ease-in-out hover:bg-slate-50/70 dark:hover:bg-[#161822]/80 cursor-pointer ${
-                          isSelected(lead.id) ? 'bg-blue-50/30 dark:bg-blue-950/20' : ''
-                        }`}
-                      >
-                        <td className="py-4 px-4 w-10" onClick={(e) => e.stopPropagation()}>
+                  <Table>
+                    <THead>
+                      <tr>
+                        <TH className="w-10">
                           <input
                             type="checkbox"
-                            checked={isSelected(lead.id)}
-                            onChange={() => {
-                              if (isSelected(lead.id)) {
-                                deselectLead(lead.id);
+                            aria-label="Select every lead on this page"
+                            checked={leads.length > 0 && leads.every(l => isSelected(l.id))}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedLeads([...selectedLeads, ...leads.filter(l => !isSelected(l.id))]);
                               } else {
-                                setSelectedLeads([...selectedLeads, lead]);
+                                const pageIds = leads.map(l => l.id);
+                                setSelectedLeads(selectedLeads.filter(l => !pageIds.includes(l.id)));
                               }
                             }}
-                            className="w-4 h-4 rounded-md border-slate-300 text-blue-600 focus:ring-blue-500/30 cursor-pointer"
+                            onClick={(e) => e.stopPropagation()}
+                            className={CHECKBOX}
                           />
-                        </td>
-                        <td className="py-4 px-4">
-                          <div className="font-semibold text-xs text-slate-900 dark:text-white">{lead.name || 'N/A'}</div>
-                          {lead.jobTitle && <div className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5 font-normal">{lead.jobTitle}</div>}
-                        </td>
-                        <td className="py-4 px-4 text-xs text-slate-600 dark:text-slate-400 flex items-center gap-2">
-                          <Mail className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 shrink-0" />
-                          <span className="truncate">{lead.email}</span>
-                        </td>
-                        <td className="py-4 px-4 text-xs text-slate-600 dark:text-slate-400 font-medium">{lead.company || 'N/A'}</td>
-                        <td className="py-4 px-4">
-                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border ${
-                            lead.validationStatus === 'Valid'
-                              ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/60'
-                              : lead.validationStatus === 'Invalid'
-                              ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800/60'
-                              : lead.validationStatus === 'Risky'
-                              ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/60'
-                              : 'bg-slate-100 dark:bg-slate-800/60 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700/60'
-                          }`}>
-                            {lead.validationStatus === 'Valid' && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />}
-                            {lead.validationStatus === 'Invalid' && <AlertCircle className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />}
-                            {lead.validationStatus === 'Risky' && <AlertCircle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />}
-                            {lead.validationStatus === 'Unverified' && <span className="w-1.5 h-1.5 rounded-full bg-slate-400 dark:bg-slate-500 animate-pulse" />}
-                            <span>{lead.validationStatus}</span>
-                          </span>
-                        </td>
-                        <td className="py-4 px-4">
-                          <SuppressionChip lead={lead} />
-                        </td>
-                        {(activeTab === 'leads' || activeTab === 'suppressed') && (
-                          <td className="py-4 px-4">
-                            <div className="flex flex-wrap gap-1 max-w-[180px]">
-                              {(lead.groups || []).map((g: any) => (
-                                <span key={g.groupId} className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700/50">
-                                  {g.group?.name}
-                                </span>
-                              ))}
-                              {(!lead.groups || lead.groups.length === 0) && (
-                                <span className="text-[11px] text-slate-400 italic">No Group</span>
-                              )}
-                            </div>
-                          </td>
-                        )}
-                        <td className="py-4 px-4 text-right" onClick={(e) => e.stopPropagation()}>
-                          <div className="flex items-center justify-end gap-1">
-                            <button 
-                              onClick={async (e) => {
-                                e.stopPropagation();
-                                try {
-                                  const res = await fetch('/api/leads', {
-                                    method: 'PUT',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ id: lead.id, isArchived: !lead.isArchived })
-                                  });
-                                  if (res.ok) {
-                                    const updatedLead = await res.json();
-                                    deselectLead(lead.id);
-                                    reloadLeads();
-                                    showToast(updatedLead.isArchived ? 'Prospect archived.' : 'Prospect unarchived.');
-                                  }
-                                } catch (err) {
-                                  console.error(err);
+                        </TH>
+                        <TH className="min-w-[150px]">Lead Name</TH>
+                        <TH className="min-w-[170px]">Email Address</TH>
+                        <TH className="min-w-[120px]">Company</TH>
+                        <TH className="min-w-[120px]">Deliverability</TH>
+                        <TH className="min-w-[110px]">Status</TH>
+                        {(activeTab === 'leads' || activeTab === 'suppressed') && <TH className="min-w-[130px]">Groups</TH>}
+                        <TH className="w-[80px] text-right">Actions</TH>
+                      </tr>
+                    </THead>
+                    <tbody>
+                      {leads.map((lead) => (
+                        <TR
+                          key={lead.id}
+                          onClick={() => {
+                            setSelectedLeadId(lead.id);
+                            fetchLeadDetails(lead.id);
+                          }}
+                          className={cn('cursor-pointer', isSelected(lead.id) && 'bg-primary-subtle hover:bg-primary-subtle')}
+                        >
+                          <TD className="w-10" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              aria-label={`Select ${lead.name || lead.email}`}
+                              checked={isSelected(lead.id)}
+                              onChange={() => {
+                                if (isSelected(lead.id)) {
+                                  deselectLead(lead.id);
+                                } else {
+                                  setSelectedLeads([...selectedLeads, lead]);
                                 }
                               }}
-                              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                                lead.isArchived 
-                                  ? 'hover:bg-blue-500/10 text-blue-500' 
-                                  : 'hover:bg-amber-500/10 text-slate-400 hover:text-amber-500'
-                              }`}
-                              title={lead.isArchived ? "Restore Prospect" : "Archive Prospect"}
-                            >
-                              <Archive className="w-4 h-4" />
-                            </button>
-                            {isAdmin && (
-                              <button
-                                onClick={(e) => {
+                              className={CHECKBOX}
+                            />
+                          </TD>
+                          <TD>
+                            <div className="font-medium">{lead.name || 'N/A'}</div>
+                            {lead.jobTitle && <div className="mt-0.5 text-xs text-text-muted">{lead.jobTitle}</div>}
+                          </TD>
+                          <TD className="max-w-[260px] truncate text-text-sub">{lead.email}</TD>
+                          <TD className="text-text-sub">{lead.company || 'N/A'}</TD>
+                          <TD>
+                            <ValidationBadge status={lead.validationStatus} />
+                          </TD>
+                          <TD>
+                            <SuppressionChip lead={lead} />
+                          </TD>
+                          {(activeTab === 'leads' || activeTab === 'suppressed') && (
+                            <TD>
+                              <div className="flex max-w-[180px] flex-wrap gap-1">
+                                {(lead.groups || []).map((g: any) => (
+                                  <Badge key={g.groupId}>{g.group?.name}</Badge>
+                                ))}
+                                {(!lead.groups || lead.groups.length === 0) && (
+                                  <span className="text-xs text-text-muted">No Group</span>
+                                )}
+                              </div>
+                            </TD>
+                          )}
+                          <TD className="text-right" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex items-center justify-end gap-0.5">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                iconOnly
+                                onClick={async (e) => {
                                   e.stopPropagation();
-                                  handleDeleteLead(lead.id);
+                                  try {
+                                    const res = await fetch('/api/leads', {
+                                      method: 'PUT',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({ id: lead.id, isArchived: !lead.isArchived })
+                                    });
+                                    if (res.ok) {
+                                      const updatedLead = await res.json();
+                                      deselectLead(lead.id);
+                                      reloadLeads();
+                                      showToast(updatedLead.isArchived ? 'Prospect archived.' : 'Prospect unarchived.');
+                                    }
+                                  } catch (err) {
+                                    console.error(err);
+                                  }
                                 }}
-                                className="p-1.5 hover:bg-rose-500/10 text-slate-400 hover:text-rose-600 rounded-lg transition-colors cursor-pointer"
-                                title="Delete Prospect"
+                                className={cn(lead.isArchived && 'text-primary')}
+                                aria-label={lead.isArchived ? 'Restore prospect' : 'Archive prospect'}
+                                title={lead.isArchived ? 'Restore Prospect' : 'Archive Prospect'}
                               >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {leads.length === 0 && (
-                      <tr>
-                        <td colSpan={(activeTab === 'leads' || activeTab === 'suppressed') ? 8 : 7} className="text-center py-12 text-slate-400 dark:text-slate-500 text-xs">
-                          {emptyListMessage('No lead records match your search filters.')}
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                                <Archive size={14} />
+                              </Button>
+                              {isAdmin && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  iconOnly
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDeleteLead(lead.id);
+                                  }}
+                                  className={DELETE_ICON}
+                                  aria-label="Delete prospect"
+                                  title="Delete Prospect"
+                                >
+                                  <Trash2 size={14} />
+                                </Button>
+                              )}
+                            </div>
+                          </TD>
+                        </TR>
+                      ))}
+                      {leads.length === 0 && (
+                        <tr>
+                          <td colSpan={(activeTab === 'leads' || activeTab === 'suppressed') ? 8 : 7} className={EMPTY_CELL}>
+                            {emptyListMessage('No lead records match your search filters.')}
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </Table>
+                </div>
 
-              {/* Pagination Controls */}
-              {paginationControls}
-            </>
-          )}
+                {/* Pagination Controls */}
+                {paginationControls}
+              </>
+            )}
           </>
         )}
 
         {/* Render for LEAD GROUPS Tab */}
         {activeTab === 'groups' && (
-          <div className="animate-in fade-in duration-300">
+          <div>
             {selectedGroupIdForView ? (
               /* Group Drill-down details */
-              <div className="p-5 space-y-4">
-                <div className="flex justify-between items-center bg-slate-50/50 dark:bg-[#12141e]/50 border border-slate-200 dark:border-slate-800 p-4 rounded-xl">
-                  <div>
-                    <h4 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider flex items-center gap-2">
-                      <Folder className="w-4.5 h-4.5 text-blue-600 dark:text-blue-400" />
+              <div className="space-y-4 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h2 className="text-sm font-semibold text-text-main">
                       {groups.find(g => g.id === selectedGroupIdForView)?.name}
-                    </h4>
-                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 font-medium">
+                    </h2>
+                    <p className="mt-0.5 text-xs text-text-sub">
                       {groups.find(g => g.id === selectedGroupIdForView)?.description || 'No description provided.'}
                     </p>
                   </div>
                   <div className="flex gap-2">
-                    <button
-                      onClick={() => handleArchiveGroupLeads(selectedGroupIdForView!, true)}
-                      className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-500 transition-all cursor-pointer shadow-xs"
-                    >
+                    <Button size="sm" variant="ghost" onClick={() => setSelectedGroupIdForView(null)}>
+                      <ArrowLeft size={14} />
+                      Back to Groups
+                    </Button>
+                    <Button size="sm" onClick={() => handleArchiveGroupLeads(selectedGroupIdForView!, true)}>
+                      <Archive size={14} />
                       Archive All Leads
-                    </button>
-                    <button
-                      onClick={() => setSelectedGroupIdForView(null)}
-                      className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-white hover:bg-slate-50 dark:bg-slate-950 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 transition-all cursor-pointer shadow-xs"
-                    >
-                      Back to Groups list
-                    </button>
+                    </Button>
                   </div>
                 </div>
 
-                <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900">
+                <div className="overflow-hidden rounded-control border border-card-border">
                   {loading && !isVerifying ? (
                     <div className="p-6">
                       <TableSkeleton rows={5} cols={4} />
                     </div>
                   ) : (
                   <>
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="border-b border-slate-200 dark:border-slate-800/80 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest bg-slate-50/20 dark:bg-slate-950/10">
-                        <th className="px-5 py-3">Name</th>
-                        <th className="px-5 py-3">Email</th>
-                        <th className="px-5 py-3">Company</th>
-                        <th className="px-5 py-3 text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50 text-slate-700 dark:text-slate-300">
-                      {leads.map(lead => (
-                        <tr 
-                          key={lead.id} 
-                          onClick={() => {
-                            setSelectedLeadId(lead.id);
-                            fetchLeadDetails(lead.id);
-                          }}
-                          className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-all group cursor-pointer"
-                        >
-                          <td className="px-5 py-3.5">
-                            <div className="font-semibold text-xs text-slate-900 dark:text-white">{lead.name || 'N/A'}</div>
-                            {lead.jobTitle && <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5 font-medium">{lead.jobTitle}</div>}
-                          </td>
-                          <td className="px-5 py-3.5 text-xs text-slate-500 dark:text-slate-400 flex items-center gap-2">
-                            <Mail className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
-                            {lead.email}
-                          </td>
-                          <td className="px-5 py-3.5 text-xs text-slate-600 dark:text-slate-400 font-medium">{lead.company || 'N/A'}</td>
-                          <td className="px-5 py-3.5 text-right" onClick={(e) => e.stopPropagation()}>
-                            <div className="flex items-center justify-end gap-1.5">
-                              <button
-                                onClick={() => handleRemoveFromGroup(lead.id, selectedGroupIdForView)}
-                                className="px-2 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-400 rounded text-[10px] font-bold uppercase tracking-wider transition-colors cursor-pointer"
-                              >
-                                Remove from group
-                              </button>
-                              {isAdmin && (
-                                <button
-                                  onClick={() => handleDeleteLead(lead.id)}
-                                  className="p-1.5 hover:bg-rose-500/10 text-slate-400 hover:text-rose-600 rounded transition-colors"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                      {leads.length === 0 && (
+                  <div className="w-full overflow-x-auto">
+                    <Table>
+                      <THead>
                         <tr>
-                          <td colSpan={4} className="text-center py-10 text-slate-400 dark:text-slate-500 text-xs">
-                            {emptyListMessage('No active prospects associated with this group.')}
-                          </td>
+                          <TH>Name</TH>
+                          <TH>Email</TH>
+                          <TH>Company</TH>
+                          <TH className="text-right">Actions</TH>
                         </tr>
-                      )}
-                    </tbody>
-                  </table>
+                      </THead>
+                      <tbody>
+                        {leads.map(lead => (
+                          <TR
+                            key={lead.id}
+                            onClick={() => {
+                              setSelectedLeadId(lead.id);
+                              fetchLeadDetails(lead.id);
+                            }}
+                            className="cursor-pointer"
+                          >
+                            <TD>
+                              <div className="font-medium">{lead.name || 'N/A'}</div>
+                              {lead.jobTitle && <div className="mt-0.5 text-xs text-text-muted">{lead.jobTitle}</div>}
+                            </TD>
+                            <TD className="text-text-sub">{lead.email}</TD>
+                            <TD className="text-text-sub">{lead.company || 'N/A'}</TD>
+                            <TD className="text-right" onClick={(e) => e.stopPropagation()}>
+                              <div className="flex items-center justify-end gap-1">
+                                <Button size="sm" onClick={() => handleRemoveFromGroup(lead.id, selectedGroupIdForView)}>
+                                  Remove From Group
+                                </Button>
+                                {isAdmin && (
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    iconOnly
+                                    onClick={() => handleDeleteLead(lead.id)}
+                                    className={DELETE_ICON}
+                                    aria-label="Delete prospect"
+                                    title="Delete Prospect"
+                                  >
+                                    <Trash2 size={14} />
+                                  </Button>
+                                )}
+                              </div>
+                            </TD>
+                          </TR>
+                        ))}
+                        {leads.length === 0 && (
+                          <tr>
+                            <td colSpan={4} className={EMPTY_CELL}>
+                              {emptyListMessage('No active prospects associated with this group.')}
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </Table>
+                  </div>
                   {paginationControls}
                   </>
                   )}
@@ -2085,106 +2001,89 @@ export default function LeadsPage() {
               </div>
             ) : (
               /* Groups grid overview */
-              <div className="p-5 space-y-4">
-                <div className="flex justify-between items-center">
-                  <h3 className="text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">Manage Segments</h3>
-                  <button
-                    onClick={() => setShowCreateGroup(!showCreateGroup)}
-                    className="bg-white hover:bg-slate-50 dark:bg-slate-950 dark:hover:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-white px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
-                  >
-                    <FolderPlus className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
-                    Create Lead Group
-                  </button>
-                </div>
+              <div className="space-y-4 p-4">
+                <CardHeader
+                  title="Manage Segments"
+                  action={
+                    <Button size="sm" onClick={() => setShowCreateGroup(!showCreateGroup)} aria-expanded={showCreateGroup}>
+                      <FolderPlus size={14} />
+                      Create Lead Group
+                    </Button>
+                  }
+                />
 
                 {showCreateGroup && (
-                  <form onSubmit={handleCreateGroup} className="bg-slate-50 dark:bg-[#12141e] border border-slate-200 dark:border-[#1e202d] p-4 rounded-xl space-y-4 animate-in slide-in-from-top-2 duration-200">
-                    <h4 className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">New Group Details</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <form onSubmit={handleCreateGroup} className="space-y-3 rounded-control border border-card-border bg-slate-50/60 p-4 dark:bg-white/[0.02]">
+                    <h3 className="text-[13px] font-semibold text-text-main">New Group Details</h3>
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                       <div>
-                        <label className="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Group Name *</label>
+                        <label htmlFor="new-group-name" className={LABEL}>Group Name <span className="text-rose-500">*</span></label>
                         <input
+                          id="new-group-name"
                           type="text"
                           required
                           placeholder="e.g. Q3 Outbound Outreach"
                           value={newGroup.name}
                           onChange={e => setNewGroup({ ...newGroup, name: e.target.value })}
-                          className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-2 text-xs text-slate-800 dark:text-white placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-blue-500/40"
+                          className={inputClasses()}
                         />
                       </div>
                       <div>
-                        <label className="block text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">Description</label>
+                        <label htmlFor="new-group-description" className={LABEL}>Description</label>
                         <input
+                          id="new-group-description"
                           type="text"
                           placeholder="e.g. Leads extracted from June marketing campaign"
                           value={newGroup.description}
                           onChange={e => setNewGroup({ ...newGroup, description: e.target.value })}
-                          className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-2 text-xs text-slate-800 dark:text-white placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-blue-500/40"
+                          className={inputClasses()}
                         />
                       </div>
                     </div>
-                    <div className="flex gap-2 justify-end">
-                      <button
-                        type="button"
-                        onClick={() => setShowCreateGroup(false)}
-                        className="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-900 dark:hover:text-white font-medium cursor-pointer"
-                      >
+                    <div className="flex justify-end gap-2">
+                      <Button size="sm" variant="ghost" onClick={() => setShowCreateGroup(false)}>
                         Cancel
-                      </button>
-                      <button
-                        type="submit"
-                        className="bg-blue-600 hover:bg-blue-600 text-white px-4 py-1.5 rounded-lg text-xs font-semibold shadow-sm cursor-pointer"
-                      >
+                      </Button>
+                      <Button size="sm" variant="primary" type="submit">
                         Save Group
-                      </button>
+                      </Button>
                     </div>
                   </form>
                 )}
 
                 {loadingGroups ? (
-                  <div className="py-12 text-center text-slate-400 dark:text-slate-500 text-xs">
-                    <div className="w-6 h-6 border-2 border-slate-300 dark:border-slate-700 border-t-blue-500 animate-spin rounded-full mx-auto mb-2" />
+                  <div className="py-12 text-center text-xs text-text-muted">
+                    <Loader2 size={20} className="mx-auto mb-2 animate-spin" />
                     Syncing segments...
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                     {groups.map(group => (
-                      <div key={group.id} className="bg-slate-50 dark:bg-[#12141e] border border-slate-200 dark:border-[#1e202d] rounded-xl p-4 flex flex-col justify-between hover:border-blue-500/50 transition-all shadow-xs">
+                      <div key={group.id} className="flex flex-col justify-between rounded-control border border-card-border p-4 transition-colors hover:border-primary/40">
                         <div>
-                          <div className="flex justify-between items-start">
-                            <h4 className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-wider">{group.name}</h4>
-                            <span className="bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-500/10 text-blue-700 dark:text-blue-400 px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider">
-                              {group._count?.leads || 0} leads
-                            </span>
+                          <div className="flex items-start justify-between gap-2">
+                            <h3 className="min-w-0 text-[13px] font-semibold break-words text-text-main">{group.name}</h3>
+                            <Badge tone="blue">{group._count?.leads || 0} leads</Badge>
                           </div>
-                          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-2 line-clamp-2 min-h-8">
+                          <p className="mt-1.5 line-clamp-2 min-h-8 text-xs text-text-sub">
                             {group.description || 'No description provided.'}
                           </p>
                         </div>
-                        <div className="flex gap-2 justify-end mt-4 pt-3 border-t border-slate-200/60 dark:border-slate-800/40">
-                          <button
-                            onClick={() => setSelectedGroupIdForView(group.id)}
-                            className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 transition-all cursor-pointer shadow-xs"
-                          >
+                        <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-card-border pt-3">
+                          <Button size="sm" onClick={() => setSelectedGroupIdForView(group.id)}>
                             View Members
-                          </button>
-                          <button
-                            onClick={() => handleArchiveGroupLeads(group.id, true)}
-                            className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-500 transition-all cursor-pointer"
-                          >
+                          </Button>
+                          <Button size="sm" onClick={() => handleArchiveGroupLeads(group.id, true)}>
                             Archive Leads
-                          </button>
-                          <button
-                            onClick={() => handleDeleteGroup(group)}
-                            className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-500 transition-all cursor-pointer"
-                          >
+                          </Button>
+                          <Button size="sm" variant="danger" onClick={() => handleDeleteGroup(group)}>
                             Delete
-                          </button>
+                          </Button>
                         </div>
                       </div>
                     ))}
                     {groups.length === 0 && (
-                      <div className="col-span-full py-12 text-center text-slate-400 dark:text-slate-500 text-xs">
+                      <div className="col-span-full py-12 text-center text-xs text-text-muted">
                         {groupsError ? 'Lead groups could not be loaded. Use Retry above.' : 'No segments created yet. Create a group to organize prospects.'}
                       </div>
                     )}
@@ -2197,18 +2096,20 @@ export default function LeadsPage() {
 
         {/* Render for CROSS-CHECK / OVERLAPS Tab */}
         {activeTab === 'overlaps' && (
-          <div className="p-5 space-y-5 animate-in fade-in duration-300">
-            <div className="bg-slate-50/50 dark:bg-[#12141e]/50 border border-slate-200 dark:border-slate-800 p-4 rounded-xl space-y-3">
+          <div className="space-y-4 p-4">
+            <div className="space-y-3">
               <div>
-                <h4 className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-wider">Cross-Check & Deduplication Filters</h4>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Select specific groups to check for overlapping leads. If no groups are selected, it compiles duplicates across all segments.</p>
+                <h2 className="text-sm font-semibold text-text-main">Cross-Check & Deduplication Filters</h2>
+                <p className="mt-0.5 text-xs text-text-sub">Select specific groups to check for overlapping leads. If no groups are selected, it compiles duplicates across all segments.</p>
               </div>
-              <div className="flex flex-wrap gap-2 pt-1">
+              <div className="flex flex-wrap gap-2">
                 {groups.map(group => {
                   const isSelected = selectedGroupsForCrossCheck.includes(group.id);
                   return (
                     <button
                       key={group.id}
+                      type="button"
+                      aria-pressed={isSelected}
                       onClick={() => {
                         if (isSelected) {
                           setSelectedGroupsForCrossCheck(selectedGroupsForCrossCheck.filter(id => id !== group.id));
@@ -2216,118 +2117,117 @@ export default function LeadsPage() {
                           setSelectedGroupsForCrossCheck([...selectedGroupsForCrossCheck, group.id]);
                         }
                       }}
-                      className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border uppercase tracking-wider transition-all cursor-pointer ${
-                        isSelected
-                          ? 'bg-blue-600 border-transparent text-white shadow-xs'
-                          : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
-                      }`}
+                      className={cn(TOGGLE, 'h-7 px-2.5 text-xs', isSelected ? TOGGLE_ON : TOGGLE_OFF)}
                     >
                       {group.name}
                     </button>
                   );
                 })}
                 {groups.length === 0 && (
-                  <span className="text-xs text-slate-400 dark:text-slate-500 italic">{groupsError ? 'Lead groups could not be loaded.' : 'No segments created yet.'}</span>
+                  <span className="text-xs text-text-muted">{groupsError ? 'Lead groups could not be loaded.' : 'No segments created yet.'}</span>
                 )}
               </div>
             </div>
 
-            <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900">
+            <div className="overflow-hidden rounded-control border border-card-border">
               {loading && !isVerifying ? (
                 <div className="p-6">
                   <TableSkeleton rows={5} cols={4} />
                 </div>
               ) : (
               <>
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-slate-200 dark:border-slate-800/80 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest bg-slate-50/20 dark:bg-slate-950/10">
-                    <th className="px-5 py-3">Name</th>
-                    <th className="px-5 py-3">Email</th>
-                    <th className="px-5 py-3">Overlapping Groups</th>
-                    <th className="px-5 py-3 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50 text-slate-700 dark:text-slate-400">
-                  {leads.map(lead => (
-                    <tr 
-                      key={lead.id}
-                      onClick={() => {
-                        setSelectedLeadId(lead.id);
-                        fetchLeadDetails(lead.id);
-                      }}
-                      className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-all group cursor-pointer"
-                    >
-                      <td className="px-5 py-3.5">
-                        <div className="font-semibold text-xs text-slate-900 dark:text-white">{lead.name || 'N/A'}</div>
-                        {lead.jobTitle && <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5 font-medium">{lead.jobTitle}</div>}
-                      </td>
-                      <td className="px-5 py-3.5 text-xs text-slate-500 dark:text-slate-400 flex items-center gap-2">
-                        <Mail className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
-                        {lead.email}
-                      </td>
-                      <td className="px-5 py-3.5" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex flex-wrap gap-1.5 max-w-xs">
-                          {(lead.groups || []).map((g: any) => (
-                            <span 
-                              key={g.groupId}
-                              className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[8px] font-bold bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-500/10 text-blue-700 dark:text-blue-400 uppercase tracking-wider"
-                            >
-                              {g.group?.name}
-                              <button
-                                onClick={() => handleRemoveFromGroup(lead.id, g.groupId)}
-                                className="text-[10px] font-bold hover:text-rose-600 dark:hover:text-rose-500 transition-colors border-0 bg-transparent cursor-pointer pl-0.5"
-                                title={`Remove from ${g.group?.name}`}
-                              >
-                                ×
-                              </button>
-                            </span>
-                          ))}
-                        </div>
-                      </td>
-                      <td className="px-5 py-3.5 text-right" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            onClick={async () => {
-                              try {
-                                const res = await fetch('/api/leads', {
-                                  method: 'PUT',
-                                  headers: { 'Content-Type': 'application/json' },
-                                  body: JSON.stringify({ id: lead.id, isArchived: true })
-                                });
-                                if (res.ok) {
-                                  reloadLeads();
-                                  showToast('Prospect archived to resolve overlaps.');
-                                }
-                              } catch (err) {
-                                  console.error(err);
-                              }
-                            }}
-                            className="px-2 py-1 bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-500 rounded text-[9px] font-bold uppercase tracking-wider transition-colors cursor-pointer"
-                          >
-                            Archive Lead
-                          </button>
-                          {isAdmin && (
-                            <button
-                              onClick={() => handleDeleteLead(lead.id)}
-                              className="p-1.5 hover:bg-rose-500/10 text-slate-400 hover:text-rose-600 rounded transition-colors"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                  {leads.length === 0 && (
+              <div className="w-full overflow-x-auto">
+                <Table>
+                  <THead>
                     <tr>
-                      <td colSpan={4} className="text-center py-10 text-slate-400 dark:text-slate-500 text-xs">
-                        {emptyListMessage('No overlapping prospects found with the current cross-check filters.')}
-                      </td>
+                      <TH>Name</TH>
+                      <TH>Email</TH>
+                      <TH>Overlapping Groups</TH>
+                      <TH className="text-right">Actions</TH>
                     </tr>
-                  )}
-                </tbody>
-              </table>
+                  </THead>
+                  <tbody>
+                    {leads.map(lead => (
+                      <TR
+                        key={lead.id}
+                        onClick={() => {
+                          setSelectedLeadId(lead.id);
+                          fetchLeadDetails(lead.id);
+                        }}
+                        className="cursor-pointer"
+                      >
+                        <TD>
+                          <div className="font-medium">{lead.name || 'N/A'}</div>
+                          {lead.jobTitle && <div className="mt-0.5 text-xs text-text-muted">{lead.jobTitle}</div>}
+                        </TD>
+                        <TD className="text-text-sub">{lead.email}</TD>
+                        <TD onClick={(e) => e.stopPropagation()}>
+                          <div className="flex max-w-xs flex-wrap gap-1.5">
+                            {(lead.groups || []).map((g: any) => (
+                              <Badge key={g.groupId} tone="blue">
+                                {g.group?.name}
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveFromGroup(lead.id, g.groupId)}
+                                  className="-mr-0.5 cursor-pointer rounded-sm transition-colors hover:text-rose-600 dark:hover:text-rose-400"
+                                  aria-label={`Remove from ${g.group?.name}`}
+                                  title={`Remove from ${g.group?.name}`}
+                                >
+                                  <X size={12} />
+                                </button>
+                              </Badge>
+                            ))}
+                          </div>
+                        </TD>
+                        <TD className="text-right" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center justify-end gap-1">
+                            <Button
+                              size="sm"
+                              onClick={async () => {
+                                try {
+                                  const res = await fetch('/api/leads', {
+                                    method: 'PUT',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ id: lead.id, isArchived: true })
+                                  });
+                                  if (res.ok) {
+                                    reloadLeads();
+                                    showToast('Prospect archived to resolve overlaps.');
+                                  }
+                                } catch (err) {
+                                    console.error(err);
+                                }
+                              }}
+                            >
+                              Archive Lead
+                            </Button>
+                            {isAdmin && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                iconOnly
+                                onClick={() => handleDeleteLead(lead.id)}
+                                className={DELETE_ICON}
+                                aria-label="Delete prospect"
+                                title="Delete Prospect"
+                              >
+                                <Trash2 size={14} />
+                              </Button>
+                            )}
+                          </div>
+                        </TD>
+                      </TR>
+                    ))}
+                    {leads.length === 0 && (
+                      <tr>
+                        <td colSpan={4} className={EMPTY_CELL}>
+                          {emptyListMessage('No overlapping prospects found with the current cross-check filters.')}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </Table>
+              </div>
               {paginationControls}
               </>
               )}
@@ -2335,9 +2235,7 @@ export default function LeadsPage() {
           </div>
         )}
 
-      </div>
-
-
+      </Card>
 
       {/* Slide-over Activity Timeline Drawer */}
       <AnimatePresence>
@@ -2349,7 +2247,7 @@ export default function LeadsPage() {
               animate={{ opacity: 0.4 }}
               exit={{ opacity: 0 }}
               onClick={() => setSelectedLeadId(null)}
-              className="fixed inset-0 bg-slate-900/60 z-40 backdrop-blur-xs"
+              className="fixed inset-0 z-40 bg-slate-900/60 backdrop-blur-xs"
             />
 
             {/* Panel */}
@@ -2358,96 +2256,88 @@ export default function LeadsPage() {
               animate={{ x: 0 }}
               exit={{ x: '100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className="fixed right-0 top-0 bottom-0 w-full max-w-lg bg-white dark:bg-[#0e1017] border-l border-slate-200 dark:border-[#1b1c26] shadow-2xl z-50 flex flex-col font-sans"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="lead-timeline-title"
+              className="fixed top-0 right-0 bottom-0 z-50 flex w-full max-w-lg flex-col border-l border-card-border bg-card shadow-2xl"
             >
               {/* Header */}
-              <div className="p-5 border-b border-slate-200 dark:border-slate-800/60 bg-slate-50/50 dark:bg-[#11131c] flex items-center justify-between">
+              <div className="flex items-start justify-between gap-3 border-b border-card-border p-5">
                 <div>
-                  <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider">Prospect Activity Timeline</h3>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Comprehensive audit trail of sent campaigns and response history.</p>
+                  <h2 id="lead-timeline-title" className="text-[15px] font-semibold text-text-main">Prospect Activity Timeline</h2>
+                  <p className="mt-0.5 text-xs text-text-sub">Comprehensive audit trail of sent campaigns and response history.</p>
                 </div>
-                <button
-                  onClick={() => setSelectedLeadId(null)}
-                  className="p-1.5 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-white rounded-lg transition-colors"
-                >
-                  <X className="w-4.5 h-4.5" />
-                </button>
+                <Button size="sm" variant="ghost" iconOnly onClick={() => setSelectedLeadId(null)} aria-label="Close timeline">
+                  <X size={16} />
+                </Button>
               </div>
 
               {/* Content */}
-              <div className="flex-1 overflow-y-auto p-5 space-y-6">
+              <div className="flex-1 space-y-6 overflow-y-auto p-5">
                 {loadingDetails ? (
-                  <div className="py-20 text-center text-slate-400 dark:text-slate-500 text-xs space-y-3">
-                    <div className="w-6 h-6 border-2 border-slate-300 dark:border-slate-700 border-t-blue-500 animate-spin rounded-full mx-auto" />
-                    <p className="font-medium tracking-wide">Syncing prospect timeline logs...</p>
+                  <div className="space-y-3 py-20 text-center text-xs text-text-muted">
+                    <Loader2 size={20} className="mx-auto animate-spin" />
+                    <p>Syncing prospect timeline logs...</p>
                   </div>
                 ) : leadDetails ? (
                   <>
                     {/* Lead Profile Info Card */}
-                    <div className="bg-slate-50 dark:bg-[#12141e] border border-slate-200 dark:border-[#1e202d] rounded-xl p-4 space-y-3.5 animate-in fade-in duration-300">
+                    <div className="space-y-3 rounded-control border border-card-border p-4">
                       <div className="flex items-start justify-between gap-4">
                         <div>
-                          <h4 className="text-sm font-bold text-slate-800 dark:text-white">{leadDetails.name || 'Anonymous Prospect'}</h4>
+                          <h3 className="text-sm font-semibold text-text-main">{leadDetails.name || 'Anonymous Prospect'}</h3>
                           {leadDetails.jobTitle && (
-                            <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium mt-0.5">{leadDetails.jobTitle}</p>
+                            <p className="mt-0.5 text-xs text-text-sub">{leadDetails.jobTitle}</p>
                           )}
                         </div>
-                        <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wider
-                          ${leadDetails.validationStatus === 'Valid' ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900/30' : ''}
-                          ${leadDetails.validationStatus === 'Invalid' ? 'bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-900/30' : ''}
-                          ${leadDetails.validationStatus === 'Risky' ? 'bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-900/30' : ''}
-                          ${leadDetails.validationStatus === 'Unverified' ? 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800' : ''}
-                        `}>
-                          {leadDetails.validationStatus}
-                        </span>
+                        <ValidationBadge status={leadDetails.validationStatus} />
                       </div>
 
-                      <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-200/60 dark:border-slate-800/40 text-[11px]">
+                      <div className="grid grid-cols-2 gap-4 border-t border-card-border pt-3 text-xs">
                         <div>
-                          <span className="text-slate-400 dark:text-slate-500 font-medium uppercase tracking-wider text-[9px]">Email Address</span>
-                          <p className="text-slate-700 dark:text-slate-400 mt-0.5 break-all">{leadDetails.email}</p>
+                          <span className={FIELD_LABEL}>Email Address</span>
+                          <p className="mt-0.5 break-all text-text-main">{leadDetails.email}</p>
                         </div>
                         <div>
-                          <span className="text-slate-400 dark:text-slate-500 font-medium uppercase tracking-wider text-[9px]">Company</span>
-                          <p className="text-slate-700 dark:text-slate-400 mt-0.5 font-semibold">{leadDetails.company || 'N/A'}</p>
+                          <span className={FIELD_LABEL}>Company</span>
+                          <p className="mt-0.5 font-medium text-text-main">{leadDetails.company || 'N/A'}</p>
                         </div>
                       </div>
 
                       {/* Suppression List entry: shown whatever the CRM status says; only an admin removes it */}
                       {leadDetails.suppression && (
-                        <div className="pt-2 border-t border-slate-200/60 dark:border-slate-800/40 space-y-2">
-                          <div className="flex justify-between items-center gap-3">
-                            <span className="text-slate-400 dark:text-slate-500 font-medium uppercase tracking-wider text-[9px]">Suppression List</span>
+                        <div className="space-y-2 border-t border-card-border pt-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className={FIELD_LABEL}>Suppression List</span>
                             <SuppressionChip lead={leadDetails} />
                           </div>
-                          <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+                          <p className="text-xs leading-relaxed text-text-sub">
                             {describeSuppression(leadDetails.suppression)}{' '}
                             {OPT_OUT_REASONS.includes(leadDetails.suppression.reason)
                               ? "ArcReach never emails this address: campaigns never enroll it and Unibox replies to it are blocked, whatever the lead's status."
                               : "Campaigns never enroll or email this address, whatever the lead's status."}
                           </p>
                           {isAdmin ? (
-                            <button
-                              onClick={() => handleRemoveSuppression(leadDetails)}
-                              className="px-2.5 py-1 text-[10px] font-bold rounded-lg border uppercase tracking-wider transition-all cursor-pointer bg-white hover:bg-rose-50 dark:bg-slate-900 dark:hover:bg-rose-950/30 border-rose-200 dark:border-rose-900/40 text-rose-700 dark:text-rose-400"
-                            >
+                            <Button size="sm" variant="danger" onClick={() => handleRemoveSuppression(leadDetails)}>
                               Remove From List
-                            </button>
+                            </Button>
                           ) : (
-                            <p className="text-[10px] text-slate-400 dark:text-slate-500">Only an admin can remove an address from the suppression list.</p>
+                            <p className="text-[11px] text-text-muted">Only an admin can remove an address from the suppression list.</p>
                           )}
                         </div>
                       )}
 
                       {/* Groups Management */}
-                      <div className="pt-2 border-t border-slate-200/60 dark:border-slate-800/40">
-                        <span className="text-slate-400 dark:text-slate-500 font-medium uppercase tracking-wider text-[9px]">Group Memberships</span>
-                        <div className="flex flex-wrap gap-1.5 mt-1.5">
+                      <div className="border-t border-card-border pt-3">
+                        <span className={FIELD_LABEL}>Group Memberships</span>
+                        <div className="mt-1.5 flex flex-wrap gap-1.5">
                           {groups.map(group => {
                             const isMember = (leadDetails.groups || []).some((g: any) => g.groupId === group.id);
                             return (
                               <button
                                 key={group.id}
+                                type="button"
+                                aria-pressed={isMember}
                                 onClick={async () => {
                                   let nextGroupIds = (leadDetails.groups || []).map((g: any) => g.groupId);
                                   if (isMember) {
@@ -2476,26 +2366,24 @@ export default function LeadsPage() {
                                     console.error(err);
                                   }
                                 }}
-                                className={`px-2 py-0.5 rounded text-[9px] font-bold transition-all border uppercase tracking-wider flex items-center gap-1 cursor-pointer ${
-                                  isMember
-                                    ? 'bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-500/10 shadow-xs'
-                                    : 'bg-transparent text-slate-400 dark:text-slate-500 border-slate-200 dark:border-slate-800 hover:text-slate-600 dark:hover:text-slate-300'
-                                }`}
+                                className={cn(TOGGLE, 'h-6 px-2 text-[11px]', isMember ? TOGGLE_ON : TOGGLE_OFF)}
                               >
                                 {group.name}
                               </button>
                             );
                           })}
                           {groups.length === 0 && (
-                            <span className="text-[10px] text-slate-400 dark:text-slate-500 italic">{groupsError ? 'Lead groups could not be loaded.' : 'No lead groups created yet.'}</span>
+                            <span className="text-[11px] text-text-muted">{groupsError ? 'Lead groups could not be loaded.' : 'No lead groups created yet.'}</span>
                           )}
                         </div>
                       </div>
 
                       {/* Archive Status */}
-                      <div className="pt-2 border-t border-slate-200/60 dark:border-slate-800/40 flex justify-between items-center">
-                        <span className="text-slate-400 dark:text-slate-500 font-medium uppercase tracking-wider text-[9px]">Archiving Status</span>
-                        <button
+                      <div className="flex items-center justify-between border-t border-card-border pt-3">
+                        <span className={FIELD_LABEL}>Archiving Status</span>
+                        <Button
+                          size="sm"
+                          variant={leadDetails.isArchived ? 'primary' : 'secondary'}
                           onClick={async () => {
                             try {
                               const res = await fetch('/api/leads', {
@@ -2522,29 +2410,25 @@ export default function LeadsPage() {
                               console.error(err);
                             }
                           }}
-                          className={`px-2.5 py-1 text-[10px] font-bold rounded-lg border uppercase tracking-wider transition-all cursor-pointer ${
-                            leadDetails.isArchived
-                              ? 'bg-emerald-600 hover:bg-emerald-500 text-white border-transparent'
-                              : 'bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-400'
-                          }`}
                         >
+                          <Archive size={14} />
                           {leadDetails.isArchived ? 'Restore Prospect' : 'Archive Prospect'}
-                        </button>
+                        </Button>
                       </div>
                     </div>
 
                     {/* Timeline Events List */}
                     <div className="space-y-4">
-                      <h4 className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">Activity Audit Log</h4>
-                      
+                      <h3 className="text-[13px] font-semibold text-text-main">Activity Audit Log</h3>
+
                       {getTimeline().length === 0 ? (
-                        <p className="text-slate-400 dark:text-slate-500 text-xs py-6 text-center">No outbound campaigns or inbound responses recorded for this lead yet.</p>
+                        <p className="py-6 text-center text-xs text-text-muted">No outbound campaigns or inbound responses recorded for this lead yet.</p>
                       ) : (
-                        <div className="relative border-l-2 border-slate-100 dark:border-slate-800 ml-3 pl-5 space-y-5">
+                        <div className="relative ml-3 space-y-4 border-l-2 border-card-border pl-5">
                           {getTimeline().map((event: any) => {
                             const isExpanded = expandedEmailId === event.id;
                             const isDispatch = event.type === 'dispatch';
-                            
+
                             // Check events
                             const opens = event.events.filter((ev: any) => ev.eventType === 'open').length;
                             const clicks = event.events.filter((ev: any) => ev.eventType === 'click').length;
@@ -2552,105 +2436,71 @@ export default function LeadsPage() {
                             return (
                               <div key={event.id} className="relative">
                                 {/* Dot Indicator */}
-                                <span className={`absolute -left-[27px] top-1.5 w-3.5 h-3.5 rounded-full border-2 bg-white dark:bg-[#0e1017] flex items-center justify-center
-                                  ${isDispatch 
-                                    ? 'border-blue-600 dark:border-blue-500' 
-                                    : 'border-emerald-600 dark:border-emerald-500'
-                                  }`}
-                                >
-                                  {isDispatch ? (
-                                    <Mail className="w-1.5 h-1.5 text-blue-600 dark:text-blue-500" />
-                                  ) : (
-                                    <MessageSquare className="w-1.5 h-1.5 text-emerald-600 dark:text-emerald-500" />
+                                <span
+                                  aria-hidden
+                                  className={cn(
+                                    'absolute top-3 -left-[27px] size-3 rounded-full border-2 bg-card',
+                                    isDispatch ? 'border-primary' : 'border-emerald-500',
                                   )}
-                                </span>
+                                />
 
                                 {/* Event Card */}
-                                <div className="bg-slate-50/50 dark:bg-[#12141c]/45 border border-slate-200 dark:border-[#1a1c27] rounded-xl p-3.5 space-y-2 hover:border-slate-300 dark:hover:border-[#2b2e40] transition-colors">
+                                <div className="space-y-2 rounded-control border border-card-border p-3.5">
                                   {/* Header */}
-                                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[10px] text-slate-400 dark:text-slate-500">
-                                    <span className="font-bold uppercase tracking-wider">
+                                  <div className="flex flex-col justify-between gap-1 text-[11px] text-text-muted sm:flex-row sm:items-center">
+                                    <span className="flex items-center gap-1.5 font-medium text-text-sub">
+                                      {isDispatch ? <Mail size={12} aria-hidden /> : <MessageSquare size={12} aria-hidden />}
                                       {isDispatch
                                         ? `Sent via ${event.campaign}${event.stepOrder ? ` · Step ${event.stepOrder}` : ''}`
                                         : 'Lead Inbound Reply'
                                       }
                                     </span>
                                     <span className="flex items-center gap-1">
-                                      <Clock className="w-3 h-3" />
+                                      <Clock size={12} aria-hidden />
                                       {event.date.toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}
                                     </span>
                                   </div>
 
                                   {/* Subject */}
-                                  <h5 className="text-xs font-bold text-slate-800 dark:text-white leading-snug">{event.subject}</h5>
+                                  <h4 className="text-[13px] leading-snug font-semibold text-text-main">{event.subject}</h4>
 
-                                  {/* Telemetry Tracking Badges */}
+                                  {/* Delivery and engagement */}
                                   {isDispatch && (
-                                    <div className="flex flex-wrap gap-2 pt-0.5">
+                                    <div className="flex flex-wrap gap-1.5">
                                       {event.status === 'Failed' ? (
-                                        <span className="inline-flex items-center gap-1 bg-rose-50/70 dark:bg-rose-950/20 border border-rose-200/50 dark:border-rose-500/10 text-[9px] font-bold text-rose-600 dark:text-rose-400 px-2 py-0.5 rounded">
-                                          <Ban className="w-3 h-3" />
-                                          Failed
-                                        </span>
+                                        <Badge tone="red"><Ban size={12} aria-hidden />Failed</Badge>
                                       ) : event.status === 'Sending' ? (
-                                        <span className="inline-flex items-center gap-1 bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200/50 dark:border-amber-500/10 text-[9px] font-bold text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded">
-                                          <Hourglass className="w-3 h-3" />
-                                          Sending
-                                        </span>
+                                        <Badge tone="amber"><Hourglass size={12} aria-hidden />Sending</Badge>
                                       ) : event.status === 'Unknown' ? (
-                                        <span className="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/40 text-[9px] font-bold text-slate-500 dark:text-slate-400 px-2 py-0.5 rounded">
-                                          <MailQuestionMark className="w-3 h-3" />
-                                          Unconfirmed
-                                        </span>
+                                        <Badge><MailQuestionMark size={12} aria-hidden />Unconfirmed</Badge>
                                       ) : event.deliveredAt ? (
-                                        <span className="inline-flex items-center gap-1 bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200/50 dark:border-emerald-500/10 text-[9px] font-bold text-emerald-600 dark:text-emerald-400 px-2 py-0.5 rounded">
-                                          <CheckCircle2 className="w-3 h-3" />
-                                          Delivered
-                                        </span>
+                                        <Badge tone="green"><CheckCircle2 size={12} aria-hidden />Delivered</Badge>
                                       ) : (
-                                        <span className="inline-flex items-center gap-1 bg-slate-100 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700/40 text-[9px] font-bold text-slate-500 dark:text-slate-400 px-2 py-0.5 rounded">
-                                          <Mail className="w-3 h-3" />
-                                          Sent
-                                        </span>
+                                        <Badge><Mail size={12} aria-hidden />Sent</Badge>
                                       )}
                                       {opens > 0 && (
-                                        <span className="inline-flex items-center gap-1 bg-blue-50/70 dark:bg-blue-950/20 border border-blue-200/50 dark:border-blue-500/10 text-[9px] font-bold text-blue-600 dark:text-blue-400 px-2 py-0.5 rounded">
-                                          <Eye className="w-3 h-3" />
-                                          Opened ({opens})
-                                        </span>
+                                        <Badge tone="blue"><Eye size={12} aria-hidden />Opened ({opens})</Badge>
                                       )}
                                       {clicks > 0 && (
-                                        <span className="inline-flex items-center gap-1 bg-indigo-50/70 dark:bg-indigo-950/20 border border-indigo-200/50 dark:border-indigo-500/10 text-[9px] font-bold text-indigo-600 dark:text-indigo-400 px-2 py-0.5 rounded">
-                                          <MousePointerClick className="w-3 h-3" />
-                                          Clicked ({clicks})
-                                        </span>
+                                        <Badge tone="blue"><MousePointerClick size={12} aria-hidden />Clicked ({clicks})</Badge>
                                       )}
                                     </div>
                                   )}
 
                                   {/* Body Toggle Button */}
                                   <button
+                                    type="button"
+                                    aria-expanded={isExpanded}
                                     onClick={() => setExpandedEmailId(isExpanded ? null : event.id)}
-                                    className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-blue-600 hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-400 cursor-pointer pt-1 border-0 bg-transparent"
+                                    className="flex cursor-pointer items-center gap-1 text-xs font-medium text-primary hover:underline"
                                   >
-                                    {isExpanded ? (
-                                      <>
-                                        Hide email copy
-                                        <ChevronUp className="w-3.5 h-3.5" />
-                                      </>
-                                    ) : (
-                                      <>
-                                        View email copy
-                                        <ChevronDown className="w-3.5 h-3.5" />
-                                      </>
-                                    )}
+                                    {isExpanded ? 'Hide email copy' : 'View email copy'}
+                                    {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                                   </button>
 
                                   {/* Body copy container — plain text only; bodies are untrusted HTML */}
                                   {isExpanded && (
-                                    <div
-                                      className="text-xs mt-2.5 p-3 rounded-lg bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 whitespace-pre-wrap max-h-56 overflow-y-auto break-words leading-relaxed"
-                                    >
+                                    <div className="max-h-56 overflow-y-auto rounded-control border border-card-border bg-slate-50 p-3 text-xs leading-relaxed break-words whitespace-pre-wrap text-text-sub dark:bg-white/[0.02]">
                                       {emailBodyToText(event.body)}
                                     </div>
                                   )}
@@ -2663,16 +2513,13 @@ export default function LeadsPage() {
                     </div>
                   </>
                 ) : (
-                  <div className="text-center py-10 text-xs space-y-3">
-                    <p className="text-rose-600 dark:text-rose-400 font-medium">{leadDetailsError || 'This lead could not be loaded.'}</p>
+                  <div className="space-y-3 py-10 text-center text-xs">
+                    <p className="font-medium text-rose-600 dark:text-rose-400">{leadDetailsError || 'This lead could not be loaded.'}</p>
                     {selectedLeadId && (
-                      <button
-                        onClick={() => fetchLeadDetails(selectedLeadId)}
-                        className="inline-flex items-center gap-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-800 dark:text-white px-3 py-1.5 rounded-lg font-semibold cursor-pointer"
-                      >
-                        <RefreshCw className="w-3.5 h-3.5" />
+                      <Button size="sm" onClick={() => fetchLeadDetails(selectedLeadId)}>
+                        <RefreshCw size={14} />
                         Retry
-                      </button>
+                      </Button>
                     )}
                   </div>
                 )}
@@ -2689,53 +2536,37 @@ export default function LeadsPage() {
             initial={{ opacity: 0, y: 50, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 50, scale: 0.95 }}
-            className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 dark:bg-slate-950 border border-slate-800 text-white px-5 py-3 rounded-full shadow-2xl flex items-center gap-4.5 z-45 max-w-lg w-auto"
+            role="toolbar"
+            aria-label="Selected leads"
+            className="fixed bottom-6 left-1/2 z-45 flex max-w-[calc(100vw-2rem)] -translate-x-1/2 flex-wrap items-center gap-2 rounded-card border border-card-border bg-card px-3 py-2 shadow-[0_8px_24px_rgba(15,23,42,0.14)]"
           >
-            <span className="text-xs font-bold text-slate-300 pr-3 border-r border-slate-800">
+            <span className="border-r border-card-border pr-3 text-xs font-medium text-text-main">
               {selectedLeads.length} selected
             </span>
-            <div className="flex items-center gap-2">
-              {activeTab === 'suppressed' ? (
-                <button
-                  onClick={handleBulkReactivateLeads}
-                  className="bg-emerald-600 hover:bg-emerald-500 text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1 transition-colors cursor-pointer"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  Re-activate
-                </button>
-              ) : (
-                <button
-                  onClick={handleBulkVerify}
-                  disabled={isVerifying}
-                  className="bg-blue-600 hover:bg-blue-500 disabled:bg-slate-800 text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1 transition-colors cursor-pointer"
-                >
-                  <Globe className="w-3 h-3" />
-                  Check Domain MX
-                </button>
-              )}
-              <button
-                onClick={() => handleBulkArchiveLeads(activeTab !== 'archived')}
-                className="bg-slate-800 hover:bg-slate-700 text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1 transition-colors cursor-pointer border border-slate-700"
-              >
-                <Archive className="w-3 h-3 text-slate-400" />
-                {activeTab === 'archived' ? 'Unarchive' : 'Archive'}
-              </button>
-              {isAdmin && (
-                <button
-                  onClick={handleBulkDeleteLeads}
-                  className="bg-rose-950/60 hover:bg-rose-900 text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1 transition-colors cursor-pointer border border-rose-800/40 text-rose-200"
-                >
-                  <Trash2 className="w-3 h-3" />
-                  Delete
-                </button>
-              )}
-            </div>
-            <button
-              onClick={() => setSelectedLeads([])}
-              className="text-slate-400 hover:text-white transition-colors text-xs font-semibold pl-1"
-            >
+            {activeTab === 'suppressed' ? (
+              <Button size="sm" onClick={handleBulkReactivateLeads}>
+                <RefreshCw size={14} />
+                Re-activate
+              </Button>
+            ) : (
+              <Button size="sm" onClick={handleBulkVerify} disabled={isVerifying}>
+                <Globe size={14} />
+                Check Domain MX
+              </Button>
+            )}
+            <Button size="sm" onClick={() => handleBulkArchiveLeads(activeTab !== 'archived')}>
+              <Archive size={14} />
+              {activeTab === 'archived' ? 'Unarchive' : 'Archive'}
+            </Button>
+            {isAdmin && (
+              <Button size="sm" variant="danger" onClick={handleBulkDeleteLeads}>
+                <Trash2 size={14} />
+                Delete
+              </Button>
+            )}
+            <Button size="sm" variant="ghost" onClick={() => setSelectedLeads([])}>
               Clear
-            </button>
+            </Button>
           </motion.div>
         )}
       </AnimatePresence>
@@ -2749,47 +2580,43 @@ export default function LeadsPage() {
               animate={{ opacity: 0.5 }}
               exit={{ opacity: 0 }}
               onClick={() => setShowDeleteAllConfirm(false)}
-              className="fixed inset-0 bg-black z-50 backdrop-blur-xs"
+              className="fixed inset-0 z-50 bg-black backdrop-blur-xs"
             />
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl p-6 z-55 w-full max-w-md"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="delete-all-title"
+              className={MODAL}
             >
-              <h3 className="text-base font-bold text-slate-900 dark:text-white mb-2 uppercase tracking-wide flex items-center gap-2">
-                <AlertCircle className="w-5 h-5 text-rose-600" />
-                DANGER: Delete All Leads
-              </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed mb-4">
+              <h2 id="delete-all-title" className="mb-2 flex items-center gap-2 text-base font-semibold text-text-main">
+                <AlertCircle size={18} className="text-rose-600 dark:text-rose-400" />
+                Delete All Leads
+              </h2>
+              <p className="mb-4 text-[13px] leading-relaxed text-text-sub">
                 This action will permanently delete all leads, including their activity history, replies, and group memberships. This cannot be undone.
               </p>
-              <div className="space-y-3">
-                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
-                  Type <span className="font-mono text-rose-500">DELETE</span> to confirm:
-                </label>
-                <input
-                  type="text"
-                  placeholder="DELETE"
-                  value={deleteAllConfirmText}
-                  onChange={(e) => setDeleteAllConfirmText(e.target.value)}
-                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-2.5 text-xs text-slate-900 dark:text-white placeholder:text-slate-400 outline-none focus:ring-2 focus:ring-rose-500/40"
-                />
-              </div>
-              <div className="flex gap-3 justify-end mt-6 pt-4 border-t border-slate-100 dark:border-slate-800/80">
-                <button
-                  onClick={() => setShowDeleteAllConfirm(false)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-500 hover:text-slate-800 dark:text-slate-400 hover:text-white bg-transparent border-0 cursor-pointer"
-                >
+              <label htmlFor="delete-all-confirm" className={LABEL}>
+                Type <span className="font-semibold text-rose-600 dark:text-rose-400">DELETE</span> to confirm:
+              </label>
+              <input
+                id="delete-all-confirm"
+                type="text"
+                placeholder="DELETE"
+                value={deleteAllConfirmText}
+                onChange={(e) => setDeleteAllConfirmText(e.target.value)}
+                className={inputClasses('h-9 focus:border-rose-500 focus:ring-rose-500/20')}
+              />
+              <div className="mt-6 flex justify-end gap-2 border-t border-card-border pt-4">
+                <Button variant="ghost" onClick={() => setShowDeleteAllConfirm(false)}>
                   Cancel
-                </button>
-                <button
-                  onClick={handleDeleteAllLeads}
-                  disabled={deleteAllConfirmText !== 'DELETE'}
-                  className="bg-rose-600 hover:bg-rose-500 disabled:bg-rose-950/25 disabled:text-rose-500/50 text-white px-5 py-2 rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer"
-                >
+                </Button>
+                <Button variant="danger" onClick={handleDeleteAllLeads} disabled={deleteAllConfirmText !== 'DELETE'}>
+                  <Trash2 size={14} />
                   Confirm Delete All
-                </button>
+                </Button>
               </div>
             </motion.div>
           </>
@@ -2805,77 +2632,80 @@ export default function LeadsPage() {
               animate={{ opacity: 0.5 }}
               exit={{ opacity: 0 }}
               onClick={() => setGroupToDelete(null)}
-              className="fixed inset-0 bg-black z-50 backdrop-blur-xs"
+              className="fixed inset-0 z-50 bg-black backdrop-blur-xs"
             />
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-[#0e1017] border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl p-6 z-55 w-full max-w-md"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="delete-group-title"
+              className={MODAL}
             >
-              <h3 className="text-base font-bold text-slate-900 dark:text-white mb-2 uppercase tracking-wide flex items-center gap-2">
-                <Folder className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+              <h2 id="delete-group-title" className="mb-2 text-base font-semibold break-words text-text-main">
                 Delete Group: {groupToDelete.name}
-              </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed mb-5">
+              </h2>
+              <p className="mb-4 text-[13px] leading-relaxed text-text-sub">
                 Decide what to do with the prospects currently assigned to this group:
               </p>
-              
-              <div className="space-y-3.5">
+
+              <div className="space-y-2">
                 {/* KEEP option */}
-                <label className="flex items-start gap-3 p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200/60 dark:border-slate-800 rounded-xl cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-900/50 transition-colors">
+                <label className={RADIO_ROW}>
                   <input
                     type="radio"
                     name="disposalAction"
                     value="KEEP"
                     checked={leadDisposalAction === 'KEEP'}
                     onChange={() => setLeadDisposalAction('KEEP')}
-                    className="mt-0.5 text-blue-600 focus:ring-blue-500/40 cursor-pointer"
+                    className="mt-0.5 cursor-pointer accent-primary"
                   />
                   <div>
-                    <span className="block text-xs font-bold text-slate-800 dark:text-white">Keep leads in CRM</span>
-                    <span className="block text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">Retains leads in the database and removes them from this group only.</span>
+                    <span className="block text-[13px] font-medium text-text-main">Keep leads in CRM</span>
+                    <span className="mt-0.5 block text-xs text-text-sub">Retains leads in the database and removes them from this group only.</span>
                   </div>
                 </label>
 
                 {/* DELETE option (admin only) */}
                 {isAdmin && (
-                  <label className="flex items-start gap-3 p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200/60 dark:border-slate-800 rounded-xl cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-900/50 transition-colors">
+                  <label className={RADIO_ROW}>
                     <input
                       type="radio"
                       name="disposalAction"
                       value="DELETE"
                       checked={leadDisposalAction === 'DELETE'}
                       onChange={() => setLeadDisposalAction('DELETE')}
-                      className="mt-0.5 text-rose-600 focus:ring-rose-500/40 cursor-pointer"
+                      className="mt-0.5 cursor-pointer accent-rose-600"
                     />
                     <div>
-                      <span className="block text-xs font-bold text-rose-600 dark:text-rose-400">Delete associated leads</span>
-                      <span className="block text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">Permanently deletes all leads in this group from the CRM database.</span>
+                      <span className="block text-[13px] font-medium text-rose-600 dark:text-rose-400">Delete associated leads</span>
+                      <span className="mt-0.5 block text-xs text-text-sub">Permanently deletes all leads in this group from the CRM database.</span>
                     </div>
                   </label>
                 )}
 
                 {/* MOVE option */}
-                <label className="flex items-start gap-3 p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200/60 dark:border-slate-800 rounded-xl cursor-pointer hover:bg-slate-100/50 dark:hover:bg-slate-900/50 transition-colors">
+                <label className={RADIO_ROW}>
                   <input
                     type="radio"
                     name="disposalAction"
                     value="MOVE"
                     checked={leadDisposalAction === 'MOVE'}
                     onChange={() => setLeadDisposalAction('MOVE')}
-                    className="mt-0.5 text-blue-600 focus:ring-blue-500/40 cursor-pointer"
+                    className="mt-0.5 cursor-pointer accent-primary"
                   />
                   <div className="w-full">
-                    <span className="block text-xs font-bold text-slate-800 dark:text-white">Move leads to another group</span>
-                    <span className="block text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">Transfer all leads to a different existing group.</span>
-                    
+                    <span className="block text-[13px] font-medium text-text-main">Move leads to another group</span>
+                    <span className="mt-0.5 block text-xs text-text-sub">Transfer all leads to a different existing group.</span>
+
                     {leadDisposalAction === 'MOVE' && (
                       <div className="mt-2.5" onClick={(e) => e.stopPropagation()}>
                         <select
+                          aria-label="Target group"
                           value={disposalTargetGroupId}
                           onChange={(e) => setDisposalTargetGroupId(e.target.value)}
-                          className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-2 text-xs text-slate-800 dark:text-white cursor-pointer outline-none"
+                          className={inputClasses('cursor-pointer')}
                         >
                           <option value="">-- Choose Target Group --</option>
                           {groups.filter(g => g.id !== groupToDelete.id).map(g => (
@@ -2888,20 +2718,17 @@ export default function LeadsPage() {
                 </label>
               </div>
 
-              <div className="flex gap-3 justify-end mt-6 pt-4 border-t border-slate-100 dark:border-slate-800/80">
-                <button
-                  onClick={() => setGroupToDelete(null)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-500 hover:text-slate-800 dark:text-slate-400 hover:text-white bg-transparent border-0 cursor-pointer"
-                >
+              <div className="mt-6 flex justify-end gap-2 border-t border-card-border pt-4">
+                <Button variant="ghost" onClick={() => setGroupToDelete(null)}>
                   Cancel
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="primary"
                   onClick={handleExecuteDeleteGroup}
                   disabled={leadDisposalAction === 'MOVE' && !disposalTargetGroupId}
-                  className="bg-blue-600 hover:bg-blue-500 disabled:bg-slate-200 dark:disabled:bg-slate-800 text-white disabled:text-slate-400 dark:disabled:text-slate-600 px-5 py-2 rounded-lg text-xs font-semibold shadow-sm transition-colors cursor-pointer"
                 >
                   Confirm Delete Group
-                </button>
+                </Button>
               </div>
             </motion.div>
           </>

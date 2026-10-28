@@ -76,6 +76,7 @@ import {
 } from '@/lib/leadView';
 import type { SuppressionReason } from '@prisma/client';
 import { Badge, type BadgeTone } from '@/components/ui/Badge';
+import { BodyPortal } from '@/components/ui/BodyPortal';
 import { Button, buttonClasses } from '@/components/ui/Button';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { inputClasses, SearchInput } from '@/components/ui/Input';
@@ -2237,297 +2238,299 @@ export default function LeadsPage() {
 
       </Card>
 
-      {/* Slide-over Activity Timeline Drawer */}
-      <AnimatePresence>
-        {selectedLeadId && (
-          <>
-            {/* Backdrop */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 0.4 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setSelectedLeadId(null)}
-              className="fixed inset-0 z-40 bg-slate-900/60 backdrop-blur-xs"
-            />
+      {/* Slide-over Activity Timeline Drawer, in the body so it sits above the top bar */}
+      <BodyPortal>
+        <AnimatePresence>
+          {selectedLeadId && (
+            <>
+              {/* Backdrop */}
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 0.4 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setSelectedLeadId(null)}
+                className="fixed inset-0 z-40 bg-slate-900/60 backdrop-blur-xs"
+              />
 
-            {/* Panel */}
-            <motion.div
-              initial={{ x: '100%' }}
-              animate={{ x: 0 }}
-              exit={{ x: '100%' }}
-              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="lead-timeline-title"
-              className="fixed top-0 right-0 bottom-0 z-50 flex w-full max-w-lg flex-col border-l border-card-border bg-card shadow-2xl"
-            >
-              {/* Header */}
-              <div className="flex items-start justify-between gap-3 border-b border-card-border p-5">
-                <div>
-                  <h2 id="lead-timeline-title" className="text-[15px] font-semibold text-text-main">Prospect Activity Timeline</h2>
-                  <p className="mt-0.5 text-xs text-text-sub">Comprehensive audit trail of sent campaigns and response history.</p>
+              {/* Panel */}
+              <motion.div
+                initial={{ x: '100%' }}
+                animate={{ x: 0 }}
+                exit={{ x: '100%' }}
+                transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="lead-timeline-title"
+                className="fixed top-0 right-0 bottom-0 z-50 flex w-full max-w-lg flex-col border-l border-card-border bg-card shadow-2xl"
+              >
+                {/* Header */}
+                <div className="flex items-start justify-between gap-3 border-b border-card-border p-5">
+                  <div>
+                    <h2 id="lead-timeline-title" className="text-[15px] font-semibold text-text-main">Prospect Activity Timeline</h2>
+                    <p className="mt-0.5 text-xs text-text-sub">Comprehensive audit trail of sent campaigns and response history.</p>
+                  </div>
+                  <Button size="sm" variant="ghost" iconOnly onClick={() => setSelectedLeadId(null)} aria-label="Close timeline">
+                    <X size={16} />
+                  </Button>
                 </div>
-                <Button size="sm" variant="ghost" iconOnly onClick={() => setSelectedLeadId(null)} aria-label="Close timeline">
-                  <X size={16} />
-                </Button>
-              </div>
 
-              {/* Content */}
-              <div className="flex-1 space-y-6 overflow-y-auto p-5">
-                {loadingDetails ? (
-                  <div className="space-y-3 py-20 text-center text-xs text-text-muted">
-                    <Loader2 size={20} className="mx-auto animate-spin" />
-                    <p>Syncing prospect timeline logs...</p>
-                  </div>
-                ) : leadDetails ? (
-                  <>
-                    {/* Lead Profile Info Card */}
-                    <div className="space-y-3 rounded-control border border-card-border p-4">
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
-                          <h3 className="text-sm font-semibold text-text-main">{leadDetails.name || 'Anonymous Prospect'}</h3>
-                          {leadDetails.jobTitle && (
-                            <p className="mt-0.5 text-xs text-text-sub">{leadDetails.jobTitle}</p>
-                          )}
-                        </div>
-                        <ValidationBadge status={leadDetails.validationStatus} />
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-4 border-t border-card-border pt-3 text-xs">
-                        <div>
-                          <span className={FIELD_LABEL}>Email Address</span>
-                          <p className="mt-0.5 break-all text-text-main">{leadDetails.email}</p>
-                        </div>
-                        <div>
-                          <span className={FIELD_LABEL}>Company</span>
-                          <p className="mt-0.5 font-medium text-text-main">{leadDetails.company || 'N/A'}</p>
-                        </div>
-                      </div>
-
-                      {/* Suppression List entry: shown whatever the CRM status says; only an admin removes it */}
-                      {leadDetails.suppression && (
-                        <div className="space-y-2 border-t border-card-border pt-3">
-                          <div className="flex items-center justify-between gap-3">
-                            <span className={FIELD_LABEL}>Suppression List</span>
-                            <SuppressionChip lead={leadDetails} />
+                {/* Content */}
+                <div className="flex-1 space-y-6 overflow-y-auto p-5">
+                  {loadingDetails ? (
+                    <div className="space-y-3 py-20 text-center text-xs text-text-muted">
+                      <Loader2 size={20} className="mx-auto animate-spin" />
+                      <p>Syncing prospect timeline logs...</p>
+                    </div>
+                  ) : leadDetails ? (
+                    <>
+                      {/* Lead Profile Info Card */}
+                      <div className="space-y-3 rounded-control border border-card-border p-4">
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <h3 className="text-sm font-semibold text-text-main">{leadDetails.name || 'Anonymous Prospect'}</h3>
+                            {leadDetails.jobTitle && (
+                              <p className="mt-0.5 text-xs text-text-sub">{leadDetails.jobTitle}</p>
+                            )}
                           </div>
-                          <p className="text-xs leading-relaxed text-text-sub">
-                            {describeSuppression(leadDetails.suppression)}{' '}
-                            {OPT_OUT_REASONS.includes(leadDetails.suppression.reason)
-                              ? "ArcReach never emails this address: campaigns never enroll it and Unibox replies to it are blocked, whatever the lead's status."
-                              : "Campaigns never enroll or email this address, whatever the lead's status."}
-                          </p>
-                          {isAdmin ? (
-                            <Button size="sm" variant="danger" onClick={() => handleRemoveSuppression(leadDetails)}>
-                              Remove From List
-                            </Button>
-                          ) : (
-                            <p className="text-[11px] text-text-muted">Only an admin can remove an address from the suppression list.</p>
-                          )}
+                          <ValidationBadge status={leadDetails.validationStatus} />
                         </div>
-                      )}
 
-                      {/* Groups Management */}
-                      <div className="border-t border-card-border pt-3">
-                        <span className={FIELD_LABEL}>Group Memberships</span>
-                        <div className="mt-1.5 flex flex-wrap gap-1.5">
-                          {groups.map(group => {
-                            const isMember = (leadDetails.groups || []).some((g: any) => g.groupId === group.id);
-                            return (
-                              <button
-                                key={group.id}
-                                type="button"
-                                aria-pressed={isMember}
-                                onClick={async () => {
-                                  let nextGroupIds = (leadDetails.groups || []).map((g: any) => g.groupId);
-                                  if (isMember) {
-                                    nextGroupIds = nextGroupIds.filter((id: string) => id !== group.id);
-                                  } else {
-                                    nextGroupIds = [...nextGroupIds, group.id];
-                                  }
-                                  try {
-                                    const res = await fetch('/api/leads', {
-                                      method: 'PUT',
-                                      headers: { 'Content-Type': 'application/json' },
-                                      body: JSON.stringify({ id: leadDetails.id, groupIds: nextGroupIds })
-                                    });
-                                    if (res.ok) {
-                                      const updatedLead = await res.json();
-                                      // The PUT answer has no dispatches or replies, so the timeline is kept
-                                      setLeadDetails((prev: any) => prev && prev.id === updatedLead.id ? { ...prev, ...updatedLead } : prev);
-                                      reloadLeads();
-                                      await fetchGroups();
-                                      showToast('Group memberships updated.');
+                        <div className="grid grid-cols-2 gap-4 border-t border-card-border pt-3 text-xs">
+                          <div>
+                            <span className={FIELD_LABEL}>Email Address</span>
+                            <p className="mt-0.5 break-all text-text-main">{leadDetails.email}</p>
+                          </div>
+                          <div>
+                            <span className={FIELD_LABEL}>Company</span>
+                            <p className="mt-0.5 font-medium text-text-main">{leadDetails.company || 'N/A'}</p>
+                          </div>
+                        </div>
+
+                        {/* Suppression List entry: shown whatever the CRM status says; only an admin removes it */}
+                        {leadDetails.suppression && (
+                          <div className="space-y-2 border-t border-card-border pt-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <span className={FIELD_LABEL}>Suppression List</span>
+                              <SuppressionChip lead={leadDetails} />
+                            </div>
+                            <p className="text-xs leading-relaxed text-text-sub">
+                              {describeSuppression(leadDetails.suppression)}{' '}
+                              {OPT_OUT_REASONS.includes(leadDetails.suppression.reason)
+                                ? "ArcReach never emails this address: campaigns never enroll it and Unibox replies to it are blocked, whatever the lead's status."
+                                : "Campaigns never enroll or email this address, whatever the lead's status."}
+                            </p>
+                            {isAdmin ? (
+                              <Button size="sm" variant="danger" onClick={() => handleRemoveSuppression(leadDetails)}>
+                                Remove From List
+                              </Button>
+                            ) : (
+                              <p className="text-[11px] text-text-muted">Only an admin can remove an address from the suppression list.</p>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Groups Management */}
+                        <div className="border-t border-card-border pt-3">
+                          <span className={FIELD_LABEL}>Group Memberships</span>
+                          <div className="mt-1.5 flex flex-wrap gap-1.5">
+                            {groups.map(group => {
+                              const isMember = (leadDetails.groups || []).some((g: any) => g.groupId === group.id);
+                              return (
+                                <button
+                                  key={group.id}
+                                  type="button"
+                                  aria-pressed={isMember}
+                                  onClick={async () => {
+                                    let nextGroupIds = (leadDetails.groups || []).map((g: any) => g.groupId);
+                                    if (isMember) {
+                                      nextGroupIds = nextGroupIds.filter((id: string) => id !== group.id);
                                     } else {
-                                      const err = await res.json().catch(() => ({}));
-                                      showToast(err.error || 'Failed to update group memberships.', 'error');
+                                      nextGroupIds = [...nextGroupIds, group.id];
                                     }
-                                  } catch (err) {
-                                    console.error(err);
-                                  }
-                                }}
-                                className={cn(TOGGLE, 'h-6 px-2 text-[11px]', isMember ? TOGGLE_ON : TOGGLE_OFF)}
-                              >
-                                {group.name}
-                              </button>
-                            );
-                          })}
-                          {groups.length === 0 && (
-                            <span className="text-[11px] text-text-muted">{groupsError ? 'Lead groups could not be loaded.' : 'No lead groups created yet.'}</span>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Archive Status */}
-                      <div className="flex items-center justify-between border-t border-card-border pt-3">
-                        <span className={FIELD_LABEL}>Archiving Status</span>
-                        <Button
-                          size="sm"
-                          variant={leadDetails.isArchived ? 'primary' : 'secondary'}
-                          onClick={async () => {
-                            try {
-                              const res = await fetch('/api/leads', {
-                                method: 'PUT',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ id: leadDetails.id, isArchived: !leadDetails.isArchived })
-                              });
-                              if (res.ok) {
-                                const updatedLead = await res.json();
-                                // The PUT answer has no dispatches or replies, so the timeline is kept
-                                setLeadDetails((prev: any) => prev && prev.id === updatedLead.id ? { ...prev, ...updatedLead } : prev);
-                                // It moves to the other tab
-                                deselectLead(updatedLead.id);
-                                reloadLeads();
-                                showToast(updatedLead.isArchived ? 'Prospect archived.' : 'Prospect unarchived.');
-                                if (updatedLead.isArchived) {
-                                  setSelectedLeadId(null);
-                                }
-                              } else {
-                                const err = await res.json().catch(() => ({}));
-                                showToast(err.error || 'Failed to update the lead.', 'error');
-                              }
-                            } catch (err) {
-                              console.error(err);
-                            }
-                          }}
-                        >
-                          <Archive size={14} />
-                          {leadDetails.isArchived ? 'Restore Prospect' : 'Archive Prospect'}
-                        </Button>
-                      </div>
-                    </div>
-
-                    {/* Timeline Events List */}
-                    <div className="space-y-4">
-                      <h3 className="text-[13px] font-semibold text-text-main">Activity Audit Log</h3>
-
-                      {getTimeline().length === 0 ? (
-                        <p className="py-6 text-center text-xs text-text-muted">No outbound campaigns or inbound responses recorded for this lead yet.</p>
-                      ) : (
-                        <div className="relative ml-3 space-y-4 border-l-2 border-card-border pl-5">
-                          {getTimeline().map((event: any) => {
-                            const isExpanded = expandedEmailId === event.id;
-                            const isDispatch = event.type === 'dispatch';
-
-                            // Check events
-                            const opens = event.events.filter((ev: any) => ev.eventType === 'open').length;
-                            const clicks = event.events.filter((ev: any) => ev.eventType === 'click').length;
-
-                            return (
-                              <div key={event.id} className="relative">
-                                {/* Dot Indicator */}
-                                <span
-                                  aria-hidden
-                                  className={cn(
-                                    'absolute top-3 -left-[27px] size-3 rounded-full border-2 bg-card',
-                                    isDispatch ? 'border-primary' : 'border-emerald-500',
-                                  )}
-                                />
-
-                                {/* Event Card */}
-                                <div className="space-y-2 rounded-control border border-card-border p-3.5">
-                                  {/* Header */}
-                                  <div className="flex flex-col justify-between gap-1 text-[11px] text-text-muted sm:flex-row sm:items-center">
-                                    <span className="flex items-center gap-1.5 font-medium text-text-sub">
-                                      {isDispatch ? <Mail size={12} aria-hidden /> : <MessageSquare size={12} aria-hidden />}
-                                      {isDispatch
-                                        ? `Sent via ${event.campaign}${event.stepOrder ? ` · Step ${event.stepOrder}` : ''}`
-                                        : 'Lead Inbound Reply'
+                                    try {
+                                      const res = await fetch('/api/leads', {
+                                        method: 'PUT',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ id: leadDetails.id, groupIds: nextGroupIds })
+                                      });
+                                      if (res.ok) {
+                                        const updatedLead = await res.json();
+                                        // The PUT answer has no dispatches or replies, so the timeline is kept
+                                        setLeadDetails((prev: any) => prev && prev.id === updatedLead.id ? { ...prev, ...updatedLead } : prev);
+                                        reloadLeads();
+                                        await fetchGroups();
+                                        showToast('Group memberships updated.');
+                                      } else {
+                                        const err = await res.json().catch(() => ({}));
+                                        showToast(err.error || 'Failed to update group memberships.', 'error');
                                       }
-                                    </span>
-                                    <span className="flex items-center gap-1">
-                                      <Clock size={12} aria-hidden />
-                                      {event.date.toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}
-                                    </span>
-                                  </div>
-
-                                  {/* Subject */}
-                                  <h4 className="text-[13px] leading-snug font-semibold text-text-main">{event.subject}</h4>
-
-                                  {/* Delivery and engagement */}
-                                  {isDispatch && (
-                                    <div className="flex flex-wrap gap-1.5">
-                                      {event.status === 'Failed' ? (
-                                        <Badge tone="red"><Ban size={12} aria-hidden />Failed</Badge>
-                                      ) : event.status === 'Sending' ? (
-                                        <Badge tone="amber"><Hourglass size={12} aria-hidden />Sending</Badge>
-                                      ) : event.status === 'Unknown' ? (
-                                        <Badge><MailQuestionMark size={12} aria-hidden />Unconfirmed</Badge>
-                                      ) : event.deliveredAt ? (
-                                        <Badge tone="green"><CheckCircle2 size={12} aria-hidden />Delivered</Badge>
-                                      ) : (
-                                        <Badge><Mail size={12} aria-hidden />Sent</Badge>
-                                      )}
-                                      {opens > 0 && (
-                                        <Badge tone="blue"><Eye size={12} aria-hidden />Opened ({opens})</Badge>
-                                      )}
-                                      {clicks > 0 && (
-                                        <Badge tone="blue"><MousePointerClick size={12} aria-hidden />Clicked ({clicks})</Badge>
-                                      )}
-                                    </div>
-                                  )}
-
-                                  {/* Body Toggle Button */}
-                                  <button
-                                    type="button"
-                                    aria-expanded={isExpanded}
-                                    onClick={() => setExpandedEmailId(isExpanded ? null : event.id)}
-                                    className="flex cursor-pointer items-center gap-1 text-xs font-medium text-primary hover:underline"
-                                  >
-                                    {isExpanded ? 'Hide email copy' : 'View email copy'}
-                                    {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                                  </button>
-
-                                  {/* Body copy container — plain text only; bodies are untrusted HTML */}
-                                  {isExpanded && (
-                                    <div className="max-h-56 overflow-y-auto rounded-control border border-card-border bg-slate-50 p-3 text-xs leading-relaxed break-words whitespace-pre-wrap text-text-sub dark:bg-white/[0.02]">
-                                      {emailBodyToText(event.body)}
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            );
-                          })}
+                                    } catch (err) {
+                                      console.error(err);
+                                    }
+                                  }}
+                                  className={cn(TOGGLE, 'h-6 px-2 text-[11px]', isMember ? TOGGLE_ON : TOGGLE_OFF)}
+                                >
+                                  {group.name}
+                                </button>
+                              );
+                            })}
+                            {groups.length === 0 && (
+                              <span className="text-[11px] text-text-muted">{groupsError ? 'Lead groups could not be loaded.' : 'No lead groups created yet.'}</span>
+                            )}
+                          </div>
                         </div>
+
+                        {/* Archive Status */}
+                        <div className="flex items-center justify-between border-t border-card-border pt-3">
+                          <span className={FIELD_LABEL}>Archiving Status</span>
+                          <Button
+                            size="sm"
+                            variant={leadDetails.isArchived ? 'primary' : 'secondary'}
+                            onClick={async () => {
+                              try {
+                                const res = await fetch('/api/leads', {
+                                  method: 'PUT',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ id: leadDetails.id, isArchived: !leadDetails.isArchived })
+                                });
+                                if (res.ok) {
+                                  const updatedLead = await res.json();
+                                  // The PUT answer has no dispatches or replies, so the timeline is kept
+                                  setLeadDetails((prev: any) => prev && prev.id === updatedLead.id ? { ...prev, ...updatedLead } : prev);
+                                  // It moves to the other tab
+                                  deselectLead(updatedLead.id);
+                                  reloadLeads();
+                                  showToast(updatedLead.isArchived ? 'Prospect archived.' : 'Prospect unarchived.');
+                                  if (updatedLead.isArchived) {
+                                    setSelectedLeadId(null);
+                                  }
+                                } else {
+                                  const err = await res.json().catch(() => ({}));
+                                  showToast(err.error || 'Failed to update the lead.', 'error');
+                                }
+                              } catch (err) {
+                                console.error(err);
+                              }
+                            }}
+                          >
+                            <Archive size={14} />
+                            {leadDetails.isArchived ? 'Restore Prospect' : 'Archive Prospect'}
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* Timeline Events List */}
+                      <div className="space-y-4">
+                        <h3 className="text-[13px] font-semibold text-text-main">Activity Audit Log</h3>
+
+                        {getTimeline().length === 0 ? (
+                          <p className="py-6 text-center text-xs text-text-muted">No outbound campaigns or inbound responses recorded for this lead yet.</p>
+                        ) : (
+                          <div className="relative ml-3 space-y-4 border-l-2 border-card-border pl-5">
+                            {getTimeline().map((event: any) => {
+                              const isExpanded = expandedEmailId === event.id;
+                              const isDispatch = event.type === 'dispatch';
+
+                              // Check events
+                              const opens = event.events.filter((ev: any) => ev.eventType === 'open').length;
+                              const clicks = event.events.filter((ev: any) => ev.eventType === 'click').length;
+
+                              return (
+                                <div key={event.id} className="relative">
+                                  {/* Dot Indicator */}
+                                  <span
+                                    aria-hidden
+                                    className={cn(
+                                      'absolute top-3 -left-[27px] size-3 rounded-full border-2 bg-card',
+                                      isDispatch ? 'border-primary' : 'border-emerald-500',
+                                    )}
+                                  />
+
+                                  {/* Event Card */}
+                                  <div className="space-y-2 rounded-control border border-card-border p-3.5">
+                                    {/* Header */}
+                                    <div className="flex flex-col justify-between gap-1 text-[11px] text-text-muted sm:flex-row sm:items-center">
+                                      <span className="flex items-center gap-1.5 font-medium text-text-sub">
+                                        {isDispatch ? <Mail size={12} aria-hidden /> : <MessageSquare size={12} aria-hidden />}
+                                        {isDispatch
+                                          ? `Sent via ${event.campaign}${event.stepOrder ? ` · Step ${event.stepOrder}` : ''}`
+                                          : 'Lead Inbound Reply'
+                                        }
+                                      </span>
+                                      <span className="flex items-center gap-1">
+                                        <Clock size={12} aria-hidden />
+                                        {event.date.toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}
+                                      </span>
+                                    </div>
+
+                                    {/* Subject */}
+                                    <h4 className="text-[13px] leading-snug font-semibold text-text-main">{event.subject}</h4>
+
+                                    {/* Delivery and engagement */}
+                                    {isDispatch && (
+                                      <div className="flex flex-wrap gap-1.5">
+                                        {event.status === 'Failed' ? (
+                                          <Badge tone="red"><Ban size={12} aria-hidden />Failed</Badge>
+                                        ) : event.status === 'Sending' ? (
+                                          <Badge tone="amber"><Hourglass size={12} aria-hidden />Sending</Badge>
+                                        ) : event.status === 'Unknown' ? (
+                                          <Badge><MailQuestionMark size={12} aria-hidden />Unconfirmed</Badge>
+                                        ) : event.deliveredAt ? (
+                                          <Badge tone="green"><CheckCircle2 size={12} aria-hidden />Delivered</Badge>
+                                        ) : (
+                                          <Badge><Mail size={12} aria-hidden />Sent</Badge>
+                                        )}
+                                        {opens > 0 && (
+                                          <Badge tone="blue"><Eye size={12} aria-hidden />Opened ({opens})</Badge>
+                                        )}
+                                        {clicks > 0 && (
+                                          <Badge tone="blue"><MousePointerClick size={12} aria-hidden />Clicked ({clicks})</Badge>
+                                        )}
+                                      </div>
+                                    )}
+
+                                    {/* Body Toggle Button */}
+                                    <button
+                                      type="button"
+                                      aria-expanded={isExpanded}
+                                      onClick={() => setExpandedEmailId(isExpanded ? null : event.id)}
+                                      className="flex cursor-pointer items-center gap-1 text-xs font-medium text-primary hover:underline"
+                                    >
+                                      {isExpanded ? 'Hide email copy' : 'View email copy'}
+                                      {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                                    </button>
+
+                                    {/* Body copy container — plain text only; bodies are untrusted HTML */}
+                                    {isExpanded && (
+                                      <div className="max-h-56 overflow-y-auto rounded-control border border-card-border bg-slate-50 p-3 text-xs leading-relaxed break-words whitespace-pre-wrap text-text-sub dark:bg-white/[0.02]">
+                                        {emailBodyToText(event.body)}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="space-y-3 py-10 text-center text-xs">
+                      <p className="font-medium text-rose-600 dark:text-rose-400">{leadDetailsError || 'This lead could not be loaded.'}</p>
+                      {selectedLeadId && (
+                        <Button size="sm" onClick={() => fetchLeadDetails(selectedLeadId)}>
+                          <RefreshCw size={14} />
+                          Retry
+                        </Button>
                       )}
                     </div>
-                  </>
-                ) : (
-                  <div className="space-y-3 py-10 text-center text-xs">
-                    <p className="font-medium text-rose-600 dark:text-rose-400">{leadDetailsError || 'This lead could not be loaded.'}</p>
-                    {selectedLeadId && (
-                      <Button size="sm" onClick={() => fetchLeadDetails(selectedLeadId)}>
-                        <RefreshCw size={14} />
-                        Retry
-                      </Button>
-                    )}
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
+                  )}
+                </div>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
+      </BodyPortal>
 
       {/* Floating Bulk Actions Bar */}
       <AnimatePresence>
@@ -2572,168 +2575,172 @@ export default function LeadsPage() {
       </AnimatePresence>
 
       {/* Delete All Leads Confirmation Modal */}
-      <AnimatePresence>
-        {showDeleteAllConfirm && (
-          <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 0.5 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowDeleteAllConfirm(false)}
-              className="fixed inset-0 z-50 bg-black backdrop-blur-xs"
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="delete-all-title"
-              className={MODAL}
-            >
-              <h2 id="delete-all-title" className="mb-2 flex items-center gap-2 text-base font-semibold text-text-main">
-                <AlertCircle size={18} className="text-rose-600 dark:text-rose-400" />
-                Delete All Leads
-              </h2>
-              <p className="mb-4 text-[13px] leading-relaxed text-text-sub">
-                This action will permanently delete all leads, including their activity history, replies, and group memberships. This cannot be undone.
-              </p>
-              <label htmlFor="delete-all-confirm" className={LABEL}>
-                Type <span className="font-semibold text-rose-600 dark:text-rose-400">DELETE</span> to confirm:
-              </label>
-              <input
-                id="delete-all-confirm"
-                type="text"
-                placeholder="DELETE"
-                value={deleteAllConfirmText}
-                onChange={(e) => setDeleteAllConfirmText(e.target.value)}
-                className={inputClasses('h-9 focus:border-rose-500 focus:ring-rose-500/20')}
+      <BodyPortal>
+        <AnimatePresence>
+          {showDeleteAllConfirm && (
+            <>
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 0.5 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setShowDeleteAllConfirm(false)}
+                className="fixed inset-0 z-50 bg-black backdrop-blur-xs"
               />
-              <div className="mt-6 flex justify-end gap-2 border-t border-card-border pt-4">
-                <Button variant="ghost" onClick={() => setShowDeleteAllConfirm(false)}>
-                  Cancel
-                </Button>
-                <Button variant="danger" onClick={handleDeleteAllLeads} disabled={deleteAllConfirmText !== 'DELETE'}>
-                  <Trash2 size={14} />
-                  Confirm Delete All
-                </Button>
-              </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="delete-all-title"
+                className={MODAL}
+              >
+                <h2 id="delete-all-title" className="mb-2 flex items-center gap-2 text-base font-semibold text-text-main">
+                  <AlertCircle size={18} className="text-rose-600 dark:text-rose-400" />
+                  Delete All Leads
+                </h2>
+                <p className="mb-4 text-[13px] leading-relaxed text-text-sub">
+                  This action will permanently delete all leads, including their activity history, replies, and group memberships. This cannot be undone.
+                </p>
+                <label htmlFor="delete-all-confirm" className={LABEL}>
+                  Type <span className="font-semibold text-rose-600 dark:text-rose-400">DELETE</span> to confirm:
+                </label>
+                <input
+                  id="delete-all-confirm"
+                  type="text"
+                  placeholder="DELETE"
+                  value={deleteAllConfirmText}
+                  onChange={(e) => setDeleteAllConfirmText(e.target.value)}
+                  className={inputClasses('h-9 focus:border-rose-500 focus:ring-rose-500/20')}
+                />
+                <div className="mt-6 flex justify-end gap-2 border-t border-card-border pt-4">
+                  <Button variant="ghost" onClick={() => setShowDeleteAllConfirm(false)}>
+                    Cancel
+                  </Button>
+                  <Button variant="danger" onClick={handleDeleteAllLeads} disabled={deleteAllConfirmText !== 'DELETE'}>
+                    <Trash2 size={14} />
+                    Confirm Delete All
+                  </Button>
+                </div>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
+      </BodyPortal>
 
       {/* Group Deletion Option Modal */}
-      <AnimatePresence>
-        {groupToDelete && (
-          <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 0.5 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setGroupToDelete(null)}
-              className="fixed inset-0 z-50 bg-black backdrop-blur-xs"
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="delete-group-title"
-              className={MODAL}
-            >
-              <h2 id="delete-group-title" className="mb-2 text-base font-semibold break-words text-text-main">
-                Delete Group: {groupToDelete.name}
-              </h2>
-              <p className="mb-4 text-[13px] leading-relaxed text-text-sub">
-                Decide what to do with the prospects currently assigned to this group:
-              </p>
+      <BodyPortal>
+        <AnimatePresence>
+          {groupToDelete && (
+            <>
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 0.5 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setGroupToDelete(null)}
+                className="fixed inset-0 z-50 bg-black backdrop-blur-xs"
+              />
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="delete-group-title"
+                className={MODAL}
+              >
+                <h2 id="delete-group-title" className="mb-2 text-base font-semibold break-words text-text-main">
+                  Delete Group: {groupToDelete.name}
+                </h2>
+                <p className="mb-4 text-[13px] leading-relaxed text-text-sub">
+                  Decide what to do with the prospects currently assigned to this group:
+                </p>
 
-              <div className="space-y-2">
-                {/* KEEP option */}
-                <label className={RADIO_ROW}>
-                  <input
-                    type="radio"
-                    name="disposalAction"
-                    value="KEEP"
-                    checked={leadDisposalAction === 'KEEP'}
-                    onChange={() => setLeadDisposalAction('KEEP')}
-                    className="mt-0.5 cursor-pointer accent-primary"
-                  />
-                  <div>
-                    <span className="block text-[13px] font-medium text-text-main">Keep leads in CRM</span>
-                    <span className="mt-0.5 block text-xs text-text-sub">Retains leads in the database and removes them from this group only.</span>
-                  </div>
-                </label>
-
-                {/* DELETE option (admin only) */}
-                {isAdmin && (
+                <div className="space-y-2">
+                  {/* KEEP option */}
                   <label className={RADIO_ROW}>
                     <input
                       type="radio"
                       name="disposalAction"
-                      value="DELETE"
-                      checked={leadDisposalAction === 'DELETE'}
-                      onChange={() => setLeadDisposalAction('DELETE')}
-                      className="mt-0.5 cursor-pointer accent-rose-600"
+                      value="KEEP"
+                      checked={leadDisposalAction === 'KEEP'}
+                      onChange={() => setLeadDisposalAction('KEEP')}
+                      className="mt-0.5 cursor-pointer accent-primary"
                     />
                     <div>
-                      <span className="block text-[13px] font-medium text-rose-600 dark:text-rose-400">Delete associated leads</span>
-                      <span className="mt-0.5 block text-xs text-text-sub">Permanently deletes all leads in this group from the CRM database.</span>
+                      <span className="block text-[13px] font-medium text-text-main">Keep leads in CRM</span>
+                      <span className="mt-0.5 block text-xs text-text-sub">Retains leads in the database and removes them from this group only.</span>
                     </div>
                   </label>
-                )}
 
-                {/* MOVE option */}
-                <label className={RADIO_ROW}>
-                  <input
-                    type="radio"
-                    name="disposalAction"
-                    value="MOVE"
-                    checked={leadDisposalAction === 'MOVE'}
-                    onChange={() => setLeadDisposalAction('MOVE')}
-                    className="mt-0.5 cursor-pointer accent-primary"
-                  />
-                  <div className="w-full">
-                    <span className="block text-[13px] font-medium text-text-main">Move leads to another group</span>
-                    <span className="mt-0.5 block text-xs text-text-sub">Transfer all leads to a different existing group.</span>
-
-                    {leadDisposalAction === 'MOVE' && (
-                      <div className="mt-2.5" onClick={(e) => e.stopPropagation()}>
-                        <select
-                          aria-label="Target group"
-                          value={disposalTargetGroupId}
-                          onChange={(e) => setDisposalTargetGroupId(e.target.value)}
-                          className={inputClasses('cursor-pointer')}
-                        >
-                          <option value="">-- Choose Target Group --</option>
-                          {groups.filter(g => g.id !== groupToDelete.id).map(g => (
-                            <option key={g.id} value={g.id}>{g.name}</option>
-                          ))}
-                        </select>
+                  {/* DELETE option (admin only) */}
+                  {isAdmin && (
+                    <label className={RADIO_ROW}>
+                      <input
+                        type="radio"
+                        name="disposalAction"
+                        value="DELETE"
+                        checked={leadDisposalAction === 'DELETE'}
+                        onChange={() => setLeadDisposalAction('DELETE')}
+                        className="mt-0.5 cursor-pointer accent-rose-600"
+                      />
+                      <div>
+                        <span className="block text-[13px] font-medium text-rose-600 dark:text-rose-400">Delete associated leads</span>
+                        <span className="mt-0.5 block text-xs text-text-sub">Permanently deletes all leads in this group from the CRM database.</span>
                       </div>
-                    )}
-                  </div>
-                </label>
-              </div>
+                    </label>
+                  )}
 
-              <div className="mt-6 flex justify-end gap-2 border-t border-card-border pt-4">
-                <Button variant="ghost" onClick={() => setGroupToDelete(null)}>
-                  Cancel
-                </Button>
-                <Button
-                  variant="primary"
-                  onClick={handleExecuteDeleteGroup}
-                  disabled={leadDisposalAction === 'MOVE' && !disposalTargetGroupId}
-                >
-                  Confirm Delete Group
-                </Button>
-              </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
+                  {/* MOVE option */}
+                  <label className={RADIO_ROW}>
+                    <input
+                      type="radio"
+                      name="disposalAction"
+                      value="MOVE"
+                      checked={leadDisposalAction === 'MOVE'}
+                      onChange={() => setLeadDisposalAction('MOVE')}
+                      className="mt-0.5 cursor-pointer accent-primary"
+                    />
+                    <div className="w-full">
+                      <span className="block text-[13px] font-medium text-text-main">Move leads to another group</span>
+                      <span className="mt-0.5 block text-xs text-text-sub">Transfer all leads to a different existing group.</span>
+
+                      {leadDisposalAction === 'MOVE' && (
+                        <div className="mt-2.5" onClick={(e) => e.stopPropagation()}>
+                          <select
+                            aria-label="Target group"
+                            value={disposalTargetGroupId}
+                            onChange={(e) => setDisposalTargetGroupId(e.target.value)}
+                            className={inputClasses('cursor-pointer')}
+                          >
+                            <option value="">-- Choose Target Group --</option>
+                            {groups.filter(g => g.id !== groupToDelete.id).map(g => (
+                              <option key={g.id} value={g.id}>{g.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+                    </div>
+                  </label>
+                </div>
+
+                <div className="mt-6 flex justify-end gap-2 border-t border-card-border pt-4">
+                  <Button variant="ghost" onClick={() => setGroupToDelete(null)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="primary"
+                    onClick={handleExecuteDeleteGroup}
+                    disabled={leadDisposalAction === 'MOVE' && !disposalTargetGroupId}
+                  >
+                    Confirm Delete Group
+                  </Button>
+                </div>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
+      </BodyPortal>
 
       {confirmDialog && (
         <ConfirmDialog

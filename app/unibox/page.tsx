@@ -3,27 +3,40 @@
 'use client';
 
 import {
-  Search, CornerUpLeft, Send, MailOpen, Pause, Play, ChevronDown, RefreshCw, Download,
+  CornerUpLeft, Send, MailOpen, Pause, Play, ChevronDown, RefreshCw, Download, Loader2,
 } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import { toCsv, downloadCsv } from '@/lib/csv';
 import { decodeMimeHeader } from '@/lib/mime';
 import { LoadError, loadErrorMessage, readJsonObject } from '@/lib/apiResponse';
-import {
-  Button, Snackbar, Alert, AlertTitle, CircularProgress, Menu, MenuItem,
-  Tooltip as MuiTooltip,
-} from '@mui/material';
+import { Snackbar, Alert, Menu, MenuItem, Tooltip as MuiTooltip } from '@mui/material';
 import { CRM_STATUSES, OPT_OUT_REASONS, SUPPRESSION_LABELS, replyBlockedReason } from '@/lib/suppression';
+import { Badge, type BadgeTone } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
+import { Card } from '@/components/ui/Card';
+import { SearchInput } from '@/components/ui/Input';
+import { Notice } from '@/components/ui/Notice';
+import { cn } from '@/lib/utils';
 
-const statusColorMap: Record<string, 'success' | 'error' | 'primary' | 'warning' | 'default' | 'info'> = {
-  Interested: 'success',
-  Not_Interested: 'error',
-  Meeting_Booked: 'primary',
-  Out_of_Office: 'warning',
-  Bounced: 'default',
-  Unsubscribed: 'default',
-  Neutral: 'info',
+const STATUS_TONES: Record<string, BadgeTone> = {
+  Interested: 'green',
+  Not_Interested: 'red',
+  Meeting_Booked: 'blue',
+  Out_of_Office: 'amber',
 };
+
+const STATUS_DOTS: Record<BadgeTone, string> = {
+  green: 'bg-emerald-500',
+  red: 'bg-rose-500',
+  blue: 'bg-blue-500',
+  amber: 'bg-amber-500',
+  neutral: 'bg-slate-400',
+};
+
+const AVATAR = 'flex shrink-0 items-center justify-center rounded-full bg-slate-100 font-semibold text-text-sub dark:bg-white/5';
+const ME_AVATAR = 'mt-1 flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-[10px] font-semibold text-on-primary';
+const OUT_BUBBLE = 'max-w-[80%] rounded-card rounded-tr-sm border border-primary/20 bg-primary-subtle p-3.5';
+const MESSAGE_TEXT = 'text-[13px] leading-relaxed whitespace-pre-wrap text-text-main';
 
 const readableStatus: Record<string, string> = {
   Neutral: 'Neutral',
@@ -427,250 +440,195 @@ export default function UniboxPage() {
     finally { setSendingReply(false); }
   };
 
+  const selectedStatus = selectedEmail?.lead?.status || 'Neutral';
+  const selectedTone = STATUS_TONES[selectedStatus] ?? 'neutral';
+
   return (
-    <div className="h-[calc(100vh-6rem)] flex gap-4 md:gap-6 pb-2">
+    <div className="flex h-[calc(100vh-6rem)] gap-4 pb-2">
       <Snackbar open={!!toastMessage} anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }} autoHideDuration={3000} onClose={() => setToastMessage('')}>
         {toastMessage ? <Alert severity="info" variant="filled" sx={{ borderRadius: '12px' }}>{toastMessage}</Alert> : undefined}
       </Snackbar>
 
-      {/* Left Pane: Thread List */}
-      <div className="w-[340px] md:w-[380px] flex-shrink-0 flex flex-col rounded-2xl border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] shadow-xs overflow-hidden">
-        {/* Pane Header */}
-        <div className="p-4 border-b border-[#EBF0F5] dark:border-[#1E222D] flex flex-col gap-3">
-          <div className="flex items-center justify-between">
+      {/* Left pane: thread list */}
+      <Card className="flex w-[340px] shrink-0 flex-col overflow-hidden md:w-[380px]">
+        <div className="space-y-3 border-b border-card-border p-4">
+          <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-              <h2 className="text-sm font-bold tracking-tight text-slate-900 dark:text-white">
-                Unified Inbox
-              </h2>
-              {listLoaded && (
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-900/40">
-                  {unreadCount} Unread
-                </span>
-              )}
+              <h1 className="text-sm font-semibold text-text-main">Unified Inbox</h1>
+              {listLoaded && <Badge tone="blue">{unreadCount} Unread</Badge>}
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-0.5">
               <MuiTooltip title="Export to CSV">
-                <button
-                  type="button"
-                  aria-label="Export to CSV"
-                  onClick={handleExportCSV}
-                  disabled={exporting}
-                  className="w-8 h-8 rounded-xl border border-[#EBF0F5] dark:border-[#1E222D] flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-[#161822] transition-colors cursor-pointer disabled:opacity-50"
-                >
-                  {exporting ? <CircularProgress size={13} /> : <Download size={14} />}
-                </button>
+                <Button variant="ghost" size="sm" iconOnly aria-label="Export to CSV" onClick={handleExportCSV} disabled={exporting}>
+                  {exporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                </Button>
               </MuiTooltip>
               <MuiTooltip title="Refresh">
-                <button
-                  type="button"
-                  aria-label="Refresh replies"
-                  onClick={() => fetchReplies(false)}
-                  className="w-8 h-8 rounded-xl border border-[#EBF0F5] dark:border-[#1E222D] flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-[#161822] transition-colors cursor-pointer"
-                >
+                <Button variant="ghost" size="sm" iconOnly aria-label="Refresh replies" onClick={() => fetchReplies(false)}>
                   <RefreshCw size={14} />
-                </button>
+                </Button>
               </MuiTooltip>
             </div>
           </div>
-
-          <div className="relative">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
-            <input
-              type="text"
-              placeholder="Search contacts..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 rounded-xl text-xs bg-slate-50 dark:bg-[#161822] border border-[#EBF0F5] dark:border-[#1E222D] text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-blue-500 transition-colors"
-            />
-          </div>
+          <SearchInput
+            aria-label="Search contacts"
+            placeholder="Search contacts..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
         </div>
 
-        {/* Pane Content */}
         {loading ? (
-          <div className="flex-1 flex flex-col items-center justify-center gap-2 p-6">
-            <CircularProgress size={22} />
-            <span className="text-xs text-slate-500 dark:text-slate-400 font-normal">Syncing inbox…</span>
+          <div className="flex flex-1 items-center justify-center gap-2 p-6 text-xs text-text-muted">
+            <Loader2 size={14} className="animate-spin" /> Syncing inbox…
           </div>
         ) : (
-          <div className="flex-1 overflow-y-auto p-2 space-y-1">
+          <div className="flex-1 space-y-0.5 overflow-y-auto p-2">
             {listError && (
-              <Alert severity={listLoaded ? 'warning' : 'error'} sx={{ mb: 1, borderRadius: '16px' }}>
-                <AlertTitle>{listLoaded ? 'Conversations Could Not Be Refreshed' : 'Conversations Could Not Be Loaded'}</AlertTitle>
-                <div className="text-xs">{listError}</div>
-                <Button color="inherit" size="small" startIcon={<RefreshCw size={12} />} onClick={retryList} sx={{ mt: 1, ml: -0.5 }}>
-                  Retry
-                </Button>
-              </Alert>
+              <Notice
+                tone={listLoaded ? 'warning' : 'error'}
+                title={listLoaded ? 'Conversations Could Not Be Refreshed' : 'Conversations Could Not Be Loaded'}
+                className="mb-2 flex-col gap-2"
+                action={<Button size="sm" onClick={retryList}><RefreshCw size={12} /> Retry</Button>}
+              >
+                {listError}
+              </Notice>
             )}
 
             {replies.map(item => {
               const leadPaused = item.lead?.enrollments?.some((e: any) => e.status === 'Paused');
               const suppressed = leadSuppression(item.lead);
               const isSelected = selectedId === item.id;
-              const dateStr = formatWhen(item.receivedAt);
+              const status = item.lead?.status || 'Neutral';
 
               return (
-                <div
+                <button
                   key={item.id}
+                  type="button"
+                  aria-current={isSelected || undefined}
                   onClick={() => handleSelectThread(item)}
-                  className={`p-3 rounded-2xl transition-all cursor-pointer relative border ${
-                    isSelected
-                      ? 'bg-blue-50/60 dark:bg-blue-950/30 border-blue-500/60 dark:border-blue-500/50 shadow-xs'
-                      : 'border-transparent hover:border-[#EBF0F5] dark:hover:border-[#1E222D] hover:bg-slate-50/80 dark:hover:bg-[#161822]/80'
-                  }`}
+                  className={cn(
+                    'block w-full cursor-pointer rounded-control border p-2.5 text-left transition-colors focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:outline-none',
+                    isSelected ? 'border-primary/40 bg-primary-subtle' : 'border-transparent hover:bg-slate-50 dark:hover:bg-white/[0.03]',
+                  )}
                 >
-                  <div className="flex items-start justify-between gap-2 mb-1">
-                    <div className="flex items-center gap-2 min-w-0">
-                      {/* Avatar */}
-                      <div className="relative flex-shrink-0">
-                        <div className="w-7 h-7 rounded-full bg-slate-100 dark:bg-[#1E222D] text-slate-700 dark:text-slate-200 text-[11px] font-bold flex items-center justify-center">
+                  <span className="mb-1 flex items-start justify-between gap-2">
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="relative shrink-0">
+                        <span className={cn(AVATAR, 'size-7 text-[11px]')}>
                           {(item.lead?.name || item.lead?.email || 'P').charAt(0).toUpperCase()}
-                        </div>
+                        </span>
                         {item.unread && (
-                          <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-blue-600 ring-2 ring-white dark:ring-[#11131A]" />
+                          <span role="img" aria-label="Unread" className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-primary ring-2 ring-card" />
                         )}
-                      </div>
-                      <span className={`text-xs truncate ${item.unread ? 'font-bold text-slate-900 dark:text-white' : 'font-medium text-slate-700 dark:text-slate-300'}`}>
+                      </span>
+                      <span className={cn('truncate text-[13px]', item.unread ? 'font-semibold text-text-main' : 'font-medium text-text-sub')}>
                         {item.lead?.name || item.lead?.email || 'Prospect'}
                       </span>
-                    </div>
-                    <span className="text-[10px] text-slate-400 dark:text-slate-500 flex-shrink-0">
-                      {dateStr}
                     </span>
-                  </div>
+                    <span className="shrink-0 text-[11px] text-text-muted">{formatWhen(item.receivedAt)}</span>
+                  </span>
 
-                  <div className="flex items-center justify-between gap-1.5 mb-1 pl-9">
-                    <span className="text-xs font-semibold text-slate-900 dark:text-white truncate">
+                  <span className="mb-1 flex items-center justify-between gap-1.5 pl-9">
+                    <span className={cn('truncate text-xs', item.unread ? 'font-semibold text-text-main' : 'text-text-main')}>
                       {decodeMimeHeader(item.subject)}
                     </span>
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      {leadPaused && (
-                        <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/40">
-                          Paused
-                        </span>
-                      )}
+                    <span className="flex shrink-0 items-center gap-1">
+                      {leadPaused && <Badge tone="red">Paused</Badge>}
                       {suppressed && (
                         <MuiTooltip title={suppressed.detail}>
-                          <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-900/40 cursor-help">
-                            {suppressed.chip}
-                          </span>
+                          <span className="cursor-help"><Badge tone="amber">{suppressed.chip}</Badge></span>
                         </MuiTooltip>
                       )}
-                      {showsStatusChip(item.lead) && (
-                        <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider border ${
-                          item.lead?.status === 'Interested'
-                            ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/60'
-                            : item.lead?.status === 'Not_Interested'
-                            ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800/60'
-                            : item.lead?.status === 'Meeting_Booked'
-                            ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800/60'
-                            : item.lead?.status === 'Out_of_Office'
-                            ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/60'
-                            : 'bg-slate-100 dark:bg-slate-800/60 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700/60'
-                        }`}>
-                          {readableStatus[item.lead?.status || 'Neutral']}
-                        </span>
-                      )}
-                    </div>
-                  </div>
+                      {showsStatusChip(item.lead) && <Badge tone={STATUS_TONES[status] ?? 'neutral'}>{readableStatus[status]}</Badge>}
+                    </span>
+                  </span>
 
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-1 pl-9">
-                    {sanitizeEmailBody(item.preview)}
-                  </p>
-                </div>
+                  <span className="line-clamp-1 pl-9 text-xs text-text-muted">{sanitizeEmailBody(item.preview)}</span>
+                </button>
               );
             })}
 
             {replies.length === 0 && !listError && (
-              <div className="py-12 text-center text-xs text-slate-400 dark:text-slate-500">
-                No matching records found.
-              </div>
+              <div className="py-12 text-center text-xs text-text-muted">No matching records found.</div>
             )}
 
             {nextOffset !== null && (
-              <div className="pt-2 pb-3 flex flex-col items-center gap-1.5">
-                <span className="text-[10px] text-slate-400">
-                  Showing {replies.length} of {totalThreads} conversations
-                </span>
-                <Button size="small" variant="outlined" onClick={loadMoreThreads} disabled={loadingMore} startIcon={loadingMore ? <CircularProgress size={12} /> : undefined}>
-                  Load More
+              <div className="flex flex-col items-center gap-1.5 pt-2 pb-3">
+                <span className="text-[11px] text-text-muted">Showing {replies.length} of {totalThreads} conversations</span>
+                <Button size="sm" onClick={loadMoreThreads} disabled={loadingMore}>
+                  {loadingMore && <Loader2 size={12} className="animate-spin" />} Load More
                 </Button>
               </div>
             )}
           </div>
         )}
-      </div>
+      </Card>
 
-      {/* Right Pane: Message Thread & Composer */}
-      <div className="flex-1 flex flex-col rounded-2xl border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] shadow-xs overflow-hidden relative">
+      {/* Right pane: the conversation and the reply composer */}
+      <Card className="flex flex-1 flex-col overflow-hidden">
         {selectedEmail ? (
           <>
-            {/* Frosted Thread Header */}
-            <div className="sticky top-0 z-10 backdrop-blur-md bg-white/85 dark:bg-[#11131A]/85 p-4 border-b border-[#EBF0F5] dark:border-[#1E222D] flex items-center justify-between gap-4">
+            <div className="flex items-center justify-between gap-4 border-b border-card-border p-4">
               <div className="min-w-0">
-                <h1 className="text-base md:text-lg font-bold text-slate-900 dark:text-white truncate">
-                  {decodeMimeHeader(selectedEmail.subject)}
-                </h1>
-                <div className="flex items-center gap-2.5 mt-1">
-                  <div className="w-6 h-6 rounded-full bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 text-[10px] font-bold flex items-center justify-center">
+                <h2 className="truncate text-base font-semibold text-text-main">{decodeMimeHeader(selectedEmail.subject)}</h2>
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <span className={cn(AVATAR, 'size-6 bg-primary-subtle text-[10px] text-primary dark:bg-primary-subtle')}>
                     {(selectedEmail.lead?.name || 'P').charAt(0).toUpperCase()}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-slate-900 dark:text-white">
-                      {selectedEmail.lead?.name || 'Prospect'}
-                    </span>
-                    <span className="text-[11px] text-slate-400 dark:text-slate-500">
-                      {selectedEmail.lead?.email}
-                    </span>
-                  </div>
-                  {sequencePaused && (
-                    <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/40">
-                      Paused Sequence
-                    </span>
-                  )}
+                  </span>
+                  <span className="text-xs font-medium text-text-main">{selectedEmail.lead?.name || 'Prospect'}</span>
+                  <span className="text-xs text-text-muted">{selectedEmail.lead?.email}</span>
+                  {sequencePaused && <Badge tone="red">Paused Sequence</Badge>}
                   {selectedSuppression && (
                     <MuiTooltip title={selectedSuppression.detail}>
-                      <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-900/40 cursor-help">
-                        {selectedSuppression.chip}
+                      <span tabIndex={0} className="cursor-help rounded-md focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:outline-none">
+                        <Badge tone="amber">{selectedSuppression.chip}</Badge>
                       </span>
                     </MuiTooltip>
                   )}
                 </div>
               </div>
 
-              {/* Action Header Controls */}
-              <div className="flex items-center gap-2 flex-shrink-0">
+              <div className="flex shrink-0 items-center gap-1.5">
                 <MuiTooltip title={selectedSequence.length === 0 ? 'No Active or Paused Sequence' : sequencePaused ? 'Resume Sequence' : 'Pause Sequence'}>
                   <span>
-                    <button
-                      type="button"
+                    <Button
+                      size="sm" iconOnly
                       aria-label={sequencePaused ? 'Resume sequence' : 'Pause sequence'}
                       onClick={handleTogglePause}
                       disabled={selectedSequence.length === 0}
-                      className={`w-8 h-8 rounded-xl border flex items-center justify-center transition-colors cursor-pointer disabled:opacity-40 ${
-                        sequencePaused
-                          ? 'border-emerald-200 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40'
-                          : 'border-[#EBF0F5] dark:border-[#1E222D] text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-[#161822]'
-                      }`}
+                      className={cn(sequencePaused && 'text-emerald-600 dark:text-emerald-400')}
                     >
                       {sequencePaused ? <Play size={14} /> : <Pause size={14} />}
-                    </button>
+                    </Button>
                   </span>
                 </MuiTooltip>
 
                 <Button
-                  size="small"
-                  variant="outlined"
-                  color={(() => { const c = statusColorMap[selectedEmail.lead?.status || 'Neutral']; return c === 'default' ? 'inherit' : c; })()}
-                  endIcon={<ChevronDown size={12} />}
+                  size="sm"
+                  aria-haspopup="menu"
+                  aria-expanded={!!statusMenuAnchor}
+                  aria-label={`Lead status: ${readableStatus[selectedStatus]}`}
                   onClick={(e) => setStatusMenuAnchor(e.currentTarget)}
-                  sx={{ borderRadius: '9999px', textTransform: 'none', fontWeight: 600, fontSize: '0.75rem' }}
                 >
-                  {readableStatus[selectedEmail.lead?.status || 'Neutral']}
+                  <span aria-hidden className={cn('size-1.5 rounded-full', STATUS_DOTS[selectedTone])} />
+                  {readableStatus[selectedStatus]}
+                  <ChevronDown size={12} className="text-text-muted" />
                 </Button>
-                <Menu anchorEl={statusMenuAnchor} open={!!statusMenuAnchor} onClose={() => setStatusMenuAnchor(null)} slotProps={{ paper: { sx: { borderRadius: '16px' } } }}>
+                <Menu
+                  anchorEl={statusMenuAnchor}
+                  open={!!statusMenuAnchor}
+                  onClose={() => setStatusMenuAnchor(null)}
+                  anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                  transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+                  slotProps={{
+                    backdrop: { invisible: true, sx: { backgroundColor: 'transparent', backdropFilter: 'none' } },
+                    paper: { sx: { mt: 0.5, minWidth: 176, borderRadius: '8px', border: 1, borderColor: 'divider', boxShadow: '0 8px 24px rgba(15,23,42,0.12)' } },
+                  }}
+                >
                   {CRM_STATUSES.map(k => (
-                    <MenuItem key={k} onClick={() => handleUpdateStatus(k)} sx={{ fontSize: 12, fontWeight: 500 }}>
+                    <MenuItem key={k} selected={k === selectedStatus} onClick={() => handleUpdateStatus(k)} sx={{ gap: 1, fontSize: 13, minHeight: 32 }}>
+                      <span aria-hidden className={cn('size-1.5 rounded-full', STATUS_DOTS[STATUS_TONES[k] ?? 'neutral'])} />
                       {readableStatus[k]}
                     </MenuItem>
                   ))}
@@ -678,132 +636,102 @@ export default function UniboxPage() {
               </div>
             </div>
 
-            {/* Conversation Messages Thread */}
-            <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 bg-slate-50/40 dark:bg-[#0E1017]/40">
+            <div className="flex-1 space-y-4 overflow-y-auto bg-slate-50/60 p-4 md:p-6 dark:bg-white/[0.015]">
               {!selectedMessages && (messagesErrorId === selectedEmail.id ? (
                 <div className="flex flex-col items-center justify-center gap-2 py-12">
-                  <span className="text-xs text-slate-400">Could not load this conversation.</span>
-                  <Button size="small" variant="outlined" startIcon={<RefreshCw size={12} />} onClick={() => loadThreadMessages(selectedEmail.id)}>
-                    Retry
+                  <span className="text-xs text-text-muted">Could not load this conversation.</span>
+                  <Button size="sm" onClick={() => loadThreadMessages(selectedEmail.id)}>
+                    <RefreshCw size={12} /> Retry
                   </Button>
                 </div>
               ) : (
-                <div className="flex justify-center py-12">
-                  <CircularProgress size={22} />
+                <div className="flex justify-center py-12 text-text-muted">
+                  <Loader2 size={18} className="animate-spin" aria-label="Loading conversation" />
                 </div>
               ))}
 
               {(selectedMessages || []).map((msg: any) => {
                 const outbound = msg.type === 'outbound';
                 return (
-                  <div key={msg.id} className={`flex items-start gap-2.5 ${outbound ? 'justify-end' : 'justify-start'}`}>
+                  <div key={msg.id} className={cn('flex items-start gap-2.5', outbound ? 'justify-end' : 'justify-start')}>
                     {!outbound && (
-                      <div className="w-7 h-7 rounded-full bg-slate-200 dark:bg-[#1E222D] text-slate-700 dark:text-slate-300 text-[10px] font-bold flex items-center justify-center flex-shrink-0 mt-1">
+                      <span className={cn(AVATAR, 'mt-1 size-7 bg-slate-200 text-[10px] dark:bg-white/10')}>
                         {(selectedEmail.lead?.name || 'P').charAt(0).toUpperCase()}
-                      </div>
+                      </span>
                     )}
-                    <div
-                      className={`max-w-[80%] p-4 rounded-2xl shadow-xs transition-colors ${
-                        outbound
-                          ? 'rounded-tr-sm bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200/60 dark:border-blue-900/40 text-slate-900 dark:text-white'
-                          : 'rounded-tl-sm bg-white dark:bg-[#161822] border border-[#EBF0F5] dark:border-[#1E222D] text-slate-900 dark:text-white'
-                      }`}
-                    >
+                    <div className={outbound ? OUT_BUBBLE : 'max-w-[80%] rounded-card rounded-tl-sm border border-card-border bg-card p-3.5'}>
                       {!outbound && msg.autoReply && (
                         <MuiTooltip title="Automated message. It did not pause the sequence and does not count as a reply.">
-                          <span className="inline-block mb-1.5 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-900/40 cursor-help">
-                            {autoReplyLabels[msg.autoReply] || 'Auto-Reply'}
+                          <span tabIndex={0} className="mb-1.5 inline-block cursor-help rounded-md focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:outline-none">
+                            <Badge tone="amber">{autoReplyLabels[msg.autoReply] || 'Auto-Reply'}</Badge>
                           </span>
                         </MuiTooltip>
                       )}
-                      <p className="whitespace-pre-wrap leading-relaxed text-xs text-slate-800 dark:text-slate-200">
-                        {outbound ? msg.body : sanitizeEmailBody(msg.body)}
-                      </p>
+                      <p className={MESSAGE_TEXT}>{outbound ? msg.body : sanitizeEmailBody(msg.body)}</p>
                       {!outbound && msg.bodyUnavailable && (
-                        <p className="mt-1 text-xs text-slate-400 italic">
+                        <p className="mt-1 text-xs text-text-muted italic">
                           The text of this reply could not be read. Open it in the mailbox to see it.
                         </p>
                       )}
-                      <div className={`mt-2 text-[10px] text-slate-400 dark:text-slate-500 ${outbound ? 'text-right' : 'text-left'}`}>
+                      <div className={cn('mt-2 text-[11px] text-text-muted', outbound ? 'text-right' : 'text-left')}>
                         {formatWhen(msg.timestamp, true)}
                       </div>
                     </div>
-                    {outbound && (
-                      <div className="w-7 h-7 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0 mt-1">
-                        Me
-                      </div>
-                    )}
+                    {outbound && <span className={ME_AVATAR}>Me</span>}
                   </div>
                 );
               })}
 
               {(sentRepliesLocal[selectedEmail.id] || []).map((sent, index) => (
-                <div key={`local-${index}`} className="flex items-start gap-2.5 justify-end">
-                  <div className="max-w-[80%] p-4 rounded-2xl rounded-tr-sm bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200/60 dark:border-blue-900/40 text-slate-900 dark:text-white shadow-xs">
-                    <p className="whitespace-pre-wrap leading-relaxed text-xs text-slate-800 dark:text-slate-200">
-                      {sent.body}
-                    </p>
-                    <div className="mt-2 text-[10px] text-slate-400 text-right">
-                      {sent.sentAt}
-                    </div>
+                <div key={`local-${index}`} className="flex items-start justify-end gap-2.5">
+                  <div className={OUT_BUBBLE}>
+                    <p className={MESSAGE_TEXT}>{sent.body}</p>
+                    <div className="mt-2 text-right text-[11px] text-text-muted">{sent.sentAt}</div>
                   </div>
-                  <div className="w-7 h-7 rounded-full bg-blue-600 text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0 mt-1">
-                    Me
-                  </div>
+                  <span className={ME_AVATAR}>Me</span>
                 </div>
               ))}
             </div>
 
-            {/* Clean Reply Composer */}
-            <div className="p-4 border-t border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A]">
-              <div className="rounded-2xl border border-[#EBF0F5] dark:border-[#1E222D] overflow-hidden bg-slate-50/50 dark:bg-[#161822]/50 focus-within:border-blue-500/50 transition-colors">
-                <div className="flex items-center gap-2 px-3 py-2 border-b border-[#EBF0F5] dark:border-[#1E222D] bg-white/50 dark:bg-[#11131A]/50">
-                  <CornerUpLeft size={14} className="text-slate-400" />
-                  <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+            <div className="border-t border-card-border p-4">
+              <div className="overflow-hidden rounded-control border border-input-border bg-card transition-colors focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20">
+                <div className="flex items-center gap-2 border-b border-card-border bg-slate-50/70 px-3 py-2 dark:bg-white/[0.02]">
+                  <CornerUpLeft size={14} className="text-text-muted" />
+                  <span className="text-xs font-medium text-text-main">
                     Reply to {selectedEmail.lead?.name?.split(' ')[0] || 'Prospect'}
                   </span>
                 </div>
 
                 {replyBlocked ? (
-                  <div className="px-3 py-3 text-xs text-slate-500 dark:text-slate-400 leading-relaxed min-h-[80px]">
-                    {replyBlocked}
-                  </div>
+                  <div className="min-h-[80px] px-3 py-3 text-xs leading-relaxed text-text-sub">{replyBlocked}</div>
                 ) : (
                   <textarea
                     rows={3}
+                    aria-label="Reply"
                     value={currentReplyText}
                     onChange={(e) => setReplyText(e.target.value)}
                     placeholder="Type your reply here..."
-                    className="w-full p-3 bg-transparent text-xs text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none resize-none leading-relaxed"
+                    className="block w-full resize-none bg-transparent p-3 text-[13px] leading-relaxed text-text-main placeholder:text-text-muted focus:outline-none"
                   />
                 )}
 
-                <div className="flex items-center justify-between px-3 py-2 border-t border-[#EBF0F5] dark:border-[#1E222D] bg-white/50 dark:bg-[#11131A]/50">
-                  <span className="text-[10px] text-slate-400">
-                    Markdown supported
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleDispatchReply}
-                    disabled={sendingReply || !answeredReply || !!replyBlocked}
-                    className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition-colors disabled:opacity-50 cursor-pointer"
-                  >
-                    {sendingReply ? <CircularProgress size={13} color="inherit" /> : <Send size={13} />}
-                    <span>Send Reply</span>
-                  </button>
+                <div className="flex items-center justify-between border-t border-card-border px-3 py-2">
+                  <span className="text-[11px] text-text-muted">Markdown supported</span>
+                  <Button variant="primary" size="sm" onClick={handleDispatchReply} disabled={sendingReply || !answeredReply || !!replyBlocked}>
+                    {sendingReply ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
+                    Send Reply
+                  </Button>
                 </div>
               </div>
             </div>
           </>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 p-8">
-            <MailOpen size={48} className="opacity-25 mb-3" />
-            <span className="text-sm font-semibold text-slate-500 dark:text-slate-400">
-              Select Conversation to Review
-            </span>
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-text-muted">
+            <MailOpen size={32} />
+            <span className="text-[13px] font-medium text-text-sub">Select Conversation to Review</span>
           </div>
         )}
-      </div>
+      </Card>
     </div>
   );
 }

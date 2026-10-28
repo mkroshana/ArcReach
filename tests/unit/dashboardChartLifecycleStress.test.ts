@@ -67,12 +67,10 @@ describe('Dashboard (app/page.tsx) SSR Hydration & Lifecycle Stress-Test', () =>
 
 describe('ResponsiveContainer Sizing & Container Safety Checks', () => {
   it('enforces explicit heights on all chart container wrappers', () => {
-    // AreaChart wrapper must have explicit height and min-height
-    expect(pageSource).toContain('h-[260px] w-full min-h-[250px]');
-    // Conversion Funnel wrapper must have explicit height and min-height
-    expect(pageSource).toContain('w-full h-[145px] min-h-[145px]');
+    // Trend chart wrapper must have explicit height and min-height
+    expect(pageSource).toContain('h-[240px] w-full min-h-[240px]');
     // Sentiment Gauge wrapper must have explicit height and min-height
-    expect(pageSource).toContain('w-full h-[135px] min-h-[135px]');
+    expect(pageSource).toContain('w-full h-[120px] min-h-[120px]');
   });
 
   it('enforces min-w-0 on all flex and grid parents to prevent resize loops', () => {
@@ -80,14 +78,13 @@ describe('ResponsiveContainer Sizing & Container Safety Checks', () => {
     expect(pageSource).toContain('lg:col-span-2 min-w-0');
     expect(pageSource).toContain('lg:col-span-1 min-w-0');
     // Chart wrappers
-    expect(pageSource).toContain('h-[260px] w-full min-h-[250px] min-w-0 relative');
-    expect(pageSource).toContain('w-full h-[145px] min-h-[145px] min-w-0 relative');
-    expect(pageSource).toContain('w-full h-[135px] min-h-[135px] min-w-0 relative flex items-center justify-center');
+    expect(pageSource).toContain('h-[240px] w-full min-h-[240px] min-w-0 relative');
+    expect(pageSource).toContain('w-full h-[120px] min-h-[120px] min-w-0 relative flex items-center justify-center');
   });
 
   it('passes minWidth={0} and explicit minHeight to all ResponsiveContainer instances', () => {
     const responsiveContainers = pageSource.match(/<ResponsiveContainer[^>]*>/g) || [];
-    expect(responsiveContainers.length).toBe(3);
+    expect(responsiveContainers.length).toBe(2);
 
     for (const containerTag of responsiveContainers) {
       expect(containerTag).toContain('minWidth={0}');
@@ -118,30 +115,6 @@ describe('Tooltip & Hover Component Safety', () => {
     );
   }
 
-  function ShopeersChartTooltip({ active, payload, label, totalSent }: any) {
-    if (!active || !payload || !payload.length) return null;
-
-    const item = payload[0];
-    const value = item.value ?? 0;
-    const unit = item.payload?.unit || '';
-    const color = item.color || item.payload?.fill || '#2563EB';
-    const stageName = label || item.name;
-
-    const conversionPct =
-      totalSent && totalSent > 0 && stageName !== 'Sent'
-        ? ((value / totalSent) * 100).toFixed(1)
-        : null;
-
-    return React.createElement(
-      'div',
-      { className: 'chart-tooltip' },
-      React.createElement('span', { className: 'stage' }, stageName),
-      React.createElement('span', { className: 'value' }, value.toLocaleString()),
-      unit && React.createElement('span', { className: 'unit' }, unit),
-      conversionPct && React.createElement('span', { className: 'conv' }, `${conversionPct}% of Sent`)
-    );
-  }
-
   it('CustomAreaTooltip returns null when inactive or empty', () => {
     expect(CustomAreaTooltip({ active: false, payload: [{ value: 10 }] })).toBeNull();
     expect(CustomAreaTooltip({ active: true, payload: [] })).toBeNull();
@@ -163,33 +136,6 @@ describe('Tooltip & Hover Component Safety', () => {
     expect(html).toContain('Unique Clicks: 250');
   });
 
-  it('ShopeersChartTooltip calculates conversion percentages accurately without division by zero', () => {
-    // Standard funnel stage
-    const payload = [{ name: 'Opened', value: 450, color: '#3B82F6' }];
-    const html = renderToString(
-      ShopeersChartTooltip({ active: true, payload, label: 'Opened', totalSent: 1000 })
-    );
-    expect(html).toContain('Opened');
-    expect(html).toContain('450');
-    expect(html).toContain('45.0% of Sent');
-
-    // Zero totalSent (avoid NaN / Infinity)
-    const zeroSentHtml = renderToString(
-      ShopeersChartTooltip({ active: true, payload, label: 'Opened', totalSent: 0 })
-    );
-    expect(zeroSentHtml).not.toContain('NaN');
-    expect(zeroSentHtml).not.toContain('Infinity');
-    expect(zeroSentHtml).not.toContain('of Sent');
-
-    // Sent stage itself (should omit conversion percentage relative to itself)
-    const sentPayload = [{ name: 'Sent', value: 1000, color: '#2563EB' }];
-    const sentHtml = renderToString(
-      ShopeersChartTooltip({ active: true, payload: sentPayload, label: 'Sent', totalSent: 1000 })
-    );
-    expect(sentHtml).toContain('Sent');
-    expect(sentHtml).toContain('1,000');
-    expect(sentHtml).not.toContain('of Sent');
-  });
 });
 
 describe('Sentiment Gauge Edge Case Synthesis', () => {
@@ -287,28 +233,25 @@ describe('House Design Directives & Chart Hygiene in page.tsx', () => {
   });
 
   it('uses Title Case headings throughout the dashboard', () => {
-    expect(pageSource).toContain('Campaign Analytics');
+    expect(pageSource).toContain('title="Dashboard"');
     expect(pageSource).toContain('Engagement Trends');
     expect(pageSource).toContain('Conversion Funnel');
     expect(pageSource).toContain('Prospect Sentiment');
     expect(pageSource).toContain('Recent Campaigns');
     expect(pageSource).toContain('Required Setup Steps');
+    expect(pageSource).toContain('Busiest Send Day');
   });
 });
 
 describe('Skeleton-to-Chart Zero Layout Shift (CLS) Parity', () => {
   it('guarantees identical height dimensions between SSR skeletons and client charts', () => {
-    // Area Chart: outer wrapper is h-[260px], skeleton is h-full, chart is height="100%"
-    expect(pageSource).toMatch(/className="h-\[260px\] w-full min-h-\[250px\]/);
-    expect(pageSource).toMatch(/<ResponsiveContainer width="100%" height="100%" minWidth=\{0\} minHeight=\{250\}/);
+    // Trend chart: outer wrapper is h-[240px], skeleton is h-full, chart is height="100%"
+    expect(pageSource).toMatch(/h-\[240px\] w-full min-h-\[240px\]/);
+    expect(pageSource).toMatch(/<ResponsiveContainer width="100%" height="100%" minWidth=\{0\} minHeight=\{240\}/);
 
-    // Funnel Chart: outer wrapper is h-[145px], skeleton is h-full, chart is height="100%"
-    expect(pageSource).toMatch(/className="w-full h-\[145px\] min-h-\[145px\]/);
-    expect(pageSource).toMatch(/<ResponsiveContainer width="100%" height="100%" minWidth=\{0\} minHeight=\{145\}/);
-
-    // Sentiment Gauge: outer wrapper is h-[135px], skeleton is h-full, chart is height="100%"
-    expect(pageSource).toMatch(/className="w-full h-\[135px\] min-h-\[135px\]/);
-    expect(pageSource).toMatch(/<ResponsiveContainer width="100%" height="100%" minWidth=\{0\} minHeight=\{135\}/);
+    // Sentiment Gauge: outer wrapper is h-[120px], skeleton is h-full, chart is height="100%"
+    expect(pageSource).toMatch(/className="mt-2 w-full h-\[120px\] min-h-\[120px\]/);
+    expect(pageSource).toMatch(/<ResponsiveContainer width="100%" height="100%" minWidth=\{0\} minHeight=\{120\}/);
   });
 });
 
@@ -324,64 +267,31 @@ describe('Deliverability Health Telemetry Integration', () => {
 });
 
 describe('Recent Campaigns Table Logic & Edge Cases', () => {
-  const STATUS_PILL_CONFIG: Record<
-    string,
-    { label: string; badgeClass: string; dotClass: string; pulse: boolean }
-  > = {
-    Active: {
-      label: 'Active',
-      badgeClass:
-        'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/60',
-      dotClass: 'bg-emerald-500',
-      pulse: true,
-    },
-    Paused: {
-      label: 'Paused',
-      badgeClass:
-        'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/60',
-      dotClass: 'bg-amber-500',
-      pulse: false,
-    },
-    Completed: {
-      label: 'Completed',
-      badgeClass:
-        'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800/60',
-      dotClass: 'bg-blue-500',
-      pulse: false,
-    },
-    Draft: {
-      label: 'Draft',
-      badgeClass:
-        'bg-slate-100 dark:bg-slate-800/60 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700/60',
-      dotClass: 'bg-slate-400',
-      pulse: false,
-    },
-    Stopped: {
-      label: 'Stopped',
-      badgeClass:
-        'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800/60',
-      dotClass: 'bg-rose-500',
-      pulse: false,
-    },
+  const STATUS_BADGE: Record<string, { label: string; tone: string }> = {
+    Active: { label: 'Active', tone: 'green' },
+    Paused: { label: 'Paused', tone: 'amber' },
+    Completed: { label: 'Completed', tone: 'blue' },
+    Draft: { label: 'Draft', tone: 'neutral' },
+    Stopped: { label: 'Stopped', tone: 'red' },
   };
 
   function resolveCampaignStatus(c: any) {
     const totalLeads = c.enrollmentSummary?.total ?? 0;
     const isCompleted = totalLeads > 0 && c.enrollmentSummary?.completed === totalLeads;
     const resolvedStatus = isCompleted ? 'Completed' : c.status;
-    return STATUS_PILL_CONFIG[resolvedStatus] || STATUS_PILL_CONFIG.Draft;
+    return STATUS_BADGE[resolvedStatus] || STATUS_BADGE.Draft;
   }
 
-  it('resolves active campaign with pulsing dot', () => {
+  it('resolves active campaign with a green badge', () => {
     const pill = resolveCampaignStatus({ status: 'Active', enrollmentSummary: { total: 100, completed: 50 } });
     expect(pill.label).toBe('Active');
-    expect(pill.pulse).toBe(true);
+    expect(pill.tone).toBe('green');
   });
 
   it('resolves completed campaign when all leads have finished', () => {
     const pill = resolveCampaignStatus({ status: 'Active', enrollmentSummary: { total: 100, completed: 100 } });
     expect(pill.label).toBe('Completed');
-    expect(pill.pulse).toBe(false);
+    expect(pill.tone).toBe('blue');
   });
 
   it('safely falls back to Draft for unknown status', () => {

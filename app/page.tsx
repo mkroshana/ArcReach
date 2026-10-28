@@ -4,22 +4,19 @@
 import React, { useState, useEffect, useRef, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import {
-  AreaChart,
+  ComposedChart,
   Area,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip as RechartsTooltip,
   ResponsiveContainer,
-  BarChart,
-  Bar,
   PieChart,
   Pie,
   Cell,
-  Legend,
 } from 'recharts';
 import {
-  Mail,
   MailOpen,
   MousePointerClick,
   Reply,
@@ -29,20 +26,22 @@ import {
   AlertTriangle,
   UserMinus,
   Plus,
-  Workflow,
-  CheckCircle2,
   Inbox,
   ArrowRight,
-  ChevronRight,
   Check,
-  Calendar,
-  ChevronDown,
 } from 'lucide-react';
 import { Tooltip as MuiTooltip } from '@mui/material';
 import { useTheme as useAppTheme } from '@/components/ThemeProvider';
-import { deliveryStatusText } from '@/lib/systemStatus';
 import { replyCountUnknown } from '@/lib/imapSyncStatus';
 import { LoadError, loadErrorMessage, readJsonObject } from '@/lib/apiResponse';
+import { sendsByWeekday } from '@/lib/busiestSendDay';
+import { Card, CardHeader } from '@/components/ui/Card';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { Button, buttonClasses } from '@/components/ui/Button';
+import { Segmented } from '@/components/ui/Segmented';
+import { Badge, type BadgeTone } from '@/components/ui/Badge';
+import { StatCard } from '@/components/ui/StatCard';
+import { Table, THead, TH, TR, TD } from '@/components/ui/Table';
 
 /* -------------------------------------------------------------------------- */
 /*                               HYDRATION GUARD                              */
@@ -66,71 +65,55 @@ function useIsMounted() {
 /*                                 CONSTANTS                                  */
 /* -------------------------------------------------------------------------- */
 
-/** The outbox chip for each /api/system-status deliveryStatus. */
-const DELIVERY_CHIP: Record<string, { label: string; dotClass: string }> = {
-  RUNNING: { label: 'Outbox Running', dotClass: 'bg-emerald-500' },
-  STALLED: { label: 'Outbox Stalled', dotClass: 'bg-amber-500' },
-  FAILING: { label: 'Outbox Failing', dotClass: 'bg-rose-500' },
-  NOT_RUNNING: { label: 'Outbox Not Running', dotClass: 'bg-rose-500' },
-  DISABLED: { label: 'Sending Disabled', dotClass: 'bg-amber-500' },
-};
-
 /**
  * The Replies card's note while no mailbox that receives replies has reply sync on.
  */
 const REPLY_SYNC_OFF_NOTE =
   "No mailbox that receives replies has reply sync on, so replies are not read and are missing from these counts. Replies to a mailbox's emails go to its Reply-To address when it has one, which is read only if it is a mailbox with reply sync on. On the Accounts page, set up reply sync on a mailbox, or check each mailbox's Reply-To.";
 
-/**
- * Status pill styling and indicators for Recent Campaigns table.
- */
-const STATUS_PILL_CONFIG: Record<
-  string,
-  { label: string; badgeClass: string; dotClass: string; pulse: boolean }
-> = {
-  Active: {
-    label: 'Active',
-    badgeClass:
-      'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/60',
-    dotClass: 'bg-emerald-500',
-    pulse: true,
-  },
-  Paused: {
-    label: 'Paused',
-    badgeClass:
-      'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/60',
-    dotClass: 'bg-amber-500',
-    pulse: false,
-  },
-  Completed: {
-    label: 'Completed',
-    badgeClass:
-      'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800/60',
-    dotClass: 'bg-blue-500',
-    pulse: false,
-  },
-  Draft: {
-    label: 'Draft',
-    badgeClass:
-      'bg-slate-100 dark:bg-slate-800/60 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700/60',
-    dotClass: 'bg-slate-400',
-    pulse: false,
-  },
-  Stopped: {
-    label: 'Stopped',
-    badgeClass:
-      'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800/60',
-    dotClass: 'bg-rose-500',
-    pulse: false,
-  },
+/** Status badge for each campaign status in Recent Campaigns. */
+const STATUS_BADGE: Record<string, { label: string; tone: BadgeTone }> = {
+  Active: { label: 'Active', tone: 'green' },
+  Paused: { label: 'Paused', tone: 'amber' },
+  Completed: { label: 'Completed', tone: 'blue' },
+  Draft: { label: 'Draft', tone: 'neutral' },
+  Stopped: { label: 'Stopped', tone: 'red' },
 };
+
+const RANGE_OPTIONS = [
+  { label: '7d', value: '7' },
+  { label: '30d', value: '30' },
+  { label: '90d', value: '90' },
+] as const;
+
+/**
+ * Trend series colours, checked with the dataviz palette validator against each
+ * mode's card surface. Dark mode takes its own steps; Clicks is also dashed,
+ * since its dark step sits close to Opens for protan readers.
+ */
+const SERIES_COLORS = {
+  light: { sent: '#2563EB', opens: '#10B981', clicks: '#F59E0B' },
+  dark: { sent: '#3B82F6', opens: '#059669', clicks: '#D97706' },
+};
+
+const WEEKDAY_NAMES: Record<string, string> = {
+  Mon: 'Monday',
+  Tue: 'Tuesday',
+  Wed: 'Wednesday',
+  Thu: 'Thursday',
+  Fri: 'Friday',
+  Sat: 'Saturday',
+  Sun: 'Sunday',
+};
+
+/** Y-axis ticks: 3,200 reads as 3.2k so the axis stays narrow. */
+const compactNumber = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 });
 
 const campaignDateFormat = new Intl.DateTimeFormat(undefined, {
   day: 'numeric',
   month: 'short',
   year: 'numeric',
 });
-
 
 /* -------------------------------------------------------------------------- */
 /*                                SUBCOMPONENTS                               */
@@ -142,7 +125,7 @@ function CaveatMark({ note }: { note: string }) {
       <span
         tabIndex={0}
         aria-label={note}
-        className="inline-flex text-amber-500 hover:text-amber-600 dark:text-amber-400 align-middle ml-1 cursor-help transition-colors"
+        className="inline-flex text-amber-500 hover:text-amber-600 dark:text-amber-400 align-middle cursor-help transition-colors"
       >
         <AlertTriangle size={13} strokeWidth={2.2} />
       </span>
@@ -150,127 +133,19 @@ function CaveatMark({ note }: { note: string }) {
   );
 }
 
-interface ShopeersMetricCardProps {
-  title: string;
-  value: string | number;
-  change?: number | null;
-  sub?: string;
-  caveat?: string;
-  icon: React.ElementType;
-  colorScheme: 'blue' | 'emerald' | 'amber' | 'indigo';
-}
-
-const METRIC_THEMES = {
-  blue: {
-    iconBg: 'bg-blue-50 dark:bg-blue-950/40',
-    iconText: 'text-[#2563EB] dark:text-[#60A5FA]',
-    iconBorder: 'border-blue-100/80 dark:border-blue-900/40',
-  },
-  emerald: {
-    iconBg: 'bg-emerald-50 dark:bg-emerald-950/40',
-    iconText: 'text-[#059669] dark:text-[#34D399]',
-    iconBorder: 'border-emerald-100/80 dark:border-emerald-900/40',
-  },
-  amber: {
-    iconBg: 'bg-amber-50 dark:bg-amber-950/40',
-    iconText: 'text-[#D97706] dark:text-[#FBBF24]',
-    iconBorder: 'border-amber-100/80 dark:border-amber-900/40',
-  },
-  indigo: {
-    iconBg: 'bg-indigo-50 dark:bg-indigo-950/40',
-    iconText: 'text-[#7C3AED] dark:text-[#A78BFA]',
-    iconBorder: 'border-indigo-100/80 dark:border-indigo-900/40',
-  },
-};
-
-function ShopeersMetricCard({
-  title,
-  value,
-  change,
-  sub,
-  caveat,
-  icon: Icon,
-  colorScheme,
-}: ShopeersMetricCardProps) {
-  const theme = METRIC_THEMES[colorScheme];
-  const hasDelta = change !== undefined && change !== null;
-  const numChange = Number(change) || 0;
-  const isPositive = numChange > 0;
-  const isNegative = numChange < 0;
-
-  return (
-    <div className="p-5 rounded-2xl bg-white dark:bg-[#11131A] border border-[#EBF0F5] dark:border-[#1E222D] shadow-xs hover:shadow-md transition-all duration-200 flex flex-col justify-between">
-      {/* Top Header: Title & Icon */}
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
-          {title}
-        </span>
-        <div
-          className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border ${theme.iconBg} ${theme.iconText} ${theme.iconBorder}`}
-        >
-          <Icon size={16} strokeWidth={2} />
-        </div>
-      </div>
-
-      {/* Value: Standard Clean Typography */}
-      <div className="mt-2.5">
-        <div className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white font-sans">
-          {value}
-        </div>
-      </div>
-
-      {/* Footer: Delta Percentage Pill or Subtitle */}
-      <div className="mt-2.5 flex items-center gap-2">
-        {hasDelta ? (
-          <>
-            <span
-              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${
-                isPositive
-                  ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border-emerald-200/80 dark:border-emerald-800/60'
-                  : isNegative
-                  ? 'bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border-rose-200/80 dark:border-rose-800/60'
-                  : 'bg-slate-100 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700'
-              }`}
-            >
-              {isPositive ? `+${numChange}%` : `${numChange}%`}
-            </span>
-            <span className="text-xs text-slate-500 dark:text-slate-400">
-              vs last period
-            </span>
-            {caveat && <CaveatMark note={caveat} />}
-          </>
-        ) : sub ? (
-          <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-            <span>{sub}</span>
-            {caveat && <CaveatMark note={caveat} />}
-          </div>
-        ) : (
-          <span className="text-xs text-slate-400 dark:text-slate-500">
-            Steady vs last period
-          </span>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function CustomAreaTooltip({ active, payload, label }: any) {
+function TrendTooltip({ active, payload, label }: any) {
   if (!active || !payload || !payload.length) return null;
   return (
-    <div className="rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white/95 dark:bg-[#11131A]/95 p-3.5 shadow-xl backdrop-blur-md min-w-[170px] text-xs">
-      <div className="font-bold text-slate-800 dark:text-slate-100 pb-2 border-b border-slate-100 dark:border-slate-800/80 mb-2">
-        {label}
-      </div>
+    <div className="min-w-[160px] rounded-control border border-card-border bg-card p-3 text-xs shadow-[var(--float-shadow)]">
+      <div className="mb-2 font-medium text-text-main">{label}</div>
       <div className="space-y-1.5">
         {payload.map((entry: any, i: number) => (
-          <div key={`tooltip-${i}`} className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.stroke || entry.color }} />
-              <span className="text-slate-500 dark:text-slate-400 text-[11px] font-medium">{entry.name}</span>
-            </div>
-            <span className="font-bold text-slate-800 dark:text-slate-100 text-xs">
-              {Number(entry.value).toLocaleString()}
+          <div key={`tooltip-${i}`} className="flex items-center justify-between gap-4">
+            <span className="flex items-center gap-1.5 text-text-sub">
+              <span className="size-2 rounded-full" style={{ backgroundColor: entry.stroke || entry.color }} />
+              {entry.name}
             </span>
+            <span className="font-medium text-text-main">{Number(entry.value).toLocaleString()}</span>
           </div>
         ))}
       </div>
@@ -278,45 +153,46 @@ function CustomAreaTooltip({ active, payload, label }: any) {
   );
 }
 
-function ShopeersChartTooltip({ active, payload, label, totalSent }: any) {
-  if (!active || !payload || !payload.length) return null;
-
-  const item = payload[0];
-  const value = item.value ?? 0;
-  const unit = item.payload?.unit || '';
-  const color = item.color || item.payload?.fill || '#2563EB';
-  const stageName = label || item.name;
-
-  const conversionPct =
-    totalSent && totalSent > 0 && stageName !== 'Sent'
-      ? ((value / totalSent) * 100).toFixed(1)
-      : null;
-
+/** A trend series' legend entry: its colour, name and total over the range. */
+function SeriesTotal({ color, label, total, dashed }: { color: string; label: string; total: number; dashed?: boolean }) {
   return (
-    <div className="z-50 min-w-[150px] rounded-xl border border-slate-700/80 bg-slate-900/95 px-3 py-2 text-white shadow-xl shadow-black/30 backdrop-blur-md pointer-events-none transition-all duration-150">
-      <div className="text-[11px] font-semibold tracking-wider text-slate-400 uppercase pb-1 mb-1.5 border-b border-slate-800">
-        {stageName}
-      </div>
-      <div className="flex items-center justify-between gap-3 text-xs">
-        <div className="flex items-center gap-1.5">
-          <span
-            className="h-2 w-2 rounded-full flex-shrink-0"
-            style={{ backgroundColor: color }}
-          />
-          <span className="text-slate-300 font-normal">Count:</span>
-        </div>
-        <div className="flex items-baseline gap-1">
-          <span className="font-semibold text-white">{value.toLocaleString()}</span>
-          {unit && <span className="text-[10px] text-slate-400">{unit}</span>}
-        </div>
-      </div>
-      {conversionPct && (
-        <div className="mt-1 pt-1 border-t border-slate-800/60 flex items-center justify-between text-[11px]">
-          <span className="text-slate-400">Conv. Rate:</span>
-          <span className="font-medium text-emerald-400">{conversionPct}% of Sent</span>
-        </div>
-      )}
+    <div className="flex items-center gap-2">
+      <span
+        aria-hidden
+        className="h-0.5 w-3 rounded-full"
+        style={dashed ? { backgroundImage: `linear-gradient(90deg, ${color} 60%, transparent 60%)`, backgroundSize: '4px 2px' } : { backgroundColor: color }}
+      />
+      <span className="text-xs text-text-sub">{label}</span>
+      <span className="text-[13px] font-semibold text-text-main">{total.toLocaleString()}</span>
     </div>
+  );
+}
+
+/** A delivery-problem count under the trend chart, with a coloured underline naming its kind. */
+function HealthTile({
+  label,
+  value,
+  note,
+  icon: Icon,
+  accentClass,
+}: {
+  label: string;
+  value: number;
+  note: string;
+  icon: React.ElementType;
+  accentClass: string;
+}) {
+  return (
+    <MuiTooltip title={note} arrow>
+      <div className="rounded-control bg-canvas px-3 pt-2.5 pb-2">
+        <div className="flex items-center gap-1.5 text-xs text-text-sub">
+          <Icon size={13} strokeWidth={2} className="shrink-0 text-text-muted" />
+          {label}
+        </div>
+        <div className="mt-1 text-base font-semibold text-text-main">{value.toLocaleString()}</div>
+        <div aria-hidden className={`mt-2 h-0.5 w-8 rounded-full ${accentClass}`} />
+      </div>
+    </MuiTooltip>
   );
 }
 
@@ -329,9 +205,10 @@ export default function Dashboard() {
   const { theme: appMode } = useAppTheme();
   const isDark = appMode === 'dark';
 
-  const gridStroke = isDark ? '#1E222D' : '#EBF0F5';
+  const gridStroke = isDark ? '#1E222D' : '#EEF1F5';
   const axisTickColor = isDark ? '#94A3B8' : '#64748B';
   const trackBg = isDark ? '#1E222D' : '#F1F5F9';
+  const series = isDark ? SERIES_COLORS.dark : SERIES_COLORS.light;
 
   const [range, setRange] = useState('7');
   const [stats, setStats] = useState<any>(null);
@@ -404,16 +281,6 @@ export default function Dashboard() {
     };
   }, [range]);
 
-  const delivery = DELIVERY_CHIP[systemStatus?.deliveryStatus] ?? {
-    label: !systemStatus && loading ? 'Checking Outbox' : 'Outbox Status Unknown',
-    dotClass: 'bg-slate-400',
-  };
-  const deliveryDetail = DELIVERY_CHIP[systemStatus?.deliveryStatus]
-    ? deliveryStatusText(systemStatus.deliveryStatus, systemStatus.sendingProblem, systemStatus.workerHeartbeat)
-    : !systemStatus && loading
-    ? ''
-    : 'The system status could not be read.';
-
   const replySyncOff = stats?.replySync === 'off';
   const repliesUnknown = replyCountUnknown(stats?.replySync, stats?.totalReplies);
   const needsSetup =
@@ -451,13 +318,6 @@ export default function Dashboard() {
       ]
     : [];
 
-  // Range options for Engagement Trends
-  const RANGE_OPTIONS = [
-    { label: '7d', value: '7' },
-    { label: '30d', value: '30' },
-    { label: '90d', value: '90' },
-  ];
-
   // Sentiment synthesis
   const positiveSentiment =
     (sentiment.find((s) => s.name === 'Interested')?.value || 0) +
@@ -487,548 +347,491 @@ export default function Dashboard() {
 
   const totalSentInFunnel = funnel.find((s) => s.name === 'Sent')?.value || 0;
 
+  // Totals over the range for the trend legend, and sends per weekday.
+  const trendTotals = trends.reduce(
+    (acc, t) => ({
+      sent: acc.sent + (Number(t.sent) || 0),
+      opens: acc.opens + (Number(t.opens) || 0),
+      clicks: acc.clicks + (Number(t.clicks) || 0),
+    }),
+    { sent: 0, opens: 0, clicks: 0 }
+  );
+  const weekdays = sendsByWeekday(trends);
+  const weekdayMax = Math.max(1, ...weekdays.days.map((d) => d.sent));
+  const comparison = `vs. prior ${statsRange} days`;
+
   return (
-    <div className="space-y-6 pb-12">
-      {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-[#EBF0F5] dark:border-[#1E222D]">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-            Campaign Analytics
-          </h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-            A unified overview of your outbound deliverability and automated sequences.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2.5">
-          {/* Date Range Pill */}
-          <div className="hidden sm:inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#11131A] text-xs font-medium text-slate-700 dark:text-slate-300 shadow-2xs">
-            <Calendar size={13} className="text-slate-400 dark:text-slate-500" />
-            <span>Oct 19, 2026 - Oct 25, 2026</span>
-          </div>
-
-          {/* Range Dropdown Pill */}
-          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#11131A] text-xs font-semibold text-slate-700 dark:text-slate-300 shadow-2xs">
-            <span>Last {statsRange} days</span>
-            <ChevronDown size={13} className="text-slate-400" />
-          </div>
-
-          {/* Create Campaign Button */}
-          <Link
-            href="/campaigns"
-            className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition-all active:scale-[0.98]"
-          >
-            <Plus size={14} />
-            <span>Create Campaign</span>
-          </Link>
-
-          {/* Refresh Action */}
-          <MuiTooltip title="Refresh">
-            <button
-              type="button"
-              aria-label="Refresh analytics"
-              onClick={() => fetchStats(range)}
-              className="inline-flex items-center justify-center w-8 h-8 rounded-full border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#11131A] text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-            >
-              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-            </button>
-          </MuiTooltip>
-        </div>
-      </div>
+    <div className="space-y-4 pb-10">
+      <PageHeader
+        title="Dashboard"
+        actions={
+          <>
+            {loadedAt && (
+              <span className="mr-1 hidden text-xs text-text-muted sm:inline">
+                {loading ? 'Refreshing…' : `Updated ${loadedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`}
+              </span>
+            )}
+            <Segmented label="Date range" options={RANGE_OPTIONS} value={range as '7' | '30' | '90'} onChange={setRange} />
+            <MuiTooltip title="Refresh">
+              <Button iconOnly aria-label="Refresh analytics" onClick={() => fetchStats(range)}>
+                <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+              </Button>
+            </MuiTooltip>
+            <Link href="/campaigns" className={buttonClasses({ variant: 'primary' })}>
+              <Plus size={15} />
+              Create Campaign
+            </Link>
+          </>
+        }
+      />
 
       {/* Setup Wizard */}
       {needsSetup && (
-        <div className="rounded-2xl border border-amber-200/80 dark:border-amber-900/50 bg-amber-50/40 dark:bg-amber-950/20 p-5 md:p-6 shadow-xs">
+        <Card className="p-5">
           <div className="flex items-center gap-2">
-            <AlertTriangle size={16} className="text-amber-600 dark:text-amber-400" />
-            <span className="text-xs font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400">
-              Required Setup Steps
-            </span>
+            <AlertTriangle size={15} className="text-amber-500" />
+            <h2 className="text-sm font-semibold text-text-main">Required Setup Steps</h2>
           </div>
-          <p className="text-xs text-slate-600 dark:text-slate-400 mt-1 mb-4 font-normal">
-            To start sending, connect a mailbox, import contacts, and activate a campaign.
-          </p>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
             {setupSteps.map((s) => (
-              <div
-                key={s.title}
-                className={`p-4 rounded-2xl border transition-all ${
-                  s.done
-                    ? 'bg-white/80 dark:bg-[#11131A]/80 border-emerald-200 dark:border-emerald-800/60'
-                    : 'bg-white dark:bg-[#11131A] border-amber-200/80 dark:border-amber-900/60 shadow-xs'
-                }`}
-              >
+              <div key={s.title} className="rounded-control bg-canvas p-4">
                 <div className="flex items-center gap-2">
                   {s.done ? (
-                    <div className="w-5 h-5 rounded-full bg-emerald-100 dark:bg-emerald-950/60 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0">
+                    <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400">
                       <Check size={12} strokeWidth={2.5} />
-                    </div>
+                    </span>
                   ) : (
-                    <div className="w-5 h-5 rounded-full bg-amber-100 dark:bg-amber-950/60 flex items-center justify-center text-amber-600 dark:text-amber-400 shrink-0">
-                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                    </div>
+                    <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-amber-50 dark:bg-amber-500/10">
+                      <span className="size-1.5 rounded-full bg-amber-500" />
+                    </span>
                   )}
-                  <span
-                    className={`text-xs font-bold ${
-                      s.done ? 'text-emerald-700 dark:text-emerald-300' : 'text-slate-800 dark:text-slate-200'
-                    }`}
-                  >
-                    {s.title}
-                  </span>
+                  <span className="text-[13px] font-medium text-text-main">{s.title}</span>
                 </div>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">
-                  {s.done ? s.done_text : s.todo}
-                </p>
+                <p className="mt-2 text-xs text-text-sub">{s.done ? s.done_text : s.todo}</p>
                 <Link
                   href={s.href}
-                  className={`inline-flex items-center gap-1 mt-3 text-xs font-bold transition-colors ${
-                    s.done
-                      ? 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
-                      : 'text-blue-600 dark:text-blue-400 hover:text-blue-700'
+                  className={`mt-3 inline-flex items-center gap-1 text-xs font-medium transition-colors ${
+                    s.done ? 'text-text-sub hover:text-text-main' : 'text-primary hover:text-primary-hover'
                   }`}
                 >
-                  <span>{s.done ? 'Manage' : s.cta}</span>
+                  {s.done ? 'Manage' : s.cta}
                   <ArrowRight size={12} />
                 </Link>
               </div>
             ))}
           </div>
-        </div>
+        </Card>
       )}
 
-      {/* Subheader info line */}
-      <div className="text-xs text-slate-500 dark:text-slate-400 font-medium flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5">
-          <span>
-            {stats
-              ? `Showing the last ${statsRange} days · deltas compare against the prior ${statsRange}-day window.${loading ? ' Refreshing…' : ''}`
-              : `Showing the last ${statsRange} days`}
-          </span>
-          <MuiTooltip title={deliveryDetail}>
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border border-slate-200 dark:border-slate-800 bg-white dark:bg-[#11131A] text-[11px] font-semibold text-slate-700 dark:text-slate-300 shadow-2xs cursor-help">
-              <span className={`w-1.5 h-1.5 rounded-full ${delivery.dotClass}`} />
-              <span>{delivery.label}</span>
-            </span>
-          </MuiTooltip>
-        </div>
-        {loadedAt && (
-          <span className="text-[11px] text-slate-400">
-            Updated {loadedAt.toLocaleTimeString()}
-          </span>
-        )}
-      </div>
-
-      {/* Loading Skeletons for Initial Load */}
       {!stats && loading && !loadError ? (
-        <div className="space-y-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+        /* Initial load skeletons, the same heights as the cards they stand in for */
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {[0, 1, 2, 3].map((i) => (
-              <div key={i} className="h-32 rounded-2xl bg-slate-100 dark:bg-slate-800/40 animate-pulse" />
+              <div key={i} className="h-[118px] rounded-card bg-slate-100 dark:bg-white/5 animate-pulse" />
             ))}
           </div>
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2 h-[420px] rounded-2xl bg-slate-100 dark:bg-slate-800/40 animate-pulse" />
-            <div className="lg:col-span-1 space-y-6">
-              <div className="h-[240px] rounded-2xl bg-slate-100 dark:bg-slate-800/40 animate-pulse" />
-              <div className="h-[240px] rounded-2xl bg-slate-100 dark:bg-slate-800/40 animate-pulse" />
-            </div>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <div className="lg:col-span-2 h-[430px] rounded-card bg-slate-100 dark:bg-white/5 animate-pulse" />
+            <div className="h-[430px] rounded-card bg-slate-100 dark:bg-white/5 animate-pulse" />
           </div>
-          <div className="h-[300px] rounded-2xl bg-slate-100 dark:bg-slate-800/40 animate-pulse" />
+          <div className="h-[320px] rounded-card bg-slate-100 dark:bg-white/5 animate-pulse" />
         </div>
       ) : !stats ? (
-        /* Failed Initial Load Error Alert */
-        <div className="rounded-2xl border border-rose-200 dark:border-rose-900/50 bg-rose-50/50 dark:bg-rose-950/30 p-5 flex items-start justify-between gap-4">
+        /* Failed initial load */
+        <Card className="flex items-start justify-between gap-4 border-rose-200 p-4 dark:border-rose-900/50">
           <div>
-            <div className="text-sm font-bold text-rose-800 dark:text-rose-200">
-              Analytics Could Not Be Loaded
-            </div>
-            <div className="text-xs text-rose-700 dark:text-rose-300 mt-1">
+            <div className="text-sm font-semibold text-rose-700 dark:text-rose-300">Analytics Could Not Be Loaded</div>
+            <div className="mt-1 text-xs text-text-sub">
               {loadError || 'Analytics could not be loaded.'}
               {loading ? ' Trying again…' : ''}
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => fetchStats(range)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white transition-colors shrink-0 cursor-pointer"
-          >
+          <Button onClick={() => fetchStats(range)}>
             <RefreshCw size={13} />
-            <span>Retry</span>
-          </button>
-        </div>
+            Retry
+          </Button>
+        </Card>
       ) : (
         <>
-          {/* Refresh Warning Alert if error while showing cached stats */}
+          {/* Refresh failed while showing the last loaded figures */}
           {loadError && (
-            <div className="rounded-2xl border border-amber-200 dark:border-amber-900/50 bg-amber-50/50 dark:bg-amber-950/30 p-4 flex items-start justify-between gap-4">
+            <Card className="flex items-start justify-between gap-4 border-amber-200 p-4 dark:border-amber-900/50">
               <div>
-                <div className="text-xs font-bold text-amber-800 dark:text-amber-200">
+                <div className="text-[13px] font-semibold text-amber-700 dark:text-amber-300">
                   Analytics Could Not Be Refreshed
                 </div>
-                <div className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">
+                <div className="mt-0.5 text-xs text-text-sub">
                   Showing the last {statsRange} days as loaded at {loadedAt?.toLocaleTimeString()}. {loadError}
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => fetchStats(range)}
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white transition-colors shrink-0 cursor-pointer"
-              >
+              <Button size="sm" onClick={() => fetchStats(range)}>
                 <RefreshCw size={12} />
-                <span>Retry</span>
-              </button>
-            </div>
+                Retry
+              </Button>
+            </Card>
           )}
 
-
-          {/* 1. 4-Card Metric Row */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-            <ShopeersMetricCard
-              title="Emails Sent"
-              value={stats.totalSent.toLocaleString()}
-              change={stats.deltas?.sent}
-              colorScheme="blue"
+          {/* 1. KPI row */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <StatCard
+              label="Emails Sent"
               icon={SendHorizontal}
+              value={stats.totalSent.toLocaleString()}
+              delta={stats.deltas?.sent}
+              comparison={comparison}
             />
-            <ShopeersMetricCard
-              title="Open Rate"
-              value={`${stats.averageOpenRate}%`}
-              change={stats.deltas?.openRate}
-              colorScheme="emerald"
+            <StatCard
+              label="Open Rate"
               icon={MailOpen}
+              value={`${stats.averageOpenRate}%`}
+              delta={stats.deltas?.openRate}
+              comparison={comparison}
             />
-            <ShopeersMetricCard
-              title="Click Rate"
-              value={`${stats.averageClickRate}%`}
-              change={stats.deltas?.clickRate}
-              colorScheme="amber"
+            <StatCard
+              label="Click Rate"
               icon={MousePointerClick}
+              value={`${stats.averageClickRate}%`}
+              delta={stats.deltas?.clickRate}
+              comparison={comparison}
             />
-            <ShopeersMetricCard
-              title="Replies"
-              value={repliesUnknown ? '—' : stats.totalReplies.toLocaleString()}
-              change={replySyncOff ? undefined : stats.deltas?.replies}
-              sub={replySyncOff ? 'Reply sync off' : undefined}
-              caveat={replySyncOff ? REPLY_SYNC_OFF_NOTE : undefined}
-              colorScheme="indigo"
+            <StatCard
+              label="Replies"
               icon={Reply}
+              value={repliesUnknown ? '—' : stats.totalReplies.toLocaleString()}
+              delta={replySyncOff ? undefined : stats.deltas?.replies}
+              comparison={replySyncOff ? undefined : comparison}
+              footer={
+                replySyncOff ? (
+                  <span className="inline-flex items-center gap-1.5">
+                    Reply sync off
+                    <CaveatMark note={REPLY_SYNC_OFF_NOTE} />
+                  </span>
+                ) : undefined
+              }
             />
           </div>
 
-          {/* 2. Asymmetric Grid: 2/3 Left (Engagement Trends) + 1/3 Right (Funnel & Sentiment) */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch">
-            {/* Left 2/3 Column: Engagement Trends Card */}
-            <div className="lg:col-span-2 min-w-0 flex flex-col">
-              <div className="h-full p-5 sm:p-6 rounded-2xl bg-white dark:bg-[#11131A] border border-[#EBF0F5] dark:border-[#1E222D] shadow-xs flex flex-col justify-between">
-                {/* Header: Title, Subtitle & Range Selection Pills */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
-                  <div>
-                    <h2 className="text-base font-semibold tracking-tight text-slate-900 dark:text-white">
-                      Engagement Trends
-                    </h2>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                      Campaign emails sent each day, and how many of them were opened and clicked.
-                    </p>
-                  </div>
-
-                  {/* Range Selection Pills */}
-                  <div className="inline-flex items-center p-1 rounded-full bg-slate-100 dark:bg-[#161822] border border-[#EBF0F5] dark:border-[#1E222D] self-start sm:self-auto">
-                    {RANGE_OPTIONS.map((opt) => {
-                      const isActive = range === opt.value;
-                      return (
-                        <button
-                          key={opt.value}
-                          type="button"
-                          onClick={() => setRange(opt.value)}
-                          className={`px-3.5 py-1 text-xs font-bold rounded-full transition-all duration-150 cursor-pointer ${
-                            isActive
-                              ? 'bg-white dark:bg-[#2563EB] text-slate-900 dark:text-white shadow-xs'
-                              : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-                          }`}
-                        >
-                          {opt.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Smooth Area Chart (Recharts) */}
-                <div className="h-[260px] w-full min-h-[250px] min-w-0 relative">
-                  {!isMounted ? (
-                    <div className="w-full h-full animate-pulse rounded-xl bg-slate-100 dark:bg-slate-800/40" />
-                  ) : trends.length === 0 ? (
-                    <div className="w-full h-full flex flex-col items-center justify-center text-center p-4">
-                      <Inbox size={28} className="text-slate-300 dark:text-slate-600 mb-2" />
-                      <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                        No engagement activity recorded
-                      </span>
-                      <span className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
-                        Sent emails and prospect interactions will chart here
-                      </span>
-                    </div>
-                  ) : (
-                    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={250}>
-                      <AreaChart data={trends} margin={{ top: 8, right: 12, left: -20, bottom: 0 }}>
-                        <defs>
-                          <linearGradient id="shopeersSent" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor="#2563EB" stopOpacity={0.22} />
-                            <stop offset="95%" stopColor="#2563EB" stopOpacity={0.0} />
-                          </linearGradient>
-                          <linearGradient id="shopeersOpens" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor="#059669" stopOpacity={0.2} />
-                            <stop offset="95%" stopColor="#059669" stopOpacity={0.0} />
-                          </linearGradient>
-                          <linearGradient id="shopeersClicks" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor="#D97706" stopOpacity={0.18} />
-                            <stop offset="95%" stopColor="#D97706" stopOpacity={0.0} />
-                          </linearGradient>
-                        </defs>
-
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={gridStroke} />
-                        <XAxis
-                          dataKey="name"
-                          axisLine={false}
-                          tickLine={false}
-                          tick={{ fill: axisTickColor, fontSize: 11, fontWeight: 500 }}
-                          dy={8}
-                        />
-                        <YAxis
-                          axisLine={false}
-                          tickLine={false}
-                          tick={{ fill: axisTickColor, fontSize: 11, fontWeight: 500 }}
-                          allowDecimals={false}
-                        />
-                        <RechartsTooltip content={<CustomAreaTooltip />} />
-                        <Legend
-                          verticalAlign="top"
-                          height={28}
-                          iconType="circle"
-                          iconSize={8}
-                          wrapperStyle={{ fontSize: 11, fontWeight: 600, paddingBottom: 8 }}
-                        />
-                        <Area
-                          type="monotone"
-                          dataKey="sent"
-                          stroke="#2563EB"
-                          strokeWidth={2.5}
-                          fillOpacity={1}
-                          fill="url(#shopeersSent)"
-                          name="Emails Sent"
-                          isAnimationActive={false}
-                          activeDot={{ r: 5, strokeWidth: 2, stroke: '#FFFFFF' }}
-                        />
-                        <Area
-                          type="monotone"
-                          dataKey="opens"
-                          stroke="#059669"
-                          strokeWidth={2.5}
-                          fillOpacity={1}
-                          fill="url(#shopeersOpens)"
-                          name="Unique Opens"
-                          isAnimationActive={false}
-                          activeDot={{ r: 5, strokeWidth: 2, stroke: '#FFFFFF' }}
-                        />
-                        <Area
-                          type="monotone"
-                          dataKey="clicks"
-                          stroke="#D97706"
-                          strokeWidth={2.5}
-                          fillOpacity={1}
-                          fill="url(#shopeersClicks)"
-                          name="Unique Clicks"
-                          isAnimationActive={false}
-                          activeDot={{ r: 5, strokeWidth: 2, stroke: '#FFFFFF' }}
-                        />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  )}
-                </div>
-
-                {/* Deliverability Health Segment Pills (Integrated Bottom Row) */}
-                <div className="border-t border-[#EBF0F5] dark:border-[#1E222D] pt-3.5 mt-3.5">
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    {/* Failed Sends */}
-                    <MuiTooltip title="Send attempts recorded as failed" arrow>
-                      <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50/70 dark:bg-[#161822]/70 border border-[#EBF0F5] dark:border-[#1E222D] hover:border-rose-200 dark:hover:border-rose-900/40 transition-colors">
-                        <div>
-                          <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                            Failed Sends
-                          </div>
-                          <div className="text-sm font-semibold text-slate-900 dark:text-white mt-0.5">
-                            {(stats.failed ?? 0).toLocaleString()}
-                          </div>
-                        </div>
-                        <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200/60 dark:border-rose-900/40 shrink-0">
-                          <XCircle size={14} strokeWidth={2} />
-                        </div>
-                      </div>
-                    </MuiTooltip>
-
-                    {/* Bounced */}
-                    <MuiTooltip title="Hard bounces at send time or reported on delivery" arrow>
-                      <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50/70 dark:bg-[#161822]/70 border border-[#EBF0F5] dark:border-[#1E222D] hover:border-amber-200 dark:hover:border-amber-900/40 transition-colors">
-                        <div>
-                          <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                            Bounced
-                          </div>
-                          <div className="text-sm font-semibold text-slate-900 dark:text-white mt-0.5">
-                            {(stats.bounced ?? 0).toLocaleString()}
-                          </div>
-                        </div>
-                        <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200/60 dark:border-amber-900/40 shrink-0">
-                          <AlertTriangle size={14} strokeWidth={2} />
-                        </div>
-                      </div>
-                    </MuiTooltip>
-
-                    {/* Unsubscribed */}
-                    <MuiTooltip title="Opted out of mailings" arrow>
-                      <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-50/70 dark:bg-[#161822]/70 border border-[#EBF0F5] dark:border-[#1E222D] hover:border-slate-300 dark:hover:border-slate-700 transition-colors">
-                        <div>
-                          <div className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                            Unsubscribed
-                          </div>
-                          <div className="text-sm font-semibold text-slate-900 dark:text-white mt-0.5">
-                            {(stats.unsubscribed ?? 0).toLocaleString()}
-                          </div>
-                        </div>
-                        <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-700 shrink-0">
-                          <UserMinus size={14} strokeWidth={2} />
-                        </div>
-                      </div>
-                    </MuiTooltip>
-                  </div>
-                </div>
+          {/* 2. Engagement trend (2/3) beside the funnel (1/3) */}
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <Card className="lg:col-span-2 min-w-0 p-5">
+              <CardHeader title="Engagement Trends" />
+              <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2">
+                <SeriesTotal color={series.sent} label="Emails Sent" total={trendTotals.sent} />
+                <SeriesTotal color={series.opens} label="Unique Opens" total={trendTotals.opens} />
+                <SeriesTotal color={series.clicks} label="Unique Clicks" total={trendTotals.clicks} dashed />
               </div>
-            </div>
 
-            {/* Right 1/3 Column: Funnel & Sentiment Cards Stacked */}
-            <div className="lg:col-span-1 min-w-0 flex flex-col justify-between gap-5">
-              {/* Conversion Funnel Card */}
-              <div className="flex-1 w-full rounded-2xl border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] p-5 shadow-xs transition-shadow duration-200 hover:shadow-md flex flex-col justify-between">
-                <div className="flex items-start justify-between mb-3">
-                  <div>
-                    <h3 className="text-base font-semibold text-slate-900 dark:text-white tracking-tight">
-                      Conversion Funnel
-                    </h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                      Outreach progression from dispatch to booked call
-                    </p>
+              <div className="mt-4 h-[240px] w-full min-h-[240px] min-w-0 relative">
+                {!isMounted ? (
+                  <div className="w-full h-full animate-pulse rounded-control bg-slate-100 dark:bg-white/5" />
+                ) : trends.length === 0 ? (
+                  <div className="w-full h-full flex flex-col items-center justify-center text-center">
+                    <Inbox size={24} className="mb-2 text-text-muted" />
+                    <span className="text-[13px] font-medium text-text-sub">No engagement activity recorded</span>
+                    <span className="mt-0.5 text-xs text-text-muted">Sent emails and prospect interactions will chart here</span>
                   </div>
-                </div>
-
-                {repliesUnknown && (
-                  <div className="mb-2.5 flex items-center gap-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/30 px-2.5 py-1 text-[11px] text-amber-700 dark:text-amber-400 border border-amber-200/50 dark:border-amber-800/30">
-                    <AlertTriangle size={12} className="flex-shrink-0" />
-                    <span>Replied stage omitted (reply sync is unconfigured).</span>
-                  </div>
-                )}
-
-                <div className="w-full h-[145px] min-h-[145px] min-w-0 relative">
-                  {!isMounted ? (
-                    <div className="w-full h-full animate-pulse rounded-xl bg-slate-100 dark:bg-slate-800/40" />
-                  ) : funnel.length === 0 || totalSentInFunnel === 0 ? (
-                    <div className="w-full h-full flex flex-col items-center justify-center text-center p-3">
-                      <Inbox size={24} className="text-slate-300 dark:text-slate-600 mb-1" />
-                      <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
-                        No outreach dispatches recorded
-                      </span>
-                      <span className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
-                        Launch a campaign sequence to view conversion flow
-                      </span>
-                    </div>
-                  ) : (
-                    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={145}>
-                      <BarChart
-                        layout="vertical"
-                        data={funnel}
-                        margin={{ top: 4, right: 28, left: 0, bottom: 0 }}
-                        barCategoryGap="12%"
-                      >
-                        <XAxis type="number" hide domain={[0, 'dataMax']} />
-                        <YAxis
-                          type="category"
-                          dataKey="name"
-                          axisLine={false}
-                          tickLine={false}
-                          tick={{ fill: axisTickColor, fontSize: 11, fontWeight: 500 }}
-                          width={86}
-                        />
-                        <RechartsTooltip
-                          cursor={{ fill: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.03)', radius: 6 }}
-                          content={<ShopeersChartTooltip totalSent={totalSentInFunnel} />}
-                        />
-                        <Bar
-                          dataKey="value"
-                          radius={[5, 5, 5, 5]}
-                          barSize={11}
-                          background={{ fill: trackBg, radius: 5 }}
-                          isAnimationActive={false}
-                        >
-                          {funnel.map((entry, index) => {
-                            const fill =
-                              entry.name === 'Meeting Booked'
-                                ? '#10B981'
-                                : entry.name === 'Replied'
-                                ? '#8B5CF6'
-                                : entry.name === 'Clicked'
-                                ? '#38BDF8'
-                                : entry.name === 'Opened'
-                                ? '#3B82F6'
-                                : '#2563EB';
-                            return <Cell key={`funnel-cell-${index}`} fill={fill} />;
-                          })}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  )}
-                </div>
-
-                {totalSentInFunnel > 0 && (
-                  <div className="mt-2.5 pt-2.5 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 text-[11px]">
-                      <CheckCircle2 size={13} className="text-emerald-500" />
-                      <span>Top of Funnel:</span>
-                      <span className="font-semibold text-slate-800 dark:text-slate-200">
-                        {totalSentInFunnel.toLocaleString()} Sent
-                      </span>
-                    </div>
-                    <div className="text-[11px] font-medium text-blue-600 dark:text-blue-400">
-                      {funnel.length} Active Stages
-                    </div>
-                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={240}>
+                    <ComposedChart data={trends} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="trendSentFill" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor={series.sent} stopOpacity={0.16} />
+                          <stop offset="100%" stopColor={series.sent} stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid vertical={false} stroke={gridStroke} />
+                      <XAxis
+                        dataKey="name"
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fill: axisTickColor, fontSize: 11 }}
+                        dy={8}
+                        minTickGap={16}
+                      />
+                      <YAxis
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fill: axisTickColor, fontSize: 11 }}
+                        allowDecimals={false}
+                        tickFormatter={(v: number) => compactNumber.format(v)}
+                        width={36}
+                      />
+                      <RechartsTooltip content={<TrendTooltip />} cursor={{ stroke: gridStroke, strokeWidth: 1 }} />
+                      <Area
+                        type="monotone"
+                        dataKey="sent"
+                        stroke={series.sent}
+                        strokeWidth={2}
+                        fill="url(#trendSentFill)"
+                        name="Emails Sent"
+                        isAnimationActive={false}
+                        activeDot={{ r: 4, strokeWidth: 2, stroke: isDark ? '#11131A' : '#FFFFFF' }}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="opens"
+                        stroke={series.opens}
+                        strokeWidth={2}
+                        dot={false}
+                        name="Unique Opens"
+                        isAnimationActive={false}
+                        activeDot={{ r: 4, strokeWidth: 2, stroke: isDark ? '#11131A' : '#FFFFFF' }}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="clicks"
+                        stroke={series.clicks}
+                        strokeWidth={2}
+                        strokeDasharray="4 3"
+                        dot={false}
+                        name="Unique Clicks"
+                        isAnimationActive={false}
+                        activeDot={{ r: 4, strokeWidth: 2, stroke: isDark ? '#11131A' : '#FFFFFF' }}
+                      />
+                    </ComposedChart>
+                  </ResponsiveContainer>
                 )}
               </div>
 
-              {/* Prospect Sentiment Gauge Card */}
-              <div className="flex-1 w-full rounded-2xl border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] p-5 shadow-xs transition-shadow duration-200 hover:shadow-md flex flex-col justify-between">
-                <div className="flex items-start justify-between mb-1.5">
-                  <div>
-                    <h3 className="text-base font-semibold text-slate-900 dark:text-white tracking-tight">
-                      Prospect Sentiment
-                    </h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                      Lead outcome and sentiment distribution
-                    </p>
-                  </div>
-                </div>
+              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <HealthTile
+                  label="Failed Sends"
+                  value={stats.failed ?? 0}
+                  note="Send attempts recorded as failed"
+                  icon={XCircle}
+                  accentClass="bg-rose-500"
+                />
+                <HealthTile
+                  label="Bounced"
+                  value={stats.bounced ?? 0}
+                  note="Hard bounces at send time or reported on delivery"
+                  icon={AlertTriangle}
+                  accentClass="bg-amber-500"
+                />
+                <HealthTile
+                  label="Unsubscribed"
+                  value={stats.unsubscribed ?? 0}
+                  note="Opted out of mailings"
+                  icon={UserMinus}
+                  accentClass="bg-slate-400"
+                />
+              </div>
+            </Card>
 
-                <div className="w-full h-[135px] min-h-[135px] min-w-0 relative flex items-center justify-center">
+            <Card className="lg:col-span-1 min-w-0 flex flex-col p-5">
+              <CardHeader title="Conversion Funnel" />
+              {repliesUnknown && (
+                <p className="mt-2 flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400">
+                  <AlertTriangle size={12} className="shrink-0" />
+                  Replied stage omitted (reply sync is unconfigured).
+                </p>
+              )}
+              {funnel.length === 0 || totalSentInFunnel === 0 ? (
+                <div className="flex h-[240px] flex-col items-center justify-center text-center">
+                  <Inbox size={24} className="mb-2 text-text-muted" />
+                  <span className="text-[13px] font-medium text-text-sub">No outreach dispatches recorded</span>
+                  <span className="mt-0.5 text-xs text-text-muted">Launch a campaign sequence to view conversion flow</span>
+                </div>
+              ) : (
+                <ul className="mt-4 flex flex-1 flex-col justify-between gap-4">
+                  {funnel.map((stage) => {
+                    const share = (stage.value / totalSentInFunnel) * 100;
+                    return (
+                      <li key={stage.name}>
+                        <div className="flex items-baseline justify-between gap-3 text-[13px]">
+                          <span className="text-text-sub">{stage.name}</span>
+                          <span className="flex items-baseline gap-2">
+                            <span className="font-semibold text-text-main">{Number(stage.value).toLocaleString()}</span>
+                            {stage.name !== 'Sent' && (
+                              <span className="w-12 text-right text-xs text-text-muted">{share.toFixed(1)}%</span>
+                            )}
+                          </span>
+                        </div>
+                        <div className="mt-1.5 h-1.5 rounded-full bg-slate-100 dark:bg-white/5">
+                          <div
+                            className="h-full rounded-full bg-primary"
+                            style={{ width: `${Math.min(100, Math.max(stage.value > 0 ? 1 : 0, share))}%` }}
+                          />
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </Card>
+          </div>
+
+          {/* 3. Recent campaigns (2/3) beside the busiest send day and sentiment (1/3) */}
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3 lg:items-start">
+            <Card className="lg:col-span-2 min-w-0 overflow-hidden">
+              <CardHeader
+                className="px-5 pt-4 pb-3"
+                title="Recent Campaigns"
+                action={
+                  <Link href="/campaigns" className={buttonClasses({ variant: 'ghost', size: 'sm' })}>
+                    View All
+                    <ArrowRight size={13} />
+                  </Link>
+                }
+              />
+              <div className="w-full overflow-x-auto">
+                <Table>
+                  <THead>
+                    <tr>
+                      <TH className="pl-5">Campaign</TH>
+                      <TH>Status</TH>
+                      <TH className="text-right">Leads</TH>
+                      <TH className="text-right">Sent</TH>
+                      <TH className="pr-5">Open Rate</TH>
+                    </tr>
+                  </THead>
+                  <tbody>
+                    {loading && recentCampaigns.length === 0 ? (
+                      [0, 1, 2, 3].map((idx) => (
+                        <TR key={idx} className="animate-pulse">
+                          <TD className="pl-5">
+                            <div className="h-4 w-36 rounded bg-slate-100 dark:bg-white/5" />
+                          </TD>
+                          <TD>
+                            <div className="h-4 w-14 rounded bg-slate-100 dark:bg-white/5" />
+                          </TD>
+                          <TD>
+                            <div className="ml-auto h-4 w-10 rounded bg-slate-100 dark:bg-white/5" />
+                          </TD>
+                          <TD>
+                            <div className="ml-auto h-4 w-10 rounded bg-slate-100 dark:bg-white/5" />
+                          </TD>
+                          <TD className="pr-5">
+                            <div className="h-4 w-20 rounded bg-slate-100 dark:bg-white/5" />
+                          </TD>
+                        </TR>
+                      ))
+                    ) : recentCampaigns.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-5 py-10 text-center">
+                          <h3 className="text-sm font-semibold text-text-main">No Campaigns Created Yet</h3>
+                          <p className="mx-auto mt-1 max-w-sm text-xs text-text-sub">
+                            Create your first automated email campaign to start reaching prospects and tracking engagement metrics.
+                          </p>
+                          <Link href="/campaigns" className={buttonClasses({ variant: 'primary', className: 'mt-4' })}>
+                            <Plus size={15} />
+                            Create Campaign
+                          </Link>
+                        </td>
+                      </tr>
+                    ) : (
+                      recentCampaigns.map((c) => {
+                        const totalLeads = c.enrollmentSummary?.total ?? 0;
+                        const totalSent = c.stepStats?.reduce((acc: number, s: any) => acc + (s.sent || 0), 0) ?? 0;
+                        const isCompleted = totalLeads > 0 && c.enrollmentSummary?.completed === totalLeads;
+                        const resolvedStatus = isCompleted ? 'Completed' : c.status;
+                        const badge = STATUS_BADGE[resolvedStatus] || STATUS_BADGE.Draft;
+                        const hasOpenRate = typeof c.openRate === 'number';
+                        const openRateValue = hasOpenRate ? c.openRate : 0;
+
+                        return (
+                          <TR key={c.id}>
+                            <TD className="max-w-[280px] pl-5">
+                              <Link
+                                href={`/campaigns/${c.id}`}
+                                className="block truncate font-medium text-text-main transition-colors hover:text-primary"
+                              >
+                                {c.name}
+                              </Link>
+                              <span className="block truncate text-xs text-text-muted">
+                                {c.createdAt
+                                  ? `Created ${campaignDateFormat.format(new Date(c.createdAt))}`
+                                  : c.senderAccount?.emailAddress || 'Automated Sequence'}
+                              </span>
+                            </TD>
+                            <TD>
+                              <Badge tone={badge.tone} dot>
+                                {badge.label}
+                              </Badge>
+                            </TD>
+                            <TD className="text-right">{totalLeads.toLocaleString()}</TD>
+                            <TD className="text-right">{totalSent.toLocaleString()}</TD>
+                            <TD className="pr-5">
+                              {hasOpenRate ? (
+                                <div className="flex items-center gap-2.5">
+                                  <span className="w-11 text-text-main">{openRateValue.toFixed(1)}%</span>
+                                  <div className="h-1.5 w-16 rounded-full bg-slate-100 dark:bg-white/5">
+                                    <div
+                                      className="h-full rounded-full bg-primary"
+                                      style={{ width: `${Math.min(100, Math.max(0, openRateValue))}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              ) : (
+                                <span className="text-text-muted">{totalSent > 0 ? '—' : '0.0%'}</span>
+                              )}
+                            </TD>
+                          </TR>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </Table>
+              </div>
+            </Card>
+
+            <div className="lg:col-span-1 min-w-0 space-y-4">
+              {/* Busiest send day, from the trend's daily sends */}
+              <Card className="p-5">
+                <CardHeader title="Busiest Send Day" />
+                {weekdays.busiest ? (
+                  <>
+                    <div className="mt-2 text-2xl font-semibold tracking-tight text-text-main">
+                      {WEEKDAY_NAMES[weekdays.busiest.day]}
+                    </div>
+                    <p className="mt-0.5 text-xs text-text-muted">
+                      {weekdays.busiest.sent.toLocaleString()} emails sent on {WEEKDAY_NAMES[weekdays.busiest.day]}s in the last {statsRange} days
+                    </p>
+                    <div className="mt-4 flex h-[96px] items-end gap-1.5" role="list" aria-label="Emails sent by weekday">
+                      {weekdays.days.map((d) => (
+                        <MuiTooltip key={d.day} title={`${WEEKDAY_NAMES[d.day]}: ${d.sent.toLocaleString()} sent`} arrow>
+                          <div role="listitem" className="flex h-full flex-1 cursor-default flex-col justify-end">
+                            <div
+                              className={`rounded-t-[4px] ${d === weekdays.busiest ? 'bg-primary' : 'bg-blue-100 dark:bg-primary-subtle'}`}
+                              style={{ height: `${Math.max(d.sent > 0 ? 4 : 2, (d.sent / weekdayMax) * 100)}%` }}
+                            />
+                          </div>
+                        </MuiTooltip>
+                      ))}
+                    </div>
+                    <div className="mt-1.5 flex gap-1.5">
+                      {weekdays.days.map((d) => (
+                        <span key={d.day} className="flex-1 text-center text-[11px] text-text-muted">
+                          {d.day}
+                        </span>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <p className="mt-2 text-xs text-text-muted">No emails sent in the last {statsRange} days.</p>
+                )}
+              </Card>
+
+              {/* Prospect sentiment gauge */}
+              <Card className="p-5">
+                <CardHeader title="Prospect Sentiment" />
+                <div className="mt-2 w-full h-[120px] min-h-[120px] min-w-0 relative flex items-center justify-center">
                   {!isMounted ? (
-                    <div className="w-full h-full animate-pulse rounded-xl bg-slate-100 dark:bg-slate-800/40" />
+                    <div className="w-full h-full animate-pulse rounded-control bg-slate-100 dark:bg-white/5" />
                   ) : (
                     <>
-                      <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={135}>
+                      <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={120}>
                         <PieChart margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
                           <Pie
                             data={gaugeData}
                             cx="50%"
-                            cy="80%"
+                            cy="88%"
                             startAngle={180}
                             endAngle={0}
-                            innerRadius={54}
-                            outerRadius={74}
-                            paddingAngle={totalSentiment > 0 ? 3 : 0}
+                            innerRadius={68}
+                            outerRadius={84}
+                            paddingAngle={totalSentiment > 0 && gaugeData.length > 1 ? 2 : 0}
                             dataKey="value"
                             isAnimationActive={false}
                           >
@@ -1036,264 +839,35 @@ export default function Dashboard() {
                               <Cell key={`gauge-cell-${index}`} fill={entry.fill} stroke="none" />
                             ))}
                           </Pie>
-                          {totalSentiment > 0 && (
-                            <RechartsTooltip content={<ShopeersChartTooltip totalSent={totalSentiment} />} />
-                          )}
                         </PieChart>
                       </ResponsiveContainer>
-
-                      {/* Central Score Typography */}
-                      <div className="absolute top-[56%] left-1/2 -translate-x-1/2 -translate-y-1/2 text-center pointer-events-none">
-                        <span className="block text-2xl font-bold font-sans text-slate-900 dark:text-white tracking-tight">
+                      <div className="pointer-events-none absolute bottom-1 left-1/2 -translate-x-1/2 text-center">
+                        <span className="block text-2xl font-semibold tracking-tight text-text-main">
                           {totalSentiment > 0 ? `${positiveSentimentRate}%` : '—'}
                         </span>
-                        <span className="block text-xs font-medium text-slate-500 dark:text-slate-400 mt-0.5">
-                          {totalSentiment > 0 ? 'Positive Score' : 'No Contacts'}
+                        <span className="block text-xs text-text-muted">
+                          {totalSentiment > 0 ? 'Positive' : 'No Contacts'}
                         </span>
                       </div>
                     </>
                   )}
                 </div>
-
-                {/* 3-Category Breakdown Footer Pills */}
-                <div className="mt-1 pt-2.5 border-t border-slate-100 dark:border-slate-800/80 grid grid-cols-3 gap-2 text-center">
-                  {/* Positive */}
-                  <div className="rounded-xl bg-slate-50/70 dark:bg-slate-900/40 p-2 border border-slate-100 dark:border-slate-800/60">
-                    <div className="flex items-center justify-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                      <span>Positive</span>
+                <div className="mt-4 grid grid-cols-3 gap-2 border-t border-card-border pt-3">
+                  {[
+                    { label: 'Positive', value: positiveSentiment, dot: 'bg-emerald-500' },
+                    { label: 'Neutral', value: neutralSentiment, dot: 'bg-slate-400' },
+                    { label: 'Negative', value: negativeSentiment, dot: 'bg-rose-500' },
+                  ].map((s) => (
+                    <div key={s.label}>
+                      <div className="flex items-center gap-1.5 text-xs text-text-sub">
+                        <span className={`size-2 rounded-full ${s.dot}`} />
+                        {s.label}
+                      </div>
+                      <div className="mt-0.5 text-[13px] font-semibold text-text-main">{s.value.toLocaleString()}</div>
                     </div>
-                    <span className="block text-sm font-semibold text-slate-900 dark:text-white mt-0.5">
-                      {positiveSentiment.toLocaleString()}
-                    </span>
-                  </div>
-
-                  {/* Neutral */}
-                  <div className="rounded-xl bg-slate-50/70 dark:bg-slate-900/40 p-2 border border-slate-100 dark:border-slate-800/60">
-                    <div className="flex items-center justify-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400">
-                      <span className="w-2 h-2 rounded-full bg-slate-400 dark:bg-slate-500" />
-                      <span>Neutral</span>
-                    </div>
-                    <span className="block text-sm font-semibold text-slate-900 dark:text-white mt-0.5">
-                      {neutralSentiment.toLocaleString()}
-                    </span>
-                  </div>
-
-                  {/* Negative */}
-                  <div className="rounded-xl bg-slate-50/70 dark:bg-slate-900/40 p-2 border border-slate-100 dark:border-slate-800/60">
-                    <div className="flex items-center justify-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400">
-                      <span className="w-2 h-2 rounded-full bg-rose-500" />
-                      <span>Negative</span>
-                    </div>
-                    <span className="block text-sm font-semibold text-slate-900 dark:text-white mt-0.5">
-                      {negativeSentiment.toLocaleString()}
-                    </span>
-                  </div>
+                  ))}
                 </div>
-              </div>
-
-            </div>
-          </div>
-
-          {/* 3. Full-width Recent Campaigns Summary Table Card */}
-          <div className="rounded-2xl border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] shadow-xs overflow-hidden transition-all duration-200">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-6 pb-4 border-b border-[#EBF0F5] dark:border-[#1E222D]">
-              <div>
-                <h2 className="text-base font-semibold text-slate-900 dark:text-white tracking-tight">
-                  Recent Campaigns
-                </h2>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 font-normal">
-                  Summary of recent outbound sequences and delivery performance
-                </p>
-              </div>
-              <Link
-                href="/campaigns"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors border border-blue-100 dark:border-blue-900/40 self-start sm:self-auto"
-              >
-                <span>View All</span>
-                <ArrowRight size={13} className="shrink-0" />
-              </Link>
-            </div>
-
-            <div className="w-full overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-[#EBF0F5] dark:border-[#1E222D] bg-slate-50/50 dark:bg-slate-900/20">
-                    <th className="py-3 px-6 text-xs font-semibold text-slate-500 dark:text-slate-400 min-w-[240px]">
-                      Campaign Name
-                    </th>
-                    <th className="py-3 px-6 text-xs font-semibold text-slate-500 dark:text-slate-400 min-w-[130px]">
-                      Status
-                    </th>
-                    <th className="py-3 px-6 text-xs font-semibold text-slate-500 dark:text-slate-400 min-w-[120px]">
-                      Total Leads
-                    </th>
-                    <th className="py-3 px-6 text-xs font-semibold text-slate-500 dark:text-slate-400 min-w-[120px]">
-                      Dispatches
-                    </th>
-                    <th className="py-3 px-6 text-xs font-semibold text-slate-500 dark:text-slate-400 min-w-[160px]">
-                      Open Rate
-                    </th>
-                    <th className="py-3 px-6 text-xs font-semibold text-slate-500 dark:text-slate-400 w-[70px] text-right">
-                      Action
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-[#1E222D]/60">
-                  {loading && recentCampaigns.length === 0 ? (
-                    [0, 1, 2, 3].map((idx) => (
-                      <tr key={idx} className="animate-pulse">
-                        <td className="py-4 px-6">
-                          <div className="flex items-center gap-3">
-                            <div className="w-9 h-9 rounded-xl bg-slate-200 dark:bg-slate-800" />
-                            <div className="space-y-1.5">
-                              <div className="w-32 h-4 rounded-md bg-slate-200 dark:bg-slate-800" />
-                              <div className="w-20 h-3 rounded-md bg-slate-200 dark:bg-slate-800" />
-                            </div>
-                          </div>
-                        </td>
-                        <td className="py-4 px-6">
-                          <div className="w-16 h-6 rounded-full bg-slate-200 dark:bg-slate-800" />
-                        </td>
-                        <td className="py-4 px-6">
-                          <div className="w-12 h-4 rounded-md bg-slate-200 dark:bg-slate-800" />
-                        </td>
-                        <td className="py-4 px-6">
-                          <div className="w-12 h-4 rounded-md bg-slate-200 dark:bg-slate-800" />
-                        </td>
-                        <td className="py-4 px-6">
-                          <div className="w-24 h-4 rounded-md bg-slate-200 dark:bg-slate-800" />
-                        </td>
-                        <td className="py-4 px-6 text-right">
-                          <div className="w-7 h-7 rounded-full bg-slate-200 dark:bg-slate-800 ml-auto" />
-                        </td>
-                      </tr>
-                    ))
-                  ) : recentCampaigns.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="py-12 px-6 text-center">
-                        <div className="w-12 h-12 rounded-2xl bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 flex items-center justify-center mx-auto mb-3">
-                          <SendHorizontal size={20} />
-                        </div>
-                        <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">
-                          No Campaigns Created Yet
-                        </h3>
-                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-sm mx-auto">
-                          Create your first automated email campaign to start reaching prospects and tracking engagement metrics.
-                        </p>
-                        <Link
-                          href="/campaigns"
-                          className="inline-flex items-center gap-1.5 mt-4 px-4 py-2 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white transition-colors shadow-xs"
-                        >
-                          <Plus size={14} />
-                          <span>Create Campaign</span>
-                        </Link>
-                      </td>
-                    </tr>
-                  ) : (
-                    recentCampaigns.map((c) => {
-                      const totalLeads = c.enrollmentSummary?.total ?? 0;
-                      const totalSent = c.stepStats?.reduce((acc: number, s: any) => acc + (s.sent || 0), 0) ?? 0;
-                      const isCompleted = totalLeads > 0 && c.enrollmentSummary?.completed === totalLeads;
-                      const resolvedStatus = isCompleted ? 'Completed' : c.status;
-                      const pill = STATUS_PILL_CONFIG[resolvedStatus] || STATUS_PILL_CONFIG.Draft;
-                      const hasOpenRate = typeof c.openRate === 'number';
-                      const openRateValue = hasOpenRate ? c.openRate : 0;
-
-                      return (
-                        <tr
-                          key={c.id}
-                          className="group transition-colors duration-150 ease-in-out hover:bg-slate-50/70 dark:hover:bg-[#161822]/80"
-                        >
-                          {/* Campaign Name */}
-                          <td className="py-3.5 px-6">
-                            <div className="flex items-center gap-3">
-                              <div className="w-9 h-9 rounded-xl bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
-                                <SendHorizontal size={16} />
-                              </div>
-                              <div className="min-w-0">
-                                <Link
-                                  href={`/campaigns/${c.id}`}
-                                  className="text-sm font-semibold text-slate-900 dark:text-slate-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors truncate block"
-                                >
-                                  {c.name}
-                                </Link>
-                                <span className="text-[11px] text-slate-400 dark:text-slate-500 block truncate">
-                                  {c.createdAt
-                                    ? `Created ${campaignDateFormat.format(new Date(c.createdAt))}`
-                                    : c.senderAccount?.emailAddress || 'Automated Sequence'}
-                                </span>
-                              </div>
-                            </div>
-                          </td>
-
-                          {/* Status Pill */}
-                          <td className="py-3.5 px-6">
-                            <span
-                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border ${pill.badgeClass}`}
-                            >
-                              <span
-                                className={`w-1.5 h-1.5 rounded-full ${pill.dotClass} ${
-                                  pill.pulse ? 'animate-pulse' : ''
-                                }`}
-                              />
-                              <span>{pill.label}</span>
-                            </span>
-                          </td>
-
-                          {/* Total Leads */}
-                          <td className="py-3.5 px-6">
-                            <div className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                              {totalLeads.toLocaleString()}
-                            </div>
-                            <span className="text-[11px] text-slate-400">leads enrolled</span>
-                          </td>
-
-                          {/* Dispatches / Sent */}
-                          <td className="py-3.5 px-6">
-                            <div className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-                              {totalSent.toLocaleString()}
-                            </div>
-                            <span className="text-[11px] text-slate-400">emails sent</span>
-                          </td>
-
-                          {/* Open Rate */}
-                          <td className="py-3.5 px-6">
-                            {hasOpenRate ? (
-                              <div className="space-y-1.5">
-                                <div className="flex items-center justify-between text-xs font-semibold text-slate-700 dark:text-slate-300">
-                                  <span>{openRateValue.toFixed(1)}%</span>
-                                </div>
-                                <div className="w-24 h-1.5 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
-                                  <div
-                                    className="h-full rounded-full bg-blue-600 dark:bg-blue-500 transition-all duration-500"
-                                    style={{ width: `${Math.min(100, Math.max(0, openRateValue))}%` }}
-                                  />
-                                </div>
-                              </div>
-                            ) : (
-                              <span className="text-xs text-slate-400 dark:text-slate-500">
-                                {totalSent > 0 ? '—' : '0.0%'}
-                              </span>
-                            )}
-                          </td>
-
-                          {/* Quick Action / Arrow */}
-                          <td className="py-3.5 px-6 text-right">
-                            <Link
-                              href={`/campaigns/${c.id}`}
-                              aria-label={`Configure ${c.name}`}
-                              className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-slate-100/80 dark:bg-slate-800/80 text-slate-400 dark:text-slate-500 group-hover:bg-blue-600 group-hover:text-white transition-all shadow-xs"
-                            >
-                              <ChevronRight size={15} />
-                            </Link>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
+              </Card>
             </div>
           </div>
         </>

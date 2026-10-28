@@ -77,12 +77,13 @@ describe('Static Syntax & House Design Directives Audit (app/page.tsx)', () => {
 
   it('adheres to Title Case headings across all card modules', () => {
     const mandatedHeadings = [
-      'Campaign Analytics',
+      'title="Dashboard"',
       'Required Setup Steps',
       'Engagement Trends',
       'Conversion Funnel',
       'Prospect Sentiment',
       'Recent Campaigns',
+      'Busiest Send Day',
     ];
     for (const heading of mandatedHeadings) {
       expect(dashboardSource).toContain(heading);
@@ -647,10 +648,11 @@ describe('Dashboard Component SSR & Markup Verification', () => {
 
   it('renders initial SSR loading skeleton markup without errors', () => {
     const html = renderToStaticMarkup(React.createElement(Dashboard));
-    expect(html).toContain('Campaign Analytics');
-    expect(html).toContain('A unified overview of your outbound deliverability and automated sequences.');
+    expect(html).toContain('Dashboard');
     expect(html).toContain('Create Campaign');
-    expect(html).toContain('Checking Outbox');
+    expect(html).toContain('aria-label="Date range"');
+    // The outbox chip lives in the top bar only; the dashboard no longer repeats it.
+    expect(html).not.toContain('Outbox');
     expect(html).toContain('animate-pulse'); // Skeletons are rendered during SSR
   });
 
@@ -692,7 +694,7 @@ describe('Dashboard Component SSR & Markup Verification', () => {
     expect(html).toContain('Click Rate');
     expect(html).toContain('Replies');
     expect(html).toContain('0%');
-    expect(html).toContain('vs last period');
+    expect(html).toContain('vs. prior 7 days');
 
 
     // 2. Deliverability Health Segment Pills with 0
@@ -854,8 +856,10 @@ describe('Dashboard Component SSR & Markup Verification', () => {
     expect(html).toContain('35.5%');
     expect(html).toContain('50.0%');
     expect(html).toContain('200');
-    expect(html).toContain('leads enrolled');
-    expect(html).toContain('emails sent');
+    // Leads and Sent are column headings now, not a caption under every number
+    expect(html).toContain('>Leads</th>');
+    expect(html).toContain('>Sent</th>');
+    expect(html).toContain('>150</td>');
   });
 
   it('renders chart empty states when client-hydrated with zero or empty arrays', () => {
@@ -935,12 +939,49 @@ describe('Dashboard Component SSR & Markup Verification', () => {
 
     // Sentiment hero score: 10/10 positive -> 100%
     expect(html).toContain('100%');
-    expect(html).toContain('Positive Score');
+    expect(html).toContain('Positive');
 
-    // Funnel summary footer
-    expect(html).toContain('Top of Funnel:');
-    expect(html).toContain('500 Sent');
-    expect(html).toContain('3 Active Stages');
+    // Funnel rows: each stage's count and its share of Sent; Sent shows no share of itself
+    expect(html).toContain('500');
+    expect(html).toContain('40.0%');
+    expect(html).toContain('15.0%');
+    expect(html).not.toContain('100.0%');
+  });
+
+  it('renders the busiest send day from the daily sends in the trend', () => {
+    mockIsMounted = true;
+    // Mon 19 Oct 2026 .. Sun 25 Oct 2026, Thursday the busiest.
+    const days = ['Oct 19', 'Oct 20', 'Oct 21', 'Oct 22', 'Oct 23', 'Oct 24', 'Oct 25'];
+    const sent = [40, 55, 30, 210, 90, 0, 5];
+    mockDashboardState({
+      stats: { totalSent: 430, averageOpenRate: 10, averageClickRate: 1, totalReplies: 0, replySync: 'on' },
+      trends: days.map((name, i) => ({ name, sent: sent[i], opens: 0, clicks: 0 })),
+      systemStatus: { deliveryStatus: 'RUNNING', accountsCount: 1, leadsCount: 10, activeCampaignsCount: 1 },
+    });
+
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 9, 25, 12));
+    try {
+      const html = renderToStaticMarkup(React.createElement(Dashboard));
+      expect(html).toContain('Busiest Send Day');
+      expect(html).toContain('Thursday');
+      expect(html).toContain('210 emails sent on Thursdays in the last 7 days');
+      // Legend totals over the range
+      expect(html).toContain('430');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('says nothing was sent instead of naming a busiest day when the trend is all zero', () => {
+    mockIsMounted = true;
+    mockDashboardState({
+      stats: { totalSent: 0, averageOpenRate: 0, averageClickRate: 0, totalReplies: 0, replySync: 'on' },
+      trends: [{ name: 'Oct 24', sent: 0, opens: 0, clicks: 0 }],
+      systemStatus: { deliveryStatus: 'RUNNING', accountsCount: 1, leadsCount: 10, activeCampaignsCount: 1 },
+    });
+    const html = renderToStaticMarkup(React.createElement(Dashboard));
+    expect(html).toContain('No emails sent in the last 7 days.');
   });
 
   it('gracefully falls back when campaign createdAt is missing or undefined', () => {

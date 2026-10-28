@@ -22,19 +22,23 @@ export type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   iconOnly?: boolean;
 };
 
-/** 8px-cornered button, 32px tall by default, matching MUI's themed Button. */
-export function Button({ variant = 'secondary', size = 'md', iconOnly, className, type = 'button', ...props }: ButtonProps) {
-  return (
-    <button
-      type={type}
-      className={cn(
-        'inline-flex shrink-0 cursor-pointer items-center justify-center rounded-control font-medium whitespace-nowrap transition-colors',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:pointer-events-none disabled:opacity-50',
-        VARIANTS[variant],
-        iconOnly ? ICON_SIZES[size] : SIZES[size],
-        className,
-      )}
-      {...props}
-    />
+/** The button's classes, for a Link that should look like one. */
+export function buttonClasses({
+  variant = 'secondary',
+  size = 'md',
+  iconOnly,
+  className,
+}: Pick<ButtonProps, 'variant' | 'size' | 'iconOnly' | 'className'> = {}) {
+  return cn(
+    'inline-flex shrink-0 cursor-pointer items-center justify-center rounded-control font-medium whitespace-nowrap transition-colors',
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:pointer-events-none disabled:opacity-50',
+    VARIANTS[variant],
+    iconOnly ? ICON_SIZES[size] : SIZES[size],
+    className,
   );
+}
+
+/** 8px-cornered button, 32px tall by default, matching MUI's themed Button. */
+export function Button({ variant, size, iconOnly, className, type = 'button', ...props }: ButtonProps) {
+  return <button type={type} className={buttonClasses({ variant, size, iconOnly, className })} {...props} />;
 }

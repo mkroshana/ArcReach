@@ -1,11 +1,26 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type ComponentType, type InputHTMLAttributes } from 'react';
 import { useRouter } from 'next/navigation';
-import { Mail, Lock, AlertCircle, ArrowRight } from 'lucide-react';
-import {
-  TextField, Alert, InputAdornment, CircularProgress,
-} from '@mui/material';
+import { Mail, Lock, AlertCircle, ArrowRight, Loader2 } from 'lucide-react';
+import { Button } from '@/components/ui/Button';
+import { Card } from '@/components/ui/Card';
+import { inputClasses } from '@/components/ui/Input';
+
+/** A labelled native field with a leading icon. */
+function IconField({ id, label, icon: Icon, ...props }: InputHTMLAttributes<HTMLInputElement> & {
+  id: string; label: string; icon: ComponentType<{ size?: number; className?: string }>;
+}) {
+  return (
+    <div>
+      <label htmlFor={id} className="mb-1.5 block text-[13px] font-medium text-text-main">{label}</label>
+      <div className="relative">
+        <Icon size={15} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-text-muted" />
+        <input id={id} className={inputClasses('h-10 pl-9')} {...props} />
+      </div>
+    </div>
+  );
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -47,80 +62,45 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center p-4 bg-[#F5F6F9] dark:bg-[#090A0F]">
-      {/* Strictly minimalist Shopeers auth card (0 decorative orbs, 0 emojis, 0 glow blobs) */}
-      <div className="w-full max-w-[420px] rounded-2xl border border-[#EBF0F5] dark:border-[#1E222D] bg-white dark:bg-[#11131A] p-8 shadow-xs transition-all">
-        {/* Brand Header */}
-        <div className="text-center mb-6">
-          <div className="w-12 h-12 rounded-2xl bg-blue-600 flex items-center justify-center text-white shadow-md shadow-blue-500/20 mx-auto mb-3">
-            <Mail size={22} />
+    <div className="flex min-h-screen w-full items-center justify-center bg-canvas p-4">
+      <Card className="w-full max-w-[400px] p-8">
+        <div className="mb-6 text-center">
+          <div className="mx-auto mb-3 flex size-10 items-center justify-center rounded-control bg-primary text-on-primary">
+            <Mail size={20} strokeWidth={2.4} />
           </div>
-          <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">
-            ArcReach
-          </h1>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Outbound Sequence Automation &amp; CRM Delivery Grid
-          </p>
+          <h1 className="text-xl font-semibold tracking-tight text-text-main">ArcReach</h1>
+          <p className="mt-1 text-xs text-text-sub">Outbound Sequence Automation &amp; CRM Delivery Grid</p>
         </div>
 
         {error && (
-          <Alert severity="error" icon={<AlertCircle size={18} />} sx={{ mb: 3, borderRadius: '14px' }}>
-            {error}
-          </Alert>
+          <div role="alert" className="mb-4 flex items-start gap-2 rounded-control border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800 dark:border-rose-900/50 dark:bg-rose-500/10 dark:text-rose-300">
+            <AlertCircle size={15} className="mt-px shrink-0" />
+            <span>{error}</span>
+          </div>
         )}
 
         <form onSubmit={handleLogin} className="space-y-4">
-          <TextField
-            fullWidth size="small" type="email" required label="Email Address"
+          <IconField
+            id="login-email" label="Email Address" icon={Mail} type="email" required autoComplete="username"
             placeholder="you@company.com" value={email} onChange={(e) => setEmail(e.target.value)}
-            slotProps={{
-              input: {
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <Mail size={16} className="text-slate-400" />
-                  </InputAdornment>
-                ),
-              },
-            }}
           />
-          <TextField
-            fullWidth size="small" type="password" required label="Password"
+          <IconField
+            id="login-password" label="Password" icon={Lock} type="password" required autoComplete="current-password"
             placeholder="••••••••••••" value={password} onChange={(e) => setPassword(e.target.value)}
-            slotProps={{
-              input: {
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <Lock size={16} className="text-slate-400" />
-                  </InputAdornment>
-                ),
-              },
-            }}
           />
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full mt-2 py-3 px-6 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm shadow-xs flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:opacity-60"
-          >
+          <Button type="submit" variant="primary" disabled={loading} className="mt-2 h-10 w-full text-sm">
             {loading ? (
-              <>
-                <CircularProgress size={16} color="inherit" />
-                <span>Authenticating…</span>
-              </>
+              <><Loader2 size={15} className="animate-spin" /> Authenticating…</>
             ) : (
-              <>
-                <span>Sign In to Dashboard</span>
-                <ArrowRight size={16} />
-              </>
+              <>Sign In to Dashboard <ArrowRight size={15} /></>
             )}
-          </button>
+          </Button>
         </form>
 
-        <div className="mt-6 pt-4 border-t border-[#EBF0F5] dark:border-[#1E222D] text-center">
-          <span className="text-[11px] text-slate-400 dark:text-slate-500">
-            ArcReach Engine • Secure Enterprise Access
-          </span>
+        <div className="mt-6 border-t border-card-border pt-4 text-center text-[11px] text-text-muted">
+          ArcReach Engine • Secure Enterprise Access
         </div>
-      </div>
+      </Card>
     </div>
   );
 }

@@ -125,7 +125,7 @@ function CaveatMark({ note }: { note: string }) {
       <span
         tabIndex={0}
         aria-label={note}
-        className="inline-flex text-amber-500 hover:text-amber-600 dark:text-amber-400 align-middle cursor-help transition-colors"
+        className="inline-flex text-amber-600 hover:text-amber-600 dark:text-amber-400 align-middle cursor-help transition-colors"
       >
         <AlertTriangle size={13} strokeWidth={2.2} />
       </span>
@@ -389,7 +389,7 @@ export default function Dashboard() {
       {needsSetup && (
         <Card className="p-5">
           <div className="flex items-center gap-2">
-            <AlertTriangle size={15} className="text-amber-500" />
+            <AlertTriangle size={15} className="text-amber-600 dark:text-amber-500" />
             <h2 className="text-sm font-semibold text-text-main">Required Setup Steps</h2>
           </div>
           <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">

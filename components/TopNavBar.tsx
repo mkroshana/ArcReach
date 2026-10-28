@@ -464,7 +464,7 @@ export function TopNavBar({ session, systemStatus, onMobileMenuToggle }: TopNavB
           onClick={() => setSearchOpen(false)}
         >
           <div
-            className="w-full max-w-xl bg-white dark:bg-[#11131A] rounded-2xl border border-[#EBF0F5] dark:border-[#1E222D] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150"
+            className="w-full max-w-xl bg-white dark:bg-[#11131A] rounded-2xl border border-[#EBF0F5] dark:border-[#1E222D] shadow-[var(--float-shadow)] dark:shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Search Input Bar */}

@@ -56,18 +56,18 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               initial={{ opacity: 0, y: -20, scale: 0.95 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.2 } }}
-              className={`p-3.5 rounded-xl border backdrop-blur-md shadow-2xl flex items-start gap-3 pointer-events-auto ${
+              className={`p-3.5 rounded-xl border backdrop-blur-md shadow-[var(--float-shadow)] dark:shadow-2xl flex items-start gap-3 pointer-events-auto ${
                 t.type === 'success'
-                  ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400'
+                  ? 'bg-emerald-100 border-emerald-200 text-emerald-600 dark:bg-emerald-500/10 dark:border-emerald-500/20 dark:text-emerald-400'
                   : t.type === 'warning'
-                    ? 'bg-amber-500/10 border-amber-500/20 text-amber-700 dark:text-amber-400'
-                    : 'bg-rose-500/10 border-rose-500/20 text-rose-600 dark:text-rose-400'
+                    ? 'bg-amber-100 border-amber-500/20 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400'
+                    : 'bg-rose-100 border-rose-500/20 text-rose-600 dark:bg-rose-500/10 dark:text-rose-400'
               }`}
             >
               {t.type === 'success' ? (
                 <CheckCircle2 className="w-5 h-5 flex-shrink-0 text-emerald-500" />
               ) : t.type === 'warning' ? (
-                <AlertTriangle className="w-5 h-5 flex-shrink-0 text-amber-500" />
+                <AlertTriangle className="w-5 h-5 flex-shrink-0 text-amber-600 dark:text-amber-500" />
               ) : (
                 <XCircle className="w-5 h-5 flex-shrink-0 text-rose-500" />
               )}

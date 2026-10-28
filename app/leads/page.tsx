@@ -168,7 +168,7 @@ const TOGGLE = 'cursor-pointer rounded-control border font-medium transition-col
 const TOGGLE_ON = 'border-primary bg-primary-subtle text-primary';
 const TOGGLE_OFF = 'border-input-border bg-card text-text-sub hover:text-text-main';
 const RADIO_ROW = 'flex cursor-pointer items-start gap-3 rounded-control border border-card-border p-3 transition-colors hover:bg-slate-50 has-[:checked]:border-primary has-[:checked]:bg-primary-subtle dark:hover:bg-white/[0.02]';
-const MODAL = 'fixed top-1/2 left-1/2 z-55 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-card border border-card-border bg-card p-6 shadow-2xl';
+const MODAL = 'fixed top-1/2 left-1/2 z-55 w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-card border border-card-border bg-card p-6 shadow-[var(--float-shadow)] dark:shadow-2xl';
 
 /** What a Re-activate did, for its toast. */
 function describeReactivation(result: { reactivated: number; unsubscribed: number; suppressed: number; notSuppressed: number }): string {
@@ -2261,7 +2261,7 @@ export default function LeadsPage() {
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="lead-timeline-title"
-                className="fixed top-0 right-0 bottom-0 z-50 flex w-full max-w-lg flex-col border-l border-card-border bg-card shadow-2xl"
+                className="fixed top-0 right-0 bottom-0 z-50 flex w-full max-w-lg flex-col border-l border-card-border bg-card shadow-[var(--float-shadow)] dark:shadow-2xl"
               >
                 {/* Header */}
                 <div className="flex items-start justify-between gap-3 border-b border-card-border p-5">

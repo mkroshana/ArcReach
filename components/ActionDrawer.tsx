@@ -238,7 +238,7 @@ export function ActionDrawer({
               stiffness: 280,
               mass: 0.9,
             }}
-            className={`fixed right-0 top-0 bottom-0 z-50 w-full ${widthClass} bg-white dark:bg-[#11131a] border-l border-[#ebf0f5] dark:border-[#1e222d] shadow-2xl flex flex-col focus:outline-none transition-colors ${className}`}
+            className={`fixed right-0 top-0 bottom-0 z-50 w-full ${widthClass} bg-white dark:bg-[#11131a] border-l border-[#ebf0f5] dark:border-[#1e222d] shadow-[var(--float-shadow)] dark:shadow-2xl flex flex-col focus:outline-none transition-colors ${className}`}
           >
             {/* Sticky Frosted Header */}
             <div

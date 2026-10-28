@@ -355,23 +355,6 @@ body {
   background-image: linear-gradient(to bottom, transparent, rgba(245, 246, 249, 0.6) 50%, var(--app-bg)) !important;
 }
 
-/* Sidebar ArcReach Engine rich card light mode preservation */
-.light [data-sidebar-engine-card] {
-  background-color: #2563eb !important;
-}
-.light [data-sidebar-engine-card] .text-white {
-  color: #ffffff !important;
-}
-.light [data-sidebar-engine-card] .text-blue-100 {
-  color: #dbeafe !important;
-}
-.light [data-sidebar-engine-card] .text-blue-200 {
-  color: #bfdbfe !important;
-}
-.light [data-sidebar-engine-card] .text-amber-200 {
-  color: #fde68a !important;
-}
-
 /* Tooltip and dropdown shadow polish for light mode */
 .light .shadow-2xl {
   box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.08) !important;

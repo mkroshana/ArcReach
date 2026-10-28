@@ -13,7 +13,6 @@ import {
   Settings,
   ShieldCheck,
   User,
-  ChevronDown,
   LayoutDashboard,
   Send,
   Users,
@@ -21,13 +20,14 @@ import {
   Mail,
   FileText,
   ArrowRight,
-  Bell,
 } from 'lucide-react';
 import { useTheme } from '@/components/ThemeProvider';
 import { profileInitials } from '@/lib/profileInitials';
 import { deliveryStatusText } from '@/lib/systemStatus';
 import type { UserSession } from '@/lib/session';
 import { Tooltip } from '@mui/material';
+import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
 
 export interface TopNavBarProps {
   session?: UserSession | null;
@@ -57,14 +57,13 @@ const COMMAND_NAV_ITEMS: NavCommandItem[] = [
 
 const DELIVERY_CONFIG: Record<
   string,
-  { label: string; dotClass: string; bgClass: string; textClass: string; borderClass: string; pulse: boolean }
+  { label: string; dotClass: string; bgClass: string; textClass: string; pulse: boolean }
 > = {
   RUNNING: {
     label: 'Outbox Running',
     dotClass: 'bg-emerald-500',
     bgClass: 'bg-emerald-50 dark:bg-emerald-950/40',
     textClass: 'text-emerald-700 dark:text-emerald-300',
-    borderClass: 'border-emerald-200 dark:border-emerald-800/60',
     pulse: true,
   },
   STALLED: {
@@ -72,7 +71,6 @@ const DELIVERY_CONFIG: Record<
     dotClass: 'bg-amber-500',
     bgClass: 'bg-amber-50 dark:bg-amber-950/40',
     textClass: 'text-amber-700 dark:text-amber-300',
-    borderClass: 'border-amber-200 dark:border-amber-800/60',
     pulse: true,
   },
   FAILING: {
@@ -80,7 +78,6 @@ const DELIVERY_CONFIG: Record<
     dotClass: 'bg-rose-500',
     bgClass: 'bg-rose-50 dark:bg-rose-950/40',
     textClass: 'text-rose-700 dark:text-rose-300',
-    borderClass: 'border-rose-200 dark:border-rose-800/60',
     pulse: false,
   },
   NOT_RUNNING: {
@@ -88,7 +85,6 @@ const DELIVERY_CONFIG: Record<
     dotClass: 'bg-rose-500',
     bgClass: 'bg-rose-50 dark:bg-rose-950/40',
     textClass: 'text-rose-700 dark:text-rose-300',
-    borderClass: 'border-rose-200 dark:border-rose-800/60',
     pulse: false,
   },
   DISABLED: {
@@ -96,7 +92,6 @@ const DELIVERY_CONFIG: Record<
     dotClass: 'bg-amber-500',
     bgClass: 'bg-amber-50 dark:bg-amber-950/40',
     textClass: 'text-amber-700 dark:text-amber-300',
-    borderClass: 'border-amber-200 dark:border-amber-800/60',
     pulse: false,
   },
 };
@@ -215,7 +210,6 @@ export function TopNavBar({ session, systemStatus, onMobileMenuToggle }: TopNavB
         dotClass: 'bg-slate-400',
         bgClass: 'bg-slate-100 dark:bg-slate-800',
         textClass: 'text-slate-600 dark:text-slate-400',
-        borderClass: 'border-slate-200 dark:border-slate-700',
         pulse: false,
       }
     : {
@@ -223,7 +217,6 @@ export function TopNavBar({ session, systemStatus, onMobileMenuToggle }: TopNavB
         dotClass: 'bg-slate-400',
         bgClass: 'bg-slate-100 dark:bg-slate-800',
         textClass: 'text-slate-600 dark:text-slate-400',
-        borderClass: 'border-slate-200 dark:border-slate-700',
         pulse: false,
       };
 
@@ -273,9 +266,9 @@ export function TopNavBar({ session, systemStatus, onMobileMenuToggle }: TopNavB
     <>
       <header
         role="banner"
-        className="sticky top-0 z-40 w-full h-16 bg-white/80 dark:bg-[#11131A]/80 backdrop-blur-md border-b border-[#EBF0F5] dark:border-[#1E222D] transition-colors duration-200 px-4 sm:px-6"
+        className="sticky top-0 z-40 w-full h-16 shrink-0 bg-card border-b border-card-border transition-colors duration-200 px-4 md:px-6"
       >
-        <div className="h-full flex items-center justify-between gap-3 max-w-7xl mx-auto">
+        <div className="h-full flex items-center justify-between gap-3">
           {/* Left section: Mobile menu toggle + Brand (mobile) + Search pill */}
           <div className="flex items-center gap-3 flex-1 min-w-0">
             {/* Mobile hamburger button */}
@@ -283,17 +276,17 @@ export function TopNavBar({ session, systemStatus, onMobileMenuToggle }: TopNavB
               type="button"
               onClick={onMobileMenuToggle}
               aria-label="Open Navigation"
-              className="p-2 -ml-1.5 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors md:hidden"
+              className="p-2 -ml-1.5 rounded-control text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors md:hidden"
             >
               <Menu size={20} />
             </button>
 
             {/* Mobile Brand indicator */}
             <div className="flex items-center gap-2 md:hidden">
-              <div className="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center text-white shadow-xs">
-                <Mail size={15} />
+              <div className="flex size-7 items-center justify-center rounded-control bg-primary text-on-primary">
+                <Mail size={15} strokeWidth={2.4} />
               </div>
-              <span className="font-bold text-sm tracking-wider text-slate-900 dark:text-white">ARCREACH</span>
+              <span className="text-[15px] font-semibold tracking-tight text-text-main">ArcReach</span>
             </div>
 
             {/* Search pill */}
@@ -301,13 +294,13 @@ export function TopNavBar({ session, systemStatus, onMobileMenuToggle }: TopNavB
               type="button"
               onClick={openSearch}
               aria-label="Search navigation and resources"
-              className="hidden sm:flex items-center justify-between w-64 md:w-80 px-3.5 py-1.5 rounded-full bg-[#F5F6F9] dark:bg-[#161822] border border-[#EBF0F5] dark:border-[#262B38] text-sm text-slate-500 dark:text-slate-400 hover:border-blue-400 dark:hover:border-blue-500 hover:bg-white dark:hover:bg-[#11131A] transition-all cursor-pointer shadow-2xs group"
+              className="hidden sm:flex h-9 items-center justify-between w-64 md:w-72 pl-3 pr-1.5 rounded-control bg-canvas border border-card-border text-text-muted hover:border-input-border transition-colors cursor-pointer"
             >
-              <span className="flex items-center gap-2.5 truncate">
-                <Search size={15} className="text-slate-400 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors" />
-                <span className="text-xs font-normal">Search anything...</span>
+              <span className="flex items-center gap-2 truncate">
+                <Search size={15} className="text-slate-400" />
+                <span className="text-[13px]">Search anything...</span>
               </span>
-              <kbd className="inline-flex items-center gap-0.5 px-1.5 py-0.5 font-sans text-[10px] font-semibold rounded bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 shadow-2xs">
+              <kbd className="inline-flex h-5 items-center px-1.5 font-sans text-[10px] font-medium rounded-md bg-card text-text-muted border border-card-border">
                 {mounted && isMac ? '⌘K' : 'Ctrl K'}
               </kbd>
             </button>
@@ -317,21 +310,21 @@ export function TopNavBar({ session, systemStatus, onMobileMenuToggle }: TopNavB
               type="button"
               onClick={openSearch}
               aria-label="Search"
-              className="sm:hidden p-2 rounded-full text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              className="sm:hidden p-2 rounded-control text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
             >
               <Search size={18} />
             </button>
           </div>
 
           {/* Right section: Live Delivery Chip + Theme Toggle + User Avatar */}
-          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             {/* Live Delivery Outbox Chip */}
             <Tooltip title={deliveryDetail} arrow placement="bottom">
               <div
                 tabIndex={0}
                 role="status"
                 aria-label={`Outbox status: ${currentDelivery.label}`}
-                className={`hidden md:inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold border transition-all cursor-default select-none shadow-2xs ${currentDelivery.bgClass} ${currentDelivery.textClass} ${currentDelivery.borderClass}`}
+                className={`hidden md:inline-flex h-7 items-center gap-2 px-2.5 mr-1 rounded-control text-xs font-medium cursor-default select-none ${currentDelivery.bgClass} ${currentDelivery.textClass}`}
               >
                 <span className="relative flex h-2 w-2">
                   {currentDelivery.pulse && (
@@ -341,7 +334,7 @@ export function TopNavBar({ session, systemStatus, onMobileMenuToggle }: TopNavB
                   )}
                   <span className={`relative inline-flex rounded-full h-2 w-2 ${currentDelivery.dotClass}`} />
                 </span>
-                <span className="text-[11px] tracking-tight">{currentDelivery.label}</span>
+                <span>{currentDelivery.label}</span>
               </div>
             </Tooltip>
 
@@ -351,7 +344,7 @@ export function TopNavBar({ session, systemStatus, onMobileMenuToggle }: TopNavB
                 tabIndex={0}
                 role="status"
                 aria-label={`Outbox status: ${currentDelivery.label}`}
-                className={`md:hidden p-2 rounded-full border ${currentDelivery.bgClass} ${currentDelivery.borderClass}`}
+                className={`md:hidden p-2 rounded-control ${currentDelivery.bgClass}`}
               >
                 <span className="relative flex h-2 w-2">
                   {currentDelivery.pulse && (
@@ -366,34 +359,16 @@ export function TopNavBar({ session, systemStatus, onMobileMenuToggle }: TopNavB
 
             {/* Theme Toggle Button */}
             <Tooltip title={mounted ? (theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode') : 'Toggle Theme'} arrow>
-              <button
-                type="button"
+              <Button
+                variant="ghost"
+                iconOnly
                 onClick={toggleTheme}
                 aria-label={mounted ? (theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode') : 'Toggle Theme'}
-                className="w-9 h-9 rounded-full border border-[#EBF0F5] dark:border-[#262B38] bg-white dark:bg-[#11131A] text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 hover:border-blue-300 dark:hover:border-blue-600 transition-colors shadow-2xs flex items-center justify-center active:scale-95 cursor-pointer"
+                className="size-9"
               >
-                {mounted && theme === 'dark' ? (
-                  <Sun size={17} className="text-amber-500" />
-                ) : (
-                  <Moon size={17} className="text-slate-600 dark:text-slate-300" />
-                )}
-              </button>
+                {mounted && theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+              </Button>
             </Tooltip>
-
-            {/* Notifications Bell Button */}
-            <Tooltip title="Notifications" arrow>
-              <button
-                type="button"
-                aria-label="View notifications"
-                className="w-9 h-9 rounded-full border border-[#EBF0F5] dark:border-[#262B38] bg-white dark:bg-[#11131A] text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 hover:border-blue-300 dark:hover:border-blue-600 transition-colors shadow-2xs flex items-center justify-center relative active:scale-95 cursor-pointer"
-              >
-                <Bell size={17} />
-                <span className="w-2 h-2 rounded-full bg-blue-600 absolute top-2 right-2 ring-2 ring-white dark:ring-[#11131A]" />
-              </button>
-            </Tooltip>
-
-            {/* Vertical Divider */}
-            <div className="h-6 w-px bg-[#EBF0F5] dark:bg-[#1E222D]" />
 
             {/* User Profile Avatar with Dropdown */}
             <div className="relative" ref={userMenuRef}>
@@ -403,27 +378,11 @@ export function TopNavBar({ session, systemStatus, onMobileMenuToggle }: TopNavB
                 aria-expanded={userMenuOpen}
                 aria-haspopup="true"
                 aria-label="User Account Menu"
-                className="flex items-center gap-2 p-1 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors group"
+                className="ml-1 flex rounded-full cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
               >
-                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-600 to-blue-700 text-white font-bold text-xs flex items-center justify-center shadow-2xs border-2 border-white dark:border-[#1E222D] select-none">
+                <div className="size-8 rounded-full bg-primary text-on-primary font-semibold text-xs flex items-center justify-center select-none">
                   {initials ? initials : <User size={15} />}
                 </div>
-
-                <div className="hidden lg:flex flex-col text-left mr-1">
-                  <span className="text-xs font-bold text-slate-900 dark:text-white leading-tight truncate max-w-[120px]">
-                    {session?.name || 'User'}
-                  </span>
-                  <span className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight">
-                    {session?.role || 'USER'}
-                  </span>
-                </div>
-
-                <ChevronDown
-                  size={14}
-                  className={`hidden sm:block text-slate-400 transition-transform duration-200 ${
-                    userMenuOpen ? 'rotate-180' : ''
-                  }`}
-                />
               </button>
 
               {/* Dropdown Menu */}
@@ -431,36 +390,30 @@ export function TopNavBar({ session, systemStatus, onMobileMenuToggle }: TopNavB
                 <div
                   role="menu"
                   aria-orientation="vertical"
-                  className="absolute right-0 mt-2 w-64 rounded-2xl bg-white dark:bg-[#11131A] border border-[#EBF0F5] dark:border-[#1E222D] shadow-xl py-2 z-50 animate-in fade-in zoom-in-95 duration-150"
+                  className="absolute right-0 mt-2 w-60 rounded-card bg-card border border-card-border shadow-[var(--float-shadow)] p-1 z-50 animate-in fade-in zoom-in-95 duration-150"
                 >
                   {/* User summary header */}
-                  <div className="px-4 py-3 border-b border-[#EBF0F5] dark:border-[#1E222D]">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                  <div className="px-3 py-2.5 mb-1 border-b border-card-border">
+                    <div className="flex items-center justify-between gap-2 mb-0.5">
+                      <span className="text-[13px] font-semibold text-text-main truncate">
                         {session?.name || 'User'}
                       </span>
-                      <span
-                        className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
-                          session?.role === 'ADMIN'
-                            ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border border-rose-200 dark:border-rose-900'
-                            : 'bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border border-blue-200 dark:border-blue-900'
-                        }`}
-                      >
-                        {session?.role || 'USER'}
-                      </span>
+                      <Badge tone={session?.role === 'ADMIN' ? 'blue' : 'neutral'}>
+                        {session?.role === 'ADMIN' ? 'Admin' : 'User'}
+                      </Badge>
                     </div>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                    <p className="text-xs text-text-muted truncate">
                       {session?.email || 'No email associated'}
                     </p>
                   </div>
 
                   {/* Navigation Links */}
-                  <div className="py-1">
+                  <div>
                     <Link
                       href="/settings"
                       role="menuitem"
                       onClick={() => setUserMenuOpen(false)}
-                      className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                      className="flex h-8 items-center gap-2.5 px-2.5 rounded-md text-[13px] text-text-sub hover:bg-slate-50 dark:hover:bg-white/5 hover:text-text-main transition-colors"
                     >
                       <Settings size={15} />
                       <span>Account Settings</span>
@@ -471,7 +424,7 @@ export function TopNavBar({ session, systemStatus, onMobileMenuToggle }: TopNavB
                         href="/admin/users"
                         role="menuitem"
                         onClick={() => setUserMenuOpen(false)}
-                        className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                        className="flex h-8 items-center gap-2.5 px-2.5 rounded-md text-[13px] text-text-sub hover:bg-slate-50 dark:hover:bg-white/5 hover:text-text-main transition-colors"
                       >
                         <ShieldCheck size={15} />
                         <span>Users Administration</span>
@@ -479,16 +432,16 @@ export function TopNavBar({ session, systemStatus, onMobileMenuToggle }: TopNavB
                     )}
                   </div>
 
-                  <div className="border-t border-[#EBF0F5] dark:border-[#1E222D] my-1" />
+                  <div className="border-t border-card-border my-1" />
 
                   {/* Logout Button */}
-                  <div className="px-2 py-1">
+                  <div>
                     <button
                       type="button"
                       role="menuitem"
                       onClick={handleLogout}
                       disabled={loggingOut}
-                      className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium rounded-xl text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors disabled:opacity-50"
+                      className="w-full flex h-8 items-center gap-2.5 px-2.5 text-[13px] rounded-md text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer disabled:opacity-50"
                     >
                       <LogOut size={15} />
                       <span>{loggingOut ? 'Signing Out…' : 'Sign Out'}</span>

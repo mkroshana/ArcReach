@@ -90,7 +90,7 @@ export function AppLayoutClient({ children }: { children: React.ReactNode }) {
                 />
 
                 {/* Main page content area */}
-                <main className="flex-1 min-h-0 overflow-y-auto p-4 md:p-8 relative z-10">
+                <main className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 relative z-10">
                   <div className="max-w-7xl mx-auto h-full">
                     {children}
                   </div>

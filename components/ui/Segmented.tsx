@@ -33,7 +33,7 @@ export function Segmented<T extends string>({
             aria-pressed={active}
             onClick={() => onChange(opt.value)}
             className={cn(
-              'h-6 cursor-pointer rounded-md px-2.5 text-xs font-medium transition-colors',
+              'h-6 shrink-0 cursor-pointer rounded-md px-2.5 text-xs font-medium whitespace-nowrap transition-colors',
               active
                 ? 'bg-card text-text-main shadow-[0_1px_2px_rgba(15,23,42,0.08)]'
                 : 'text-text-sub hover:text-text-main',

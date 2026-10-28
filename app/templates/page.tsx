@@ -609,6 +609,7 @@ export default function TemplatesPage() {
                   <fieldset disabled={importing} className="min-w-0">
                     <Segmented
                       label="Import as"
+                      className="flex flex-wrap"
                       value={importMode}
                       onChange={setImportMode}
                       options={[

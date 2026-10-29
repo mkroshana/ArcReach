@@ -1,155 +1,226 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  BarChart, Bar, PieChart, Pie, Cell, Legend, LabelList,
+  ComposedChart,
+  Area,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as RechartsTooltip,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
 } from 'recharts';
-import { Mail, MousePointerClick, Reply, SendHorizontal, RefreshCw, XCircle, AlertTriangle, UserMinus, Plus } from 'lucide-react';
 import {
-  Box, Card, CardContent, Typography, Button, IconButton, Chip, Stack,
-  Skeleton, Select, MenuItem, FormControl, Tooltip as MuiTooltip, Alert, AlertTitle,
-} from '@mui/material';
-import { alpha, useTheme } from '@mui/material/styles';
+  MailOpen,
+  MousePointerClick,
+  Reply,
+  SendHorizontal,
+  RefreshCw,
+  XCircle,
+  AlertTriangle,
+  UserMinus,
+  Plus,
+  Inbox,
+  ArrowRight,
+  Check,
+} from 'lucide-react';
+import { Tooltip as MuiTooltip } from '@mui/material';
 import { useTheme as useAppTheme } from '@/components/ThemeProvider';
-import { deliveryStatusText } from '@/lib/systemStatus';
 import { replyCountUnknown } from '@/lib/imapSyncStatus';
 import { LoadError, loadErrorMessage, readJsonObject } from '@/lib/apiResponse';
+import { sendsByWeekday } from '@/lib/busiestSendDay';
+import { Card, CardHeader } from '@/components/ui/Card';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { Button, buttonClasses } from '@/components/ui/Button';
+import { Segmented } from '@/components/ui/Segmented';
+import { Badge, type BadgeTone } from '@/components/ui/Badge';
+import { StatCard } from '@/components/ui/StatCard';
+import { Table, THead, TH, TR, TD } from '@/components/ui/Table';
 
-/** The outbox chip for each /api/system-status deliveryStatus. */
-const DELIVERY_CHIP: Record<string, { label: string; color: string }> = {
-  RUNNING: { label: 'Outbox Running', color: 'success.main' },
-  STALLED: { label: 'Outbox Stalled', color: 'warning.main' },
-  FAILING: { label: 'Outbox Failing', color: 'error.main' },
-  NOT_RUNNING: { label: 'Outbox Not Running', color: 'error.main' },
-  DISABLED: { label: 'Sending Disabled', color: 'warning.main' },
-};
+/* -------------------------------------------------------------------------- */
+/*                               HYDRATION GUARD                              */
+/* -------------------------------------------------------------------------- */
+
+const emptySubscribe = () => () => {};
 
 /**
- * The Replies card's note while no mailbox that receives replies has reply sync on, so no reply is read: none
- * has IMAP set up, or the only ones that do send their replies to a Reply-To address that is not read.
+ * SSR hydration guard using React 19 useSyncExternalStore.
+ * Ensures zero hydration mismatches and eliminates Next.js 15 SSR ResponsiveContainer warnings.
+ */
+function useIsMounted() {
+  return useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                 CONSTANTS                                  */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The Replies card's note while no mailbox that receives replies has reply sync on.
  */
 const REPLY_SYNC_OFF_NOTE =
   "No mailbox that receives replies has reply sync on, so replies are not read and are missing from these counts. Replies to a mailbox's emails go to its Reply-To address when it has one, which is read only if it is a mailbox with reply sync on. On the Accounts page, set up reply sync on a mailbox, or check each mailbox's Reply-To.";
 
-const gridSx = (cols: number) => ({
-  display: 'grid',
-  gap: 2,
-  gridTemplateColumns: {
-    xs: '1fr',
-    sm: cols >= 3 ? 'repeat(2, 1fr)' : '1fr',
-    md: cols === 4 ? 'repeat(2, 1fr)' : `repeat(${Math.min(cols, 3)}, 1fr)`,
-    lg: `repeat(${cols}, 1fr)`,
-  },
+/** Status badge for each campaign status in Recent Campaigns. */
+const STATUS_BADGE: Record<string, { label: string; tone: BadgeTone }> = {
+  Active: { label: 'Active', tone: 'green' },
+  Paused: { label: 'Paused', tone: 'amber' },
+  Completed: { label: 'Completed', tone: 'blue' },
+  Draft: { label: 'Draft', tone: 'neutral' },
+  Stopped: { label: 'Stopped', tone: 'red' },
+};
+
+const RANGE_OPTIONS = [
+  { label: '7d', value: '7' },
+  { label: '30d', value: '30' },
+  { label: '90d', value: '90' },
+] as const;
+
+/**
+ * Trend series colours, checked with the dataviz palette validator against each
+ * mode's card surface. Dark mode takes its own steps; Clicks is also dashed,
+ * since its dark step sits close to Opens for protan readers.
+ */
+const SERIES_COLORS = {
+  light: { sent: '#2563EB', opens: '#10B981', clicks: '#F59E0B' },
+  dark: { sent: '#3B82F6', opens: '#059669', clicks: '#D97706' },
+};
+
+const WEEKDAY_NAMES: Record<string, string> = {
+  Mon: 'Monday',
+  Tue: 'Tuesday',
+  Wed: 'Wednesday',
+  Thu: 'Thursday',
+  Fri: 'Friday',
+  Sat: 'Saturday',
+  Sun: 'Sunday',
+};
+
+/** Y-axis ticks: 3,200 reads as 3.2k so the axis stays narrow. */
+const compactNumber = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 });
+
+const campaignDateFormat = new Intl.DateTimeFormat(undefined, {
+  day: 'numeric',
+  month: 'short',
+  year: 'numeric',
 });
 
-function DeltaChip({ change }: { change: number }) {
-  const positive = change > 0;
-  const negative = change < 0;
-  const tone = positive ? 'success' : negative ? 'error' : 'text';
-  return (
-    <Chip
-      size="small"
-      label={`${positive ? '+' : ''}${change}%`}
-      sx={{
-        height: 20,
-        bgcolor: (t) =>
-          alpha(tone === 'success' ? t.palette.success.main : tone === 'error' ? t.palette.error.main : t.palette.text.secondary, 0.14),
-        color: tone === 'text' ? 'text.secondary' : `${tone}.main`,
-        '& .MuiChip-label': { px: 1, fontSize: 11, fontWeight: 700 },
-      }}
-    />
-  );
-}
+/* -------------------------------------------------------------------------- */
+/*                                SUBCOMPONENTS                               */
+/* -------------------------------------------------------------------------- */
 
-/** A small warning mark with its reason on hover and focus. */
 function CaveatMark({ note }: { note: string }) {
   return (
     <MuiTooltip title={note} arrow>
-      <Box component="span" tabIndex={0} aria-label={note} sx={{ display: 'inline-flex', color: 'warning.main', verticalAlign: 'middle', ml: 0.5 }}>
-        <AlertTriangle size={12} />
-      </Box>
+      <span
+        tabIndex={0}
+        aria-label={note}
+        className="inline-flex text-amber-600 hover:text-amber-600 dark:text-amber-400 align-middle cursor-help transition-colors"
+      >
+        <AlertTriangle size={13} strokeWidth={2.2} />
+      </span>
     </MuiTooltip>
   );
 }
 
-function MetricCard({ title, value, change, sub, caveat, color, icon: Icon }: any) {
-  const hasDelta = change !== undefined && change !== null;
+function TrendTooltip({ active, payload, label }: any) {
+  if (!active || !payload || !payload.length) return null;
   return (
-    <Card sx={{ transition: 'border-color .2s, box-shadow .2s', '&:hover': { boxShadow: 3 } }}>
-      <CardContent>
-        <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <Typography variant="overline" sx={{ color: 'text.secondary', lineHeight: 1.4 }}>{title}</Typography>
-          <Box sx={{ width: 44, height: 44, borderRadius: '14px', display: 'grid', placeItems: 'center', flexShrink: 0, bgcolor: alpha(color, 0.14), color }}>
-            <Icon size={20} strokeWidth={2.2} />
-          </Box>
-        </Stack>
-        <Typography variant="h4" sx={{ fontWeight: 700, mt: 0.5 }}>{value}</Typography>
-        {hasDelta ? (
-          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mt: 1.25 }}>
-            <DeltaChip change={Number(change) || 0} />
-            <Typography variant="caption" sx={{ color: 'text.secondary' }}>vs last period</Typography>
-            {caveat && <CaveatMark note={caveat} />}
-          </Stack>
-        ) : sub ? (
-          <Typography variant="caption" sx={{ color: 'text.secondary', mt: 1.25, display: 'flex', alignItems: 'center' }}>
-            {sub}
-            {caveat && <CaveatMark note={caveat} />}
-          </Typography>
-        ) : null}
-      </CardContent>
-    </Card>
+    <div className="min-w-[160px] rounded-control border border-card-border bg-card p-3 text-xs shadow-[var(--float-shadow)]">
+      <div className="mb-2 font-medium text-text-main">{label}</div>
+      <div className="space-y-1.5">
+        {payload.map((entry: any, i: number) => (
+          <div key={`tooltip-${i}`} className="flex items-center justify-between gap-4">
+            <span className="flex items-center gap-1.5 text-text-sub">
+              <span className="size-2 rounded-full" style={{ backgroundColor: entry.stroke || entry.color }} />
+              {entry.name}
+            </span>
+            <span className="font-medium text-text-main">{Number(entry.value).toLocaleString()}</span>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
-function ChartCard({ title, subtitle, action, height = 300, children }: any) {
+/** A trend series' legend entry: its colour, name and total over the range. */
+function SeriesTotal({ color, label, total, dashed }: { color: string; label: string; total: number; dashed?: boolean }) {
   return (
-    <Card>
-      <CardContent>
-        <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
-          <Box>
-            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{title}</Typography>
-            {subtitle && <Typography variant="caption" sx={{ color: 'text.secondary' }}>{subtitle}</Typography>}
-          </Box>
-          {action}
-        </Stack>
-        <Box sx={{ height, width: '100%' }}>{children}</Box>
-      </CardContent>
-    </Card>
+    <div className="flex items-center gap-2">
+      <span
+        aria-hidden
+        className="h-0.5 w-3 rounded-full"
+        style={dashed ? { backgroundImage: `linear-gradient(90deg, ${color} 60%, transparent 60%)`, backgroundSize: '4px 2px' } : { backgroundColor: color }}
+      />
+      <span className="text-xs text-text-sub">{label}</span>
+      <span className="text-[13px] font-semibold text-text-main">{total.toLocaleString()}</span>
+    </div>
   );
 }
+
+/** A delivery-problem count under the trend chart, with a coloured underline naming its kind. */
+function HealthTile({
+  label,
+  value,
+  note,
+  icon: Icon,
+  accentClass,
+}: {
+  label: string;
+  value: number;
+  note: string;
+  icon: React.ElementType;
+  accentClass: string;
+}) {
+  return (
+    <MuiTooltip title={note} arrow>
+      <div className="rounded-control bg-canvas px-3 pt-2.5 pb-2">
+        <div className="flex items-center gap-1.5 text-xs text-text-sub">
+          <Icon size={13} strokeWidth={2} className="shrink-0 text-text-muted" />
+          {label}
+        </div>
+        <div className="mt-1 text-base font-semibold text-text-main">{value.toLocaleString()}</div>
+        <div aria-hidden className={`mt-2 h-0.5 w-8 rounded-full ${accentClass}`} />
+      </div>
+    </MuiTooltip>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                MAIN COMPONENT                              */
+/* -------------------------------------------------------------------------- */
 
 export default function Dashboard() {
-  const muiTheme = useTheme();
+  const isMounted = useIsMounted();
   const { theme: appMode } = useAppTheme();
-  // Charts read colors in JS (SVG attrs can't use CSS vars), and MUI's runtime
-  // theme always exposes the default (light) scheme — resolve from the scheme
-  // matching the app's actual mode instead.
-  const schemePalette = (muiTheme as any).colorSchemes?.[appMode]?.palette ?? muiTheme.palette;
-  const axisTickColor = schemePalette.text.secondary;
-  const gridStroke = schemePalette.divider;
-  const chartTooltipStyle = {
-    borderRadius: 12,
-    border: `1px solid ${schemePalette.divider}`,
-    background: schemePalette.background.paper,
-    color: schemePalette.text.primary,
-  };
+  const isDark = appMode === 'dark';
+
+  const gridStroke = isDark ? '#1E222D' : '#EEF1F5';
+  const axisTickColor = isDark ? '#94A3B8' : '#64748B';
+  const trackBg = isDark ? '#1E222D' : '#F1F5F9';
+  const series = isDark ? SERIES_COLORS.dark : SERIES_COLORS.light;
+
   const [range, setRange] = useState('7');
-  // Null until a load succeeds, so a failed first load shows an error, never zeros.
   const [stats, setStats] = useState<any>(null);
-  // The range and time of the numbers on screen, which stay while a refresh or another range loads.
   const [statsRange, setStatsRange] = useState(range);
   const [loadedAt, setLoadedAt] = useState<Date | null>(null);
   const [trends, setTrends] = useState<any[]>([]);
   const [funnel, setFunnel] = useState<any[]>([]);
   const [sentiment, setSentiment] = useState<any[]>([]);
-  // A load is in flight. Skeletons show only until the first numbers arrive.
+  const [recentCampaigns, setRecentCampaigns] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [systemStatus, setSystemStatus] = useState<any>(null);
-  // The load in flight. A newer load aborts it, so a late answer for another range is never shown.
   const inFlight = useRef<AbortController | null>(null);
 
   const fetchStats = async (selectedRange: string) => {
@@ -158,17 +229,21 @@ export default function Dashboard() {
     inFlight.current = controller;
     setLoading(true);
     try {
-      const [statsRes, statusRes] = await Promise.all([
+      const [statsRes, statusRes, campaignsRes] = await Promise.all([
         fetch(`/api/dashboard-stats?range=${selectedRange}`, { signal: controller.signal }),
         fetch('/api/system-status', { signal: controller.signal }),
+        fetch(`/api/campaigns?t=${Date.now()}`, { signal: controller.signal }),
       ]);
-      // A status that cannot be read shows as unknown, not as the last one read.
+
       const status = statusRes.ok ? await statusRes.json().catch(() => null) : null;
       if (controller.signal.aborted) return;
       setSystemStatus(status);
+
       const data = await readJsonObject(statsRes, 'Analytics');
       if (controller.signal.aborted) return;
-      if (!data.stats || typeof data.stats !== 'object') throw new LoadError('Analytics could not be loaded: the server sent no totals.');
+      if (!data.stats || typeof data.stats !== 'object') {
+        throw new LoadError('Analytics could not be loaded: the server sent no totals.');
+      }
       setStats(data.stats);
       setTrends(Array.isArray(data.trends) ? data.trends : []);
       setFunnel(Array.isArray(data.funnel) ? data.funnel : []);
@@ -176,6 +251,13 @@ export default function Dashboard() {
       setStatsRange(selectedRange);
       setLoadedAt(new Date());
       setLoadError('');
+
+      if (campaignsRes.ok) {
+        const campData = await campaignsRes.json().catch(() => []);
+        if (Array.isArray(campData)) {
+          setRecentCampaigns(campData.slice(0, 5));
+        }
+      }
     } catch (error) {
       if (controller.signal.aborted) return;
       console.error('Failed to load stats:', error);
@@ -188,8 +270,6 @@ export default function Dashboard() {
     }
   };
 
-  // Loads on open and on a range change, then every 30s while the tab is visible,
-  // skipping a poll while a load is still in flight.
   useEffect(() => {
     fetchStats(range);
     const interval = setInterval(() => {
@@ -201,203 +281,597 @@ export default function Dashboard() {
     };
   }, [range]);
 
-  const retryButton = (
-    <Button color="inherit" size="small" startIcon={<RefreshCw size={14} />} onClick={() => fetchStats(range)}>Retry</Button>
-  );
-
-  // Whether campaign email goes out, from the Azure settings and the send worker's heartbeat.
-  const delivery = DELIVERY_CHIP[systemStatus?.deliveryStatus]
-    ?? { label: !systemStatus && loading ? 'Checking Outbox' : 'Outbox Status Unknown', color: 'text.disabled' };
-  const deliveryDetail = DELIVERY_CHIP[systemStatus?.deliveryStatus]
-    ? deliveryStatusText(systemStatus.deliveryStatus, systemStatus.sendingProblem, systemStatus.workerHeartbeat)
-    : !systemStatus && loading ? '' : 'The system status could not be read.';
-  // With reply sync off on every mailbox that receives replies no reply is read, so a 0 means replies are not read, not that nobody replied.
   const replySyncOff = stats?.replySync === 'off';
   const repliesUnknown = replyCountUnknown(stats?.replySync, stats?.totalReplies);
-  const needsSetup = systemStatus && (systemStatus.accountsCount === 0 || systemStatus.leadsCount === 0 || systemStatus.activeCampaignsCount === 0);
+  const needsSetup =
+    systemStatus &&
+    (systemStatus.accountsCount === 0 ||
+      systemStatus.leadsCount === 0 ||
+      systemStatus.activeCampaignsCount === 0);
 
-  const setupSteps = systemStatus ? [
-    { done: systemStatus.accountsCount > 0, title: '1. Connect Mailbox', todo: 'No mailboxes connected. Outbound paused.', done_text: `${systemStatus.accountsCount} active mailbox(es) online.`, href: '/accounts', cta: 'Connect Senders' },
-    { done: systemStatus.leadsCount > 0, title: '2. Import Leads', todo: 'No CRM leads. Outbox has no targets.', done_text: `${systemStatus.leadsCount} CRM contact(s) imported.`, href: '/leads', cta: 'Upload Leads' },
-    { done: systemStatus.activeCampaignsCount > 0, title: '3. Start Campaign', todo: 'All campaigns are idle.', done_text: `${systemStatus.activeCampaignsCount} Active campaign(s).`, href: '/campaigns', cta: 'Manage Campaigns' },
-  ] : [];
+  const setupSteps = systemStatus
+    ? [
+        {
+          done: systemStatus.accountsCount > 0,
+          title: '1. Connect Mailbox',
+          todo: 'No mailboxes connected. Outbound paused.',
+          done_text: `${systemStatus.accountsCount} active mailbox(es) online.`,
+          href: '/accounts',
+          cta: 'Connect Senders',
+        },
+        {
+          done: systemStatus.leadsCount > 0,
+          title: '2. Import Leads',
+          todo: 'No CRM leads. Outbox has no targets.',
+          done_text: `${systemStatus.leadsCount} CRM contact(s) imported.`,
+          href: '/leads',
+          cta: 'Upload Leads',
+        },
+        {
+          done: systemStatus.activeCampaignsCount > 0,
+          title: '3. Start Campaign',
+          todo: 'All campaigns are idle.',
+          done_text: `${systemStatus.activeCampaignsCount} Active campaign(s).`,
+          href: '/campaigns',
+          cta: 'Manage Campaigns',
+        },
+      ]
+    : [];
+
+  // Sentiment synthesis
+  const positiveSentiment =
+    (sentiment.find((s) => s.name === 'Interested')?.value || 0) +
+    (sentiment.find((s) => s.name === 'Meeting Booked')?.value || 0);
+
+  const neutralSentiment =
+    (sentiment.find((s) => s.name === 'Neutral')?.value || 0) +
+    (sentiment.find((s) => s.name === 'Out of Office')?.value || 0);
+
+  const negativeSentiment =
+    (sentiment.find((s) => s.name === 'Not Interested')?.value || 0) +
+    (sentiment.find((s) => s.name === 'Bounced')?.value || 0) +
+    (sentiment.find((s) => s.name === 'Unsubscribed')?.value || 0);
+
+  const totalSentiment = positiveSentiment + neutralSentiment + negativeSentiment;
+  const positiveSentimentRate =
+    totalSentiment > 0 ? Math.round((positiveSentiment / totalSentiment) * 100) : 0;
+
+  const gaugeData =
+    totalSentiment === 0
+      ? [{ name: 'No Data', value: 1, fill: trackBg }]
+      : [
+          { name: 'Positive', value: positiveSentiment, fill: '#10B981' },
+          { name: 'Neutral', value: neutralSentiment, fill: '#94A3B8' },
+          { name: 'Negative', value: negativeSentiment, fill: '#F43F5E' },
+        ].filter((s) => s.value > 0);
+
+  const totalSentInFunnel = funnel.find((s) => s.name === 'Sent')?.value || 0;
+
+  // Totals over the range for the trend legend, and sends per weekday.
+  const trendTotals = trends.reduce(
+    (acc, t) => ({
+      sent: acc.sent + (Number(t.sent) || 0),
+      opens: acc.opens + (Number(t.opens) || 0),
+      clicks: acc.clicks + (Number(t.clicks) || 0),
+    }),
+    { sent: 0, opens: 0, clicks: 0 }
+  );
+  const weekdays = sendsByWeekday(trends);
+  const weekdayMax = Math.max(1, ...weekdays.days.map((d) => d.sent));
+  const comparison = `vs. prior ${statsRange} days`;
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-      {/* Header */}
-      <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ justifyContent: 'space-between', alignItems: { xs: 'flex-start', sm: 'center' }, gap: 2, pb: 2, borderBottom: 1, borderColor: 'divider' }}>
-        <Box>
-          <Typography variant="h4" sx={{ fontWeight: 700 }}>Campaign Analytics</Typography>
-          <Typography variant="body2" sx={{ color: 'text.secondary' }}>A unified overview of your outbound deliverability and automated sequences.</Typography>
-        </Box>
-        <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
-          <Button component={Link as any} href="/campaigns" variant="contained" startIcon={<Plus size={16} />}>Create Campaign</Button>
-          <MuiTooltip title="Refresh">
-            <IconButton aria-label="Refresh analytics" onClick={() => fetchStats(range)} sx={{ border: 1, borderColor: 'divider' }}>
-              <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-            </IconButton>
-          </MuiTooltip>
-          <MuiTooltip title={deliveryDetail}>
-            <Chip
-              size="small"
-              label={delivery.label}
-              sx={{ fontFamily: 'monospace', fontWeight: 700 }}
-              icon={<Box component="span" sx={{ width: 8, height: 8, borderRadius: '50%', ml: 1, bgcolor: delivery.color }} />}
-            />
-          </MuiTooltip>
-        </Stack>
-      </Stack>
+    <div className="space-y-4 pb-10">
+      <PageHeader
+        title="Dashboard"
+        actions={
+          <>
+            {loadedAt && (
+              <span className="mr-1 hidden text-xs text-text-muted sm:inline">
+                {loading ? 'Refreshing…' : `Updated ${loadedAt.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`}
+              </span>
+            )}
+            <Segmented label="Date range" options={RANGE_OPTIONS} value={range as '7' | '30' | '90'} onChange={setRange} />
+            <MuiTooltip title="Refresh">
+              <Button iconOnly aria-label="Refresh analytics" onClick={() => fetchStats(range)}>
+                <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+              </Button>
+            </MuiTooltip>
+            <Link href="/campaigns" className={buttonClasses({ variant: 'primary' })}>
+              <Plus size={15} />
+              Create Campaign
+            </Link>
+          </>
+        }
+      />
 
-      {/* Setup wizard */}
+      {/* Setup Wizard */}
       {needsSetup && (
-        <Card sx={{ bgcolor: (t) => alpha(t.palette.warning.main, 0.06), borderColor: (t) => alpha(t.palette.warning.main, 0.3) }}>
-          <CardContent>
-            <Typography variant="overline" sx={{ color: 'warning.main' }}>Required Setup Steps</Typography>
-            <Typography variant="body2" sx={{ color: 'text.secondary', mb: 2, fontWeight: 500 }}>
-              To start sending, connect a mailbox, import contacts, and activate a campaign.
-            </Typography>
-            <Box sx={gridSx(3)}>
-              {setupSteps.map((s) => (
-                <Card key={s.title} sx={{ bgcolor: s.done ? (t) => alpha(t.palette.success.main, 0.06) : 'background.paper', borderColor: s.done ? (t) => alpha(t.palette.success.main, 0.3) : (t) => alpha(t.palette.warning.main, 0.4) }}>
-                  <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                    <Typography variant="subtitle2" sx={{ fontWeight: 700, color: s.done ? 'success.main' : 'text.primary' }}>
-                      {s.done ? `✓ ${s.title}` : s.title}
-                    </Typography>
-                    <Typography variant="caption" sx={{ color: 'text.secondary' }}>{s.done ? s.done_text : s.todo}</Typography>
-                    <Button component={Link as any} href={s.href} size="small" variant="text" sx={{ alignSelf: 'flex-start', mt: 0.5 }}>
-                      {s.done ? 'Manage' : `${s.cta} →`}
-                    </Button>
-                  </CardContent>
-                </Card>
-              ))}
-            </Box>
-          </CardContent>
+        <Card className="p-5">
+          <div className="flex items-center gap-2">
+            <AlertTriangle size={15} className="text-amber-600 dark:text-amber-500" />
+            <h2 className="text-sm font-semibold text-text-main">Required Setup Steps</h2>
+          </div>
+          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+            {setupSteps.map((s) => (
+              <div key={s.title} className="rounded-control bg-canvas p-4">
+                <div className="flex items-center gap-2">
+                  {s.done ? (
+                    <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400">
+                      <Check size={12} strokeWidth={2.5} />
+                    </span>
+                  ) : (
+                    <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-amber-50 dark:bg-amber-500/10">
+                      <span className="size-1.5 rounded-full bg-amber-500" />
+                    </span>
+                  )}
+                  <span className="text-[13px] font-medium text-text-main">{s.title}</span>
+                </div>
+                <p className="mt-2 text-xs text-text-sub">{s.done ? s.done_text : s.todo}</p>
+                <Link
+                  href={s.href}
+                  className={`mt-3 inline-flex items-center gap-1 text-xs font-medium transition-colors ${
+                    s.done ? 'text-text-sub hover:text-text-main' : 'text-primary hover:text-primary-hover'
+                  }`}
+                >
+                  {s.done ? 'Manage' : s.cta}
+                  <ArrowRight size={12} />
+                </Link>
+              </div>
+            ))}
+          </div>
         </Card>
       )}
 
-      {/* After a failed first load the error stays up while a poll or Retry tries again */}
       {!stats && loading && !loadError ? (
-        <Stack sx={{ gap: 3 }}>
-          <Box sx={gridSx(4)}>{[0, 1, 2, 3].map((i) => <Skeleton key={i} variant="rounded" height={140} sx={{ borderRadius: '24px' }} />)}</Box>
-          <Box sx={gridSx(3)}>{[0, 1, 2].map((i) => <Skeleton key={i} variant="rounded" height={120} sx={{ borderRadius: '24px' }} />)}</Box>
-          <Skeleton variant="rounded" height={420} sx={{ borderRadius: '24px' }} />
-        </Stack>
+        /* Initial load skeletons, the same heights as the cards they stand in for */
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="h-[118px] rounded-card bg-slate-100 dark:bg-white/5 animate-pulse" />
+            ))}
+          </div>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <div className="lg:col-span-2 h-[430px] rounded-card bg-slate-100 dark:bg-white/5 animate-pulse" />
+            <div className="h-[430px] rounded-card bg-slate-100 dark:bg-white/5 animate-pulse" />
+          </div>
+          <div className="h-[320px] rounded-card bg-slate-100 dark:bg-white/5 animate-pulse" />
+        </div>
       ) : !stats ? (
-        <Alert severity="error" action={retryButton}>
-          <AlertTitle>Analytics Could Not Be Loaded</AlertTitle>
-          {loadError || 'Analytics could not be loaded.'}{loading ? ' Trying again…' : ''}
-        </Alert>
+        /* Failed initial load */
+        <Card className="flex items-start justify-between gap-4 border-rose-200 p-4 dark:border-rose-900/50">
+          <div>
+            <div className="text-sm font-semibold text-rose-700 dark:text-rose-300">Analytics Could Not Be Loaded</div>
+            <div className="mt-1 text-xs text-text-sub">
+              {loadError || 'Analytics could not be loaded.'}
+              {loading ? ' Trying again…' : ''}
+            </div>
+          </div>
+          <Button onClick={() => fetchStats(range)}>
+            <RefreshCw size={13} />
+            Retry
+          </Button>
+        </Card>
       ) : (
         <>
+          {/* Refresh failed while showing the last loaded figures */}
           {loadError && (
-            <Alert severity="warning" action={retryButton}>
-              <AlertTitle>Analytics Could Not Be Refreshed</AlertTitle>
-              Showing the last {statsRange} days as loaded at {loadedAt?.toLocaleTimeString()}. {loadError}
-            </Alert>
+            <Card className="flex items-start justify-between gap-4 border-amber-200 p-4 dark:border-amber-900/50">
+              <div>
+                <div className="text-[13px] font-semibold text-amber-700 dark:text-amber-300">
+                  Analytics Could Not Be Refreshed
+                </div>
+                <div className="mt-0.5 text-xs text-text-sub">
+                  Showing the last {statsRange} days as loaded at {loadedAt?.toLocaleTimeString()}. {loadError}
+                </div>
+              </div>
+              <Button size="sm" onClick={() => fetchStats(range)}>
+                <RefreshCw size={12} />
+                Retry
+              </Button>
+            </Card>
           )}
-          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-            Showing the last {statsRange} days · deltas compare against the prior {statsRange}-day window.{loading ? ' Refreshing…' : ''}
-          </Typography>
 
-          {/* Engagement metrics */}
-          <Box sx={gridSx(4)}>
-            <MetricCard title="Emails Sent" value={stats.totalSent.toLocaleString()} change={stats.deltas?.sent} color="#2563EB" icon={SendHorizontal} />
-            <MetricCard title="Open Rate" value={`${stats.averageOpenRate}%`} change={stats.deltas?.openRate} color="#0D9488" icon={Mail} />
-            <MetricCard title="Click Rate" value={`${stats.averageClickRate}%`} change={stats.deltas?.clickRate} color="#D97706" icon={MousePointerClick} />
-            <MetricCard
-              title="Replies"
-              value={repliesUnknown ? '—' : stats.totalReplies.toLocaleString()}
-              change={replySyncOff ? undefined : stats.deltas?.replies}
-              sub={replySyncOff ? 'Reply sync off' : undefined}
-              caveat={replySyncOff ? REPLY_SYNC_OFF_NOTE : undefined}
-              color="#7C3AED"
-              icon={Reply}
+          {/* 1. KPI row */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <StatCard
+              label="Emails Sent"
+              icon={SendHorizontal}
+              value={stats.totalSent.toLocaleString()}
+              delta={stats.deltas?.sent}
+              comparison={comparison}
             />
-          </Box>
+            <StatCard
+              label="Open Rate"
+              icon={MailOpen}
+              value={`${stats.averageOpenRate}%`}
+              delta={stats.deltas?.openRate}
+              comparison={comparison}
+            />
+            <StatCard
+              label="Click Rate"
+              icon={MousePointerClick}
+              value={`${stats.averageClickRate}%`}
+              delta={stats.deltas?.clickRate}
+              comparison={comparison}
+            />
+            <StatCard
+              label="Replies"
+              icon={Reply}
+              value={repliesUnknown ? '—' : stats.totalReplies.toLocaleString()}
+              delta={replySyncOff ? undefined : stats.deltas?.replies}
+              comparison={replySyncOff ? undefined : comparison}
+              footer={
+                replySyncOff ? (
+                  <span className="inline-flex items-center gap-1.5">
+                    Reply sync off
+                    <CaveatMark note={REPLY_SYNC_OFF_NOTE} />
+                  </span>
+                ) : undefined
+              }
+            />
+          </div>
 
-          {/* Deliverability health */}
-          <Box sx={gridSx(3)}>
-            <MetricCard title="Failed Sends" value={(stats.failed ?? 0).toLocaleString()} sub="Send attempts recorded as failed" color="#DC2626" icon={XCircle} />
-            <MetricCard title="Bounced" value={(stats.bounced ?? 0).toLocaleString()} sub="Hard bounces at send time or reported on delivery" color="#D97706" icon={AlertTriangle} />
-            <MetricCard title="Unsubscribed" value={(stats.unsubscribed ?? 0).toLocaleString()} sub="Opted out of mailings" color="#64748B" icon={UserMinus} />
-          </Box>
+          {/* 2. Engagement trend (2/3) beside the funnel (1/3) */}
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <Card className="lg:col-span-2 min-w-0 p-5">
+              <CardHeader title="Engagement Trends" />
+              <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2">
+                <SeriesTotal color={series.sent} label="Emails Sent" total={trendTotals.sent} />
+                <SeriesTotal color={series.opens} label="Unique Opens" total={trendTotals.opens} />
+                <SeriesTotal color={series.clicks} label="Unique Clicks" total={trendTotals.clicks} dashed />
+              </div>
 
-          {/* Engagement trend */}
-          <ChartCard
-            title="Engagement Trends"
-            subtitle="Campaign emails sent each day, and how many of them were opened and clicked."
-            height={350}
-            action={
-              <FormControl size="small">
-                <Select value={range} onChange={(e) => setRange(e.target.value)} sx={{ minWidth: 140 }}>
-                  <MenuItem value="7">Last 7 Days</MenuItem>
-                  <MenuItem value="30">Last 30 Days</MenuItem>
-                  <MenuItem value="90">Last 90 Days</MenuItem>
-                </Select>
-              </FormControl>
-            }
-          >
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={trends} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="colorSent" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#3b82f6" stopOpacity={0.15} /><stop offset="95%" stopColor="#3b82f6" stopOpacity={0} /></linearGradient>
-                  <linearGradient id="colorOpens" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#2dd4bf" stopOpacity={0.15} /><stop offset="95%" stopColor="#2dd4bf" stopOpacity={0} /></linearGradient>
-                  <linearGradient id="colorClicks" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#f43f5e" stopOpacity={0.15} /><stop offset="95%" stopColor="#f43f5e" stopOpacity={0} /></linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={gridStroke} />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: axisTickColor, fontSize: 11 }} dy={10} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fill: axisTickColor, fontSize: 11 }} allowDecimals={false} />
-                <Tooltip contentStyle={chartTooltipStyle} labelStyle={{ color: schemePalette.text.primary }} itemStyle={{ fontSize: 11 }} />
-                <Legend verticalAlign="top" height={28} iconType="plainline" wrapperStyle={{ fontSize: 11 }} />
-                <Area type="linear" dataKey="sent" stroke="#3b82f6" strokeWidth={2.5} fillOpacity={1} fill="url(#colorSent)" name="Emails Sent" dot={{ r: 2 }} />
-                <Area type="linear" dataKey="opens" stroke="#2dd4bf" strokeWidth={2.5} fillOpacity={1} fill="url(#colorOpens)" name="Unique Opens" dot={{ r: 2 }} />
-                <Area type="linear" dataKey="clicks" stroke="#f43f5e" strokeWidth={2.5} fillOpacity={1} fill="url(#colorClicks)" name="Unique Clicks" dot={{ r: 2 }} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </ChartCard>
-
-          <Box sx={{ display: 'grid', gap: 3, gridTemplateColumns: { xs: '1fr', lg: '1fr 1fr' } }}>
-            <ChartCard
-              title="Conversion Funnel"
-              subtitle={`Pipeline from outbound dispatch to booked meeting.${repliesUnknown ? ' Replied is left out while reply sync is off.' : ''}`}
-            >
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart layout="vertical" data={funnel} margin={{ top: 10, right: 24, left: 20, bottom: 10 }}>
-                  <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: axisTickColor, fontSize: 10 }} allowDecimals={false} />
-                  <YAxis type="category" dataKey="name" axisLine={false} tickLine={false} tick={{ fill: axisTickColor, fontSize: 10 }} width={90} />
-                  {/* Each stage names what it counts: emails, replies or leads. */}
-                  <Tooltip cursor={{ fill: alpha(schemePalette.text.secondary, 0.08) }} contentStyle={chartTooltipStyle} labelStyle={{ color: schemePalette.text.primary }} itemStyle={{ fontSize: 11 }} formatter={(value, name, item) => [value, item?.payload?.unit ?? name]} />
-                  <Bar dataKey="value" fill={schemePalette.primary.main} radius={[0, 8, 8, 0]} barSize={24} name="Count">
-                    <LabelList dataKey="value" position="right" style={{ fontSize: 10, fontWeight: 700, fill: axisTickColor }} />
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </ChartCard>
-
-            <ChartCard title="Prospect Sentiment" subtitle="Distribution of lead outcomes and responses.">
-              <Box sx={{ position: 'relative', height: '100%' }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie data={sentiment.filter((s) => s.value > 0)} cx="50%" cy="50%" innerRadius={65} outerRadius={95} paddingAngle={3} dataKey="value" nameKey="name">
-                      {sentiment.filter((s) => s.value > 0).map((entry, index) => {
-                        const colors: Record<string, string> = { 'Neutral': '#94a3b8', 'Interested': '#10b981', 'Not Interested': '#f43f5e', 'Meeting Booked': '#6366f1', 'Out of Office': '#f59e0b', 'Bounced': '#8b5cf6', 'Unsubscribed': '#475569' };
-                        return <Cell key={`cell-${index}`} fill={colors[entry.name] || '#3b82f6'} />;
-                      })}
-                    </Pie>
-                    <Tooltip contentStyle={chartTooltipStyle} labelStyle={{ color: schemePalette.text.primary }} itemStyle={{ fontSize: 11 }} />
-                    <Legend verticalAlign="bottom" height={36} iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 10 }} />
-                  </PieChart>
-                </ResponsiveContainer>
-                {sentiment.every((s) => s.value === 0) && (
-                  <Box sx={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center' }}>
-                    <Typography variant="caption" sx={{ color: 'text.secondary' }}>No leads enrolled in active campaigns.</Typography>
-                  </Box>
+              <div className="mt-4 h-[240px] w-full min-h-[240px] min-w-0 relative">
+                {!isMounted ? (
+                  <div className="w-full h-full animate-pulse rounded-control bg-slate-100 dark:bg-white/5" />
+                ) : trends.length === 0 ? (
+                  <div className="w-full h-full flex flex-col items-center justify-center text-center">
+                    <Inbox size={24} className="mb-2 text-text-muted" />
+                    <span className="text-[13px] font-medium text-text-sub">No engagement activity recorded</span>
+                    <span className="mt-0.5 text-xs text-text-muted">Sent emails and prospect interactions will chart here</span>
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={240}>
+                    <ComposedChart data={trends} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="trendSentFill" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor={series.sent} stopOpacity={0.16} />
+                          <stop offset="100%" stopColor={series.sent} stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid vertical={false} stroke={gridStroke} />
+                      <XAxis
+                        dataKey="name"
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fill: axisTickColor, fontSize: 11 }}
+                        dy={8}
+                        minTickGap={16}
+                      />
+                      <YAxis
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fill: axisTickColor, fontSize: 11 }}
+                        allowDecimals={false}
+                        tickFormatter={(v: number) => compactNumber.format(v)}
+                        width={36}
+                      />
+                      <RechartsTooltip content={<TrendTooltip />} cursor={{ stroke: gridStroke, strokeWidth: 1 }} />
+                      <Area
+                        type="monotone"
+                        dataKey="sent"
+                        stroke={series.sent}
+                        strokeWidth={2}
+                        fill="url(#trendSentFill)"
+                        name="Emails Sent"
+                        isAnimationActive={false}
+                        activeDot={{ r: 4, strokeWidth: 2, stroke: isDark ? '#11131A' : '#FFFFFF' }}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="opens"
+                        stroke={series.opens}
+                        strokeWidth={2}
+                        dot={false}
+                        name="Unique Opens"
+                        isAnimationActive={false}
+                        activeDot={{ r: 4, strokeWidth: 2, stroke: isDark ? '#11131A' : '#FFFFFF' }}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="clicks"
+                        stroke={series.clicks}
+                        strokeWidth={2}
+                        strokeDasharray="4 3"
+                        dot={false}
+                        name="Unique Clicks"
+                        isAnimationActive={false}
+                        activeDot={{ r: 4, strokeWidth: 2, stroke: isDark ? '#11131A' : '#FFFFFF' }}
+                      />
+                    </ComposedChart>
+                  </ResponsiveContainer>
                 )}
-              </Box>
-            </ChartCard>
-          </Box>
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <HealthTile
+                  label="Failed Sends"
+                  value={stats.failed ?? 0}
+                  note="Send attempts recorded as failed"
+                  icon={XCircle}
+                  accentClass="bg-rose-500"
+                />
+                <HealthTile
+                  label="Bounced"
+                  value={stats.bounced ?? 0}
+                  note="Hard bounces at send time or reported on delivery"
+                  icon={AlertTriangle}
+                  accentClass="bg-amber-500"
+                />
+                <HealthTile
+                  label="Unsubscribed"
+                  value={stats.unsubscribed ?? 0}
+                  note="Opted out of mailings"
+                  icon={UserMinus}
+                  accentClass="bg-slate-400"
+                />
+              </div>
+            </Card>
+
+            <Card className="lg:col-span-1 min-w-0 flex flex-col p-5">
+              <CardHeader title="Conversion Funnel" />
+              {repliesUnknown && (
+                <p className="mt-2 flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400">
+                  <AlertTriangle size={12} className="shrink-0" />
+                  Replied stage omitted (reply sync is unconfigured).
+                </p>
+              )}
+              {funnel.length === 0 || totalSentInFunnel === 0 ? (
+                <div className="flex h-[240px] flex-col items-center justify-center text-center">
+                  <Inbox size={24} className="mb-2 text-text-muted" />
+                  <span className="text-[13px] font-medium text-text-sub">No outreach dispatches recorded</span>
+                  <span className="mt-0.5 text-xs text-text-muted">Launch a campaign sequence to view conversion flow</span>
+                </div>
+              ) : (
+                <ul className="mt-4 flex flex-1 flex-col justify-between gap-4">
+                  {funnel.map((stage) => {
+                    const share = (stage.value / totalSentInFunnel) * 100;
+                    return (
+                      <li key={stage.name}>
+                        <div className="flex items-baseline justify-between gap-3 text-[13px]">
+                          <span className="text-text-sub">{stage.name}</span>
+                          <span className="flex items-baseline gap-2">
+                            <span className="font-semibold text-text-main">{Number(stage.value).toLocaleString()}</span>
+                            {stage.name !== 'Sent' && (
+                              <span className="w-12 text-right text-xs text-text-muted">{share.toFixed(1)}%</span>
+                            )}
+                          </span>
+                        </div>
+                        <div className="mt-1.5 h-1.5 rounded-full bg-slate-100 dark:bg-white/5">
+                          <div
+                            className="h-full rounded-full bg-primary"
+                            style={{ width: `${Math.min(100, Math.max(stage.value > 0 ? 1 : 0, share))}%` }}
+                          />
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </Card>
+          </div>
+
+          {/* 3. Recent campaigns (2/3) beside the busiest send day and sentiment (1/3) */}
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3 lg:items-start">
+            <Card className="lg:col-span-2 min-w-0 overflow-hidden">
+              <CardHeader
+                className="px-5 pt-4 pb-3"
+                title="Recent Campaigns"
+                action={
+                  <Link href="/campaigns" className={buttonClasses({ variant: 'ghost', size: 'sm' })}>
+                    View All
+                    <ArrowRight size={13} />
+                  </Link>
+                }
+              />
+              <div className="w-full overflow-x-auto">
+                <Table>
+                  <THead>
+                    <tr>
+                      <TH className="pl-5">Campaign</TH>
+                      <TH>Status</TH>
+                      <TH className="text-right">Leads</TH>
+                      <TH className="text-right">Sent</TH>
+                      <TH className="pr-5">Open Rate</TH>
+                    </tr>
+                  </THead>
+                  <tbody>
+                    {loading && recentCampaigns.length === 0 ? (
+                      [0, 1, 2, 3].map((idx) => (
+                        <TR key={idx} className="animate-pulse">
+                          <TD className="pl-5">
+                            <div className="h-4 w-36 rounded bg-slate-100 dark:bg-white/5" />
+                          </TD>
+                          <TD>
+                            <div className="h-4 w-14 rounded bg-slate-100 dark:bg-white/5" />
+                          </TD>
+                          <TD>
+                            <div className="ml-auto h-4 w-10 rounded bg-slate-100 dark:bg-white/5" />
+                          </TD>
+                          <TD>
+                            <div className="ml-auto h-4 w-10 rounded bg-slate-100 dark:bg-white/5" />
+                          </TD>
+                          <TD className="pr-5">
+                            <div className="h-4 w-20 rounded bg-slate-100 dark:bg-white/5" />
+                          </TD>
+                        </TR>
+                      ))
+                    ) : recentCampaigns.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-5 py-10 text-center">
+                          <h3 className="text-sm font-semibold text-text-main">No Campaigns Created Yet</h3>
+                          <p className="mx-auto mt-1 max-w-sm text-xs text-text-sub">
+                            Create your first automated email campaign to start reaching prospects and tracking engagement metrics.
+                          </p>
+                          <Link href="/campaigns" className={buttonClasses({ variant: 'primary', className: 'mt-4' })}>
+                            <Plus size={15} />
+                            Create Campaign
+                          </Link>
+                        </td>
+                      </tr>
+                    ) : (
+                      recentCampaigns.map((c) => {
+                        const totalLeads = c.enrollmentSummary?.total ?? 0;
+                        const totalSent = c.stepStats?.reduce((acc: number, s: any) => acc + (s.sent || 0), 0) ?? 0;
+                        const isCompleted = totalLeads > 0 && c.enrollmentSummary?.completed === totalLeads;
+                        const resolvedStatus = isCompleted ? 'Completed' : c.status;
+                        const badge = STATUS_BADGE[resolvedStatus] || STATUS_BADGE.Draft;
+                        const hasOpenRate = typeof c.openRate === 'number';
+                        const openRateValue = hasOpenRate ? c.openRate : 0;
+
+                        return (
+                          <TR key={c.id}>
+                            <TD className="max-w-[280px] pl-5">
+                              <Link
+                                href={`/campaigns/${c.id}`}
+                                className="block truncate font-medium text-text-main transition-colors hover:text-primary"
+                              >
+                                {c.name}
+                              </Link>
+                              <span className="block truncate text-xs text-text-muted">
+                                {c.createdAt
+                                  ? `Created ${campaignDateFormat.format(new Date(c.createdAt))}`
+                                  : c.senderAccount?.emailAddress || 'Automated Sequence'}
+                              </span>
+                            </TD>
+                            <TD>
+                              <Badge tone={badge.tone} dot>
+                                {badge.label}
+                              </Badge>
+                            </TD>
+                            <TD className="text-right">{totalLeads.toLocaleString()}</TD>
+                            <TD className="text-right">{totalSent.toLocaleString()}</TD>
+                            <TD className="pr-5">
+                              {hasOpenRate ? (
+                                <div className="flex items-center gap-2.5">
+                                  <span className="w-11 text-text-main">{openRateValue.toFixed(1)}%</span>
+                                  <div className="h-1.5 w-16 rounded-full bg-slate-100 dark:bg-white/5">
+                                    <div
+                                      className="h-full rounded-full bg-primary"
+                                      style={{ width: `${Math.min(100, Math.max(0, openRateValue))}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              ) : (
+                                <span className="text-text-muted">{totalSent > 0 ? '—' : '0.0%'}</span>
+                              )}
+                            </TD>
+                          </TR>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </Table>
+              </div>
+            </Card>
+
+            <div className="lg:col-span-1 min-w-0 space-y-4">
+              {/* Busiest send day, from the trend's daily sends */}
+              <Card className="p-5">
+                <CardHeader title="Busiest Send Day" />
+                {weekdays.busiest ? (
+                  <>
+                    <div className="mt-2 text-2xl font-semibold tracking-tight text-text-main">
+                      {WEEKDAY_NAMES[weekdays.busiest.day]}
+                    </div>
+                    <p className="mt-0.5 text-xs text-text-muted">
+                      {weekdays.busiest.sent.toLocaleString()} emails sent on {WEEKDAY_NAMES[weekdays.busiest.day]}s in the last {statsRange} days
+                    </p>
+                    <div className="mt-4 flex h-[96px] items-end gap-1.5" role="list" aria-label="Emails sent by weekday">
+                      {weekdays.days.map((d) => (
+                        <MuiTooltip key={d.day} title={`${WEEKDAY_NAMES[d.day]}: ${d.sent.toLocaleString()} sent`} arrow>
+                          <div role="listitem" className="flex h-full flex-1 cursor-default flex-col justify-end">
+                            <div
+                              className={`rounded-t-[4px] ${d === weekdays.busiest ? 'bg-primary' : 'bg-blue-100 dark:bg-primary-subtle'}`}
+                              style={{ height: `${Math.max(d.sent > 0 ? 4 : 2, (d.sent / weekdayMax) * 100)}%` }}
+                            />
+                          </div>
+                        </MuiTooltip>
+                      ))}
+                    </div>
+                    <div className="mt-1.5 flex gap-1.5">
+                      {weekdays.days.map((d) => (
+                        <span key={d.day} className="flex-1 text-center text-[11px] text-text-muted">
+                          {d.day}
+                        </span>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <p className="mt-2 text-xs text-text-muted">No emails sent in the last {statsRange} days.</p>
+                )}
+              </Card>
+
+              {/* Prospect sentiment gauge */}
+              <Card className="p-5">
+                <CardHeader title="Prospect Sentiment" />
+                <div className="mt-2 w-full h-[120px] min-h-[120px] min-w-0 relative flex items-center justify-center">
+                  {!isMounted ? (
+                    <div className="w-full h-full animate-pulse rounded-control bg-slate-100 dark:bg-white/5" />
+                  ) : (
+                    <>
+                      <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={120}>
+                        <PieChart margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
+                          <Pie
+                            data={gaugeData}
+                            cx="50%"
+                            cy="88%"
+                            startAngle={180}
+                            endAngle={0}
+                            innerRadius={68}
+                            outerRadius={84}
+                            paddingAngle={totalSentiment > 0 && gaugeData.length > 1 ? 2 : 0}
+                            dataKey="value"
+                            isAnimationActive={false}
+                          >
+                            {gaugeData.map((entry, index) => (
+                              <Cell key={`gauge-cell-${index}`} fill={entry.fill} stroke="none" />
+                            ))}
+                          </Pie>
+                        </PieChart>
+                      </ResponsiveContainer>
+                      <div className="pointer-events-none absolute bottom-1 left-1/2 -translate-x-1/2 text-center">
+                        <span className="block text-2xl font-semibold tracking-tight text-text-main">
+                          {totalSentiment > 0 ? `${positiveSentimentRate}%` : '—'}
+                        </span>
+                        <span className="block text-xs text-text-muted">
+                          {totalSentiment > 0 ? 'Positive' : 'No Contacts'}
+                        </span>
+                      </div>
+                    </>
+                  )}
+                </div>
+                <div className="mt-4 grid grid-cols-3 gap-2 border-t border-card-border pt-3">
+                  {[
+                    { label: 'Positive', value: positiveSentiment, dot: 'bg-emerald-500' },
+                    { label: 'Neutral', value: neutralSentiment, dot: 'bg-slate-400' },
+                    { label: 'Negative', value: negativeSentiment, dot: 'bg-rose-500' },
+                  ].map((s) => (
+                    <div key={s.label}>
+                      <div className="flex items-center gap-1.5 text-xs text-text-sub">
+                        <span className={`size-2 rounded-full ${s.dot}`} />
+                        {s.label}
+                      </div>
+                      <div className="mt-0.5 text-[13px] font-semibold text-text-main">{s.value.toLocaleString()}</div>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            </div>
+          </div>
         </>
       )}
-    </Box>
+    </div>
   );
 }

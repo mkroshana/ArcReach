@@ -1,4 +1,4 @@
-/* eslint-disable react-hooks/set-state-in-effect, react/no-unescaped-entities, react-hooks/exhaustive-deps */
+/* eslint-disable react-hooks/set-state-in-effect */
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -330,11 +330,11 @@ export default function UsersAdminPage() {
                           </Avatar>
                           <Box>
                             <Typography variant="body2" sx={{ fontWeight: 700 }}>{item.name || 'Unnamed Employee'}</Typography>
-                            <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace' }}>UID: {item.id.slice(0, 13)}…</Typography>
+                            <Typography variant="caption" sx={{ color: 'text.secondary' }}>UID: {item.id.slice(0, 13)}…</Typography>
                           </Box>
                         </Stack>
                       </TableCell>
-                      <TableCell sx={{ fontFamily: 'monospace', fontSize: 12, color: 'text.secondary' }}>{item.email}</TableCell>
+                      <TableCell sx={{ fontSize: 12, color: 'text.secondary' }}>{item.email}</TableCell>
                       <TableCell>
                         <Stack direction="row" spacing={1}>
                           <Chip
@@ -416,7 +416,7 @@ export default function UsersAdminPage() {
             <TextField label="Name" required value={newName} onChange={(e) => setNewName(e.target.value)} size="small" />
             <TextField
               label="Email" type="email" required value={newEmail} onChange={(e) => setNewEmail(e.target.value)} size="small"
-              slotProps={{ input: { startAdornment: <InputAdornment position="start"><Mail size={16} /></InputAdornment>, sx: { fontFamily: 'monospace' } } }}
+              slotProps={{ input: { startAdornment: <InputAdornment position="start"><Mail size={16} /></InputAdornment> } }}
             />
             <Box>
               <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>

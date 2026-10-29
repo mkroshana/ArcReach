@@ -2,8 +2,8 @@
 'use client';
 
 import {
-  ArrowLeft, Save, Send, Settings, Users, AlignLeft, Clock, ToggleLeft, Plus, Trash2, Mail,
-  Eye, Play, Loader2, AlertTriangle, TimerOff, Lock, RefreshCw, UserX, CircleStop, RotateCcw, Split,
+  ArrowLeft, Save, Send, Plus, Trash2, Eye, PenLine, Play, Loader2, AlertTriangle, TimerOff, Lock, RefreshCw, UserX,
+  CircleStop, RotateCcw, Split, Clock,
 } from 'lucide-react';
 import Link from 'next/link';
 import { use, useState, useEffect, useRef } from 'react';
@@ -15,6 +15,14 @@ import CampaignAnalytics, { StepStatStrip, analyticsCaveats } from '@/components
 import CampaignTiming from '@/components/CampaignTiming';
 import CampaignLeadExport from '@/components/CampaignLeadExport';
 import { RecipientDomainsInput } from '@/components/RecipientDomainsInput';
+import { Badge } from '@/components/ui/Badge';
+import { Button, buttonClasses } from '@/components/ui/Button';
+import { Card, CardHeader } from '@/components/ui/Card';
+import { inputClasses } from '@/components/ui/Input';
+import { Notice } from '@/components/ui/Notice';
+import { Segmented } from '@/components/ui/Segmented';
+import { Switch } from '@/components/ui/Switch';
+import { cn } from '@/lib/utils';
 import { activationBlocker, findIncompleteSteps, queuedLeadsMessage, sequenceDurationDays } from '@/lib/campaignSteps';
 import { autoResumeNote, noScheduleOutcome, ownerDisabledNote, savedScheduleNote } from '@/lib/campaignPause';
 import { STOPPABLE_STATUSES, STOPPED_STATUS, restartConfirmMessage, stopConfirmMessage, stoppedNote } from '@/lib/campaignStop';
@@ -25,12 +33,20 @@ import { mailboxReplySync, mailboxReplySyncLabel, otherReplyTo, stopOnReplyWarni
 import { loadErrorMessage, readJsonList, responseErrorMessage } from '@/lib/apiResponse';
 import { effectiveRecipientDomains, routingSummary, storedRecipientDomains, unroutedPoolError } from '@/lib/senderRouting';
 import { skippedByText, skippedLeadsNote } from '@/lib/campaignProgress';
-import {
-  Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
-  Select, MenuItem, FormControl, InputLabel, Switch, Skeleton, ToggleButtonGroup, ToggleButton,
-  Checkbox, FormControlLabel, Alert, AlertTitle, Autocomplete,
-} from '@mui/material';
-import { alpha } from '@mui/material/styles';
+
+import { Autocomplete, TextField } from '@mui/material';
+
+const TAB_OPTIONS = ['Analytics', 'Sequence', 'Audience', 'Schedule', 'Options', 'Senders'].map(tab => ({ value: tab, label: tab }));
+
+/** The status menu in the header wears the status tag's colours. */
+const STATUS_SELECT: Record<string, string> = {
+  Active: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300',
+  Paused: 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300',
+  Draft: 'bg-slate-100 text-slate-600 dark:bg-white/5 dark:text-slate-300',
+};
+
+/** A form field's label. */
+const LABEL = 'mb-1.5 block text-[13px] font-medium text-text-main';
 
 export default function CampaignDetailsPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = use(params);
@@ -376,41 +392,39 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
 
   if (loading) {
     return (
-      <Box sx={{ maxWidth: 1100, mx: 'auto', pb: 8, display: 'flex', flexDirection: 'column', gap: 3 }}>
-        <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', pb: 2, borderBottom: 1, borderColor: 'divider' }}>
-          <Stack direction="row" spacing={2} sx={{ alignItems: 'center' }}>
-            <Skeleton variant="rounded" width={36} height={36} />
-            <Box><Skeleton width={200} height={28} /><Skeleton width={140} /></Box>
-          </Stack>
-          <Stack direction="row" spacing={1}><Skeleton variant="rounded" width={100} height={36} /><Skeleton variant="rounded" width={120} height={36} /></Stack>
-        </Stack>
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', lg: 'repeat(4, 1fr)' }, gap: 2 }}>
-          {[0,1,2,3].map(i => <Skeleton key={i} variant="rounded" height={120} sx={{ borderRadius: '24px' }} />)}
-        </Box>
-        <Skeleton variant="rounded" height={300} sx={{ borderRadius: '24px' }} />
-      </Box>
+      <div className="mx-auto flex max-w-[1100px] flex-col gap-4 pb-12">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="size-8 animate-pulse rounded-control bg-slate-100 dark:bg-white/5" />
+            <div className="h-6 w-56 animate-pulse rounded-md bg-slate-100 dark:bg-white/5" />
+          </div>
+          <div className="h-8 w-56 animate-pulse rounded-control bg-slate-100 dark:bg-white/5" />
+        </div>
+        <div className="h-[120px] animate-pulse rounded-card bg-slate-100 dark:bg-white/5" />
+        <div className="h-[300px] animate-pulse rounded-card bg-slate-100 dark:bg-white/5" />
+      </div>
     );
   }
 
   // Never loaded: an empty form would show defaults as the campaign's settings, and Save could write them.
   if (!campaign) {
     return (
-      <Box sx={{ maxWidth: 1100, mx: 'auto', py: 8, display: 'flex', flexDirection: 'column', gap: 2 }}>
-        <Alert
-          severity="error"
-          action={<Button color="inherit" size="small" startIcon={<RefreshCw size={14} />} onClick={() => loadCampaign()}>Retry</Button>}
+      <div className="mx-auto flex max-w-[1100px] flex-col items-start gap-3 py-8">
+        <Notice
+          tone="error"
+          title="Campaign Could Not Be Loaded"
+          className="w-full"
+          action={<Button size="sm" onClick={() => loadCampaign()}><RefreshCw size={12} /> Retry</Button>}
         >
-          <AlertTitle>Campaign Could Not Be Loaded</AlertTitle>
           {loadError || 'The campaign could not be loaded.'}
-        </Alert>
-        <Button component={Link as any} href="/campaigns" color="inherit" startIcon={<ArrowLeft size={14} />} sx={{ alignSelf: 'flex-start', color: 'text.secondary' }}>
-          Back to Campaigns
-        </Button>
-      </Box>
+        </Notice>
+        <Link href="/campaigns" className={buttonClasses({ variant: 'ghost' })}>
+          <ArrowLeft size={14} /> Back to Campaigns
+        </Link>
+      </div>
     );
   }
 
-  const statusColor = status === 'Active' ? 'success' : status === 'Paused' ? 'warning' : 'default';
   // A stopped campaign is read-only until it is restarted: the form shows its
   // settings, but nothing in it can be changed or saved.
   const stopped = status === STOPPED_STATUS;
@@ -432,163 +446,163 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
   const savedWindowNote = savedScheduleNote(campaign);
 
   return (
-    <Box sx={{ maxWidth: 1100, mx: 'auto', pb: 8, display: 'flex', flexDirection: 'column', gap: 3 }}>
+    <div className="mx-auto flex max-w-[1100px] flex-col gap-4 pb-12">
       {/* Header */}
-      <Stack direction={{ xs: 'column', md: 'row' }} sx={{ justifyContent: 'space-between', alignItems: { md: 'flex-start' }, gap: 2, pb: 2, borderBottom: 1, borderColor: 'divider' }}>
-        <Stack direction="row" spacing={2} sx={{ alignItems: 'flex-start' }}>
-          <IconButton aria-label="Back to campaigns" component={Link as any} href="/campaigns" sx={{ border: 1, borderColor: 'divider' }}>
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <Link href="/campaigns" aria-label="Back to campaigns" className={buttonClasses({ iconOnly: true })}>
             <ArrowLeft size={16} />
-          </IconButton>
-          <Box>
-            <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
-              <Typography variant="h5" sx={{ fontWeight: 700 }}>{campaignName || 'Sequence Setup'}</Typography>
+          </Link>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h1 className="text-xl font-semibold tracking-tight text-text-main">{campaignName || 'Sequence Setup'}</h1>
               {stopped ? (
-                <Chip
-                  size="small" variant="outlined" color="error" label="Stopped" icon={<CircleStop size={12} />}
-                  sx={{ height: 26, fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}
-                />
+                <Badge tone="red" dot>Stopped</Badge>
               ) : (
-                <FormControl size="small">
-                  <Select
-                    value={status}
-                    disabled={changingStatus}
-                    onChange={(e) => handleStatusChange(e.target.value)}
-                    sx={{
-                      height: 26, fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase',
-                      bgcolor: (t) => statusColor !== 'default' ? alpha(t.palette[statusColor as 'success' | 'warning'].main, 0.14) : 'action.hover',
-                      color: statusColor !== 'default' ? `${statusColor}.main` : 'text.secondary',
-                      '& .MuiOutlinedInput-notchedOutline': { borderColor: statusColor !== 'default' ? `${statusColor}.main` : 'divider' },
-                    }}
-                  >
-                    <MenuItem value="Draft">Draft</MenuItem>
-                    <MenuItem value="Active">Active</MenuItem>
-                    <MenuItem value="Paused">Paused</MenuItem>
-                  </Select>
-                </FormControl>
+                <select
+                  aria-label="Campaign status"
+                  value={status}
+                  disabled={changingStatus}
+                  onChange={(e) => handleStatusChange(e.target.value)}
+                  className={cn(
+                    'h-6 cursor-pointer rounded-md border-0 py-0 pr-6 pl-2 text-xs font-medium focus:ring-2 focus:ring-primary/30 focus:outline-none disabled:opacity-60',
+                    STATUS_SELECT[status] ?? STATUS_SELECT.Draft,
+                  )}
+                >
+                  <option value="Draft">Draft</option>
+                  <option value="Active">Active</option>
+                  <option value="Paused">Paused</option>
+                </select>
               )}
-            </Stack>
-            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5 }}>
+            </div>
+            <div className="mt-1 text-xs text-text-sub">
               Primary Mailbox: {campaign?.senderAccount?.emailAddress || 'N/A'}
               {campaign?.senders && campaign.senders.length > 0 && ` (+${campaign.senders.length} rotated)`}
-            </Typography>
+            </div>
             {resumeNote && (
-              <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap', mt: 1 }}>
-                <Typography variant="caption" sx={{ color: 'warning.main', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                  <Clock size={12} style={{ flexShrink: 0 }} /> {resumeNote}
-                </Typography>
-                <Button size="small" variant="outlined" color="inherit" disabled={keepingPaused} startIcon={<TimerOff size={12} />} onClick={handleKeepPaused} sx={{ borderColor: 'divider', color: 'text.secondary', py: 0 }}>
-                  {keepingPaused ? 'Keeping Paused…' : 'Keep Paused'}
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <span className="flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-400">
+                  <Clock size={12} className="shrink-0" /> {resumeNote}
+                </span>
+                <Button size="sm" disabled={keepingPaused} onClick={handleKeepPaused}>
+                  <TimerOff size={12} /> {keepingPaused ? 'Keeping Paused…' : 'Keep Paused'}
                 </Button>
-              </Stack>
+              </div>
             )}
             {ownerNote && (
-              <Typography variant="caption" sx={{ color: 'warning.main', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 0.5, mt: 1 }}>
-                <UserX size={12} style={{ flexShrink: 0 }} /> {ownerNote}
-              </Typography>
+              <div className="mt-2 flex items-center gap-1 text-xs font-medium text-amber-700 dark:text-amber-400">
+                <UserX size={12} className="shrink-0" /> {ownerNote}
+              </div>
             )}
-          </Box>
-        </Stack>
-        <Stack spacing={0.75} sx={{ alignItems: { md: 'flex-end' } }}>
-          <Stack direction="row" spacing={1}>
+          </div>
+        </div>
+        <div className="flex flex-col gap-1.5 md:items-end">
+          <div className="flex flex-wrap gap-2">
             {status === 'Active' && (
-              <Button variant="contained" color="warning" disabled={runningCampaign} startIcon={runningCampaign ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />} onClick={handleRunCampaign}>
+              <Button disabled={runningCampaign} onClick={handleRunCampaign}>
+                {runningCampaign ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
                 {runningCampaign ? 'Running…' : 'Run Campaign'}
               </Button>
             )}
             {stopped ? (
-              <Button variant="contained" disabled={changingStatus} startIcon={<RotateCcw size={14} />} onClick={() => setConfirmAction('restart')}>
-                Restart
+              <Button variant="primary" disabled={changingStatus} onClick={() => setConfirmAction('restart')}>
+                <RotateCcw size={14} /> Restart
               </Button>
             ) : (
               <>
                 {STOPPABLE_STATUSES.includes(status) && (
-                  <Button variant="outlined" color="error" disabled={changingStatus} startIcon={<CircleStop size={14} />} onClick={() => setConfirmAction('stop')}>
-                    Stop
+                  <Button variant="danger" disabled={changingStatus} onClick={() => setConfirmAction('stop')}>
+                    <CircleStop size={14} /> Stop
                   </Button>
                 )}
-                <Button variant="outlined" color="inherit" disabled={saving} startIcon={<Save size={14} />} onClick={() => handleSaveCampaign()} sx={{ borderColor: 'divider', color: 'text.secondary' }}>
-                  {saving ? 'Saving…' : 'Save'}
+                <Button disabled={saving} onClick={() => handleSaveCampaign()}>
+                  <Save size={14} /> {saving ? 'Saving…' : 'Save'}
                 </Button>
-                <Button variant="contained" disabled={saving || scheduleMissing} startIcon={<Send size={14} />} onClick={() => handleSaveCampaign(true)}>Publish Sequence</Button>
+                <Button variant="primary" disabled={saving || scheduleMissing} onClick={() => handleSaveCampaign(true)}>
+                  <Send size={14} /> Publish Sequence
+                </Button>
               </>
             )}
-          </Stack>
+          </div>
           {scheduleMissing && !stopped && (
-            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'flex', alignItems: 'center', gap: 0.5 }}>
-              <Clock size={12} style={{ flexShrink: 0 }} /> Publishing needs a sending schedule: set days, times and a timezone on the Schedule tab.
-            </Typography>
+            <span className="flex items-center gap-1 text-xs text-text-muted">
+              <Clock size={12} className="shrink-0" /> Publishing needs a sending schedule: set days, times and a timezone on the Schedule tab.
+            </span>
           )}
-        </Stack>
-      </Stack>
+        </div>
+      </div>
 
       {stopped && (
-        <Alert severity="info" icon={<CircleStop size={20} />}>
-          <AlertTitle>Campaign Stopped</AlertTitle>
+        <Notice tone="info" title="Campaign Stopped">
           {stoppedNote(campaign)}. It sends nothing, and can&apos;t be edited, until you restart it. Its leads keep their place in the sequence, and its stats and sent emails are kept.
-        </Alert>
+        </Notice>
       )}
 
       {failedListMessages.length > 0 && (
-        <Alert
-          severity="warning"
-          action={<Button color="inherit" size="small" startIcon={<RefreshCw size={14} />} onClick={() => Object.keys(listErrors).forEach(key => { if (listErrors[key]) listLoaders[key](); })}>Retry</Button>}
+        <Notice
+          tone="warning"
+          title="Some Choices Could Not Be Loaded"
+          action={
+            <Button size="sm" onClick={() => Object.keys(listErrors).forEach(key => { if (listErrors[key]) listLoaders[key](); })}>
+              <RefreshCw size={12} /> Retry
+            </Button>
+          }
         >
-          <AlertTitle>Some Choices Could Not Be Loaded</AlertTitle>
           {failedListMessages.join(' ')} Use Template, Target CRM List, Skip Leads Emailed By and the Senders tab may be missing entries until they load.
-        </Alert>
+        </Notice>
       )}
 
       <CampaignTiming campaign={campaign} />
 
       {/* Tabs */}
-      <ToggleButtonGroup value={activeTab} exclusive onChange={(_, v) => v && setActiveTab(v)} sx={{ width: 'fit-content', maxWidth: '100%', overflowX: 'auto' }}>
-        {['Analytics', 'Sequence', 'Audience', 'Schedule', 'Options', 'Senders'].map(tab => (
-          <ToggleButton key={tab} value={tab} sx={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>{tab}</ToggleButton>
-        ))}
-      </ToggleButtonGroup>
+      <div className="max-w-full overflow-x-auto">
+        <Segmented label="Campaign sections" options={TAB_OPTIONS} value={activeTab} onChange={setActiveTab} />
+      </div>
 
       {activeTab === 'Analytics' ? (
-        <Stack spacing={3}>
+        <div className="flex flex-col gap-4">
           <CampaignAnalytics campaign={campaign} mailboxes={listErrors.mailboxes ? null : availableMailboxes} />
           <CampaignLeadExport campaignId={campaignId} campaignName={campaignName} groups={groups} onGroupsChanged={loadGroups} />
-        </Stack>
+        </div>
       ) : (
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '2fr 1fr' }, gap: 3 }}>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-[2fr_1fr] md:items-start">
+          <div className="flex min-w-0 flex-col gap-4">
             {activeTab === 'Sequence' && (
               <>
-                <Card>
-                  <CardContent>
-                    <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 1.5 }}>
-                      <Settings size={16} color="#2563EB" />
-                      <Typography variant="overline" sx={{ fontWeight: 700 }}>Campaign Title</Typography>
-                    </Stack>
-                    <TextField fullWidth size="small" placeholder="e.g. Q4 Inactive Leads Engagement" value={campaignName} disabled={stopped} onChange={(e) => setCampaignName(e.target.value)} />
-                  </CardContent>
+                <Card className="p-5">
+                  <label htmlFor="campaign-title" className={LABEL}>Campaign Title</label>
+                  <input
+                    id="campaign-title"
+                    type="text"
+                    placeholder="e.g. Q4 Inactive Leads Engagement"
+                    value={campaignName}
+                    disabled={stopped}
+                    onChange={(e) => setCampaignName(e.target.value)}
+                    className={inputClasses('h-9 disabled:opacity-60')}
+                  />
                 </Card>
 
-                <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', pb: 0.5, borderBottom: 1, borderColor: 'divider' }}>
-                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                    <AlignLeft size={16} color="#2563EB" />
-                    <Typography variant="overline" sx={{ fontWeight: 700 }}>Steps Setup</Typography>
-                  </Stack>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <h2 className="text-sm font-semibold text-text-main">Steps Setup</h2>
                   {templates.length > 0 && (
-                    <FormControl size="small" sx={{ minWidth: 220 }}>
-                      <Select displayEmpty value="" disabled={stepsLocked || stopped} onChange={(e) => applyTemplate(e.target.value)}>
-                        <MenuItem value="" disabled>— Use Template —</MenuItem>
-                        {templates.map(t => <MenuItem key={t.id} value={t.id}>{t.name} ({t.category})</MenuItem>)}
-                      </Select>
-                    </FormControl>
+                    <select
+                      aria-label="Use template"
+                      value=""
+                      disabled={stepsLocked || stopped}
+                      onChange={(e) => applyTemplate(e.target.value)}
+                      className={inputClasses('w-auto min-w-[220px] disabled:opacity-60')}
+                    >
+                      <option value="" disabled>Use Template</option>
+                      {templates.map(t => <option key={t.id} value={t.id}>{t.name} ({t.category})</option>)}
+                    </select>
                   )}
-                </Stack>
+                </div>
 
                 {stepsLocked && !stopped && (
-                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center', color: 'text.secondary' }}>
-                    <Lock size={14} style={{ flexShrink: 0 }} />
-                    <Typography variant="caption" sx={{ fontWeight: 600 }}>
-                      This campaign has started sending, so saved steps can&apos;t be removed or replaced with a template: leads already in the sequence would get the wrong step. Edit steps in place or add new ones at the end.
-                    </Typography>
-                  </Stack>
+                  <p className="flex items-start gap-1.5 text-xs text-text-sub">
+                    <Lock size={13} className="mt-px shrink-0" />
+                    This campaign has started sending, so saved steps can&apos;t be removed or replaced with a template: leads already in the sequence would get the wrong step. Edit steps in place or add new ones at the end.
+                  </p>
                 )}
 
                 {steps.map((step, index) => {
@@ -600,358 +614,382 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
                   const savedStep = (campaign?.steps || []).find((s: any) => s.id === step.id);
                   const savedStepStats = savedStep ? (campaign?.telemetry?.stepStats || []).find((s: any) => s.stepOrder === savedStep.stepOrder) : null;
                   return (
-                    <Card key={step.id || index} sx={stepIssue ? { borderColor: 'error.main' } : undefined}>
-                      <CardContent>
-                        <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 2, flexWrap: 'wrap', gap: 1 }}>
-                          <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
-                            <Box sx={{ width: 28, height: 28, borderRadius: '8px', display: 'grid', placeItems: 'center', bgcolor: (t) => alpha(t.palette.primary.main, 0.14), color: 'primary.main', fontWeight: 700, fontFamily: 'monospace' }}>{index + 1}</Box>
-                            {index > 0 ? (
-                              <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                                <Typography variant="body2" sx={{ fontWeight: 600 }}>Wait for</Typography>
-                                <TextField size="small" type="number" value={step.waitDays} disabled={stopped} onChange={(e) => updateStepField(index, 'waitDays', parseInt(e.target.value) || 0)} sx={{ width: 72 }} slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: 12 } } }} />
-                                <Typography variant="body2" sx={{ fontWeight: 600 }}>days</Typography>
-                              </Stack>
-                            ) : (<Typography variant="overline" sx={{ fontWeight: 700, color: 'text.secondary' }}>Initial Dispatch</Typography>)}
-                          </Stack>
-                          {!stopped && (
-                            <Stack direction="row" spacing={1}>
-                              <Button size="small" variant={showPreview ? 'contained' : 'outlined'} color={showPreview ? 'primary' : 'inherit'} onClick={() => toggleStepPreview(step.id || index)} sx={{ borderColor: showPreview ? undefined : 'divider', color: showPreview ? undefined : 'text.secondary', fontSize: 10 }}>
-                                {showPreview ? 'Edit Mode' : 'Preview Mode'}
-                              </Button>
-                              {steps.length > 1 && (
-                                <IconButton aria-label="Remove step" size="small" disabled={stepsLocked && savedStepIds.has(step.id)} onClick={() => removeStep(index)} sx={{ border: 1, borderColor: 'divider', color: 'text.secondary', '&:hover': { color: 'error.main', borderColor: 'error.main' } }}>
-                                  <Trash2 size={14} />
-                                </IconButton>
-                              )}
-                            </Stack>
-                          )}
-                        </Stack>
-
-                        <StepStatStrip stats={savedStepStats} htmlStep={isHtmlTemplate(savedStep?.body ?? '')} caveats={statCaveats} />
-
-                        {stepIssue && (
-                          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 2, color: 'error.main' }}>
-                            <AlertTriangle size={14} />
-                            <Typography variant="caption" sx={{ fontWeight: 600 }}>
-                              This step has no {stepIssue.missing.map(m => m === 'subject' ? 'subject line' : 'message body').join(' or ')}. Complete it before publishing.
-                            </Typography>
-                          </Stack>
-                        )}
-
-                        {showPreview ? (
-                          <Stack spacing={2}>
-                            <Card sx={{ bgcolor: (t) => alpha(t.palette.primary.main, 0.06), borderColor: (t) => alpha(t.palette.primary.main, 0.2) }}>
-                              <CardContent sx={{ display: 'flex', gap: 1.5, alignItems: 'flex-start' }}>
-                                <Eye size={16} color="#2563EB" style={{ marginTop: 2, flexShrink: 0 }} />
-                                <Box>
-                                  <Typography variant="overline" sx={{ color: 'primary.main', fontWeight: 700 }}>Dynamic Resolve Preview</Typography>
-                                  <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>Showing output for contact <strong>Emily</strong> at <strong>Stark Industries</strong>.</Typography>
-                                </Box>
-                              </CardContent>
-                            </Card>
-                            <Card sx={{ bgcolor: 'action.hover' }}>
-                              <CardContent>
-                                <Box sx={{ pb: 1, borderBottom: 1, borderColor: 'divider', mb: 1 }}>
-                                  <Typography variant="overline" sx={{ color: 'text.secondary', fontFamily: 'monospace' }}>Subject:</Typography>
-                                  <Typography variant="body2" sx={{ fontWeight: 600, mt: 0.5 }}>{personalizePreview(step.subject || '')}</Typography>
-                                </Box>
-                                <Typography variant="overline" sx={{ color: 'text.secondary', fontFamily: 'monospace', display: 'block', mb: 1 }}>Message:</Typography>
-                                {bodyPreview?.isHtml ? (
-                                  <Box component="iframe" srcDoc={bodyPreview.body} title="Email Preview" sandbox="" sx={{ width: '100%', height: 500, border: 1, borderColor: 'divider', borderRadius: '12px', bgcolor: '#fff' }} />
-                                ) : (
-                                  <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{bodyPreview?.body}</Typography>
-                                )}
-                              </CardContent>
-                            </Card>
-                          </Stack>
-                        ) : (
-                          <Stack spacing={1.5}>
-                            <TextField fullWidth size="small" placeholder="Subject Line" value={step.subject} onChange={(e) => updateStepField(index, 'subject', e.target.value)} error={!!stepIssue?.missing.includes('subject')} />
-                            <Box sx={{ border: 1, borderColor: stepIssue?.missing.includes('body') ? 'error.main' : 'divider', borderRadius: '12px', overflow: 'hidden', bgcolor: 'action.hover' }}>
-                              <Box sx={{ px: 1.5, py: 1, borderBottom: 1, borderColor: 'divider', bgcolor: 'background.paper' }}>
-                                <VariableToolbar onInsert={(v) => insertVariable(v, index)} onInsertSubject={(v) => updateStepField(index, 'subject', (step.subject || '') + ' ' + v)} />
-                              </Box>
-                              <TextField multiline minRows={6} fullWidth value={step.body} onChange={(e) => updateStepField(index, 'body', e.target.value)} placeholder="Write your custom copy stream here..." variant="standard"
-                                slotProps={{ input: { disableUnderline: true, sx: { px: 1.5, py: 1, fontFamily: 'monospace', fontSize: 12, lineHeight: 1.6 } } }}
+                    <Card key={step.id || index} className={cn('p-5', stepIssue && 'border-rose-300 dark:border-rose-800')}>
+                      {/* Step Header */}
+                      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+                        <div className="flex items-center gap-3">
+                          <div className="flex size-8 items-center justify-center rounded-control bg-primary-subtle text-sm font-semibold text-primary">
+                            {index + 1}
+                          </div>
+                          {index > 0 ? (
+                            <label className="flex items-center gap-2 text-xs text-text-sub">
+                              Wait for
+                              <input
+                                type="number"
+                                value={step.waitDays}
+                                disabled={stopped}
+                                onChange={(e) => updateStepField(index, 'waitDays', parseInt(e.target.value) || 0)}
+                                className={inputClasses('h-7 w-16 px-2 text-center font-medium')}
                               />
-                            </Box>
-                          </Stack>
+                              days
+                            </label>
+                          ) : (
+                            <Badge tone="blue">Initial Dispatch</Badge>
+                          )}
+                        </div>
+
+                        {!stopped && (
+                          <div className="flex items-center gap-1.5 self-start sm:self-auto">
+                            <Button size="sm" onClick={() => toggleStepPreview(step.id || index)}>
+                              {showPreview ? <><PenLine size={12} /> Edit Mode</> : <><Eye size={12} /> Preview Mode</>}
+                            </Button>
+                            {steps.length > 1 && (
+                              <Button
+                                variant="ghost" size="sm" iconOnly aria-label="Remove step"
+                                disabled={stepsLocked && savedStepIds.has(step.id)}
+                                onClick={() => removeStep(index)}
+                                className="hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-500/10 dark:hover:text-rose-400"
+                              >
+                                <Trash2 size={14} />
+                              </Button>
+                            )}
+                          </div>
                         )}
-                      </CardContent>
+                      </div>
+
+                      <div className="my-4">
+                        <StepStatStrip stats={savedStepStats} htmlStep={isHtmlTemplate(savedStep?.body ?? '')} caveats={statCaveats} />
+                      </div>
+
+                      {stepIssue && (
+                        <div className="mb-4 flex items-center gap-2 rounded-control bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700 dark:bg-rose-500/10 dark:text-rose-300">
+                          <AlertTriangle size={14} className="shrink-0" />
+                          This step has no {stepIssue.missing.map(m => m === 'subject' ? 'subject line' : 'message body').join(' or ')}. Complete it before publishing.
+                        </div>
+                      )}
+
+                      {showPreview ? (
+                        <div className="space-y-2">
+                          <p className="flex items-center gap-1.5 text-xs text-text-sub">
+                            <Eye size={13} className="shrink-0 text-text-muted" />
+                            <span>Showing output for contact <strong className="font-medium text-text-main">Emily</strong> at <strong className="font-medium text-text-main">Stark Industries</strong>.</span>
+                          </p>
+                          <div className="rounded-control border border-card-border">
+                            <div className="border-b border-card-border px-4 py-3">
+                              <div className="text-[11px] text-text-muted">Subject</div>
+                              <p className="mt-0.5 text-[13px] font-medium text-text-main">{personalizePreview(step.subject || '')}</p>
+                            </div>
+                            <div className="px-4 py-3">
+                              <div className="mb-1.5 text-[11px] text-text-muted">Message</div>
+                              {bodyPreview?.isHtml ? (
+                                <iframe
+                                  srcDoc={bodyPreview.body}
+                                  title="Email Preview"
+                                  sandbox=""
+                                  className="h-[480px] w-full rounded-control border border-card-border bg-white"
+                                />
+                              ) : (
+                                <p className="text-[13px] leading-relaxed whitespace-pre-wrap text-text-main">{bodyPreview?.body}</p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-3.5">
+                          <div>
+                            <label htmlFor={`step-subject-${index}`} className={LABEL}>Subject Line</label>
+                            <input
+                              id={`step-subject-${index}`}
+                              type="text"
+                              value={step.subject}
+                              onChange={(e) => updateStepField(index, 'subject', e.target.value)}
+                              placeholder="e.g. Quick question regarding cold email infrastructure"
+                              className={inputClasses(cn('h-9', stepIssue?.missing.includes('subject') && 'border-rose-400 dark:border-rose-700'))}
+                            />
+                          </div>
+                          <div className={cn('overflow-hidden rounded-control border bg-card', stepIssue?.missing.includes('body') ? 'border-rose-400 dark:border-rose-700' : 'border-input-border')}>
+                            <div className="border-b border-card-border bg-slate-50/70 px-3 py-2 dark:bg-white/[0.02]">
+                              <VariableToolbar
+                                onInsert={(v) => insertVariable(v, index)}
+                                onInsertSubject={(v) => updateStepField(index, 'subject', (step.subject || '') + ' ' + v)}
+                              />
+                            </div>
+                            <textarea
+                              rows={7}
+                              aria-label="Message body"
+                              value={step.body}
+                              onChange={(e) => updateStepField(index, 'body', e.target.value)}
+                              placeholder="Write your custom copy stream here. Use {{firstName}}, {{company}}..."
+                              className="w-full resize-y bg-transparent px-3 py-2.5 text-[13px] leading-relaxed text-text-main placeholder:text-text-muted focus:outline-none"
+                            />
+                          </div>
+                        </div>
+                      )}
                     </Card>
                   );
                 })}
 
                 {!stopped && (
-                  <Button fullWidth variant="outlined" color="inherit" startIcon={<Plus size={16} />} onClick={addStep} sx={{ py: 1.5, borderStyle: 'dashed', borderColor: 'divider', color: 'text.secondary', fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-                    Add Journey Step
-                  </Button>
+                  <button
+                    type="button"
+                    onClick={addStep}
+                    className="flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-card border border-dashed border-input-border py-3 text-[13px] font-medium text-text-sub transition-colors hover:border-primary/50 hover:bg-primary-subtle hover:text-primary"
+                  >
+                    <Plus size={14} /> Add Journey Step
+                  </button>
                 )}
               </>
             )}
 
             {activeTab === 'Schedule' && (
-              <Card>
-                <CardContent>
-                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center', pb: 1.5, mb: 2.5, borderBottom: 1, borderColor: 'divider' }}>
-                    <Clock size={16} color="#2563EB" />
-                    <Typography variant="overline" sx={{ fontWeight: 700 }}>Target Cadence Window</Typography>
-                  </Stack>
-                  <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 2 }}>
-                    Required before publishing: the campaign sends only on these days, between these times in its timezone. Without a schedule it sends nothing and can&apos;t be made Active.
-                  </Typography>
-                  {savedWindowNote && (
-                    <Stack direction="row" spacing={1} sx={{ alignItems: 'center', mb: 2, color: 'warning.main' }}>
-                      <AlertTriangle size={14} />
-                      <Typography variant="caption" sx={{ fontWeight: 600 }}>{savedWindowNote}</Typography>
-                    </Stack>
-                  )}
-                  <Stack spacing={2.5}>
-                    <FormControl fullWidth size="small">
-                      <InputLabel>Outbox Timezone</InputLabel>
-                      <Select label="Outbox Timezone" value={timezone} disabled={stopped} onChange={(e) => setTimezone(e.target.value)}>
-                        {timezoneOptions.map(o => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
-                      </Select>
-                    </FormControl>
-                    <Box>
-                      <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Permitted Active Days</Typography>
-                      <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap' }}>
-                        {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => (
-                          <ToggleButton key={day} value={day} selected={selectedDays.includes(day)} disabled={stopped} onChange={() => toggleDaySelection(day)} sx={{ flex: 1, py: 0.75, fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>
+              <Card className="p-5">
+                <CardHeader title="Target Cadence Window" />
+                <p className="mt-1 text-xs text-text-sub">
+                  Required before publishing: the campaign sends only on these days, between these times in its timezone. Without a schedule it sends nothing and can&apos;t be made Active.
+                </p>
+                {savedWindowNote && (
+                  <p className="mt-3 flex items-center gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-400">
+                    <AlertTriangle size={13} className="shrink-0" /> {savedWindowNote}
+                  </p>
+                )}
+                <div className="mt-5 space-y-5">
+                  <div>
+                    <label htmlFor="campaign-timezone" className={LABEL}>Outbox Timezone</label>
+                    <select id="campaign-timezone" value={timezone} disabled={stopped} onChange={(e) => setTimezone(e.target.value)} className={inputClasses('h-9 disabled:opacity-60')}>
+                      {timezoneOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </div>
+                  <div role="group" aria-labelledby="campaign-days-label">
+                    <div id="campaign-days-label" className={LABEL}>Permitted Active Days</div>
+                    <div className="grid grid-cols-7 gap-1.5">
+                      {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => {
+                        const on = selectedDays.includes(day);
+                        return (
+                          <button
+                            key={day}
+                            type="button"
+                            aria-pressed={on}
+                            disabled={stopped}
+                            onClick={() => toggleDaySelection(day)}
+                            className={cn(
+                              'h-8 cursor-pointer rounded-control border text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60',
+                              on ? 'border-primary bg-primary-subtle text-primary' : 'border-input-border bg-card text-text-sub hover:text-text-main',
+                            )}
+                          >
                             {day}
-                          </ToggleButton>
-                        ))}
-                      </Stack>
-                    </Box>
-                    <Box>
-                      <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Cadence Delivery Window (Local Senders Clock)</Typography>
-                      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
-                        <TextField fullWidth size="small" type="time" value={startTime} disabled={stopped} onChange={(e) => setStartTime(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-                        <Typography variant="caption" sx={{ color: 'text.secondary' }}>to</Typography>
-                        <TextField fullWidth size="small" type="time" value={endTime} disabled={stopped} onChange={(e) => setEndTime(e.target.value)} slotProps={{ input: { sx: { fontFamily: 'monospace' } } }} />
-                      </Stack>
-                    </Box>
-                  </Stack>
-                </CardContent>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div role="group" aria-labelledby="campaign-window-label">
+                    <div id="campaign-window-label" className={LABEL}>Cadence Delivery Window (Local Senders Clock)</div>
+                    <div className="flex items-center gap-3">
+                      <input type="time" aria-label="Window start" value={startTime} disabled={stopped} onChange={(e) => setStartTime(e.target.value)} className={inputClasses('h-9 disabled:opacity-60')} />
+                      <span className="text-xs text-text-muted">to</span>
+                      <input type="time" aria-label="Window end" value={endTime} disabled={stopped} onChange={(e) => setEndTime(e.target.value)} className={inputClasses('h-9 disabled:opacity-60')} />
+                    </div>
+                  </div>
+                </div>
               </Card>
             )}
 
             {activeTab === 'Options' && (
-              <Card>
-                <CardContent>
-                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center', pb: 1.5, mb: 2, borderBottom: 1, borderColor: 'divider' }}>
-                    <ToggleLeft size={16} color="#2563EB" />
-                    <Typography variant="overline" sx={{ fontWeight: 700 }}>Delivery Autopilot Flags</Typography>
-                  </Stack>
-                  <Stack spacing={1.5}>
-                    {[
-                      { label: 'Pause Sequence on Reply', desc: 'Stop further emails once a customer expresses interest.', val: stopOnReply, set: setStopOnReply, warning: replySyncWarning },
-                      { label: 'Track Opens', desc: 'Embed a tracking pixel in HTML steps. Plain-text steps cannot track opens.', val: trackOpens, set: setTrackOpens, warning: null },
-                      { label: 'Track Link Clicks', desc: 'Route links in HTML steps through the click tracker. Plain-text steps cannot track clicks.', val: trackClicks, set: setTrackClicks, warning: null },
-                    ].map((f, i) => (
-                      <Stack key={i} direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', p: 1.5, borderRadius: '14px', border: 1, borderColor: 'divider', bgcolor: 'action.hover' }}>
-                        <Box>
-                          <Typography variant="body2" sx={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{f.label}</Typography>
-                          <Typography variant="caption" sx={{ color: 'text.secondary' }}>{f.desc}</Typography>
-                          {f.warning && (
-                            <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', mt: 0.75, color: 'warning.main' }}>
-                              <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
-                              <Typography variant="caption" sx={{ fontWeight: 600 }}>{f.warning}</Typography>
-                            </Stack>
-                          )}
-                        </Box>
-                        <Switch checked={f.val} disabled={stopped} onChange={(e) => f.set(e.target.checked)} />
-                      </Stack>
-                    ))}
-                  </Stack>
-                </CardContent>
+              <Card className="p-5">
+                <CardHeader title="Delivery Autopilot Flags" />
+                <div className="mt-3 divide-y divide-card-border">
+                  {[
+                    { key: 'stop-on-reply', label: 'Pause Sequence on Reply', desc: 'Stop further emails once a customer expresses interest.', val: stopOnReply, set: setStopOnReply, warning: replySyncWarning },
+                    { key: 'track-opens', label: 'Track Opens', desc: 'Embed a tracking pixel in HTML steps. Plain-text steps cannot track opens.', val: trackOpens, set: setTrackOpens, warning: null },
+                    { key: 'track-clicks', label: 'Track Link Clicks', desc: 'Route links in HTML steps through the click tracker. Plain-text steps cannot track clicks.', val: trackClicks, set: setTrackClicks, warning: null },
+                  ].map((f) => (
+                    <div key={f.key} className="flex items-center justify-between gap-4 py-3.5 first:pt-1 last:pb-0">
+                      <div className="min-w-0">
+                        <div id={`option-${f.key}`} className="text-[13px] font-medium text-text-main">{f.label}</div>
+                        <div className="mt-0.5 text-xs text-text-sub">{f.desc}</div>
+                        {f.warning && (
+                          <p className="mt-1.5 flex items-start gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-400">
+                            <AlertTriangle size={13} className="mt-px shrink-0" /> {f.warning}
+                          </p>
+                        )}
+                      </div>
+                      <Switch checked={f.val} disabled={stopped} onChange={f.set} aria-labelledby={`option-${f.key}`} />
+                    </div>
+                  ))}
+                </div>
               </Card>
             )}
 
             {activeTab === 'Audience' && (
-              <Card>
-                <CardContent>
-                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center', pb: 1.5, mb: 2.5, borderBottom: 1, borderColor: 'divider' }}>
-                    <Users size={16} color="#2563EB" />
-                    <Typography variant="overline" sx={{ fontWeight: 700 }}>Audience Selection</Typography>
-                  </Stack>
-                  <Stack spacing={2}>
-                    <FormControl fullWidth size="small">
-                      <InputLabel>Target CRM List</InputLabel>
-                      <Select label="Target CRM List" value={audienceCohort} disabled={stopped} onChange={(e) => setAudienceCohort(e.target.value)}>
-                        <MenuItem value="Valid">All Active Valid Leads ({campaign?.telemetry?.validLeadsCount || 0})</MenuItem>
-                        <MenuItem value="Unverified">All Unverified Leads ({campaign?.telemetry?.unverifiedLeadsCount || 0})</MenuItem>
-                        {groups.map((g: any) => <MenuItem key={g.id} value={g.id}>Segment: {g.name} ({g._count?.leads || 0})</MenuItem>)}
-                      </Select>
-                    </FormControl>
-                    <Box>
-                      <Autocomplete
-                        multiple filterSelectedOptions size="small"
-                        options={skipOptionIds}
-                        getOptionLabel={(id) => skipCampaignName(id) ?? 'A campaign not in your list'}
-                        value={skipCampaignIds}
-                        disabled={stopped}
-                        onChange={(_, ids) => setSkipCampaignIds(ids)}
-                        noOptionsText="No other campaign"
-                        renderInput={(params) => (
-                          <TextField
-                            {...params} label="Skip Leads Emailed By"
-                            placeholder={skipCampaignIds.length === 0 ? 'Pick campaigns' : ''}
-                            helperText="Optional. A lead one of these campaigns has emailed gets nothing from this campaign and is counted as Skipped. Those campaigns go on emailing the lead."
-                          />
-                        )}
-                      />
-                      {skipNote && (
-                        <Typography variant="caption" sx={{ display: 'block', mt: 1, mx: 1.75, fontWeight: 600, color: 'text.secondary' }}>{skipNote}</Typography>
+              <Card className="p-5">
+                <CardHeader title="Audience Selection" />
+                <div className="mt-4 space-y-5">
+                  <div>
+                    <label htmlFor="campaign-audience" className={LABEL}>Target CRM List</label>
+                    <select id="campaign-audience" value={audienceCohort} disabled={stopped} onChange={(e) => setAudienceCohort(e.target.value)} className={inputClasses('h-9 disabled:opacity-60')}>
+                      <option value="Valid">All Active Valid Leads ({campaign?.telemetry?.validLeadsCount || 0})</option>
+                      <option value="Unverified">All Unverified Leads ({campaign?.telemetry?.unverifiedLeadsCount || 0})</option>
+                      {groups.map((g: any) => <option key={g.id} value={g.id}>Segment: {g.name} ({g._count?.leads || 0})</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <Autocomplete
+                      multiple filterSelectedOptions size="small"
+                      options={skipOptionIds}
+                      getOptionLabel={(id) => skipCampaignName(id) ?? 'A campaign not in your list'}
+                      value={skipCampaignIds}
+                      disabled={stopped}
+                      onChange={(_, ids) => setSkipCampaignIds(ids)}
+                      noOptionsText="No other campaign"
+                      renderInput={(params) => (
+                        <TextField
+                          {...params} label="Skip Leads Emailed By"
+                          placeholder={skipCampaignIds.length === 0 ? 'Pick campaigns' : ''}
+                          helperText="Optional. A lead one of these campaigns has emailed gets nothing from this campaign and is counted as Skipped. Those campaigns go on emailing the lead."
+                        />
                       )}
-                      {skipChangeNote && (
-                        <Typography variant="caption" sx={{ display: 'block', mt: 0.5, mx: 1.75, fontWeight: 600, color: 'warning.main' }}>{skipChangeNote}</Typography>
-                      )}
-                    </Box>
-                    <Card sx={{ bgcolor: (t) => alpha(t.palette.primary.main, 0.06), borderColor: (t) => alpha(t.palette.primary.main, 0.2) }}>
-                      <CardContent>
-                        <Typography variant="overline" sx={{ color: 'primary.main', fontWeight: 700 }}>Active Enrollments</Typography>
-                        <Typography variant="h4" sx={{ fontWeight: 700, mt: 0.5 }}>{campaign?.telemetry?.activeEnrollments || 0}</Typography>
-                        <Typography variant="caption" sx={{ color: 'primary.main' }}>Leads still in the sequence. Paused, completed, failed, bounced, removed and skipped leads are not counted.</Typography>
-                      </CardContent>
-                    </Card>
-                  </Stack>
-                </CardContent>
+                    />
+                    {skipNote && <p className="mx-3.5 mt-1.5 text-xs font-medium text-text-sub">{skipNote}</p>}
+                    {skipChangeNote && <p className="mx-3.5 mt-1 text-xs font-medium text-amber-700 dark:text-amber-400">{skipChangeNote}</p>}
+                  </div>
+                  <div className="rounded-control bg-primary-subtle px-4 py-3">
+                    <div className="text-xs font-medium text-text-sub">Active Enrollments</div>
+                    <div className="mt-1 text-2xl font-semibold text-text-main tabular-nums">{(campaign?.telemetry?.activeEnrollments || 0).toLocaleString()}</div>
+                    <div className="mt-1 text-xs text-text-sub">Leads still in the sequence. Paused, completed, failed, bounced, removed and skipped leads are not counted.</div>
+                  </div>
+                </div>
               </Card>
             )}
 
             {activeTab === 'Senders' && (
-              <Card>
-                <CardContent>
-                  <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', pb: 1.5, mb: 2.5, borderBottom: 1, borderColor: 'divider' }}>
-                    <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                      <Mail size={16} color="#2563EB" />
-                      <Typography variant="overline" sx={{ fontWeight: 700 }}>Campaign Senders Pool & Rotation</Typography>
-                    </Stack>
-                    <Chip size="small" label={`${poolIds.length || 1} Active ${(poolIds.length || 1) === 1 ? 'Sender' : 'Senders'}`} color="primary" variant="outlined" sx={{ fontWeight: 700 }} />
-                  </Stack>
-                  <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 2, lineHeight: 1.6 }}>
-                    Spreading outbound across multiple mailboxes protects sender reputation and circumvents daily provider caps. The send engine routes each dispatch via the least-loaded mailbox. A mailbox with Recipient Domains sends only to leads at those domains and mail providers, and the mailboxes without any share every other lead.
-                  </Typography>
+              <Card className="p-5">
+                <CardHeader
+                  title="Campaign Senders Pool & Rotation"
+                  action={<Badge tone="blue">{`${poolIds.length || 1} Active ${(poolIds.length || 1) === 1 ? 'Sender' : 'Senders'}`}</Badge>}
+                />
+                <p className="mt-1 text-xs leading-relaxed text-text-sub">
+                  Spreading outbound across multiple mailboxes protects sender reputation and circumvents daily provider caps. The send engine routes each dispatch via the least-loaded mailbox. A mailbox with Recipient Domains sends only to leads at those domains and mail providers, and the mailboxes without any share every other lead.
+                </p>
+                <div className="mt-3 space-y-2 empty:hidden">
                   {(routingError || routingNote) && (
-                    <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', mb: 2, color: routingError ? 'error.main' : 'text.secondary' }}>
-                      {routingError ? <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} /> : <Split size={14} style={{ flexShrink: 0, marginTop: 1 }} />}
-                      <Typography variant="caption" sx={{ fontWeight: 600 }}>{routingError ?? routingNote}</Typography>
-                    </Stack>
+                    <p className={cn('flex items-start gap-1.5 text-xs font-medium', routingError ? 'text-rose-600 dark:text-rose-400' : 'text-text-sub')}>
+                      {routingError ? <AlertTriangle size={13} className="mt-px shrink-0" /> : <Split size={13} className="mt-px shrink-0" />}
+                      {routingError ?? routingNote}
+                    </p>
                   )}
                   {waitingRefused > 0 && (
-                    <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', mb: 2, color: 'warning.main' }}>
-                      <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
-                      <Typography variant="caption" sx={{ fontWeight: 600 }}>
-                        {leadsAre(waitingRefused)} waiting for another mailbox: every mailbox allowed for them has refused their email for a reason on the sender&apos;s side, such as spam or reputation. Nothing more is sent to them until this campaign has another mailbox they may go out from.
-                      </Typography>
-                    </Stack>
+                    <p className="flex items-start gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-400">
+                      <AlertTriangle size={13} className="mt-px shrink-0" />
+                      {leadsAre(waitingRefused)} waiting for another mailbox: every mailbox allowed for them has refused their email for a reason on the sender&apos;s side, such as spam or reputation. Nothing more is sent to them until this campaign has another mailbox they may go out from.
+                    </p>
                   )}
                   {waitingUnrouted > 0 && (
-                    <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', mb: 2, color: 'warning.main' }}>
-                      <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
-                      <Typography variant="caption" sx={{ fontWeight: 600 }}>
-                        {leadsAre(waitingUnrouted)} waiting for a mailbox: no mailbox of this campaign sends to their domain. Leave Recipient Domains empty on one of them.
-                      </Typography>
-                    </Stack>
+                    <p className="flex items-start gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-400">
+                      <AlertTriangle size={13} className="mt-px shrink-0" />
+                      {leadsAre(waitingUnrouted)} waiting for a mailbox: no mailbox of this campaign sends to their domain. Leave Recipient Domains empty on one of them.
+                    </p>
                   )}
                   {replySyncWarning && (
-                    <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', mb: 2, color: 'warning.main' }}>
-                      <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
-                      <Typography variant="caption" sx={{ fontWeight: 600 }}>{replySyncWarning}</Typography>
-                    </Stack>
+                    <p className="flex items-start gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-400">
+                      <AlertTriangle size={13} className="mt-px shrink-0" /> {replySyncWarning}
+                    </p>
                   )}
-                  <Stack spacing={1.5}>
-                    {ownerMailboxes.map((mailbox) => {
-                      const isPrimary = primarySenderId === mailbox.id;
-                      const isChecked = selectedPoolIds.includes(mailbox.id) || isPrimary;
-                      // Its own reply sync never sees replies to its emails when they go to another address.
-                      const replyTo = otherReplyTo(mailbox);
-                      // Its Reply-To mailbox's sync when its own is off and that mailbox reads its replies.
-                      const replySync = mailboxReplySync(mailbox, availableMailboxes);
-                      // Its own Recipient Domains hold in every campaign, so the campaign's list for it is not editable.
-                      const ownDomains = storedRecipientDomains(mailbox.recipientDomains);
-                      const toggleCheckbox = () => {
-                        if (isPrimary) { showToast('The primary sender is always included.', 'error'); return; }
-                        setSelectedPoolIds(prev => isChecked ? prev.filter(id => id !== mailbox.id) : [...prev, mailbox.id]);
-                      };
-                      const makePrimary = () => {
-                        setPrimarySenderId(mailbox.id);
-                        if (!selectedPoolIds.includes(mailbox.id)) setSelectedPoolIds(prev => [...prev, mailbox.id]);
-                      };
-                      return (
-                        <Card key={mailbox.id} variant="outlined" sx={{ bgcolor: isPrimary ? (t) => alpha(t.palette.primary.main, 0.06) : isChecked ? 'action.hover' : 'background.paper', borderColor: isPrimary ? 'primary.main' : 'divider', opacity: isChecked ? 1 : 0.6 }}>
-                          <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-                            <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', gap: 1.5 }}>
-                              <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flex: 1 }}>
-                                <Checkbox size="small" checked={isChecked} disabled={isPrimary || stopped} onChange={toggleCheckbox} />
-                                <Box>
-                                  <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
-                                    <Typography variant="body2" sx={{ fontWeight: 700 }}>{mailbox.name || 'SMTP Account'}</Typography>
-                                    <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace' }}>({mailbox.emailAddress})</Typography>
-                                    {isPrimary && <Chip size="small" label="PRIMARY" color="primary" sx={{ height: 16, fontSize: 8, fontWeight: 800 }} />}
-                                    {mailbox.warmupEnabled && <Chip size="small" label="WARMUP" color="warning" sx={{ height: 16, fontSize: 8, fontWeight: 800 }} />}
-                                  </Stack>
-                                  <Stack direction="row" spacing={2} sx={{ mt: 0.5, color: 'text.secondary', fontSize: 10, flexWrap: 'wrap', rowGap: 0.25 }}>
-                                    <span>Provider: <Box component="strong" sx={{ color: 'text.primary' }}>{mailbox.provider}</Box></span>
-                                    <Box component="strong" sx={{ color: replySync.state === 'failing' ? 'error.main' : undefined }}>{mailboxReplySyncLabel(replySync)}</Box>
-                                    {replyTo && <span>Replies go to <Box component="strong" sx={{ color: 'text.primary', fontFamily: 'monospace' }}>{replyTo}</Box></span>}
-                                    {/* No cap of its own while a global rate limit is set, unless it is warming up */}
-                                    <span>Last 24 Hours: <Box component="strong">{mailbox.sentLast24Hours}{mailbox.effectiveDailyCap != null && ` / ${mailbox.effectiveDailyCap}`}</Box></span>
-                                    <span>Total: <Box component="strong">{mailbox.sentTotal}</Box></span>
-                                  </Stack>
-                                </Box>
-                              </Stack>
-                              {!isPrimary && !stopped && (
-                                <Button size="small" variant="outlined" color="inherit" onClick={makePrimary} sx={{ fontSize: 10, borderColor: 'divider', color: 'text.secondary' }}>
-                                  Set as Primary
-                                </Button>
-                              )}
-                            </Stack>
-                            {isChecked && (
-                              <Box sx={{ mt: 1.5, pl: 5.25 }}>
-                                <RecipientDomainsInput
-                                  value={ownDomains.length > 0 ? ownDomains : poolDomains[mailbox.id] ?? []}
-                                  disabled={stopped || ownDomains.length > 0}
-                                  onChange={(domains) => setPoolDomains(prev => ({ ...prev, [mailbox.id]: domains }))}
-                                  onInvalid={(error) => showToast(error, 'error')}
-                                  helperText={ownDomains.length > 0
-                                    ? 'Set on this mailbox on the Accounts page, so it holds in every campaign and is not changed here.'
-                                    : 'Optional. With domains or mail providers here, this mailbox sends only to leads at them in this campaign. Leave empty to send to every domain no other mailbox lists.'}
-                                />
-                              </Box>
-                            )}
-                          </CardContent>
-                        </Card>
-                      );
-                    })}
-                    {ownerMailboxes.length === 0 && (
-                      <Typography variant="caption" sx={{ color: listErrors.mailboxes ? 'error.main' : 'text.secondary', textAlign: 'center', py: 4, display: 'block' }}>
-                        {listErrors.mailboxes
-                          ? 'Mailboxes could not be loaded, so the sender pool is not shown. Use Retry above.'
-                          : 'No sender accounts owned by the campaign owner. Create mailboxes in the Accounts page first.'}
-                      </Typography>
-                    )}
-                  </Stack>
-                </CardContent>
+                </div>
+                <div className="mt-4 space-y-2">
+                  {ownerMailboxes.map((mailbox) => {
+                    const isPrimary = primarySenderId === mailbox.id;
+                    const isChecked = selectedPoolIds.includes(mailbox.id) || isPrimary;
+                    // Its own reply sync never sees replies to its emails when they go to another address.
+                    const replyTo = otherReplyTo(mailbox);
+                    // Its Reply-To mailbox's sync when its own is off and that mailbox reads its replies.
+                    const replySync = mailboxReplySync(mailbox, availableMailboxes);
+                    // Its own Recipient Domains hold in every campaign, so the campaign's list for it is not editable.
+                    const ownDomains = storedRecipientDomains(mailbox.recipientDomains);
+                    const toggleCheckbox = () => {
+                      if (isPrimary) { showToast('The primary sender is always included.', 'error'); return; }
+                      setSelectedPoolIds(prev => isChecked ? prev.filter(id => id !== mailbox.id) : [...prev, mailbox.id]);
+                    };
+                    const makePrimary = () => {
+                      setPrimarySenderId(mailbox.id);
+                      if (!selectedPoolIds.includes(mailbox.id)) setSelectedPoolIds(prev => [...prev, mailbox.id]);
+                    };
+                    return (
+                      <div
+                        key={mailbox.id}
+                        className={cn(
+                          'rounded-control border p-3',
+                          isPrimary ? 'border-primary/40 bg-primary-subtle' : 'border-card-border',
+                          !isChecked && 'opacity-60',
+                        )}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              disabled={isPrimary || stopped}
+                              onChange={toggleCheckbox}
+                              className="size-4 shrink-0 accent-blue-600"
+                            />
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="text-[13px] font-medium text-text-main">{mailbox.name || 'SMTP Account'}</span>
+                                <span className="text-xs text-text-sub">({mailbox.emailAddress})</span>
+                                {isPrimary && <Badge tone="blue">Primary</Badge>}
+                                {mailbox.warmupEnabled && <Badge tone="amber">Warmup</Badge>}
+                              </div>
+                              <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-text-muted">
+                                <span>Provider: <strong className="font-medium text-text-sub">{mailbox.provider}</strong></span>
+                                <strong className={cn('font-medium', replySync.state === 'failing' ? 'text-rose-600 dark:text-rose-400' : 'text-text-sub')}>{mailboxReplySyncLabel(replySync)}</strong>
+                                {replyTo && <span>Replies go to <strong className="font-medium text-text-sub">{replyTo}</strong></span>}
+                                {/* No cap of its own while a global rate limit is set, unless it is warming up */}
+                                <span>Last 24 Hours: <strong className="font-medium text-text-sub">{mailbox.sentLast24Hours}{mailbox.effectiveDailyCap != null && ` / ${mailbox.effectiveDailyCap}`}</strong></span>
+                                <span>Total: <strong className="font-medium text-text-sub">{mailbox.sentTotal}</strong></span>
+                              </div>
+                            </div>
+                          </label>
+                          {!isPrimary && !stopped && (
+                            <Button size="sm" onClick={makePrimary}>Set as Primary</Button>
+                          )}
+                        </div>
+                        {isChecked && (
+                          <div className="mt-3 pl-7">
+                            <RecipientDomainsInput
+                              value={ownDomains.length > 0 ? ownDomains : poolDomains[mailbox.id] ?? []}
+                              disabled={stopped || ownDomains.length > 0}
+                              onChange={(domains) => setPoolDomains(prev => ({ ...prev, [mailbox.id]: domains }))}
+                              onInvalid={(error) => showToast(error, 'error')}
+                              helperText={ownDomains.length > 0
+                                ? 'Set on this mailbox on the Accounts page, so it holds in every campaign and is not changed here.'
+                                : 'Optional. With domains or mail providers here, this mailbox sends only to leads at them in this campaign. Leave empty to send to every domain no other mailbox lists.'}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {ownerMailboxes.length === 0 && (
+                    <p className={cn('py-8 text-center text-xs', listErrors.mailboxes ? 'text-rose-600 dark:text-rose-400' : 'text-text-muted')}>
+                      {listErrors.mailboxes
+                        ? 'Mailboxes could not be loaded, so the sender pool is not shown. Use Retry above.'
+                        : 'No sender accounts owned by the campaign owner. Create mailboxes in the Accounts page first.'}
+                    </p>
+                  )}
+                </div>
               </Card>
             )}
-          </Box>
+          </div>
 
           {/* Sidebar */}
-          <Stack spacing={2.5}>
-            <Card sx={{ bgcolor: (t) => alpha(t.palette.primary.main, 0.06), borderColor: (t) => alpha(t.palette.primary.main, 0.2) }}>
-              <CardContent>
-                <Typography variant="overline" sx={{ color: 'primary.main', fontWeight: 700, display: 'block', mb: 1.5 }}>Campaign Outline</Typography>
-                <Stack spacing={1} sx={{ fontSize: 12 }}>
-                  <Stack direction="row" sx={{ justifyContent: 'space-between', pb: 0.75, borderBottom: 1, borderColor: 'divider' }}><span>Total Emails</span><Box component="strong">{steps.length} Steps</Box></Stack>
-                  <Stack direction="row" sx={{ justifyContent: 'space-between', pb: 0.75, borderBottom: 1, borderColor: 'divider' }}><span>Duration</span><Box component="strong">{sequenceDurationDays(steps)} Days</Box></Stack>
-                  <Stack direction="row" sx={{ justifyContent: 'space-between' }}><span>Active Cohort</span><Box component="strong" sx={{ color: 'primary.main', fontFamily: 'monospace' }}>{campaign?.telemetry?.activeEnrollments || 0} leads</Box></Stack>
-                </Stack>
-              </CardContent>
-            </Card>
-          </Stack>
-        </Box>
+          <Card className="p-5">
+            <CardHeader title="Campaign Outline" />
+            <dl className="mt-3 divide-y divide-card-border text-[13px]">
+              <div className="flex justify-between py-2 first:pt-0"><dt className="text-text-sub">Total Emails</dt><dd className="font-medium text-text-main">{steps.length} Steps</dd></div>
+              <div className="flex justify-between py-2"><dt className="text-text-sub">Duration</dt><dd className="font-medium text-text-main">{sequenceDurationDays(steps)} Days</dd></div>
+              <div className="flex justify-between py-2 last:pb-0"><dt className="text-text-sub">Active Cohort</dt><dd className="font-medium text-primary">{campaign?.telemetry?.activeEnrollments || 0} leads</dd></div>
+            </dl>
+          </Card>
+        </div>
       )}
 
       <ConfirmDialog
@@ -983,6 +1021,6 @@ export default function CampaignDetailsPage({ params }: { params: Promise<{ id: 
         onConfirm={() => handleStopOrRestart('restart')}
         onCancel={() => setConfirmAction(null)}
       />
-    </Box>
+    </div>
   );
 }

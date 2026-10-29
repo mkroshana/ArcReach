@@ -1,29 +1,53 @@
-/* eslint-disable react-hooks/set-state-in-effect */
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  LayoutDashboard, Send, Users, Inbox, Settings, Mail, FileText, Sun, Moon, ShieldCheck, LogOut, Menu,
+  LayoutDashboard,
+  Send,
+  Users,
+  Inbox,
+  Mail,
+  FileText,
+  Settings,
+  ShieldCheck,
+  ChevronDown,
+  Clock,
+  Activity,
+  Database,
+  Cloud,
+  AlertTriangle,
+  Radio,
 } from 'lucide-react';
-import { useTheme } from '@/components/ThemeProvider';
-import {
-  Box, Stack, Typography, Avatar, Chip, Button, List, ListItemButton, ListItemIcon, ListItemText, Tooltip, Drawer, IconButton,
-} from '@mui/material';
-import { alpha } from '@mui/material/styles';
+import { Drawer, Tooltip } from '@mui/material';
 import { autoResumeNote } from '@/lib/campaignPause';
 import { workerStatusText } from '@/lib/systemStatus';
 import { viewerTimeZone, zoneLabel, zonedClock, zonedDate } from '@/lib/campaignTiming';
-import { useIsMobile } from '@/hooks/use-mobile';
 import { useNow } from '@/hooks/use-now';
+import { useIsMobile } from '@/hooks/use-mobile';
+import type { UserSession } from '@/lib/session';
+import { Badge } from '@/components/ui/Badge';
 
-const defaultNavItems = [
+export interface SidebarProps {
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
+  session?: UserSession | null;
+  systemStatus?: any | null;
+}
+
+type NavItem = { name: string; href: string; icon: typeof LayoutDashboard; badgeKey?: string };
+
+// Two groups split by a hairline, as Shopeers does: day-to-day outreach, then what it is built from.
+const outreachNavItems: NavItem[] = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
-  { name: 'Campaigns', href: '/campaigns', icon: Send },
-  { name: 'Leads', href: '/leads', icon: Users },
-  { name: 'Unibox', href: '/unibox', icon: Inbox },
-  { name: 'Accounts', href: '/accounts', icon: Mail },
+  { name: 'Campaigns', href: '/campaigns', icon: Send, badgeKey: 'campaigns' },
+  { name: 'Leads', href: '/leads', icon: Users, badgeKey: 'leads' },
+  { name: 'Unibox', href: '/unibox', icon: Inbox, badgeKey: 'unibox' },
+];
+
+const setupNavItems: NavItem[] = [
+  { name: 'Accounts', href: '/accounts', icon: Mail, badgeKey: 'accounts' },
   { name: 'Templates', href: '/templates', icon: FileText },
 ];
 
@@ -32,14 +56,12 @@ const STATUS_WARN = '#f59e0b';
 const STATUS_BAD = '#f43f5e';
 const STATUS_IDLE = '#94a3b8';
 
-/** Azure settings, from /api/system-status's azureStatus. Nothing calls Azure, so none of these says it is online. */
 const AZURE_STATUS: Record<string, { color: string; text: string }> = {
   CONFIGURED: { color: STATUS_OK, text: 'Configured' },
   UNCONFIGURED: { color: STATUS_WARN, text: 'Not Configured' },
   DISABLED: { color: STATUS_WARN, text: 'Disabled' },
 };
 
-/** The send worker, from /api/system-status's workerStatus (its heartbeat). */
 const WORKER_STATUS: Record<string, { color: string; text: string }> = {
   RUNNING: { color: STATUS_OK, text: 'Running' },
   STALLED: { color: STATUS_WARN, text: 'Stalled' },
@@ -47,274 +69,340 @@ const WORKER_STATUS: Record<string, { color: string; text: string }> = {
   NOT_RUNNING: { color: STATUS_BAD, text: 'Not Running' },
 };
 
-/** How often the status panel re-reads /api/system-status while the tab is visible. */
-const STATUS_REFRESH_MS = 60_000;
-
-function StatusRow({ label, color, text, detail }: { label: string; color: string; text: string; detail?: string | null }) {
-  const row = (
-    <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
-      <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 500 }}>{label}</Typography>
-      <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center' }}>
-        <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: color }} />
-        <Typography sx={{ fontSize: 10, fontWeight: 700, fontFamily: 'monospace', color, textTransform: 'uppercase' }}>{text}</Typography>
-      </Stack>
-    </Stack>
-  );
-  return detail ? <Tooltip title={detail} placement="right">{row}</Tooltip> : row;
-}
-
 /**
- * The viewer's own time and date, to the second, with their time zone on hover.
- * A placeholder stands in until the page has hydrated, since the server does
- * not know the viewer's clock or zone.
+ * CurrentTime: displays viewer's own clock, date, and timezone.
  */
 function CurrentTime() {
   const now = useNow();
   const zone = now ? viewerTimeZone() : '';
   const row = (
-    <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'baseline', gap: 1, px: 1.5, py: 1, borderRadius: '14px', bgcolor: 'action.hover', border: 1, borderColor: 'divider' }}>
-      <Typography sx={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', color: 'text.secondary', textTransform: 'uppercase' }}>Your Time</Typography>
-      <Stack direction="row" spacing={0.75} sx={{ alignItems: 'baseline', minWidth: 0 }}>
-        <Typography sx={{ fontSize: 12, fontWeight: 700, fontFamily: 'monospace' }}>{now ? zonedClock(now, zone) : '--:--:--'}</Typography>
-        <Typography sx={{ fontSize: 10, fontWeight: 500, color: 'text.secondary' }} noWrap>{now ? zonedDate(now, zone) : ''}</Typography>
-      </Stack>
-    </Stack>
+    <div aria-label="Your time" className="flex h-9 items-center gap-3 px-3 text-[13px] text-text-sub">
+      <Clock size={17} className="shrink-0 text-slate-400 dark:text-slate-500" />
+      <span className="font-medium text-text-main">{now ? zonedClock(now, zone) : '--:--:--'}</span>
+      <span className="ml-auto truncate text-xs text-text-muted">{now ? zonedDate(now, zone) : ''}</span>
+    </div>
   );
-  return now ? <Tooltip title={`${zone} · ${zoneLabel(now, zone)}`} placement="right">{row}</Tooltip> : row;
+  return now ? (
+    <Tooltip title={`${zone} · ${zoneLabel(now, zone)}`} placement="right">
+      {row}
+    </Tooltip>
+  ) : (
+    row
+  );
 }
 
-export function Sidebar() {
+export function Sidebar({ mobileOpen = false, onMobileClose, session: propSession, systemStatus: propSystemStatus }: SidebarProps) {
   const pathname = usePathname();
-  const { theme, toggleTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-  const [session, setSessionState] = useState<any>(null);
-  const [systemStatus, setSystemStatus] = useState<any>(null);
-  // Below md the sidebar is a drawer opened from the top bar.
   const isMobile = useIsMobile();
-  const [mobileOpen, setMobileOpen] = useState(false);
+
+  // Internal fallback state if props not passed directly
+  const [internalSession, setInternalSession] = useState<UserSession | null>(null);
+  const [internalSystemStatus, setInternalSystemStatus] = useState<any>(null);
+  const [engineCardExpanded, setEngineCardExpanded] = useState(false);
 
   useEffect(() => {
-    setMounted(true);
-    fetch('/api/session').then(res => {
-      // A missing, revoked or disabled session answers 401 (and its cookie is cleared): sign in again.
-      if (res.status === 401) { window.location.href = '/login'; return null; }
-      return res.json();
-    }).then(data => setSessionState(data)).catch(() => {});
+    if (propSession !== undefined) return;
+    fetch('/api/session')
+      .then((res) => {
+        if (res.status === 401) {
+          window.location.href = '/login';
+          return null;
+        }
+        return res.json();
+      })
+      .then((data) => {
+        if (data) setInternalSession(data);
+      })
+      .catch(() => {});
+  }, [propSession]);
+
+  useEffect(() => {
+    if (propSystemStatus !== undefined) return;
     const loadStatus = () => {
-      // A 401 (session ended) is left to the session check; it says nothing about the system.
-      fetch('/api/system-status').then(res => (res.status === 401 ? null : res.json())).then(data => { if (data) setSystemStatus(data); }).catch(() => {});
+      fetch('/api/system-status')
+        .then((res) => (res.status === 401 ? null : res.json()))
+        .then((data) => {
+          if (data) setInternalSystemStatus(data);
+        })
+        .catch(() => {});
     };
     loadStatus();
-    // The worker status comes from its heartbeat, so it is re-read rather than kept from page load.
     const interval = setInterval(() => {
       if (document.visibilityState === 'visible') loadStatus();
-    }, STATUS_REFRESH_MS);
+    }, 60000);
     return () => clearInterval(interval);
-  }, []);
+  }, [propSystemStatus]);
 
-  const handleLogout = async () => {
-    try {
-      const res = await fetch('/api/auth/logout', { method: 'POST' });
-      if (res.ok) window.location.href = '/login';
-    } catch (e) {
-      console.error(e);
-    }
-  };
+  const session = propSession !== undefined ? propSession : internalSession;
+  const systemStatus = propSystemStatus !== undefined ? propSystemStatus : internalSystemStatus;
 
-  const navItems = [...defaultNavItems];
-  if (session?.role === 'ADMIN') navItems.push({ name: 'Users Admin', href: '/admin/users', icon: ShieldCheck });
+  const setupItems = [...setupNavItems];
+  if (session?.role === 'ADMIN') {
+    setupItems.push({ name: 'Users Admin', href: '/admin/users', icon: ShieldCheck });
+  }
 
-  // System status colors/labels
+  // System status metrics & signals
   const dbOk = systemStatus?.database === 'OPERATIONAL';
   const dbColor = dbOk ? STATUS_OK : systemStatus ? STATUS_BAD : STATUS_IDLE;
   const dbText = systemStatus ? (dbOk ? 'Online' : 'Offline') : 'Loading';
 
   const unknown = { color: STATUS_IDLE, text: systemStatus ? 'Unknown' : 'Loading' };
   const azure = AZURE_STATUS[systemStatus?.azureStatus] ?? unknown;
-  const azureDetail = systemStatus?.azureStatus === 'CONFIGURED'
-    ? 'The connection string decrypts and a verified sender domain is saved. Azure accepts or refuses the access key only when an email is sent.'
-    : systemStatus?.sendingProblem;
+  const azureDetail =
+    systemStatus?.azureStatus === 'CONFIGURED'
+      ? 'The connection string decrypts and a verified sender domain is saved. Azure accepts or refuses the access key only when an email is sent.'
+      : systemStatus?.sendingProblem;
+
   const worker = WORKER_STATUS[systemStatus?.workerStatus] ?? unknown;
   const workerDetail = WORKER_STATUS[systemStatus?.workerStatus]
     ? workerStatusText(systemStatus.workerStatus, systemStatus.workerHeartbeat)
     : null;
 
-  // Campaigns the send engine paused until their setup is fixed, and whether each
-  // has a complete sending schedule (without one its auto-resume sets it to Draft).
-  const setupPaused: Array<{ id: string; name: string; status: string; pauseReason: string | null; pausedUntil: string | null; hasSendingSchedule: boolean }> =
-    systemStatus?.setupPausedCampaigns ?? [];
+  const isAllOperational = dbOk && azure.color === STATUS_OK && worker.color === STATUS_OK;
+  const isAttentionNeeded = !isAllOperational && (azure.color === STATUS_WARN || worker.color === STATUS_WARN);
+  const healthStatusText = isAllOperational
+    ? 'All Systems Operational'
+    : isAttentionNeeded
+    ? 'Attention Needed'
+    : 'Service Degraded';
+  const healthDotClass = isAllOperational
+    ? 'bg-emerald-400'
+    : isAttentionNeeded
+    ? 'bg-amber-400'
+    : 'bg-rose-400';
+
+  // Setup paused campaigns
+  const setupPaused: Array<{
+    id: string;
+    name: string;
+    status: string;
+    pauseReason: string | null;
+    pausedUntil: string | null;
+    hasSendingSchedule: boolean;
+  }> = systemStatus?.setupPausedCampaigns ?? [];
   const setupPausedMore = (systemStatus?.setupPausedCount ?? 0) - setupPaused.length;
 
-  const content = (
-    <>
-      {/* Brand */}
-      <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', px: 1, mb: 3 }}>
-        <Avatar variant="rounded" sx={{ bgcolor: 'primary.main', width: 36, height: 36, borderRadius: '10px', boxShadow: 2 }}>
-          <Mail size={18} color="#fff" />
-        </Avatar>
-        <Typography variant="h6" sx={{ fontWeight: 700, letterSpacing: '0.06em' }}>ARCREACH</Typography>
-      </Stack>
+  // Badge count calculation helper
+  const getBadgeCount = (badgeKey?: string) => {
+    if (!systemStatus || !badgeKey) return null;
+    if (badgeKey === 'campaigns' && typeof systemStatus.activeCampaignsCount === 'number') {
+      return systemStatus.activeCampaignsCount > 0 ? `${systemStatus.activeCampaignsCount}` : null;
+    }
+    if (badgeKey === 'leads' && typeof systemStatus.leadsCount === 'number') {
+      return systemStatus.leadsCount > 0 ? systemStatus.leadsCount.toLocaleString() : null;
+    }
+    if (badgeKey === 'accounts' && typeof systemStatus.accountsCount === 'number') {
+      return systemStatus.accountsCount > 0 ? `${systemStatus.accountsCount}` : null;
+    }
+    return null;
+  };
 
-      {/* Session card */}
-      <Box sx={{ mb: 2.5, p: 1.75, borderRadius: '16px', bgcolor: 'action.hover', border: 1, borderColor: 'divider' }}>
-        <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 0.75 }}>
-          <Typography sx={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', color: 'text.secondary', textTransform: 'uppercase' }}>Active Session</Typography>
-          <Chip
-            size="small"
-            label={session?.role || 'USER'}
-            color={session?.role === 'ADMIN' ? 'error' : 'primary'}
-            variant="outlined"
-            sx={{ height: 18, '& .MuiChip-label': { px: 0.75, fontSize: 9, fontWeight: 700, fontFamily: 'monospace' } }}
-          />
-        </Stack>
-        <Typography variant="body2" sx={{ fontWeight: 700 }} noWrap>{session?.name || 'Syncing Account…'}</Typography>
-        <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 1.5 }} noWrap>{session?.email || 'Connecting…'}</Typography>
-        <Button onClick={handleLogout} fullWidth size="small" variant="outlined" color="inherit" startIcon={<LogOut size={14} />}
-          sx={{ borderColor: 'divider', color: 'text.secondary', fontSize: 11 }}>
-          Log Out
-        </Button>
-      </Box>
+  const handleLinkClick = () => {
+    if (isMobile && onMobileClose) {
+      onMobileClose();
+    }
+  };
 
-      {/* Navigation */}
-      <List sx={{ flex: 1, overflowY: 'auto', py: 0, '& .MuiListItemButton-root': { mb: 0.5 } }}>
-        {navItems.map((item) => {
-          const isActive = pathname === item.href || (item.href !== '/' && pathname?.startsWith(item.href));
-          const Icon = item.icon;
-          return (
-            <ListItemButton
-              key={item.name}
-              component={Link as any}
-              href={item.href}
-              selected={isActive}
-              sx={{
-                borderRadius: 999,
-                px: 1.5, py: 1,
-                color: 'text.secondary',
-                '& .MuiListItemIcon-root': { minWidth: 34, color: 'inherit' },
-                '&:hover': { bgcolor: 'action.hover', color: 'text.primary' },
-                '&.Mui-selected': {
-                  bgcolor: (t) => alpha(t.palette.primary.main, 0.14),
-                  color: 'primary.main',
-                  '&:hover': { bgcolor: (t) => alpha(t.palette.primary.main, 0.2) },
-                },
-              }}
-            >
-              <ListItemIcon><Icon size={18} /></ListItemIcon>
-              <ListItemText primary={<Typography sx={{ fontSize: 14, fontWeight: isActive ? 700 : 500 }}>{item.name}</Typography>} />
-            </ListItemButton>
-          );
-        })}
-      </List>
+  // A plain function rather than a component, so the links are not remounted on every render.
+  const renderNavLink = (item: NavItem) => {
+    const isActive = item.href === '/' ? pathname === '/' : pathname === item.href || pathname?.startsWith(`${item.href}/`);
+    const Icon = item.icon;
+    const badge = getBadgeCount(item.badgeKey);
+    return (
+      <Link
+        key={item.name}
+        href={item.href}
+        onClick={handleLinkClick}
+        aria-current={isActive ? 'page' : undefined}
+        className={`group relative flex h-9 items-center gap-3 rounded-control px-3 text-[13px] font-medium transition-colors ${
+          isActive
+            ? 'bg-primary-subtle text-primary'
+            : 'text-text-sub hover:bg-slate-50 hover:text-text-main dark:hover:bg-white/5'
+        }`}
+      >
+        {/* Active marker on the sidebar's own left edge */}
+        {isActive && (
+          <span aria-hidden="true" className="absolute top-1/2 -left-3 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-primary" />
+        )}
+        <Icon
+          size={17}
+          className={`shrink-0 transition-colors ${
+            isActive ? 'text-primary' : 'text-slate-400 group-hover:text-slate-600 dark:text-slate-500 dark:group-hover:text-slate-300'
+          }`}
+        />
+        <span className="truncate">{item.name}</span>
+        {badge && (
+          <Badge tone="green" className="ml-auto">
+            {badge}
+          </Badge>
+        )}
+      </Link>
+    );
+  };
 
-      {/* Footer */}
-      <Stack spacing={1} sx={{ mt: 'auto', pt: 1.5, borderTop: 1, borderColor: 'divider' }}>
-        <ListItemButton onClick={toggleTheme} sx={{ borderRadius: 999, px: 1.5, py: 1, color: 'text.secondary', '&:hover': { bgcolor: 'action.hover' } }}>
-          <ListItemIcon sx={{ minWidth: 34, color: 'inherit' }}>
-            {mounted && theme === 'dark' ? <Sun size={18} color="#f59e0b" /> : <Moon size={18} />}
-          </ListItemIcon>
-          <ListItemText primary={<Typography sx={{ fontSize: 14, fontWeight: 500 }}>{mounted ? (theme === 'dark' ? 'Light Mode' : 'Dark Mode') : 'Theme'}</Typography>} />
-          <Chip size="small" label={mounted ? theme : '…'} sx={{ height: 18, fontFamily: 'monospace', '& .MuiChip-label': { px: 0.75, fontSize: 9, fontWeight: 700, textTransform: 'uppercase' } }} />
-        </ListItemButton>
+  const sidebarContent = (
+    <div className="flex flex-col h-full select-none">
+      {/* Brand row: the same 64px as the top bar beside it, so the two read as one header line */}
+      <div className="flex h-16 shrink-0 items-center px-3">
+        <Link href="/" className="flex items-center gap-2.5 rounded-control">
+          <div className="flex size-7 items-center justify-center rounded-control bg-primary text-on-primary">
+            <Mail size={15} strokeWidth={2.4} />
+          </div>
+          <span className="text-[15px] font-semibold tracking-tight text-text-main">ArcReach</span>
+        </Link>
+      </div>
 
-        <ListItemButton component={Link as any} href="/settings" sx={{ borderRadius: 999, px: 1.5, py: 1, color: 'text.secondary', '& .MuiListItemIcon-root': { minWidth: 34, color: 'inherit' }, '&:hover': { bgcolor: 'action.hover', color: 'text.primary' } }}>
-          <ListItemIcon><Settings size={18} /></ListItemIcon>
-          <ListItemText primary={<Typography sx={{ fontSize: 14, fontWeight: 500 }}>Settings</Typography>} />
-        </ListItemButton>
+      <nav aria-label="Main" className="flex-1 overflow-y-auto pt-2 scrollbar-thin">
+        <div className="space-y-0.5">{outreachNavItems.map(renderNavLink)}</div>
+        <div className="mx-3 my-3 h-px bg-card-border" />
+        <div className="space-y-0.5">{setupItems.map(renderNavLink)}</div>
+      </nav>
 
+      <div className="mt-auto space-y-0.5 pt-3">
+        {renderNavLink({ name: 'Settings', href: '/settings', icon: Settings })}
+
+        {/* Viewer Local Clock */}
         <CurrentTime />
 
-        {/* System status */}
-        <Box sx={{ p: 1.5, borderRadius: '14px', bgcolor: 'action.hover', border: 1, borderColor: 'divider' }}>
-          <Typography sx={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', color: 'text.secondary', textTransform: 'uppercase', mb: 1 }}>System Status</Typography>
-          <Stack spacing={1}>
-            <StatusRow label="Database" color={dbColor} text={dbText} />
-            <StatusRow label="Azure Settings" color={azure.color} text={azure.text} detail={azureDetail} />
-            <StatusRow label="Send Worker" color={worker.color} text={worker.text} detail={workerDetail} />
-          </Stack>
-          {setupPaused.length > 0 && (
-            <Box sx={{ mt: 1.25, pt: 1, borderTop: 1, borderColor: 'divider' }}>
-              <Typography sx={{ fontSize: 10, fontWeight: 700, color: STATUS_WARN, mb: 0.5 }}>
-                Paused by Setup Problems ({systemStatus.setupPausedCount})
-              </Typography>
-              <Stack spacing={0.25}>
-                {setupPaused.map((c) => (
-                  <Tooltip key={c.id} title={autoResumeNote(c) ?? ''} placement="right">
-                    <Typography component={Link as any} href={`/campaigns/${c.id}`} noWrap
-                      sx={{ fontSize: 11, color: 'text.primary', textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}>
-                      {c.name}
-                    </Typography>
-                  </Tooltip>
-                ))}
-                {setupPausedMore > 0 && (
-                  <Typography component={Link as any} href="/campaigns"
-                    sx={{ fontSize: 11, color: 'text.secondary', textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}>
-                    {setupPausedMore} more
-                  </Typography>
-                )}
-              </Stack>
-            </Box>
+        {/* Engine status, in the shape of Shopeers' upgrade card */}
+        <div className="relative mt-3 overflow-hidden rounded-card bg-gradient-to-br from-blue-600 to-blue-800 p-4 text-on-primary">
+          <div className="flex size-8 items-center justify-center rounded-control bg-on-primary/15">
+            <ShieldCheck size={17} strokeWidth={2.2} />
+          </div>
+
+          <div className="mt-3 text-sm font-semibold leading-snug">ArcReach Engine</div>
+          <div className="mt-1 flex items-center gap-1.5 text-xs text-on-primary/80">
+            <span className={`size-1.5 shrink-0 rounded-full ${healthDotClass}`} />
+            {healthStatusText}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setEngineCardExpanded((prev) => !prev)}
+            aria-expanded={engineCardExpanded}
+            className="mt-3 flex h-8 w-full cursor-pointer items-center justify-center gap-1.5 rounded-control bg-on-primary/15 text-xs font-medium text-on-primary transition-colors hover:bg-on-primary/25"
+          >
+            System Diagnostics
+            <ChevronDown
+              size={14}
+              className={`transition-transform duration-200 ${engineCardExpanded ? 'rotate-180' : ''}`}
+            />
+          </button>
+
+          {/* Expandable Accordion Details */}
+          {engineCardExpanded && (
+            <div className="mt-3 space-y-2 border-t border-on-primary/20 pt-2.5 text-xs">
+              {/* Database Row */}
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-1.5 text-[11px] text-on-primary/80">
+                  <Database size={12} /> Database
+                </span>
+                <span className="flex items-center gap-1 text-[11px] font-medium">
+                  <span className="size-1.5 rounded-full" style={{ backgroundColor: dbColor }} />
+                  {dbText}
+                </span>
+              </div>
+
+              {/* Azure ACS Row */}
+              <Tooltip title={azureDetail ?? ''} placement="right">
+                <div className="flex cursor-help items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-[11px] text-on-primary/80">
+                    <Cloud size={12} /> Azure ACS
+                  </span>
+                  <span className="flex items-center gap-1 text-[11px] font-medium">
+                    <span className="size-1.5 rounded-full" style={{ backgroundColor: azure.color }} />
+                    {azure.text}
+                  </span>
+                </div>
+              </Tooltip>
+
+              {/* Send Worker Row */}
+              <Tooltip title={workerDetail ?? ''} placement="right">
+                <div className="flex cursor-help items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-[11px] text-on-primary/80">
+                    <Activity size={12} /> Send Worker
+                  </span>
+                  <span className="flex items-center gap-1 text-[11px] font-medium">
+                    <span className="size-1.5 rounded-full" style={{ backgroundColor: worker.color }} />
+                    {worker.text}
+                  </span>
+                </div>
+              </Tooltip>
+
+              {/* Setup Paused Campaigns Warning Block */}
+              {setupPaused.length > 0 && (
+                <div className="mt-2 border-t border-on-primary/15 pt-2">
+                  <div className="mb-1 flex items-center gap-1 text-[11px] font-semibold text-amber-200">
+                    <AlertTriangle size={12} />
+                    <span>Paused by Setup ({systemStatus.setupPausedCount})</span>
+                  </div>
+                  <div className="space-y-1">
+                    {setupPaused.map((c) => (
+                      <Tooltip key={c.id} title={autoResumeNote(c) ?? ''} placement="right">
+                        <Link
+                          href={`/campaigns/${c.id}`}
+                          onClick={handleLinkClick}
+                          className="block truncate text-[11px] text-on-primary hover:underline"
+                        >
+                          {c.name}
+                        </Link>
+                      </Tooltip>
+                    ))}
+                    {setupPausedMore > 0 && (
+                      <Link
+                        href="/campaigns"
+                        onClick={handleLinkClick}
+                        className="block text-[11px] text-on-primary/80 hover:underline"
+                      >
+                        +{setupPausedMore} more campaigns
+                      </Link>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
           )}
-        </Box>
-      </Stack>
-    </>
+        </div>
+      </div>
+    </div>
   );
 
   return (
     <>
-      {/* Top bar with the menu button, below md only */}
-      <Box
-        component="header"
-        className="flex md:hidden"
-        sx={{ alignItems: 'center', gap: 1, flexShrink: 0, px: 1, py: 1, bgcolor: 'background.paper', borderBottom: 1, borderColor: 'divider' }}
-      >
-        <IconButton
-          onClick={() => setMobileOpen(true)}
-          aria-label="Open Navigation"
-          aria-controls="app-navigation"
-          aria-expanded={mobileOpen}
-          sx={{ color: 'text.primary' }}
-        >
-          <Menu size={20} />
-        </IconButton>
-        <Avatar variant="rounded" sx={{ bgcolor: 'primary.main', width: 30, height: 30, borderRadius: '9px' }}>
-          <Mail size={16} color="#fff" />
-        </Avatar>
-        <Typography sx={{ fontWeight: 700, letterSpacing: '0.06em' }}>ARCREACH</Typography>
-      </Box>
-
-      {isMobile ? (
-        <Drawer
-          open={mobileOpen}
-          onClose={() => setMobileOpen(false)}
-          slotProps={{
-            root: { keepMounted: true },
-            paper: {
-              id: 'app-navigation',
-              'aria-label': 'Navigation',
-              // Following any link closes the drawer, even one to the page already shown.
-              onClick: (e: React.MouseEvent<HTMLDivElement>) => {
-                if ((e.target as Element).closest('a')) setMobileOpen(false);
-              },
-              sx: { width: 256, backgroundImage: 'none', px: 2, pt: 3, pb: 2 },
+      {/* Mobile Drawer (rendered only on small screens) */}
+      <Drawer
+        open={mobileOpen}
+        onClose={onMobileClose}
+        slotProps={{
+          root: { keepMounted: true },
+          paper: {
+            id: 'app-navigation',
+            'aria-label': 'Navigation',
+            sx: {
+              width: 256,
+              bgcolor: 'background.paper',
+              backgroundImage: 'none',
+              px: 1.5,
+              pb: 1.5,
+              borderRight: 1,
+              borderColor: 'divider',
             },
-          }}
-        >
-          {content}
-        </Drawer>
-      ) : (
-        // Also hidden below md by CSS, so a phone never shows it before hydration swaps in the drawer.
-        <Box
-          component="aside"
-          className="hidden md:flex"
-          sx={{
-            width: 256, height: '100vh', position: 'fixed', top: 0, left: 0, zIndex: 50,
-            bgcolor: 'background.paper', borderRight: 1, borderColor: 'divider',
-            flexDirection: 'column', px: 2, pt: 3, pb: 2,
-          }}
-        >
-          {content}
-        </Box>
-      )}
+          },
+        }}
+      >
+        {sidebarContent}
+      </Drawer>
+
+      {/* Desktop Fixed Aside Sidebar */}
+      <aside
+        id="app-navigation-desktop"
+        aria-label="Navigation"
+        className="hidden md:flex flex-col fixed top-0 left-0 bottom-0 w-64 bg-card border-r border-card-border z-30 px-3 pb-3 transition-colors duration-200"
+      >
+        {sidebarContent}
+      </aside>
     </>
   );
 }
+
+export default Sidebar;

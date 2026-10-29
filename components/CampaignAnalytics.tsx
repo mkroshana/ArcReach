@@ -222,7 +222,7 @@ function StatTile({ title, value, icon: Icon, color, sub, caveat }: {
           </Box>
         </Stack>
         <Typography variant="h6" sx={{ fontWeight: 700, mt: 0.5 }}>{value}</Typography>
-        <Typography variant="caption" sx={{ color: 'text.secondary', display: 'flex', alignItems: 'center', mt: 0.5, fontFamily: 'monospace', fontSize: 9 }}>
+        <Typography variant="caption" sx={{ color: 'text.secondary', display: 'flex', alignItems: 'center', mt: 0.5, fontSize: 9 }}>
           {sub}
           {caveat && <Caveat note={caveat} />}
         </Typography>
@@ -551,7 +551,7 @@ export default function CampaignAnalytics({ campaign, mailboxes }: { campaign: a
                     <TableRow key={s.stepOrder} hover sx={{ '& td': { fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' } }}>
                       <TableCell>
                         <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                          <Chip size="small" label={s.stepOrder} sx={{ height: 20, fontWeight: 700, fontFamily: 'monospace', bgcolor: (th) => alpha(th.palette.primary.main, 0.14), color: 'primary.main' }} />
+                          <Chip size="small" label={s.stepOrder} sx={{ height: 20, fontWeight: 700, bgcolor: (th) => alpha(th.palette.primary.main, 0.14), color: 'primary.main' }} />
                           <Box sx={{ minWidth: 0 }}>
                             <Typography variant="body2" sx={{ fontWeight: 600, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis' }} title={s.subject}>{s.subject || '(No subject)'}</Typography>
                             <Typography variant="caption" sx={{ color: 'text.secondary' }}>{s.stepOrder === 1 ? 'On enrollment' : `${s.waitDays} days after step ${s.stepOrder - 1}`}</Typography>
@@ -617,7 +617,7 @@ export default function CampaignAnalytics({ campaign, mailboxes }: { campaign: a
                       {m.senderAccountId ? (
                         <>
                           <Typography variant="body2" sx={{ fontWeight: 600 }}>{m.name || m.emailAddress || 'Deleted mailbox'}</Typography>
-                          {m.name && m.emailAddress && <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace' }}>{m.emailAddress}</Typography>}
+                          {m.name && m.emailAddress && <Typography variant="caption" sx={{ color: 'text.secondary' }}>{m.emailAddress}</Typography>}
                         </>
                       ) : (
                         <MuiTooltip arrow title="Sent before ArcReach recorded which mailbox sent each email, or from a mailbox since deleted.">

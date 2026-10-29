@@ -1,28 +1,42 @@
 /* eslint-disable react-hooks/set-state-in-effect */
+/* eslint-disable react-hooks/exhaustive-deps */
 'use client';
 
-import { Search, CornerUpLeft, Send, MailOpen, Pause, Play, ChevronDown, RefreshCw, Download } from 'lucide-react';
+import {
+  CornerUpLeft, Send, MailOpen, Pause, Play, ChevronDown, RefreshCw, Download, Loader2,
+} from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import { toCsv, downloadCsv } from '@/lib/csv';
 import { decodeMimeHeader } from '@/lib/mime';
 import { LoadError, loadErrorMessage, readJsonObject } from '@/lib/apiResponse';
-import {
-  Box, Card, CardContent, Stack, Typography, Button, IconButton, Chip, TextField,
-  Snackbar, Alert, AlertTitle, InputAdornment, CircularProgress, Avatar, Menu, MenuItem,
-  Tooltip as MuiTooltip,
-} from '@mui/material';
-import { alpha } from '@mui/material/styles';
+import { Snackbar, Alert, Menu, MenuItem, Tooltip as MuiTooltip } from '@mui/material';
 import { CRM_STATUSES, OPT_OUT_REASONS, SUPPRESSION_LABELS, replyBlockedReason } from '@/lib/suppression';
+import { Badge, type BadgeTone } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
+import { Card } from '@/components/ui/Card';
+import { SearchInput } from '@/components/ui/Input';
+import { Notice } from '@/components/ui/Notice';
+import { cn } from '@/lib/utils';
 
-const statusColorMap: Record<string, 'success' | 'error' | 'primary' | 'warning' | 'default' | 'info'> = {
-  Interested: 'success',
-  Not_Interested: 'error',
-  Meeting_Booked: 'primary',
-  Out_of_Office: 'warning',
-  Bounced: 'default',
-  Unsubscribed: 'default',
-  Neutral: 'info',
+const STATUS_TONES: Record<string, BadgeTone> = {
+  Interested: 'green',
+  Not_Interested: 'red',
+  Meeting_Booked: 'blue',
+  Out_of_Office: 'amber',
 };
+
+const STATUS_DOTS: Record<BadgeTone, string> = {
+  green: 'bg-emerald-500',
+  red: 'bg-rose-500',
+  blue: 'bg-blue-500',
+  amber: 'bg-amber-500',
+  neutral: 'bg-slate-400',
+};
+
+const AVATAR = 'flex shrink-0 items-center justify-center rounded-full bg-slate-100 font-semibold text-text-sub dark:bg-white/5';
+const ME_AVATAR = 'mt-1 flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-[10px] font-semibold text-on-primary';
+const OUT_BUBBLE = 'max-w-[80%] rounded-card rounded-tr-sm border border-primary/20 bg-primary-subtle p-3.5';
+const MESSAGE_TEXT = 'text-[13px] leading-relaxed whitespace-pre-wrap text-text-main';
 
 const readableStatus: Record<string, string> = {
   Neutral: 'Neutral',
@@ -34,22 +48,16 @@ const readableStatus: Record<string, string> = {
   Unsubscribed: 'Unsubscribed',
 };
 
-/** Chip labels of the automated messages IMAP sync flags (InboundResponse.autoReply). */
 const autoReplyLabels: Record<string, string> = {
   bounce: 'Bounce',
   'out-of-office': 'Out of Office',
   'auto-reply': 'Auto-Reply',
 };
 
-/** Whether the lead's suppression is its own opt-out (an unsubscribe or a spam complaint), so replies to it are blocked too. */
 function isOptOut(lead: any): boolean {
   return !!lead?.suppression && OPT_OUT_REASONS.includes(lead.suppression.reason);
 }
 
-/**
- * The thread lead's suppression, from the suppression list whatever its CRM
- * status says, or null: the chip label and a line on why it is never emailed.
- */
 function leadSuppression(lead: any): { chip: string; color: 'warning' | 'error'; detail: string } | null {
   const label = lead?.suppression ? SUPPRESSION_LABELS[lead.suppression.reason as keyof typeof SUPPRESSION_LABELS] : null;
   if (!label) return null;
@@ -60,18 +68,12 @@ function leadSuppression(lead: any): { chip: string; color: 'warning' | 'error';
   };
 }
 
-/** Whether the lead's status chip adds anything next to its suppression chip (a Bounced or Unsubscribed status repeats it). */
 function showsStatusChip(lead: any): boolean {
   return !lead?.suppression || CRM_STATUSES.includes(lead?.status || 'Neutral');
 }
 
-/** Threads in one page of GET /api/unibox when no limit is asked for. */
 const THREAD_PAGE_SIZE = 50;
 
-/**
- * When a thread or message happened: the time of day for today, else the date
- * (with the year when it is not this year), followed by the time when `withTime`.
- */
 function formatWhen(value: string | Date, withTime = false): string {
   const date = new Date(value);
   const now = new Date();
@@ -147,7 +149,6 @@ function sanitizeEmailBody(body: string): string {
   return cleaned.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
-/** A page of the thread list. Throws a LoadError when the request failed or the answer holds no thread list. */
 async function readThreadPage(res: Response) {
   const data = await readJsonObject(res, 'Conversations');
   if (!Array.isArray(data.threads)) throw new LoadError('Conversations could not be loaded: the server did not send a list.');
@@ -155,25 +156,19 @@ async function readThreadPage(res: Response) {
 }
 
 export default function UniboxPage() {
-  // Threads loaded so far (pages of the list), each with only what the list shows
   const [replies, setReplies] = useState<any[]>([]);
   const [totalThreads, setTotalThreads] = useState(0);
   const [unreadCount, setUnreadCount] = useState(0);
   const [nextOffset, setNextOffset] = useState<number | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
-  // The search the loaded list answers; searchQuery is what is typed
   const [appliedQuery, setAppliedQuery] = useState('');
-  // Messages of the threads opened so far, loaded when a thread is opened
   const [threadMessages, setThreadMessages] = useState<Record<string, any[]>>({});
   const [messagesErrorId, setMessagesErrorId] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const listRequest = useRef(0);
   const [loading, setLoading] = useState(true);
-  // Why the thread list could not be loaded, refreshed or searched. Threads already listed stay,
-  // and the list says so instead of showing no conversations.
   const [listError, setListError] = useState('');
   const [listLoaded, setListLoaded] = useState(false);
-  // Bumped by Retry to run a failed search again
   const [searchAttempt, setSearchAttempt] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusMenuAnchor, setStatusMenuAnchor] = useState<HTMLElement | null>(null);
@@ -181,7 +176,6 @@ export default function UniboxPage() {
   const [toastMessage, setToastMessage] = useState('');
   const [sentRepliesLocal, setSentRepliesLocal] = useState<Record<string, Array<{ body: string; sentAt: string }>>>({});
   const [drafts, setDrafts] = useState<Record<string, string>>({});
-  // A reply is being sent: Send Reply stays disabled until it resolves, so a second click never sends it twice
   const [sendingReply, setSendingReply] = useState(false);
 
   const showToast = (message: string) => {
@@ -189,7 +183,6 @@ export default function UniboxPage() {
     setTimeout(() => setToastMessage(''), 3000);
   };
 
-  // Takes the thread itself, not its id: the list state is not loaded yet when the first thread is opened
   const markAsRead = async (thread: any) => {
     if (!thread?.unread) return;
     try {
@@ -217,11 +210,6 @@ export default function UniboxPage() {
     }
   };
 
-  /**
-   * Loads the first page of threads matching `query`. A refresh syncs the
-   * mailboxes first and reloads as many threads as are loaded, and the opened
-   * thread's messages with them.
-   */
   const fetchReplies = async (initial = false, query = appliedQuery) => {
     const request = ++listRequest.current;
     try {
@@ -258,8 +246,6 @@ export default function UniboxPage() {
     finally { if (initial) setLoading(false); }
   };
 
-  // Loads the list again after a failure: the first load, a failed search again (without
-  // syncing the mailboxes), else a refresh
   const retryList = () => {
     const query = searchQuery.trim();
     if (listLoaded && query !== appliedQuery) setSearchAttempt(n => n + 1);
@@ -275,7 +261,6 @@ export default function UniboxPage() {
       if (appliedQuery) params.set('q', appliedQuery);
       const res = await fetch(`/api/unibox?${params}`);
       const data = await readThreadPage(res);
-      // Dropped when the list was reloaded meanwhile
       if (request === listRequest.current) {
         setReplies(prev => [...prev, ...data.threads.filter((t: any) => !prev.some(p => p.id === t.id))]);
         setTotalThreads(data.total);
@@ -288,7 +273,6 @@ export default function UniboxPage() {
 
   useEffect(() => { fetchReplies(true); }, []);
 
-  // Searches the whole inbox on the server once typing pauses
   useEffect(() => {
     const query = searchQuery.trim();
     if (query === appliedQuery) return;
@@ -311,7 +295,6 @@ export default function UniboxPage() {
         })
         .catch(e => {
           console.error(e);
-          // A list that loaded keeps the conversations from before this search, so it says they do not match it
           if (request === listRequest.current) {
             setListError(`${loadErrorMessage(e, 'Search results')}${listLoaded ? ' The list shows the conversations from before this search.' : ''}`);
           }
@@ -323,12 +306,9 @@ export default function UniboxPage() {
   const selectedEmail = replies.find(e => e.id === selectedId);
   const selectedMessages: any[] | undefined = selectedId ? threadMessages[selectedId] : undefined;
   const selectedSuppression = leadSuppression(selectedEmail?.lead);
-  // Why the thread's lead may not be replied to (it opted out), or null; the server refuses such a reply too
   const replyBlocked = selectedEmail ? replyBlockedReason(selectedEmail.lead ?? {}, date => date.toLocaleDateString()) : null;
-  // The thread's enrollments Pause and Resume can change; finished ones (Completed, Bounced, ...) keep their status
   const selectedSequence: any[] = (selectedEmail?.lead?.enrollments || []).filter((e: any) => e.status === 'Active' || e.status === 'Paused');
   const sequencePaused = selectedSequence.some((e: any) => e.status === 'Paused');
-  // The conversation's latest message from the lead: a reply answers it, from the mailbox it reached
   const answeredReply = [...(selectedMessages || [])].reverse().find((m: any) => m.type === 'inbound');
   const currentReplyText = selectedEmail ? (drafts[selectedEmail.id] || '') : '';
   const setReplyText = (newText: string) => {
@@ -342,7 +322,6 @@ export default function UniboxPage() {
     if (!threadMessages[thread.id]) loadThreadMessages(thread.id);
   };
 
-  // Exports every reply in the threads matching the search, loaded from the server a page at a time
   const handleExportCSV = async () => {
     if (exporting) return;
     setExporting(true);
@@ -411,7 +390,6 @@ export default function UniboxPage() {
     finally { setStatusMenuAnchor(null); }
   };
 
-  // Pauses the thread's Active enrollments, or resumes its Paused ones; the server refuses Resume for a lead campaigns may not email
   const handleTogglePause = async () => {
     if (!selectedEmail || selectedSequence.length === 0) return;
     const nextStatus = sequencePaused ? 'Active' : 'Paused';
@@ -426,7 +404,6 @@ export default function UniboxPage() {
         showToast(data.error || 'Failed to update the sequence.');
         return;
       }
-      // The statuses the server reports for the enrollments it covers, in every loaded thread of the lead
       const statusById = new Map<string, string>((data.enrollments || []).map((en: any) => [en.id, en.status]));
       setReplies(prev => prev.map(item => item.lead?.id === leadId
         ? { ...item, lead: { ...item.lead, enrollments: (item.lead.enrollments || []).map((en: any) => statusById.has(en.id) ? { ...en, status: statusById.get(en.id) } : en) } }
@@ -442,7 +419,6 @@ export default function UniboxPage() {
     if (!selectedEmail || !answeredReply || !currentReplyText.trim() || sendingReply || replyBlocked) return;
     setSendingReply(true);
     try {
-      // The server titles it "Re: " and the answered reply's subject and threads it under that reply
       const res = await fetch('/api/unibox/reply', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -464,271 +440,298 @@ export default function UniboxPage() {
     finally { setSendingReply(false); }
   };
 
+  const selectedStatus = selectedEmail?.lead?.status || 'Neutral';
+  const selectedTone = STATUS_TONES[selectedStatus] ?? 'neutral';
+
   return (
-    <Box sx={{ height: 'calc(100vh - 6rem)', display: 'flex', gap: 2 }}>
+    <div className="flex h-[calc(100vh-6rem)] gap-4 pb-2">
       <Snackbar open={!!toastMessage} anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }} autoHideDuration={3000} onClose={() => setToastMessage('')}>
         {toastMessage ? <Alert severity="info" variant="filled" sx={{ borderRadius: '12px' }}>{toastMessage}</Alert> : undefined}
       </Snackbar>
 
-      {/* Left pane */}
-      <Card sx={{ width: 320, flexShrink: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider', display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-          <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center' }}>
-            <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-              <Typography variant="overline" sx={{ fontWeight: 700, letterSpacing: '0.1em' }}>Unified Inbox</Typography>
-              {listLoaded && <Chip size="small" label={`${unreadCount} NEW`} color="primary" sx={{ height: 18, fontSize: 10, fontFamily: 'monospace', fontWeight: 700 }} />}
-            </Stack>
-            <Stack direction="row" spacing={0.5}>
-              <MuiTooltip title="Export to CSV"><span><IconButton aria-label="Export to CSV" size="small" onClick={handleExportCSV} disabled={exporting}>{exporting ? <CircularProgress size={14} /> : <Download size={14} />}</IconButton></span></MuiTooltip>
-              <MuiTooltip title="Refresh"><IconButton aria-label="Refresh replies" size="small" onClick={() => fetchReplies(false)}><RefreshCw size={14} /></IconButton></MuiTooltip>
-            </Stack>
-          </Stack>
-          <TextField
-            fullWidth size="small" placeholder="Search contacts..." value={searchQuery}
+      {/* Left pane: thread list */}
+      <Card className="flex w-[340px] shrink-0 flex-col overflow-hidden md:w-[380px]">
+        <div className="space-y-3 border-b border-card-border p-4">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <h1 className="text-sm font-semibold text-text-main">Unified Inbox</h1>
+              {listLoaded && <Badge tone="blue">{unreadCount} Unread</Badge>}
+            </div>
+            <div className="flex items-center gap-0.5">
+              <MuiTooltip title="Export to CSV">
+                <Button variant="ghost" size="sm" iconOnly aria-label="Export to CSV" onClick={handleExportCSV} disabled={exporting}>
+                  {exporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                </Button>
+              </MuiTooltip>
+              <MuiTooltip title="Refresh">
+                <Button variant="ghost" size="sm" iconOnly aria-label="Refresh replies" onClick={() => fetchReplies(false)}>
+                  <RefreshCw size={14} />
+                </Button>
+              </MuiTooltip>
+            </div>
+          </div>
+          <SearchInput
+            aria-label="Search contacts"
+            placeholder="Search contacts..."
+            value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            slotProps={{ input: { startAdornment: <InputAdornment position="start"><Search size={14} /></InputAdornment> } }}
           />
-        </Box>
+        </div>
 
         {loading ? (
-          <Stack sx={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 1.5 }}>
-            <CircularProgress size={22} />
-            <Typography variant="caption" sx={{ color: 'text.secondary' }}>Syncing inbox…</Typography>
-          </Stack>
+          <div className="flex flex-1 items-center justify-center gap-2 p-6 text-xs text-text-muted">
+            <Loader2 size={14} className="animate-spin" /> Syncing inbox…
+          </div>
         ) : (
-          <Box sx={{ flex: 1, overflowY: 'auto', p: 1, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+          <div className="flex-1 space-y-0.5 overflow-y-auto p-2">
             {listError && (
-              <Alert severity={listLoaded ? 'warning' : 'error'} sx={{ mb: 0.5, flexShrink: 0 }}>
-                <AlertTitle>{listLoaded ? 'Conversations Could Not Be Refreshed' : 'Conversations Could Not Be Loaded'}</AlertTitle>
+              <Notice
+                tone={listLoaded ? 'warning' : 'error'}
+                title={listLoaded ? 'Conversations Could Not Be Refreshed' : 'Conversations Could Not Be Loaded'}
+                className="mb-2 flex-col gap-2"
+                action={<Button size="sm" onClick={retryList}><RefreshCw size={12} /> Retry</Button>}
+              >
                 {listError}
-                <Box>
-                  <Button color="inherit" size="small" startIcon={<RefreshCw size={12} />} onClick={retryList} sx={{ mt: 1, ml: -0.5 }}>Retry</Button>
-                </Box>
-              </Alert>
+              </Notice>
             )}
+
             {replies.map(item => {
               const leadPaused = item.lead?.enrollments?.some((e: any) => e.status === 'Paused');
               const suppressed = leadSuppression(item.lead);
               const isSelected = selectedId === item.id;
-              const dateStr = formatWhen(item.receivedAt);
+              const status = item.lead?.status || 'Neutral';
+
               return (
-                <Box
+                <button
                   key={item.id}
+                  type="button"
+                  aria-current={isSelected || undefined}
                   onClick={() => handleSelectThread(item)}
-                  sx={{
-                    cursor: 'pointer', p: 1.5, borderRadius: '12px', border: 1, position: 'relative',
-                    borderColor: isSelected ? 'primary.main' : 'transparent',
-                    bgcolor: isSelected ? (t) => alpha(t.palette.primary.main, 0.08) : 'transparent',
-                    transition: 'background-color .15s, border-color .15s',
-                    '&:hover': { bgcolor: isSelected ? (t) => alpha(t.palette.primary.main, 0.12) : 'action.hover' },
-                  }}
+                  className={cn(
+                    'block w-full cursor-pointer rounded-control border p-2.5 text-left transition-colors focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:outline-none',
+                    isSelected ? 'border-primary/40 bg-primary-subtle' : 'border-transparent hover:bg-slate-50 dark:hover:bg-white/[0.03]',
+                  )}
                 >
-                  <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'flex-start', mb: 0.5 }}>
-                    <Typography variant="caption" sx={{ fontWeight: 700, color: item.unread ? 'text.primary' : 'text.secondary' }}>
-                      {item.lead?.name || item.lead?.email || 'Prospect'}
-                    </Typography>
-                    <Typography sx={{ fontSize: 10, fontFamily: 'monospace', color: 'text.secondary' }}>{dateStr}</Typography>
-                  </Stack>
-                  <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'center', mb: 0.75 }}>
-                    <Typography variant="caption" sx={{ fontWeight: 600, mr: 1, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{decodeMimeHeader(item.subject)}</Typography>
-                    <Stack direction="row" spacing={0.5} sx={{ flexShrink: 0 }}>
-                      {leadPaused && <Chip size="small" label="PAUSED" color="error" variant="outlined" sx={{ height: 16, fontSize: 8, fontWeight: 700 }} />}
+                  <span className="mb-1 flex items-start justify-between gap-2">
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="relative shrink-0">
+                        <span className={cn(AVATAR, 'size-7 text-[11px]')}>
+                          {(item.lead?.name || item.lead?.email || 'P').charAt(0).toUpperCase()}
+                        </span>
+                        {item.unread && (
+                          <span role="img" aria-label="Unread" className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-primary ring-2 ring-card" />
+                        )}
+                      </span>
+                      <span className={cn('truncate text-[13px]', item.unread ? 'font-semibold text-text-main' : 'font-medium text-text-sub')}>
+                        {item.lead?.name || item.lead?.email || 'Prospect'}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-[11px] text-text-muted">{formatWhen(item.receivedAt)}</span>
+                  </span>
+
+                  <span className="mb-1 flex items-center justify-between gap-1.5 pl-9">
+                    <span className={cn('truncate text-xs', item.unread ? 'font-semibold text-text-main' : 'text-text-main')}>
+                      {decodeMimeHeader(item.subject)}
+                    </span>
+                    <span className="flex shrink-0 items-center gap-1">
+                      {leadPaused && <Badge tone="red">Paused</Badge>}
                       {suppressed && (
                         <MuiTooltip title={suppressed.detail}>
-                          <Chip size="small" label={suppressed.chip} color={suppressed.color} sx={{ height: 16, fontSize: 8, fontWeight: 700, textTransform: 'uppercase' }} />
+                          <span className="cursor-help"><Badge tone="amber">{suppressed.chip}</Badge></span>
                         </MuiTooltip>
                       )}
-                      {showsStatusChip(item.lead) && (
-                        <Chip size="small" label={readableStatus[item.lead?.status || 'Neutral']} color={statusColorMap[item.lead?.status || 'Neutral']} variant="outlined" sx={{ height: 16, fontSize: 8, fontWeight: 700, textTransform: 'uppercase' }} />
-                      )}
-                    </Stack>
-                  </Stack>
-                  <Typography variant="caption" sx={{ color: 'text.secondary', display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                    {sanitizeEmailBody(item.preview)}
-                  </Typography>
-                  {item.unread && <Box sx={{ position: 'absolute', left: 4, top: '50%', transform: 'translateY(-50%)', width: 6, height: 6, borderRadius: '50%', bgcolor: 'primary.main' }} />}
-                </Box>
+                      {showsStatusChip(item.lead) && <Badge tone={STATUS_TONES[status] ?? 'neutral'}>{readableStatus[status]}</Badge>}
+                    </span>
+                  </span>
+
+                  <span className="line-clamp-1 pl-9 text-xs text-text-muted">{sanitizeEmailBody(item.preview)}</span>
+                </button>
               );
             })}
+
             {replies.length === 0 && !listError && (
-              <Typography variant="caption" sx={{ color: 'text.secondary', textAlign: 'center', py: 5 }}>No matching records.</Typography>
+              <div className="py-12 text-center text-xs text-text-muted">No matching records found.</div>
             )}
+
             {nextOffset !== null && (
-              <Stack sx={{ alignItems: 'center', gap: 0.5, py: 1.5 }}>
-                <Typography sx={{ fontSize: 10, color: 'text.secondary' }}>Showing {replies.length} of {totalThreads} conversations</Typography>
-                <Button size="small" variant="outlined" onClick={loadMoreThreads} disabled={loadingMore} startIcon={loadingMore ? <CircularProgress size={12} /> : undefined}>
-                  Load More
+              <div className="flex flex-col items-center gap-1.5 pt-2 pb-3">
+                <span className="text-[11px] text-text-muted">Showing {replies.length} of {totalThreads} conversations</span>
+                <Button size="sm" onClick={loadMoreThreads} disabled={loadingMore}>
+                  {loadingMore && <Loader2 size={12} className="animate-spin" />} Load More
                 </Button>
-              </Stack>
+              </div>
             )}
-          </Box>
+          </div>
         )}
       </Card>
 
-      {/* Right pane */}
-      <Card sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
+      {/* Right pane: the conversation and the reply composer */}
+      <Card className="flex flex-1 flex-col overflow-hidden">
         {selectedEmail ? (
           <>
-            {/* Thread header */}
-            <Box sx={{ p: 2.5, borderBottom: 1, borderColor: 'divider' }}>
-              <Stack direction="row" sx={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <Box>
-                  <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>{decodeMimeHeader(selectedEmail.subject)}</Typography>
-                  <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center' }}>
-                    <Avatar sx={{ width: 32, height: 32, fontSize: 12, fontWeight: 700, bgcolor: 'action.hover', color: 'primary.main' }}>
-                      {(selectedEmail.lead?.name || 'P').charAt(0)}
-                    </Avatar>
-                    <Box>
-                      <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                        <Typography variant="body2" sx={{ fontWeight: 700 }}>{selectedEmail.lead?.name || 'Prospect'}</Typography>
-                        {sequencePaused && (
-                          <Chip size="small" label="PAUSED SEQUENCE" color="error" variant="outlined" sx={{ height: 18, fontSize: 9, fontWeight: 700 }} />
-                        )}
-                        {selectedSuppression && (
-                          <MuiTooltip title={selectedSuppression.detail}>
-                            <Chip size="small" label={selectedSuppression.chip} color={selectedSuppression.color} sx={{ height: 18, fontSize: 9, fontWeight: 700, textTransform: 'uppercase' }} />
-                          </MuiTooltip>
-                        )}
-                      </Stack>
-                      <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace' }}>{selectedEmail.lead?.email}</Typography>
-                    </Box>
-                  </Stack>
-                </Box>
-                <Stack direction="row" spacing={1} sx={{ alignItems: 'center' }}>
-                  <MuiTooltip title={selectedSequence.length === 0 ? 'No Active or Paused Sequence' : sequencePaused ? 'Resume Sequence' : 'Pause Sequence'}>
-                    <span>
-                      <IconButton aria-label={sequencePaused ? 'Resume sequence' : 'Pause sequence'} size="small" onClick={handleTogglePause} disabled={selectedSequence.length === 0} sx={{ border: 1, borderColor: 'divider', color: sequencePaused ? 'error.main' : 'text.secondary' }}>
-                        {sequencePaused ? <Play size={14} /> : <Pause size={14} />}
-                      </IconButton>
-                    </span>
-                  </MuiTooltip>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    color={(() => { const c = statusColorMap[selectedEmail.lead?.status || 'Neutral']; return c === 'default' ? 'inherit' : c; })()}
-                    endIcon={<ChevronDown size={12} />}
-                    onClick={(e) => setStatusMenuAnchor(e.currentTarget)}
-                  >
-                    {readableStatus[selectedEmail.lead?.status || 'Neutral']}
-                  </Button>
-                  <Menu anchorEl={statusMenuAnchor} open={!!statusMenuAnchor} onClose={() => setStatusMenuAnchor(null)} slotProps={{ paper: { sx: { borderRadius: '12px' } } }}>
-                    {CRM_STATUSES.map(k => (
-                      <MenuItem key={k} onClick={() => handleUpdateStatus(k)} sx={{ fontSize: 12, fontWeight: 500 }}>{readableStatus[k]}</MenuItem>
-                    ))}
-                  </Menu>
-                </Stack>
-              </Stack>
-            </Box>
+            <div className="flex items-center justify-between gap-4 border-b border-card-border p-4">
+              <div className="min-w-0">
+                <h2 className="truncate text-base font-semibold text-text-main">{decodeMimeHeader(selectedEmail.subject)}</h2>
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <span className={cn(AVATAR, 'size-6 bg-primary-subtle text-[10px] text-primary dark:bg-primary-subtle')}>
+                    {(selectedEmail.lead?.name || 'P').charAt(0).toUpperCase()}
+                  </span>
+                  <span className="text-xs font-medium text-text-main">{selectedEmail.lead?.name || 'Prospect'}</span>
+                  <span className="text-xs text-text-muted">{selectedEmail.lead?.email}</span>
+                  {sequencePaused && <Badge tone="red">Paused Sequence</Badge>}
+                  {selectedSuppression && (
+                    <MuiTooltip title={selectedSuppression.detail}>
+                      <span tabIndex={0} className="cursor-help rounded-md focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:outline-none">
+                        <Badge tone="amber">{selectedSuppression.chip}</Badge>
+                      </span>
+                    </MuiTooltip>
+                  )}
+                </div>
+              </div>
 
-            {/* Thread content */}
-            <Box sx={{ flex: 1, overflowY: 'auto', p: 2.5, display: 'flex', flexDirection: 'column', gap: 2, bgcolor: 'action.hover' }}>
+              <div className="flex shrink-0 items-center gap-1.5">
+                <MuiTooltip title={selectedSequence.length === 0 ? 'No Active or Paused Sequence' : sequencePaused ? 'Resume Sequence' : 'Pause Sequence'}>
+                  <span>
+                    <Button
+                      size="sm" iconOnly
+                      aria-label={sequencePaused ? 'Resume sequence' : 'Pause sequence'}
+                      onClick={handleTogglePause}
+                      disabled={selectedSequence.length === 0}
+                      className={cn(sequencePaused && 'text-emerald-600 dark:text-emerald-400')}
+                    >
+                      {sequencePaused ? <Play size={14} /> : <Pause size={14} />}
+                    </Button>
+                  </span>
+                </MuiTooltip>
+
+                <Button
+                  size="sm"
+                  aria-haspopup="menu"
+                  aria-expanded={!!statusMenuAnchor}
+                  aria-label={`Lead status: ${readableStatus[selectedStatus]}`}
+                  onClick={(e) => setStatusMenuAnchor(e.currentTarget)}
+                >
+                  <span aria-hidden className={cn('size-1.5 rounded-full', STATUS_DOTS[selectedTone])} />
+                  {readableStatus[selectedStatus]}
+                  <ChevronDown size={12} className="text-text-muted" />
+                </Button>
+                <Menu
+                  anchorEl={statusMenuAnchor}
+                  open={!!statusMenuAnchor}
+                  onClose={() => setStatusMenuAnchor(null)}
+                  anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                  transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+                  slotProps={{
+                    backdrop: { invisible: true, sx: { backgroundColor: 'transparent', backdropFilter: 'none' } },
+                    paper: { sx: { mt: 0.5, minWidth: 176, borderRadius: '8px', border: 1, borderColor: 'divider', boxShadow: '0 8px 24px rgba(15,23,42,0.12)' } },
+                  }}
+                >
+                  {CRM_STATUSES.map(k => (
+                    <MenuItem key={k} selected={k === selectedStatus} onClick={() => handleUpdateStatus(k)} sx={{ gap: 1, fontSize: 13, minHeight: 32 }}>
+                      <span aria-hidden className={cn('size-1.5 rounded-full', STATUS_DOTS[STATUS_TONES[k] ?? 'neutral'])} />
+                      {readableStatus[k]}
+                    </MenuItem>
+                  ))}
+                </Menu>
+              </div>
+            </div>
+
+            <div className="flex-1 space-y-4 overflow-y-auto bg-slate-50/60 p-4 md:p-6 dark:bg-white/[0.015]">
               {!selectedMessages && (messagesErrorId === selectedEmail.id ? (
-                <Stack sx={{ alignItems: 'center', gap: 1, py: 5 }}>
-                  <Typography variant="caption" sx={{ color: 'text.secondary' }}>Could not load this conversation.</Typography>
-                  <Button size="small" variant="outlined" startIcon={<RefreshCw size={12} />} onClick={() => loadThreadMessages(selectedEmail.id)}>Retry</Button>
-                </Stack>
+                <div className="flex flex-col items-center justify-center gap-2 py-12">
+                  <span className="text-xs text-text-muted">Could not load this conversation.</span>
+                  <Button size="sm" onClick={() => loadThreadMessages(selectedEmail.id)}>
+                    <RefreshCw size={12} /> Retry
+                  </Button>
+                </div>
               ) : (
-                <Stack sx={{ alignItems: 'center', py: 5 }}><CircularProgress size={22} /></Stack>
+                <div className="flex justify-center py-12 text-text-muted">
+                  <Loader2 size={18} className="animate-spin" aria-label="Loading conversation" />
+                </div>
               ))}
+
               {(selectedMessages || []).map((msg: any) => {
                 const outbound = msg.type === 'outbound';
                 return (
-                  <Stack key={msg.id} direction="row" spacing={1.5} sx={{ justifyContent: outbound ? 'flex-end' : 'flex-start' }}>
+                  <div key={msg.id} className={cn('flex items-start gap-2.5', outbound ? 'justify-end' : 'justify-start')}>
                     {!outbound && (
-                      <Avatar variant="rounded" sx={{ width: 28, height: 28, fontSize: 10, fontWeight: 700, bgcolor: 'background.paper', border: 1, borderColor: 'divider', color: 'primary.main', borderRadius: '8px' }}>
-                        {(selectedEmail.lead?.name || 'P').charAt(0)}
-                      </Avatar>
+                      <span className={cn(AVATAR, 'mt-1 size-7 bg-slate-200 text-[10px] dark:bg-white/10')}>
+                        {(selectedEmail.lead?.name || 'P').charAt(0).toUpperCase()}
+                      </span>
                     )}
-                    <Card
-                      variant="outlined"
-                      sx={{
-                        maxWidth: '80%',
-                        bgcolor: outbound ? (t) => alpha(t.palette.primary.main, 0.08) : 'background.paper',
-                        borderColor: outbound ? (t) => alpha(t.palette.primary.main, 0.2) : 'divider',
-                        borderRadius: '16px',
-                        [outbound ? 'borderTopRightRadius' : 'borderTopLeftRadius']: '4px',
-                      }}
-                    >
-                      <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-                        {!outbound && msg.autoReply && (
-                          <MuiTooltip title="Automated message. It did not pause the sequence and does not count as a reply.">
-                            <Chip size="small" label={autoReplyLabels[msg.autoReply] || 'Auto-Reply'} variant="outlined" sx={{ height: 16, fontSize: 8, fontWeight: 700, textTransform: 'uppercase', mb: 1 }} />
-                          </MuiTooltip>
-                        )}
-                        <Typography variant="caption" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, display: 'block', color: 'text.primary' }}>
-                          {outbound ? msg.body : sanitizeEmailBody(msg.body)}
-                        </Typography>
-                        {!outbound && msg.bodyUnavailable && (
-                          <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontStyle: 'italic' }}>
-                            The text of this reply could not be read. Open it in the mailbox to see it.
-                          </Typography>
-                        )}
-                        <Typography sx={{ fontSize: 9, color: 'text.secondary', fontFamily: 'monospace', textAlign: outbound ? 'right' : 'left', mt: 1 }}>
-                          {formatWhen(msg.timestamp, true)}
-                        </Typography>
-                      </CardContent>
-                    </Card>
-                    {outbound && <Avatar variant="rounded" sx={{ width: 28, height: 28, fontSize: 10, fontWeight: 700, bgcolor: 'primary.main', color: 'primary.contrastText', borderRadius: '8px' }}>Me</Avatar>}
-                  </Stack>
+                    <div className={outbound ? OUT_BUBBLE : 'max-w-[80%] rounded-card rounded-tl-sm border border-card-border bg-card p-3.5'}>
+                      {!outbound && msg.autoReply && (
+                        <MuiTooltip title="Automated message. It did not pause the sequence and does not count as a reply.">
+                          <span tabIndex={0} className="mb-1.5 inline-block cursor-help rounded-md focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:outline-none">
+                            <Badge tone="amber">{autoReplyLabels[msg.autoReply] || 'Auto-Reply'}</Badge>
+                          </span>
+                        </MuiTooltip>
+                      )}
+                      <p className={MESSAGE_TEXT}>{outbound ? msg.body : sanitizeEmailBody(msg.body)}</p>
+                      {!outbound && msg.bodyUnavailable && (
+                        <p className="mt-1 text-xs text-text-muted italic">
+                          The text of this reply could not be read. Open it in the mailbox to see it.
+                        </p>
+                      )}
+                      <div className={cn('mt-2 text-[11px] text-text-muted', outbound ? 'text-right' : 'text-left')}>
+                        {formatWhen(msg.timestamp, true)}
+                      </div>
+                    </div>
+                    {outbound && <span className={ME_AVATAR}>Me</span>}
+                  </div>
                 );
               })}
-              {(sentRepliesLocal[selectedEmail.id] || []).map((sent, index) => (
-                <Stack key={`local-${index}`} direction="row" spacing={1.5} sx={{ justifyContent: 'flex-end' }}>
-                  <Card variant="outlined" sx={{ maxWidth: '80%', bgcolor: (t) => alpha(t.palette.primary.main, 0.08), borderColor: (t) => alpha(t.palette.primary.main, 0.2), borderRadius: '16px', borderTopRightRadius: '4px' }}>
-                    <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-                      <Typography variant="caption" sx={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, display: 'block' }}>{sent.body}</Typography>
-                      <Typography sx={{ fontSize: 9, color: 'text.secondary', fontFamily: 'monospace', textAlign: 'right', mt: 1 }}>{sent.sentAt}</Typography>
-                    </CardContent>
-                  </Card>
-                  <Avatar variant="rounded" sx={{ width: 28, height: 28, fontSize: 10, fontWeight: 700, bgcolor: 'primary.main', color: 'primary.contrastText', borderRadius: '8px' }}>Me</Avatar>
-                </Stack>
-              ))}
-            </Box>
 
-            {/* Reply editor */}
-            <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider' }}>
-              <Card variant="outlined" sx={{ borderRadius: '14px', overflow: 'hidden' }}>
-                <Stack direction="row" spacing={1} sx={{ alignItems: 'center', px: 1.5, py: 1, bgcolor: 'action.hover', borderBottom: 1, borderColor: 'divider' }}>
-                  <CornerUpLeft size={14} />
-                  <Typography variant="overline" sx={{ fontWeight: 700, letterSpacing: '0.1em', color: 'text.secondary' }}>
+              {(sentRepliesLocal[selectedEmail.id] || []).map((sent, index) => (
+                <div key={`local-${index}`} className="flex items-start justify-end gap-2.5">
+                  <div className={OUT_BUBBLE}>
+                    <p className={MESSAGE_TEXT}>{sent.body}</p>
+                    <div className="mt-2 text-right text-[11px] text-text-muted">{sent.sentAt}</div>
+                  </div>
+                  <span className={ME_AVATAR}>Me</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="border-t border-card-border p-4">
+              <div className="overflow-hidden rounded-control border border-input-border bg-card transition-colors focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20">
+                <div className="flex items-center gap-2 border-b border-card-border bg-slate-50/70 px-3 py-2 dark:bg-white/[0.02]">
+                  <CornerUpLeft size={14} className="text-text-muted" />
+                  <span className="text-xs font-medium text-text-main">
                     Reply to {selectedEmail.lead?.name?.split(' ')[0] || 'Prospect'}
-                  </Typography>
-                </Stack>
-                {/* A lead that opted out is never replied to: the composer explains that instead of taking a reply */}
+                  </span>
+                </div>
+
                 {replyBlocked ? (
-                  <Typography variant="caption" sx={{ display: 'block', px: 2, py: 1.5, minHeight: 82, color: 'text.secondary', lineHeight: 1.6 }}>
-                    {replyBlocked}
-                  </Typography>
+                  <div className="min-h-[80px] px-3 py-3 text-xs leading-relaxed text-text-sub">{replyBlocked}</div>
                 ) : (
-                  <TextField
-                    multiline minRows={3} fullWidth
+                  <textarea
+                    rows={3}
+                    aria-label="Reply"
                     value={currentReplyText}
                     onChange={(e) => setReplyText(e.target.value)}
                     placeholder="Type your reply here..."
-                    variant="standard"
-                    slotProps={{ input: { disableUnderline: true, sx: { px: 2, py: 1.5, fontFamily: 'monospace', fontSize: 12, lineHeight: 1.6 } } }}
+                    className="block w-full resize-none bg-transparent p-3 text-[13px] leading-relaxed text-text-main placeholder:text-text-muted focus:outline-none"
                   />
                 )}
-                <Stack direction="row" sx={{ justifyContent: 'flex-end', alignItems: 'center', px: 1.5, py: 1, borderTop: 1, borderColor: 'divider' }}>
-                  <Button
-                    variant="contained" size="small"
-                    startIcon={sendingReply ? <CircularProgress size={14} color="inherit" /> : <Send size={14} />}
-                    onClick={handleDispatchReply}
-                    disabled={sendingReply || !answeredReply || !!replyBlocked}
-                  >
+
+                <div className="flex items-center justify-between border-t border-card-border px-3 py-2">
+                  <span className="text-[11px] text-text-muted">Markdown supported</span>
+                  <Button variant="primary" size="sm" onClick={handleDispatchReply} disabled={sendingReply || !answeredReply || !!replyBlocked}>
+                    {sendingReply ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
                     Send Reply
                   </Button>
-                </Stack>
-              </Card>
-            </Box>
+                </div>
+              </div>
+            </div>
           </>
         ) : (
-          <Stack sx={{ flex: 1, alignItems: 'center', justifyContent: 'center', color: 'text.secondary' }}>
-            <MailOpen size={48} style={{ opacity: 0.3, marginBottom: 12 }} />
-            <Typography variant="overline" sx={{ fontWeight: 700 }}>Select conversation to review</Typography>
-          </Stack>
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-text-muted">
+            <MailOpen size={32} />
+            <span className="text-[13px] font-medium text-text-sub">Select Conversation to Review</span>
+          </div>
         )}
       </Card>
-    </Box>
+    </div>
   );
 }
